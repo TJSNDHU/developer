@@ -69,7 +69,9 @@ async def _generate_title(first_user_msg: str) -> str:
     Returns "" on any failure so the caller can fall back to last_message."""
     try:
         prompt = f"3-5 word title, Title Case, no punctuation: {first_user_msg.strip()[:100]}"
-        meta = await call_llm_with_meta(_TITLE_SYSTEM, prompt, max_tokens=cap_for("title"))
+        meta = await call_llm_with_meta(_TITLE_SYSTEM, prompt,
+                                         max_tokens=cap_for("title"),
+                                         mode="title")
         title = (meta.get("content") or "").strip()
         title = title.strip("\"'`").rstrip(".!?").strip()
         if not title:
@@ -174,6 +176,9 @@ async def chat_send(
     )
     content = result.get("content", "") or ""
     provider = result.get("provider", "") or ""
+    mode = _detect_mode(body.prompt)
+    from services.llm import temperature_for
+    temperature = temperature_for(mode)
 
     # Maxx mode: watchdog review (only if we have non-empty content)
     watchdog = None
@@ -193,6 +198,8 @@ async def chat_send(
         "content": content,
         "provider": provider,
         "watchdog": watchdog,
+        "mode": mode,
+        "temperature": temperature,
         "iterations": result.get("iterations", 0),
         "session_id": body.session_id,
         "user_id": user.get("user_id"),
@@ -227,8 +234,12 @@ async def chat_stream(
 
         content = result.get("content", "") or ""
         provider = result.get("provider", "") or ""
+        mode = _detect_mode(body.prompt)
+        from services.llm import temperature_for
+        temperature = temperature_for(mode)
 
-        meta = {"meta": True, "session_id": body.session_id, "provider": provider}
+        meta = {"meta": True, "session_id": body.session_id,
+                "provider": provider, "mode": mode, "temperature": temperature}
         yield f"data: {json.dumps(meta)}\n\n"
 
         CHUNK = 6

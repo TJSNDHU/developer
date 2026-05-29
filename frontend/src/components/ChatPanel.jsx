@@ -21,6 +21,7 @@ import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
 import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
+import TemperatureBadge from "./TemperatureBadge";
 
 const WELCOME = {
   role: "assistant",
@@ -200,7 +201,23 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       maxToolIters: 2,
       maxxMode,
       signal: ctrl.signal,
-      onMeta: (m) => { if (m.provider) providerSeen = m.provider; },
+      onMeta: (m) => {
+        if (m.provider) providerSeen = m.provider;
+        if (typeof m.temperature === "number" || m.mode) {
+          setMessages((msgs) => {
+            const copy = msgs.slice();
+            const last = copy[copy.length - 1];
+            if (last && last.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                temperature: m.temperature,
+                mode: m.mode,
+              };
+            }
+            return copy;
+          });
+        }
+      },
       onToken: (tok) => {
         setMessages((msgs) => {
           const copy = msgs.slice();
@@ -535,14 +552,18 @@ function MessageBubble({ idx, m, onRegenerate }) {
               fontFamily: "'JetBrains Mono', monospace",
               color: "var(--text-faint)", letterSpacing: "0.1em",
               display: "inline-flex", alignItems: "center", gap: 6,
+              flexWrap: "wrap",
             }}>
               via {m.provider}
               {m.maxxMode && <Zap size={10} style={{ color: "var(--accent-2)" }} />}
               <span data-testid={`token-cost-${idx}`} style={{
-                opacity: 0.7, marginLeft: 4,
+                opacity: 0.7,
               }}>
                 · ~{estimateTokenCount(m.content)} tokens
               </span>
+              {typeof m.temperature === "number" && (
+                <TemperatureBadge temperature={m.temperature} mode={m.mode} />
+              )}
             </div>
           )}
         </div>
