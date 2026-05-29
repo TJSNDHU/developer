@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 2: ADD chat session persistence + SSE streaming. Backend 10/10 pytest pass — 5 new chat endpoints (send-persist, history, sessions list, delete, SSE stream) all correct, auth 401 enforced on all 5, cross-user isolation verified (User B sees [] / deleted=0 for User A's session). SSE stream emits meta → tokens → done frames with correct content-type and persists to /chat/history. Frontend Playwright E2E all critical flows pass: login → /dashboard auto-mounts session, send streams tokens with cursor + 'via emergent' label, sidebar refreshes with new session, page refresh restores session+history from localStorage, switching sessions loads history, delete removes row and creates new session if active, Stop button aborts cleanly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ChatPanel during streaming", "issues": ["For short prompts (e.g. 'Reply with: HELLO_STREAM') the orchestrator computes full response server-side (~3-6s) before SSE chunking begins, so the assistant bubble sits empty with NO loading indicator until tokens arrive, then completes in ~200ms. Suggest showing a faint 'thinking…' shimmer or spinner inside the empty assistant bubble while content==='' and streaming===true, so users get feedback during the pre-token wait. Cosmetic — not blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aurem_chat_persistence.py",
+    "/app/backend/tests/test_aurem_backend.py",
+    "/app/test_reports/pytest/pytest_iter2.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: add a 'thinking…' indicator inside the empty assistant bubble between user-send and first SSE token (orchestrator latency window) so the chat doesn't look frozen for short prompts."
+  ],
+  "critical_code_review_comments": [
+    "chat.py /stream: orchestrator output is computed fully then chunked — works fine and gives 'live typing' UX, but the perceived latency before first token equals full LLM call duration. Acceptable today; for true token streaming the orchestrator would need to expose an async generator path.",
+    "chat.py _persist_turn: silently no-ops when session_id is empty — good; consider logging a debug line so missing session_id during /send doesn't get masked in production.",
+    "DELETE /chat/sessions/{id} returns 200 with deleted=0 even when nothing was deleted (instead of 404). This is intentional for the cross-user-isolation case but means a missing id can't be distinguished from a foreign id. Spec accepts {ok:true, deleted:1} and we return deleted=0 for the wrong-user case — matches the review_request requirement (404/0 deleted).",
+    "Shell.jsx deleteSession useCallback dep array omits `newSessionId` — fine since it's a stable module export, but lint may complain in strict mode.",
+    "api.js streamChat: when fetch is aborted (Stop button), the reader loop throws AbortError which is currently swallowed silently. The UI does call setBusy(false) via the explicit `stop()` callback so the user-visible state is correct, but onError is NOT invoked on abort — intentional and correct.",
+    "Inherited cosmetic from iter1: api-pill briefly shows 'api offline' on initial mount until /api/health resolves."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_aurem_chat_persistence.py (new — 10 tests)"
+  ],
+  "success_rate": {"backend": "100% (10/10 new + 10/10 regression from iter1)", "frontend": "100% on critical flows"},
+  "test_credentials": "test@aurem.dev / testpass123 (seeded). Cross-user test created e2e-userb-{ts}@aurem.dev.",
+  "seed_data_creation": "Tests created ~5 chat sessions for seeded user (PONG, hello, Streaming works great today, STREAM_OK, etc.) — visible in sidebar Recent Chats. Plus one User B account for isolation test. None cleaned up; safe to leave for next iteration regression.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two backend test files now: test_aurem_backend.py (iter1: health, auth, /send, stacks) and test_aurem_chat_persistence.py (iter2: history, sessions, delete, SSE, isolation). Both should be run for regression. Session_id stored under localStorage 'aurem_active_session'; JWT under 'aurem_token'. SSE content-type is 'text/event-stream'; frames are meta → token → done. /chat/sessions returns array sorted by updated_at desc. Cross-user delete returns deleted=0 (no 404). Sidebar testids: recent-chats, new-chat-btn, session-row-{id}, delete-session-{id}. Chat testids: chat-input, chat-send, chat-stop, chat-cursor, chat-panel, chat-messages.",
+  "rca of the issue": "N/A — no blocking issues."
+}

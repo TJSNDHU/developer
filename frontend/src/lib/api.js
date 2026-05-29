@@ -60,3 +60,59 @@ export function logout() {
   setUser(null);
   window.location.href = "/login";
 }
+
+/** Generate a stable session id for a chat thread. */
+export function newSessionId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** SSE-style stream over fetch (we POST JSON, so EventSource won't work). */
+export async function streamChat({ prompt, sessionId, maxToolIters = 2,
+                                    onMeta, onToken, onDone, onError, signal }) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      prompt,
+      session_id: sessionId,
+      max_tool_iters: maxToolIters,
+    }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const txt = await res.text().catch(() => "");
+    onError?.(`HTTP ${res.status}: ${txt || res.statusText}`);
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    // SSE frames are separated by \n\n
+    const frames = buf.split("\n\n");
+    buf = frames.pop() || "";
+    for (const frame of frames) {
+      const line = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      try {
+        const payload = JSON.parse(line.slice(5).trim());
+        if (payload.meta) onMeta?.(payload);
+        else if (payload.token) onToken?.(payload.token);
+        else if (payload.done) onDone?.(payload);
+        else if (payload.error) onError?.(payload.error);
+      } catch {
+        /* swallow malformed frame */
+      }
+    }
+  }
+}
