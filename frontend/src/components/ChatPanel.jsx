@@ -1,14 +1,25 @@
 /**
- * ChatPanel.jsx — Streaming chat with session persistence.
+ * ChatPanel.jsx — Streaming chat + session persistence.
+ *
+ * Toolbar:
+ *  📎 Upload    — attach files (multi, <=50KB each) → injected as
+ *                 [File: name]\n```...```\n blocks at end of input
+ *  💾 GitHub    — open SaveToGithubDialog
+ *  ⚡ Maxx      — toggle dual-engine mode (DeepSeek + Emergent watchdog)
+ *  ➤ Send      — submits (Enter also submits)
  *
  * Props:
- *   sessionId   (required)  — UUID of the active chat thread
- *   onTurnSaved (optional)  — called after the assistant turn is persisted,
- *                              so the sidebar can refresh its sessions list.
+ *   sessionId   (required) — UUID of the active chat thread
+ *   onTurnSaved (optional) — fired after persist, lets sidebar refresh
  */
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, Square } from "lucide-react";
+import {
+  Send, Bot, User, Loader2, Square, Paperclip, Github, Zap,
+  ShieldCheck, AlertTriangle, RefreshCw,
+} from "lucide-react";
 import { api, streamChat } from "../lib/api";
+import { toast } from "./Toast";
+import SaveToGithubDialog from "./SaveToGithubDialog";
 
 const WELCOME = {
   role: "assistant",
@@ -17,15 +28,38 @@ const WELCOME = {
   provider: "system",
 };
 
+const MAX_FILE_BYTES = 50 * 1024; // 50 KB
+const MAXX_KEY = "aurem_maxx_mode";
+
 export default function ChatPanel({ sessionId, onTurnSaved }) {
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showGithub, setShowGithub] = useState(false);
+  const [maxxMode, setMaxxMode] = useState(
+    () => localStorage.getItem(MAXX_KEY) === "1"
+  );
   const endRef = useRef(null);
   const abortRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const taRef = useRef(null);
 
-  // Load saved history whenever the session changes
+  const toggleMaxx = useCallback(() => {
+    setMaxxMode((v) => {
+      const next = !v;
+      localStorage.setItem(MAXX_KEY, next ? "1" : "0");
+      toast({
+        message: next
+          ? "Maxx mode ON — Emergent watchdog will review every reply."
+          : "Maxx mode OFF — single-engine DeepSeek.",
+        kind: next ? "warn" : "info",
+      });
+      return next;
+    });
+  }, []);
+
+  // Load history on session change
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -42,14 +76,13 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
             role: t.role,
             content: t.content,
             provider: t.provider,
+            watchdog: t.watchdog,
           })));
         }
       })
       .catch(() => !cancelled && setMessages([WELCOME]))
       .finally(() => !cancelled && setLoadingHistory(false));
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [sessionId]);
 
   useEffect(() => {
@@ -64,16 +97,38 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
     setBusy(false);
   }, []);
 
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const chunks = [];
+    for (const f of files) {
+      if (f.size > MAX_FILE_BYTES) {
+        toast({ message: `${f.name} exceeds 50 KB — skipped.`, kind: "error" });
+        continue;
+      }
+      try {
+        const text = await f.text();
+        const ext = (f.name.split(".").pop() || "").toLowerCase();
+        chunks.push(`[File: ${f.name}]\n\`\`\`${ext}\n${text}\n\`\`\``);
+      } catch (e) {
+        toast({ message: `Couldn't read ${f.name}: ${e.message}`, kind: "error" });
+      }
+    }
+    if (chunks.length) {
+      setInput((prev) => (prev ? prev + "\n\n" : "") + chunks.join("\n\n"));
+      toast({ message: `Attached ${chunks.length} file(s).`, kind: "success" });
+    }
+  }
+
   async function send(e) {
     e?.preventDefault();
     const text = input.trim();
     if (!text || busy || !sessionId) return;
     setInput("");
-    // Push user message + empty assistant placeholder
     setMessages((m) => [
       ...m,
       { role: "user", content: text },
-      { role: "assistant", content: "", streaming: true },
+      { role: "assistant", content: "", streaming: true, maxxMode },
     ]);
     setBusy(true);
 
@@ -85,18 +140,36 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       prompt: text,
       sessionId,
       maxToolIters: 2,
+      maxxMode,
       signal: ctrl.signal,
-      onMeta: (m) => {
-        if (m.provider) providerSeen = m.provider;
-      },
+      onMeta: (m) => { if (m.provider) providerSeen = m.provider; },
       onToken: (tok) => {
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
           if (last && last.role === "assistant") {
+            copy[copy.length - 1] = { ...last, content: (last.content || "") + tok };
+          }
+          return copy;
+        });
+      },
+      onWatchdogPending: () => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant") {
+            copy[copy.length - 1] = { ...last, watchdogPending: true };
+          }
+          return copy;
+        });
+      },
+      onWatchdog: (wd) => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant") {
             copy[copy.length - 1] = {
-              ...last,
-              content: (last.content || "") + tok,
+              ...last, watchdog: wd, watchdogPending: false,
             };
           }
           return copy;
@@ -108,8 +181,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
           const last = copy[copy.length - 1];
           if (last && last.role === "assistant") {
             copy[copy.length - 1] = {
-              ...last,
-              streaming: false,
+              ...last, streaming: false,
               provider: d.provider || providerSeen || "—",
             };
           }
@@ -118,8 +190,6 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
         setBusy(false);
         abortRef.current = null;
         onTurnSaved?.();
-        // Background title generation runs ~1-2s after persist; refresh once more
-        // so the sidebar picks up the title without forcing the user to reload.
         setTimeout(() => onTurnSaved?.(), 2800);
       },
       onError: (err) => {
@@ -128,10 +198,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
           const last = copy[copy.length - 1];
           if (last && last.role === "assistant") {
             copy[copy.length - 1] = {
-              ...last,
-              content: `⚠ ${err}`,
-              error: true,
-              streaming: false,
+              ...last, content: `⚠ ${err}`, error: true, streaming: false,
             };
           }
           return copy;
@@ -142,13 +209,26 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
     });
   }
 
+  function regenerate() {
+    // Walk backwards to find the last user message
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    setInput(lastUser.content);
+    setTimeout(() => taRef.current?.focus(), 50);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
   return (
     <div
       data-testid="chat-panel"
       style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
+        display: "flex", flexDirection: "column", height: "100vh",
         background: "var(--panel)",
         borderLeft: "1px solid var(--border)",
         overflow: "hidden",
@@ -157,12 +237,8 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       <div
         data-testid="chat-messages"
         style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "24px 28px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 20,
+          flex: 1, overflowY: "auto", padding: "24px 28px",
+          display: "flex", flexDirection: "column", gap: 20,
         }}
       >
         {loadingHistory && (
@@ -176,100 +252,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
         )}
 
         {messages.map((m, i) => (
-          <div
-            key={i}
-            data-testid={`chat-msg-${m.role}-${i}`}
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "flex-start",
-              flexDirection: m.role === "user" ? "row-reverse" : "row",
-            }}
-          >
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 4,
-                background:
-                  m.role === "user" ? "var(--accent-soft)" : "var(--panel-2)",
-                border: "1px solid var(--border)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color:
-                  m.role === "user" ? "var(--accent-2)" : "var(--text-dim)",
-                flexShrink: 0,
-              }}
-            >
-              {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
-            </div>
-            <div
-              style={{
-                maxWidth: "80%",
-                padding: "12px 16px",
-                borderRadius: 4,
-                background:
-                  m.role === "user"
-                    ? "rgba(255, 138, 42, 0.06)"
-                    : "var(--panel-2)",
-                border:
-                  m.role === "user"
-                    ? "1px solid rgba(255,138,42,0.2)"
-                    : "1px solid var(--border)",
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: m.error ? "var(--danger)" : "var(--text)",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {m.content}
-              {m.streaming && !m.content && (
-                <span
-                  data-testid="chat-thinking"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    color: "var(--text-faint)",
-                    fontStyle: "italic",
-                    fontSize: 13,
-                  }}
-                >
-                  <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
-                  thinking…
-                </span>
-              )}
-              {m.streaming && m.content && (
-                <span
-                  data-testid="chat-cursor"
-                  style={{
-                    display: "inline-block",
-                    width: 7,
-                    height: 14,
-                    marginLeft: 2,
-                    background: "var(--accent-2)",
-                    verticalAlign: "middle",
-                    animation: "blink 0.9s steps(1) infinite",
-                  }}
-                />
-              )}
-              {m.provider && m.provider !== "system" && !m.streaming && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    fontSize: 10,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: "var(--text-faint)",
-                    letterSpacing: "0.1em",
-                  }}
-                >
-                  via {m.provider}
-                </div>
-              )}
-            </div>
-          </div>
+          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} />
         ))}
         <div ref={endRef} />
       </div>
@@ -278,46 +261,305 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
         onSubmit={send}
         style={{
           borderTop: "1px solid var(--border)",
-          padding: 16,
-          display: "flex",
-          gap: 10,
-          background: "var(--bg-elev)",
+          padding: 14, background: "var(--bg-elev)",
+          display: "flex", flexDirection: "column", gap: 10,
         }}
       >
-        <input
-          data-testid="chat-input"
-          className="input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask AUREM CTO to plan, build, debug…"
-          autoFocus
-          disabled={busy}
-        />
-        {busy ? (
-          <button
-            type="button"
-            data-testid="chat-stop"
-            className="btn-ghost"
-            onClick={stop}
-          >
-            <Square size={13} /> Stop
-          </button>
-        ) : (
-          <button
-            type="submit"
-            data-testid="chat-send"
-            className="btn-primary"
-            disabled={!input.trim() || !sessionId}
-          >
-            <Send size={14} /> Send
-          </button>
-        )}
+        {/* Toolbar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            data-testid="chat-file-input"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              handleFiles(e.target.files);
+              e.target.value = ""; // allow re-select same file
+            }}
+          />
+          <ToolButton
+            testid="chat-attach-btn"
+            title="Attach file (max 50 KB each)"
+            onClick={() => fileInputRef.current?.click()}
+            Icon={Paperclip}
+          />
+          <ToolButton
+            testid="chat-github-btn"
+            title="Save to GitHub"
+            onClick={() => setShowGithub(true)}
+            Icon={Github}
+          />
+          <ToolButton
+            testid="chat-maxx-btn"
+            title={maxxMode ? "Maxx mode ON (Emergent watchdog)" : "Maxx mode OFF"}
+            onClick={toggleMaxx}
+            Icon={Zap}
+            active={maxxMode}
+          />
+          <span style={{ flex: 1 }} />
+          {maxxMode && (
+            <span
+              data-testid="maxx-active-pill"
+              style={{
+                fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.16em", color: "var(--accent-2)",
+                padding: "4px 10px", border: "1px solid var(--accent)",
+                borderRadius: 999,
+                background: "var(--accent-soft)",
+                boxShadow: "0 0 12px -2px var(--accent)",
+              }}
+            >
+              ⚡ MAXX
+            </span>
+          )}
+        </div>
+
+        {/* Input + Send/Stop */}
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <textarea
+            ref={taRef}
+            data-testid="chat-input"
+            className="input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
+            rows={Math.min(6, Math.max(1, input.split("\n").length))}
+            autoFocus
+            disabled={busy}
+            style={{ resize: "none", flex: 1, fontFamily: "'Jost', system-ui, sans-serif" }}
+          />
+          {busy ? (
+            <button
+              type="button" data-testid="chat-stop"
+              className="btn-ghost" onClick={stop}
+            >
+              <Square size={13} /> Stop
+            </button>
+          ) : (
+            <button
+              type="submit" data-testid="chat-send"
+              className="btn-primary"
+              disabled={!input.trim() || !sessionId}
+            >
+              <Send size={14} /> Send
+            </button>
+          )}
+        </div>
       </form>
+
+      <SaveToGithubDialog
+        open={showGithub}
+        onClose={() => setShowGithub(false)}
+        sessionId={sessionId}
+      />
 
       <style>{`
         @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         @keyframes blink { 50% { opacity: 0; } }
       `}</style>
+    </div>
+  );
+}
+
+function ToolButton({ testid, title, onClick, Icon, active }) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      title={title}
+      onClick={onClick}
+      style={{
+        width: 34, height: 34, borderRadius: 4,
+        background: active ? "var(--accent-soft)" : "transparent",
+        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+        color: active ? "var(--accent-2)" : "var(--text-dim)",
+        cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        transition: "color 120ms, border-color 120ms, background 120ms, box-shadow 220ms",
+        boxShadow: active ? "0 0 14px -3px var(--accent)" : "none",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.color = "var(--accent-2)";
+          e.currentTarget.style.borderColor = "var(--border-strong)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.color = "var(--text-dim)";
+          e.currentTarget.style.borderColor = "var(--border)";
+        }
+      }}
+    >
+      <Icon size={14} />
+    </button>
+  );
+}
+
+function MessageBubble({ idx, m, onRegenerate }) {
+  return (
+    <div
+      data-testid={`chat-msg-${m.role}-${idx}`}
+      style={{
+        display: "flex", gap: 12, alignItems: "flex-start",
+        flexDirection: m.role === "user" ? "row-reverse" : "row",
+      }}
+    >
+      <div style={{
+        width: 28, height: 28, borderRadius: 4,
+        background: m.role === "user" ? "var(--accent-soft)" : "var(--panel-2)",
+        border: "1px solid var(--border)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: m.role === "user" ? "var(--accent-2)" : "var(--text-dim)",
+        flexShrink: 0,
+      }}>
+        {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
+      </div>
+      <div style={{ maxWidth: "80%" }}>
+        <div style={{
+          padding: "12px 16px",
+          borderRadius: 4,
+          background: m.role === "user" ? "rgba(255, 138, 42, 0.06)" : "var(--panel-2)",
+          border: m.role === "user"
+            ? "1px solid rgba(255,138,42,0.2)"
+            : "1px solid var(--border)",
+          fontSize: 14, lineHeight: 1.6,
+          color: m.error ? "var(--danger)" : "var(--text)",
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+        }}>
+          {m.content}
+          {m.streaming && !m.content && (
+            <span data-testid="chat-thinking" style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              color: "var(--text-faint)", fontStyle: "italic", fontSize: 13,
+            }}>
+              <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+              thinking…
+            </span>
+          )}
+          {m.streaming && m.content && (
+            <span data-testid="chat-cursor" style={{
+              display: "inline-block", width: 7, height: 14,
+              marginLeft: 2, background: "var(--accent-2)",
+              verticalAlign: "middle",
+              animation: "blink 0.9s steps(1) infinite",
+            }} />
+          )}
+          {m.provider && m.provider !== "system" && !m.streaming && (
+            <div style={{
+              marginTop: 8, fontSize: 10,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "var(--text-faint)", letterSpacing: "0.1em",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}>
+              via {m.provider}
+              {m.maxxMode && <Zap size={10} style={{ color: "var(--accent-2)" }} />}
+            </div>
+          )}
+        </div>
+
+        {/* Watchdog pending */}
+        {m.role === "assistant" && m.watchdogPending && (
+          <div data-testid={`watchdog-pending-${idx}`} style={{
+            marginTop: 8, fontSize: 11,
+            color: "var(--text-faint)",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+            Watchdog reviewing…
+          </div>
+        )}
+
+        {/* Watchdog result */}
+        {m.role === "assistant" && m.watchdog && m.watchdog.ok && (
+          <WatchdogPanel idx={idx} wd={m.watchdog} onRegenerate={onRegenerate} />
+        )}
+        {m.role === "assistant" && m.watchdog && !m.watchdog.ok && (
+          <div data-testid={`watchdog-error-${idx}`} style={{
+            marginTop: 8, fontSize: 11, color: "var(--text-faint)",
+            fontStyle: "italic",
+          }}>
+            Watchdog skipped: {m.watchdog.error || "unavailable"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WatchdogPanel({ idx, wd, onRegenerate }) {
+  const [open, setOpen] = useState(!wd.passed);
+  const score = wd.score ?? "?";
+  let pill = { bg: "rgba(255,107,107,0.1)", color: "var(--danger)", border: "rgba(255,107,107,0.4)" };
+  if (typeof wd.score === "number") {
+    if (wd.score >= 8) pill = { bg: "rgba(109,212,161,0.1)", color: "var(--ok)", border: "rgba(109,212,161,0.4)" };
+    else if (wd.score >= 7) pill = { bg: "rgba(255,197,96,0.1)", color: "var(--accent-2)", border: "rgba(255,197,96,0.4)" };
+  }
+
+  return (
+    <div data-testid={`watchdog-${idx}`} style={{
+      marginTop: 10,
+      border: `1px solid ${pill.border}`,
+      borderRadius: 4, background: pill.bg,
+      padding: "10px 12px", fontSize: 12,
+    }}>
+      <div
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          cursor: "pointer", userSelect: "none",
+        }}
+      >
+        {wd.passed
+          ? <ShieldCheck size={13} style={{ color: pill.color }} />
+          : <AlertTriangle size={13} style={{ color: pill.color }} />}
+        <span style={{ color: pill.color, fontWeight: 600 }}>
+          Watchdog · {wd.passed ? "passed" : "flagged"}
+        </span>
+        <span data-testid={`watchdog-score-${idx}`} style={{
+          marginLeft: 4,
+          padding: "2px 8px", borderRadius: 999,
+          background: "rgba(0,0,0,0.25)",
+          color: pill.color, fontWeight: 600,
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 10,
+        }}>
+          {score}/10
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ color: "var(--text-faint)", fontSize: 10 }}>
+          {open ? "click to hide" : "click to expand"}
+        </span>
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, color: "var(--text-dim)", lineHeight: 1.6 }}>
+          {wd.verdict && (
+            <div style={{ marginBottom: 8, color: "var(--text)" }}>
+              <em>{wd.verdict}</em>
+            </div>
+          )}
+          {Array.isArray(wd.issues) && wd.issues.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11 }}>
+              {wd.issues.map((iss, i) => (
+                <li key={i} style={{ marginBottom: 2 }}>{iss}</li>
+              ))}
+            </ul>
+          )}
+          {!wd.passed && (
+            <button
+              data-testid={`watchdog-regen-${idx}`}
+              type="button"
+              onClick={onRegenerate}
+              className="btn-ghost"
+              style={{ marginTop: 10, fontSize: 11, padding: "6px 10px" }}
+            >
+              <RefreshCw size={11} /> Regenerate
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

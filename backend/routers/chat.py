@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
-from services.llm import call_llm_with_meta
+from services.llm import call_llm_with_meta, call_emergent_watchdog
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -28,6 +28,7 @@ class ChatBody(BaseModel):
     prompt: str
     session_id: Optional[str] = None
     max_tool_iters: int = 2
+    maxx_mode: bool = False
 
 
 _TITLE_SYSTEM = (
@@ -89,13 +90,20 @@ async def _maybe_set_title(user_id: str, session_id: str,
 
 
 async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
-                        assistant_reply: str, provider: str) -> None:
+                        assistant_reply: str, provider: str,
+                        watchdog: Optional[dict] = None) -> None:
     """Append user+assistant turns to db.chat_sessions, capped at 40 turns."""
     db = get_db()
     if db is None or not session_id:
         return
     now = time.time()
     preview = (assistant_reply or "").strip()[:120] or (user_prompt or "")[:120]
+    assistant_turn = {
+        "role": "assistant", "content": assistant_reply,
+        "ts": now, "provider": provider,
+    }
+    if watchdog:
+        assistant_turn["watchdog"] = watchdog
     try:
         await db.chat_sessions.update_one(
             {"session_id": session_id, "user_id": user_id},
@@ -113,8 +121,7 @@ async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
                     "turns": {
                         "$each": [
                             {"role": "user", "content": user_prompt, "ts": now},
-                            {"role": "assistant", "content": assistant_reply,
-                             "ts": now, "provider": provider},
+                            assistant_turn,
                         ],
                         "$slice": -40,
                     }
@@ -131,7 +138,8 @@ async def chat_send(
     body: ChatBody,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Non-streaming chat — returns full response, persists turn."""
+    """Non-streaming chat — returns full response, persists turn.
+    If maxx_mode=True, runs Emergent watchdog review after DeepSeek reply."""
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     result = await chat_with_tools(
@@ -143,8 +151,15 @@ async def chat_send(
     )
     content = result.get("content", "") or ""
     provider = result.get("provider", "") or ""
+
+    # Maxx mode: watchdog review (only if we have non-empty content)
+    watchdog = None
+    if body.maxx_mode and content.strip():
+        watchdog = await call_emergent_watchdog(content)
+        provider = (provider or "deepseek") + "+emergent-watchdog"
+
     await _persist_turn(user["user_id"], body.session_id or "",
-                        body.prompt, content, provider)
+                        body.prompt, content, provider, watchdog=watchdog)
     if body.session_id:
         asyncio.create_task(
             _maybe_set_title(user["user_id"], body.session_id, body.prompt)
@@ -153,6 +168,7 @@ async def chat_send(
         "ok": result.get("ok", True),
         "content": content,
         "provider": provider,
+        "watchdog": watchdog,
         "iterations": result.get("iterations", 0),
         "session_id": body.session_id,
         "user_id": user.get("user_id"),
@@ -198,8 +214,16 @@ async def chat_stream(
             i += CHUNK
             await asyncio.sleep(0.012)
 
+        # Maxx mode: emit a stream marker, then run watchdog and emit result
+        watchdog = None
+        if body.maxx_mode and content.strip():
+            yield f"data: {json.dumps({'watchdog_pending': True})}\n\n"
+            watchdog = await call_emergent_watchdog(content)
+            yield f"data: {json.dumps({'watchdog': watchdog})}\n\n"
+            provider = (provider or "deepseek") + "+emergent-watchdog"
+
         await _persist_turn(user_id, body.session_id or "",
-                            body.prompt, content, provider)
+                            body.prompt, content, provider, watchdog=watchdog)
         if body.session_id:
             asyncio.create_task(
                 _maybe_set_title(user_id, body.session_id, body.prompt)

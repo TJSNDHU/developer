@@ -114,3 +114,84 @@ async def call_llm_with_meta(system: str, user: str,
             "fallback_chain": ["deepseek"],
             "error": f"LLM unavailable: {e}",
         }
+
+
+# ── Emergent watchdog ─────────────────────────────────────────────────────
+async def call_emergent_watchdog(text_to_review: str) -> dict:
+    """Maxx mode: ask Emergent Universal LLM (Claude) to grade DeepSeek's
+    output. Returns {ok, score, issues, review, error}.
+    Score 0-10, passed=True iff score >= 7."""
+    emergent_key = os.getenv("EMERGENT_LLM_KEY", "")
+    if not emergent_key:
+        return {
+            "ok": False, "score": None, "issues": [], "review": "",
+            "error": "EMERGENT_LLM_KEY not set",
+        }
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import uuid as _uuid
+
+        system = (
+            "You are a strict code-and-answer reviewer. Given an AI response, "
+            "judge it for: factual correctness, hallucinations, broken or "
+            "non-runnable code, missing important caveats. Reply in this exact "
+            "format and nothing else:\n"
+            "SCORE: <0-10 integer>\n"
+            "ISSUES: <one-line bullet list separated by '; '. 'none' if perfect>\n"
+            "VERDICT: <one short sentence>"
+        )
+        review_prompt = (
+            "Review this AI response.\n\n"
+            "===BEGIN RESPONSE===\n"
+            f"{text_to_review[:6000]}\n"
+            "===END RESPONSE==="
+        )
+        chat = (
+            LlmChat(
+                api_key=emergent_key,
+                session_id=f"watchdog-{_uuid.uuid4().hex[:8]}",
+                system_message=system,
+            )
+            .with_model("anthropic", "claude-sonnet-4-5-20250929")
+            .with_params(max_tokens=300, temperature=0.1)
+        )
+        review = await chat.send_message(UserMessage(text=review_prompt))
+        review_txt = (review or "").strip()
+
+        # Parse
+        score = None
+        issues_str = ""
+        verdict = ""
+        for line in review_txt.splitlines():
+            ls = line.strip()
+            if ls.upper().startswith("SCORE:"):
+                try:
+                    score = int(
+                        "".join(ch for ch in ls.split(":", 1)[1] if ch.isdigit())[:2]
+                        or "0"
+                    )
+                except Exception:
+                    score = None
+            elif ls.upper().startswith("ISSUES:"):
+                issues_str = ls.split(":", 1)[1].strip()
+            elif ls.upper().startswith("VERDICT:"):
+                verdict = ls.split(":", 1)[1].strip()
+
+        issues = []
+        if issues_str and issues_str.lower() not in ("none", "n/a", "-"):
+            issues = [s.strip() for s in issues_str.split(";") if s.strip()]
+
+        return {
+            "ok": True,
+            "score": score,
+            "issues": issues,
+            "verdict": verdict,
+            "review": review_txt,
+            "passed": (score is not None and score >= 7),
+        }
+    except Exception as e:
+        logger.warning(f"emergent watchdog failed: {e!r}")
+        return {
+            "ok": False, "score": None, "issues": [], "review": "",
+            "error": f"watchdog unavailable: {e}",
+        }
