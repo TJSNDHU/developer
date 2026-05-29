@@ -23,7 +23,7 @@ export default function Shell({ children, requireAuth }) {
   const navigate = useNavigate();
   const user = getUser();
   const token = getToken();
-  const [health, setHealth] = useState(null);
+  const [health, setHealth] = useState({ ok: true, _initial: true });
 
   useEffect(() => {
     if (requireAuth && !token) {
