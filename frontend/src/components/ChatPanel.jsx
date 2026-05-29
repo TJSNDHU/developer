@@ -12,14 +12,15 @@
  *   sessionId   (required) — UUID of the active chat thread
  *   onTurnSaved (optional) — fired after persist, lets sidebar refresh
  */
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Bot, User, Loader2, Square, Paperclip, Github, Zap,
-  ShieldCheck, AlertTriangle, RefreshCw,
+  ShieldCheck, AlertTriangle, RefreshCw, Eye,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
 import SaveToGithubDialog from "./SaveToGithubDialog";
+import PreviewPanel from "./PreviewPanel";
 
 const WELCOME = {
   role: "assistant",
@@ -30,6 +31,28 @@ const WELCOME = {
 
 const MAX_FILE_BYTES = 50 * 1024; // 50 KB
 const MAXX_KEY = "aurem_maxx_mode";
+const PREVIEW_KEY = "aurem_preview_open";
+
+const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
+
+function extractCodeBlocks(content) {
+  if (!content) return [];
+  const blocks = [];
+  let m;
+  CODE_BLOCK_RE.lastIndex = 0;
+  while ((m = CODE_BLOCK_RE.exec(content)) !== null) {
+    const lang = (m[1] || "text").toLowerCase();
+    const code = m[2];
+    if (code && code.trim()) blocks.push({ lang, code });
+  }
+  return blocks;
+}
+
+function estimateTokenCount(text) {
+  if (!text) return 0;
+  // ~1.3 tokens per word, rough heuristic — same model the backend deducts on.
+  return Math.ceil(text.split(/\s+/).filter(Boolean).length * 1.3);
+}
 
 export default function ChatPanel({ sessionId, onTurnSaved }) {
   const [messages, setMessages] = useState([WELCOME]);
@@ -40,6 +63,10 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
   const [maxxMode, setMaxxMode] = useState(
     () => localStorage.getItem(MAXX_KEY) === "1"
   );
+  const [previewOpen, setPreviewOpen] = useState(
+    () => localStorage.getItem(PREVIEW_KEY) === "1"
+  );
+  const [previewBlocks, setPreviewBlocks] = useState([]);
   const endRef = useRef(null);
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -58,6 +85,37 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       return next;
     });
   }, []);
+
+  const togglePreview = useCallback(() => {
+    setPreviewOpen((v) => {
+      const next = !v;
+      localStorage.setItem(PREVIEW_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
+  // Auto-extract code blocks from the latest *completed* assistant reply
+  const latestAssistant = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && !m.streaming && m.provider !== "system") {
+        return m;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!latestAssistant) return;
+    const blocks = extractCodeBlocks(latestAssistant.content);
+    if (blocks.length === 0) return;
+    setPreviewBlocks(blocks);
+    // Auto-open the panel on first code reply (don't override if user closed it manually mid-session)
+    if (!localStorage.getItem(PREVIEW_KEY)) {
+      setPreviewOpen(true);
+      localStorage.setItem(PREVIEW_KEY, "1");
+    }
+  }, [latestAssistant]);
 
   // Load history on session change
   useEffect(() => {
@@ -226,14 +284,27 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
 
   return (
     <div
-      data-testid="chat-panel"
+      data-testid="chat-root"
       style={{
-        display: "flex", flexDirection: "column", height: "100vh",
-        background: "var(--panel)",
-        borderLeft: "1px solid var(--border)",
+        display: "flex",
+        height: "100vh",
+        width: "100%",
         overflow: "hidden",
       }}
     >
+      <div
+        data-testid="chat-panel"
+        style={{
+          display: "flex", flexDirection: "column",
+          flex: previewOpen ? "0 0 50%" : "1 1 auto",
+          minWidth: 0,
+          height: "100vh",
+          background: "var(--panel)",
+          borderLeft: "1px solid var(--border)",
+          overflow: "hidden",
+          transition: "flex 240ms cubic-bezier(0.4,0,0.2,1)",
+        }}
+      >
       <div
         data-testid="chat-messages"
         style={{
@@ -359,6 +430,17 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
         @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         @keyframes blink { 50% { opacity: 0; } }
       `}</style>
+      </div>
+
+      {previewOpen && (
+        <PreviewPanel
+          blocks={previewBlocks.length > 0 ? previewBlocks : [{
+            lang: "text",
+            code: "No code blocks in the current chat yet. Ask AUREM to write some — Hint: ```html ... ``` or ```jsx ... ``` will render live here.",
+          }]}
+          onClose={togglePreview}
+        />
+      )}
     </div>
   );
 }
@@ -456,6 +538,11 @@ function MessageBubble({ idx, m, onRegenerate }) {
             }}>
               via {m.provider}
               {m.maxxMode && <Zap size={10} style={{ color: "var(--accent-2)" }} />}
+              <span data-testid={`token-cost-${idx}`} style={{
+                opacity: 0.7, marginLeft: 4,
+              }}>
+                · ~{estimateTokenCount(m.content)} tokens
+              </span>
             </div>
           )}
         </div>

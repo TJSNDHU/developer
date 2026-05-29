@@ -91,3 +91,16 @@ async def me(authorization: Optional[str] = Header(None)) -> dict:
             {"user_id": payload["user_id"]}, {"_id": 0, "password": 0}
         )
     return {"ok": True, "user": user or payload}
+
+
+@router.get("/tokens")
+async def get_tokens(authorization: Optional[str] = Header(None)) -> dict:
+    """Return the current wallet balance for the authenticated user."""
+    payload = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        return {"ok": True, "tokens_remaining": 0}
+    u = await db.dev_users.find_one(
+        {"user_id": payload["user_id"]}, {"_id": 0, "tokens_remaining": 1}
+    )
+    return {"ok": True, "tokens_remaining": int((u or {}).get("tokens_remaining", 0))}

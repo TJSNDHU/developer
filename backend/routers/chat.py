@@ -18,10 +18,40 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
-from services.llm import call_llm_with_meta, call_emergent_watchdog
+from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+# Heuristic: prompt mentions build/create/fix/write code/etc → bump cap
+_CODE_HINTS = ("```", "build", "create", "fix", "write", "implement",
+               "function", "class", "refactor", "debug", "snippet", "code")
+
+
+def _detect_mode(prompt: str) -> str:
+    p = (prompt or "").lower()
+    return "code" if any(h in p for h in _CODE_HINTS) else "chat"
+
+
+async def _deduct_tokens(user_id: str, reply: str) -> int:
+    """Deduct ~1 token per 3 words from the user's wallet. Returns new balance."""
+    db = get_db()
+    if db is None or not user_id:
+        return 0
+    used = max(1, len((reply or "").split()) // 3 + 1)
+    try:
+        await db.dev_users.update_one(
+            {"user_id": user_id},
+            {"$inc": {"tokens_remaining": -used}},
+        )
+        u = await db.dev_users.find_one(
+            {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1}
+        )
+        return int((u or {}).get("tokens_remaining", 0))
+    except Exception as e:
+        logger.warning(f"deduct_tokens failed: {e!r}")
+        return 0
 
 
 class ChatBody(BaseModel):
@@ -31,22 +61,15 @@ class ChatBody(BaseModel):
     maxx_mode: bool = False
 
 
-_TITLE_SYSTEM = (
-    "You generate ultra-short chat titles. Reply with 3 to 5 words in Title "
-    "Case, no punctuation, no quotes, no trailing period. Just the title, "
-    "nothing else."
-)
+_TITLE_SYSTEM = "Generate ultra-short chat titles. 3-5 words, Title Case, no punctuation. Just the title."
 
 
 async def _generate_title(first_user_msg: str) -> str:
     """Ask the LLM to summarize the first user message in 3-5 words.
     Returns "" on any failure so the caller can fall back to last_message."""
     try:
-        prompt = (
-            "Summarize this chat in 3 to 5 words, Title Case, no "
-            f"punctuation:\n\n{first_user_msg.strip()[:500]}"
-        )
-        meta = await call_llm_with_meta(_TITLE_SYSTEM, prompt, max_tokens=24)
+        prompt = f"3-5 word title, Title Case, no punctuation: {first_user_msg.strip()[:100]}"
+        meta = await call_llm_with_meta(_TITLE_SYSTEM, prompt, max_tokens=cap_for("title"))
         title = (meta.get("content") or "").strip()
         title = title.strip("\"'`").rstrip(".!?").strip()
         if not title:
@@ -164,6 +187,7 @@ async def chat_send(
         asyncio.create_task(
             _maybe_set_title(user["user_id"], body.session_id, body.prompt)
         )
+    tokens_remaining = await _deduct_tokens(user["user_id"], content)
     return {
         "ok": result.get("ok", True),
         "content": content,
@@ -172,6 +196,7 @@ async def chat_send(
         "iterations": result.get("iterations", 0),
         "session_id": body.session_id,
         "user_id": user.get("user_id"),
+        "tokens_remaining": tokens_remaining,
     }
 
 
@@ -228,11 +253,13 @@ async def chat_stream(
             asyncio.create_task(
                 _maybe_set_title(user_id, body.session_id, body.prompt)
             )
+        tokens_remaining = await _deduct_tokens(user_id, content)
 
         done_payload = {
             "done": True,
             "provider": provider,
             "session_id": body.session_id,
+            "tokens_remaining": tokens_remaining,
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 

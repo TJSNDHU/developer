@@ -27,6 +27,20 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Token caps per request mode — keeps LLM bills predictable.
+MAX_TOKENS = {
+    "chat": 1500,
+    "code": 3000,
+    "review": 500,
+    "title": 30,
+    "default": 1000,
+}
+
+
+def cap_for(mode: str) -> int:
+    return MAX_TOKENS.get(mode, MAX_TOKENS["default"])
+
+
 # Providers that host DeepSeek-V3 with data-collection compliant terms.
 # OpenRouter will pick the best within this set; if none accept
 # data_collection=deny we surface a 404.
@@ -132,19 +146,15 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
         import uuid as _uuid
 
         system = (
-            "You are a strict code-and-answer reviewer. Given an AI response, "
-            "judge it for: factual correctness, hallucinations, broken or "
-            "non-runnable code, missing important caveats. Reply in this exact "
-            "format and nothing else:\n"
-            "SCORE: <0-10 integer>\n"
-            "ISSUES: <one-line bullet list separated by '; '. 'none' if perfect>\n"
-            "VERDICT: <one short sentence>"
+            "Strict reviewer. Score AI reply 0-10 for correctness, "
+            "hallucinations, broken code. Reply exactly:\n"
+            "SCORE: <0-10>\n"
+            "ISSUES: <semicolon list; 'none' if perfect>\n"
+            "VERDICT: <one sentence>"
         )
         review_prompt = (
-            "Review this AI response.\n\n"
-            "===BEGIN RESPONSE===\n"
-            f"{text_to_review[:6000]}\n"
-            "===END RESPONSE==="
+            f"Review this reply (score 1-10, issues only if score<7):\n\n"
+            f"{text_to_review[:3000]}"
         )
         chat = (
             LlmChat(
@@ -153,7 +163,7 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
                 system_message=system,
             )
             .with_model("anthropic", "claude-sonnet-4-5-20250929")
-            .with_params(max_tokens=300, temperature=0.1)
+            .with_params(max_tokens=cap_for("review"), temperature=0.1)
         )
         review = await chat.send_message(UserMessage(text=review_prompt))
         review_txt = (review or "").strip()

@@ -14,7 +14,8 @@ import {
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
   ChevronsLeft, ChevronsRight,
 } from "lucide-react";
-import { api, getUser, getToken, logout, healthApi, newSessionId } from "../lib/api";
+import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
+import TokenBell from "./TokenBell";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -34,6 +35,9 @@ const SessionCtx = createContext({
   sessionId: null,
   setSessionId: () => {},
   refreshSessions: () => {},
+  tokensRemaining: null,
+  setTokensRemaining: () => {},
+  refreshTokens: () => {},
 });
 
 export function useChatSession() {
@@ -62,6 +66,31 @@ export default function Shell({ children, requireAuth }) {
       return next;
     });
   }, []);
+
+  // ── Token wallet polling ───────────────────────────────────────────
+  const [tokensRemaining, setTokensRemaining] = useState(
+    () => (getUser() || {}).tokens_remaining ?? null
+  );
+
+  const refreshTokens = useCallback(async () => {
+    if (!token) return;
+    try {
+      const r = await api.get("/auth/tokens");
+      const t = r.data?.tokens_remaining;
+      if (typeof t === "number") {
+        setTokensRemaining(t);
+        const u = getUser();
+        if (u) saveUser({ ...u, tokens_remaining: t });
+      }
+    } catch { /* ignore */ }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    refreshTokens();
+    const id = setInterval(refreshTokens, 30000);
+    return () => clearInterval(id);
+  }, [token, refreshTokens]);
 
   useEffect(() => {
     if (requireAuth && !token) navigate("/login", { replace: true });
@@ -134,7 +163,10 @@ export default function Shell({ children, requireAuth }) {
   );
 
   return (
-    <SessionCtx.Provider value={{ sessionId, setSessionId, refreshSessions }}>
+    <SessionCtx.Provider value={{
+      sessionId, setSessionId, refreshSessions,
+      tokensRemaining, setTokensRemaining, refreshTokens,
+    }}>
       <div
         style={{
           minHeight: "100vh",
@@ -507,6 +539,10 @@ export default function Shell({ children, requireAuth }) {
           )}
 
           <div style={{ marginTop: "auto", display: "grid", gap: 10, paddingTop: 12 }}>
+            {token && (
+              <TokenBell tokens={tokensRemaining} collapsed={collapsed} />
+            )}
+
             {token && user && !collapsed && (
               <div
                 data-testid="user-card"
@@ -519,7 +555,7 @@ export default function Shell({ children, requireAuth }) {
               >
                 <div style={{ color: "var(--text)" }}>{user.name || user.email}</div>
                 <div style={{ color: "var(--text-faint)", marginTop: 2 }}>
-                  {user.tokens_remaining ?? "—"} tokens · {user.tier || "free"}
+                  {tokensRemaining ?? user.tokens_remaining ?? "—"} tokens · {user.tier || "free"}
                 </div>
                 <button
                   data-testid="logout-btn"
