@@ -12,6 +12,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Rocket, Database, Globe, Settings as Cog,
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
+  ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId } from "../lib/api";
 
@@ -26,6 +27,7 @@ const NAV = [
 ];
 
 const SESSION_KEY = "aurem_active_session";
+const COLLAPSED_KEY = "aurem_sidebar_collapsed";
 
 // ── Context ────────────────────────────────────────────────────────────
 const SessionCtx = createContext({
@@ -49,6 +51,17 @@ export default function Shell({ children, requireAuth }) {
     localStorage.getItem(SESSION_KEY) || null
   );
   const [sessions, setSessions] = useState([]);
+  const [collapsed, setCollapsedState] = useState(
+    () => localStorage.getItem(COLLAPSED_KEY) === "1"
+  );
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsedState((c) => {
+      const next = !c;
+      localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (requireAuth && !token) navigate("/login", { replace: true });
@@ -122,13 +135,21 @@ export default function Shell({ children, requireAuth }) {
 
   return (
     <SessionCtx.Provider value={{ sessionId, setSessionId, refreshSessions }}>
-      <div style={{ minHeight: "100vh", display: "grid", gridTemplateColumns: "260px 1fr" }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          gridTemplateColumns: `${collapsed ? 64 : 260}px 1fr`,
+          transition: "grid-template-columns 240ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
+      >
         <aside
           data-testid="app-sidebar"
+          data-collapsed={collapsed ? "true" : "false"}
           style={{
             background: "var(--bg-elev)",
             borderRight: "1px solid var(--border)",
-            padding: "28px 16px",
+            padding: collapsed ? "28px 10px" : "28px 16px",
             display: "flex",
             flexDirection: "column",
             gap: 6,
@@ -136,26 +157,117 @@ export default function Shell({ children, requireAuth }) {
             top: 0,
             height: "100vh",
             overflow: "hidden",
+            transition: "padding 240ms",
           }}
         >
-          <div style={{ marginBottom: 24, paddingLeft: 6 }}>
+          {/* Brand row + collapse toggle */}
+          <div
+            style={{
+              marginBottom: 24,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: collapsed ? "center" : "space-between",
+              gap: 8,
+            }}
+          >
             <NavLink
               to={token ? "/dashboard" : "/"}
-              style={{ display: "flex", alignItems: "center", gap: 10 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                paddingLeft: collapsed ? 0 : 6,
+              }}
               data-testid="brand-link"
+              title="AUREM Dev"
             >
-              <Zap size={20} style={{ color: "var(--accent)" }} />
-              <span className="serif" style={{ fontSize: 18, color: "var(--text)" }}>
-                AUREM Dev
-              </span>
+              <Zap size={20} style={{ color: "var(--accent)", flexShrink: 0 }} />
+              {!collapsed && (
+                <div>
+                  <span
+                    className="serif"
+                    style={{ fontSize: 18, color: "var(--text)" }}
+                  >
+                    AUREM Dev
+                  </span>
+                  <span
+                    className="eyebrow"
+                    style={{
+                      fontSize: 9,
+                      marginTop: 4,
+                      display: "block",
+                    }}
+                  >
+                    sovereign cto
+                  </span>
+                </div>
+              )}
             </NavLink>
-            <span
-              className="eyebrow"
-              style={{ fontSize: 9, marginTop: 8, display: "block", paddingLeft: 30 }}
-            >
-              sovereign cto
-            </span>
+            {!collapsed && (
+              <button
+                data-testid="sidebar-collapse-btn"
+                onClick={toggleCollapsed}
+                title="Collapse sidebar"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-faint)",
+                  width: 24,
+                  height: 24,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "color 120ms, border-color 120ms",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--accent-2)";
+                  e.currentTarget.style.borderColor = "var(--border-strong)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-faint)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <ChevronsLeft size={13} />
+              </button>
+            )}
           </div>
+
+          {/* Expand button when collapsed (placed below brand for tap target) */}
+          {collapsed && (
+            <button
+              data-testid="sidebar-expand-btn"
+              onClick={toggleCollapsed}
+              title="Expand sidebar"
+              style={{
+                background: "none",
+                border: "1px solid var(--border)",
+                color: "var(--text-faint)",
+                width: "100%",
+                height: 28,
+                borderRadius: 4,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 12,
+                transition: "color 120ms, border-color 120ms",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--accent-2)";
+                e.currentTarget.style.borderColor = "var(--border-strong)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-faint)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              <ChevronsRight size={13} />
+            </button>
+          )}
 
           {token &&
             NAV.map((n) => (
@@ -163,15 +275,17 @@ export default function Shell({ children, requireAuth }) {
                 key={n.to}
                 to={n.to}
                 data-testid={n.testid}
+                title={collapsed ? n.label : undefined}
                 style={({ isActive }) => ({
                   display: "flex",
                   alignItems: "center",
                   gap: 12,
-                  padding: "9px 12px",
+                  padding: collapsed ? "10px 0" : "9px 12px",
+                  justifyContent: collapsed ? "center" : "flex-start",
                   borderRadius: 4,
                   color: isActive ? "var(--accent-2)" : "var(--text-dim)",
                   background: isActive ? "var(--accent-soft)" : "transparent",
-                  borderLeft: isActive
+                  borderLeft: isActive && !collapsed
                     ? "2px solid var(--accent)"
                     : "2px solid transparent",
                   fontSize: 13,
@@ -179,12 +293,12 @@ export default function Shell({ children, requireAuth }) {
                   textDecoration: "none",
                 })}
               >
-                <n.icon size={15} />
-                {n.label}
+                <n.icon size={collapsed ? 17 : 15} />
+                {!collapsed && n.label}
               </NavLink>
             ))}
 
-          {!token && (
+          {!token && !collapsed && (
             <div style={{ display: "grid", gap: 8 }}>
               <NavLink
                 to="/login"
@@ -205,8 +319,45 @@ export default function Shell({ children, requireAuth }) {
             </div>
           )}
 
-          {/* Recent Chats */}
-          {token && (
+          {/* Recent Chats — collapsed: just a "+" new chat button */}
+          {token && collapsed && (
+            <div
+              data-testid="recent-chats"
+              style={{
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: "1px solid var(--border)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 4,
+                flex: "1 1 auto",
+              }}
+            >
+              <button
+                data-testid="new-chat-btn"
+                onClick={startNewSession}
+                title="New chat"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border-strong)",
+                  color: "var(--accent-2)",
+                  width: 34,
+                  height: 34,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Recent Chats — expanded */}
+          {token && !collapsed && (
             <div
               data-testid="recent-chats"
               style={{
@@ -356,7 +507,7 @@ export default function Shell({ children, requireAuth }) {
           )}
 
           <div style={{ marginTop: "auto", display: "grid", gap: 10, paddingTop: 12 }}>
-            {token && user && (
+            {token && user && !collapsed && (
               <div
                 data-testid="user-card"
                 style={{
@@ -389,13 +540,72 @@ export default function Shell({ children, requireAuth }) {
                 </button>
               </div>
             )}
+
+            {token && user && collapsed && (
+              <div
+                data-testid="user-card"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+                title={`${user.name || user.email} · ${user.tokens_remaining ?? "—"} tokens`}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 4,
+                    background: "var(--accent-soft)",
+                    border: "1px solid var(--border-strong)",
+                    color: "var(--accent-2)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {(user.name || user.email || "?").slice(0, 2)}
+                </div>
+                <button
+                  data-testid="logout-btn"
+                  onClick={logout}
+                  title="Sign out"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-faint)",
+                    cursor: "pointer",
+                    padding: 4,
+                    display: "flex",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.color = "var(--danger)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.color = "var(--text-faint)")
+                  }
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
+            )}
+
             <div
               data-testid="health-pill"
+              title={`api ${health?.ok ? "online" : "offline"}`}
               style={{
                 fontSize: 10,
                 fontFamily: "'JetBrains Mono', monospace",
                 color: health?.ok ? "var(--ok)" : "var(--danger)",
                 letterSpacing: "0.12em",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: collapsed ? "center" : "flex-start",
+                gap: collapsed ? 0 : 0,
               }}
             >
               <span
@@ -403,9 +613,10 @@ export default function Shell({ children, requireAuth }) {
                 style={{
                   background: health?.ok ? "var(--ok)" : "var(--danger)",
                   boxShadow: `0 0 12px ${health?.ok ? "var(--ok)" : "var(--danger)"}`,
+                  marginRight: collapsed ? 0 : 8,
                 }}
               />
-              api {health?.ok ? "online" : "offline"}
+              {!collapsed && `api ${health?.ok ? "online" : "offline"}`}
             </div>
           </div>
         </aside>
