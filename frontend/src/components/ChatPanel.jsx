@@ -224,7 +224,23 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
               }}
             >
               {m.content}
-              {m.streaming && (
+              {m.streaming && !m.content && (
+                <span
+                  data-testid="chat-thinking"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    color: "var(--text-faint)",
+                    fontStyle: "italic",
+                    fontSize: 13,
+                  }}
+                >
+                  <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+                  thinking…
+                </span>
+              )}
+              {m.streaming && m.content && (
                 <span
                   data-testid="chat-cursor"
                   style={{

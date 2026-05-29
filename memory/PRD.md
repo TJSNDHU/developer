@@ -3,88 +3,55 @@
 ## Original Problem Statement
 User uploaded `aurem-dev.zip` + `EMERGENT_PROMPT.md`. Goal: make the **AUREM Dev** developer platform fully working, production-ready, and runnable.
 
-Stack expected per prompt:
+Stack:
 - Backend: FastAPI on :8001 with `/api/aurem-dev/*` route prefix
-- Frontend: React + Vite on :3001 (adapted to **:3000** for the Emergent supervisor environment)
-- DB: MongoDB (used local mongo on 27017 instead of the Atlas URL from the prompt since the pod can't reach external clusters)
-- LLM chat: Groq → OpenRouter → Emergent fallback (only Emergent universal key configured)
+- Frontend: React + Vite on :3000 (adapted for the Emergent supervisor)
+- DB: local MongoDB on 27017
+- LLM chat: Groq → OpenRouter → Emergent fallback (Emergent universal key wired; others left blank)
 
-## Architecture (delivered)
-```
-/app
-├── backend/                            FastAPI app
-│   ├── main.py                         load_dotenv → wire 13 routers under /api/aurem-dev
-│   ├── server.py                       supervisor shim (from main import app)
-│   ├── routers/
-│   │   ├── auth.py                     signup / login / me  ← NEW
-│   │   ├── chat.py                     send / history       ← NEW (Emergent LLM)
-│   │   └── (deploy, vault, stacks, domain, github_bot,
-│   │        harden, trust, chat_commits, engagement,
-│   │        unlock, projects)          relative imports patched to cto_services.*
-│   ├── cto_services/                   auth (JWT HS256), db (handle), crypto, stacks, codebase_indexer
-│   ├── services/                       llm (lazy env), orchestrator, project_generator,
-│   │                                   github_auto, mongo_provisioner, tools_bridge
-│   ├── shared/                         memory_tiers, security/hmac, providers, etc. (unchanged)
-│   └── templates/stacks/               react-fastapi, nextjs-node, vue-express, plain-html
-├── frontend/                           React 18 + Vite 5 + Tailwind
-│   ├── vite.config.js                  port 3000, /api proxy → backend, REACT_APP_BACKEND_URL define
-│   ├── src/
-│   │   ├── App.jsx                     10 routes (Landing, Login, Signup, Dashboard, Deploy, …)
-│   │   ├── lib/api.js                  axios instance + Bearer interceptor + getUser/setUser
-│   │   ├── components/
-│   │   │   ├── Shell.jsx               sidebar nav + api-online pill + user card + logout
-│   │   │   └── ChatPanel.jsx           message thread + /chat/send caller
-│   │   ├── pages/Landing.jsx           hero — "Build with an autonomous CTO"
-│   │   ├── pages/Login.jsx             POST /auth/login
-│   │   ├── pages/Signup.jsx            POST /auth/signup
-│   │   ├── pages/Dashboard.jsx         chat panel (requires auth)
-│   │   ├── pages/Deploy.jsx            GET/POST /deploy/config + /deploy/run + history
-│   │   ├── pages/Database.jsx          POST /projects/create (provisions Mongo DB)
-│   │   ├── pages/Domain.jsx            GET/POST /domain/config + verify DNS
-│   │   ├── pages/Tokens.jsx            GET /auth/me + /streak/me
-│   │   ├── pages/Analytics.jsx         GET /trust/uptime + /trust/deploy-count
-│   │   └── pages/Settings.jsx          profile + GitHub status + vault audit-log
-│   └── index.html                      title "AUREM Dev — Sovereign CTO"
-├── infra/                              docker-compose + outbox worker (kept for self-host)
-└── memory/                             PRD.md + test_credentials.md
-```
+## Implemented Iterations
 
-## Key Implementation Notes
-- **load_dotenv ordering**: Moved BEFORE router imports — fixes services/llm.py reading `os.getenv` at import time.
-- **Relative imports**: Routers' `from ..services.auth/db/crypto/stacks` → `from cto_services.auth/db/…` (the original aurem-dev zip referenced a host-app layout that doesn't exist here).
-- **Chat fallback chain**: `_groq_key()`, `_openrouter_key()`, `_emergent_key()` lazy-read so providers can be enabled later without restart.
-- **`tools_bridge` upstream**: Calls `https://aurem.live/api/ora-tools/list` (returns 401 — no upstream JWT). Falls through cleanly with empty tool catalog.
-- **JWT**: HS256, 30-day expiry, secret in `.env`.
-- **Frontend env**: Vite reads `REACT_APP_BACKEND_URL` and exposes it via `define` so legacy `process.env.REACT_APP_BACKEND_URL` works.
+### Iter 1 — MVP (2026-01-29)
+- Adapted aurem-dev zip to supervisor: ports 3000/8001, `server.py` shim for uvicorn
+- New `routers/auth.py` (signup / login / me — JWT HS256, 30-day expiry)
+- New `routers/chat.py` (send / history)
+- Fixed `cto_services/auth.py` + `db.py` (proper JWT verifier, `get_db()`)
+- Patched all routers' broken relative imports `..services.*` → `cto_services.*`
+- Moved `load_dotenv()` before router imports, lazy-read env in `services/llm.py`
+- Frontend rewritten: clean Cinzel + Jost + JetBrains-Mono dark amber aesthetic
+- Pages: Landing, Login, Signup, Dashboard, Deploy, Database, Domain, Tokens, Analytics, Settings
+- Result: 10/10 backend pytest pass, full Playwright E2E pass
 
-## Implemented (2026-01-29)
-- ✅ Backend boots, MongoDB connects (local), 13 routers wired
-- ✅ JWT auth signup / login / me end-to-end
-- ✅ Chat via Emergent universal key (Claude sonnet 4.5)
-- ✅ Frontend Landing / Login / Signup / Dashboard (chat) / Deploy / Database / Domain / Tokens / Analytics / Settings
-- ✅ Dark sodium-amber aesthetic (Cinzel serif, JetBrains Mono accents, Jost body)
-- ✅ Health-pill sidebar status + logout
-- ✅ E2E: 10/10 pytest backend tests pass; full Playwright UI flow passes
-- ✅ Test user seeded (`test@aurem.dev` / `testpass123`)
+### Iter 2 — Chat sessions + SSE streaming (2026-01-29)
+- `routers/chat.py` expanded to 5 endpoints:
+  - `POST /send` — now persists turns to `db.chat_sessions`
+  - `POST /stream` — SSE token streaming via FastAPI `StreamingResponse` with `text/event-stream`. Emits `data: {meta}` → `data: {token}` → `data: {done}`. Persists on completion.
+  - `GET /history?session_id=X` — last 20 turns for current user
+  - `GET /sessions` — list of sessions sorted by `updated_at` desc
+  - `DELETE /sessions/{id}` — remove session
+- Frontend `lib/api.js`: added `newSessionId()` (uses crypto.randomUUID()) and `streamChat()` (fetch + ReadableStream SSE parser)
+- Frontend `Shell.jsx`: `SessionCtx` provider, "Recent Chats" sidebar section, new-chat (+) button, delete-session trash icon, active session highlighted, localStorage key `aurem_active_session` for refresh persistence
+- Frontend `ChatPanel.jsx`: loads `/chat/history` on session change, streams via `streamChat()` with token-by-token cursor, Stop button via AbortController, "thinking…" indicator during pre-token latency
+- Cross-user isolation verified (User B can't read/delete User A's sessions)
+- Result: 10/10 new pytest + 10/10 regression + full Playwright E2E pass
 
 ## Backlog (P1)
-- Wire `GROQ_API_KEY` + `OPENROUTER_API_KEY` for redundant LLM ladder
-- GitHub OAuth — currently `GITHUB_TOKEN` is blank; `projects/create` GitHub push will fail gracefully
-- Cloudflare tunnel + outbox worker (`infra/outbox/`) — Docker-compose pieces kept for self-hosted runs
-- Streaming chat endpoint (currently non-streaming `/send`); SSE / WebSocket variant for token-by-token UI
-- Session memory persistence in MongoDB (orchestrator supports it; chat router not yet passing `mongo_client`)
-- Real DNS verification implementation (`/domain/verification/{domain}` currently uses stub)
+- Wire `GROQ_API_KEY` + `OPENROUTER_API_KEY` for 3-provider LLM ladder
+- True per-token streaming from provider (currently full response → chunked SSE)
+- GitHub OAuth — `GITHUB_TOKEN` blank; `projects/create` GitHub push fails gracefully
+- Real DNS verification implementation (currently stub)
 
 ## Backlog (P2)
 - ProjectWorkspace (file tree + AI code edits) UI
 - Save-to-GitHub one-click flow
 - Token wallet refill cron + Stripe billing
 - Audit log viewer with filtering
+- Cloudflare tunnel + outbox worker (`infra/outbox/`) — kept for self-host
 
-## Test Status
-- Backend pytest: 10/10 ✅ (`/app/backend/tests/test_aurem_backend.py`)
-- Frontend Playwright: full flow ✅ (landing → signup → dashboard chat → all nav → logout)
-- Report: `/app/test_reports/iteration_1.json`
+## Test Files
+- `/app/backend/tests/test_aurem_backend.py` — iter1 (health, auth, /chat/send, stacks)
+- `/app/backend/tests/test_aurem_chat_persistence.py` — iter2 (history, sessions, delete, SSE, isolation)
+- Reports: `/app/test_reports/iteration_1.json`, `/app/test_reports/iteration_2.json`
 
 ## Credentials
-See `/app/memory/test_credentials.md`
+See `/app/memory/test_credentials.md`.
