@@ -51,7 +51,7 @@ async def call_llm(messages: list, system: str = "",
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://aurem.dev",
+        "HTTP-Referer": os.getenv("APP_URL", "https://aurem.dev"),
         "X-Title": "AUREM Dev",
         "X-No-Cache": "true",
     }
