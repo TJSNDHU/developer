@@ -621,7 +621,13 @@ export default function Shell({ children, requireAuth }) {
           </div>
         </aside>
 
-        <main data-testid="app-main" style={{ padding: "40px 56px", minWidth: 0 }}>
+        <main
+          data-testid="app-main"
+          style={{
+            padding: location.pathname === "/dashboard" ? 0 : "40px 56px",
+            minWidth: 0,
+          }}
+        >
           {children}
         </main>
       </div>

@@ -148,11 +148,9 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: "calc(100vh - 200px)",
-        minHeight: 480,
+        height: "100vh",
         background: "var(--panel)",
-        border: "1px solid var(--border)",
-        borderRadius: 6,
+        borderLeft: "1px solid var(--border)",
         overflow: "hidden",
       }}
     >
