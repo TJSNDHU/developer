@@ -2,6 +2,7 @@
 routers/chat.py — AUREM Dev
 AI chat endpoints: send (sync), stream (SSE), history, sessions.
 All messages persisted to db.chat_sessions per user.
+First assistant reply triggers a background title-summarization.
 """
 from __future__ import annotations
 import asyncio
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
+from services.llm import call_llm_with_meta
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -26,6 +28,64 @@ class ChatBody(BaseModel):
     prompt: str
     session_id: Optional[str] = None
     max_tool_iters: int = 2
+
+
+_TITLE_SYSTEM = (
+    "You generate ultra-short chat titles. Reply with 3 to 5 words in Title "
+    "Case, no punctuation, no quotes, no trailing period. Just the title, "
+    "nothing else."
+)
+
+
+async def _generate_title(first_user_msg: str) -> str:
+    """Ask the LLM to summarize the first user message in 3-5 words.
+    Returns "" on any failure so the caller can fall back to last_message."""
+    try:
+        prompt = (
+            "Summarize this chat in 3 to 5 words, Title Case, no "
+            f"punctuation:\n\n{first_user_msg.strip()[:500]}"
+        )
+        meta = await call_llm_with_meta(_TITLE_SYSTEM, prompt, max_tokens=24)
+        title = (meta.get("content") or "").strip()
+        title = title.strip("\"'`").rstrip(".!?").strip()
+        if not title:
+            return ""
+        if len(title) > 60:
+            title = title[:57].rstrip() + "…"
+        return title
+    except Exception as e:
+        logger.warning(f"title generation failed: {e!r}")
+        return ""
+
+
+async def _maybe_set_title(user_id: str, session_id: str,
+                            first_user_msg: str) -> None:
+    """If this session has no title yet, generate one and store it.
+    Safe to call as a background task (fire-and-forget)."""
+    db = get_db()
+    if db is None or not session_id:
+        return
+    try:
+        doc = await db.chat_sessions.find_one(
+            {"session_id": session_id, "user_id": user_id},
+            {"_id": 0, "title": 1, "turns": 1},
+        )
+        if not doc:
+            return
+        if doc.get("title"):
+            return
+        if len(doc.get("turns") or []) < 2:
+            return
+        title = await _generate_title(first_user_msg)
+        if not title:
+            return
+        await db.chat_sessions.update_one(
+            {"session_id": session_id, "user_id": user_id},
+            {"$set": {"title": title}},
+        )
+        logger.info(f"titled session {session_id[:8]}…: {title!r}")
+    except Exception as e:
+        logger.warning(f"_maybe_set_title failed: {e!r}")
 
 
 async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
@@ -85,6 +145,10 @@ async def chat_send(
     provider = result.get("provider", "") or ""
     await _persist_turn(user["user_id"], body.session_id or "",
                         body.prompt, content, provider)
+    if body.session_id:
+        asyncio.create_task(
+            _maybe_set_title(user["user_id"], body.session_id, body.prompt)
+        )
     return {
         "ok": result.get("ok", True),
         "content": content,
@@ -100,16 +164,13 @@ async def chat_stream(
     body: ChatBody,
     authorization: Optional[str] = Header(None),
 ):
-    """SSE token-streaming chat. Emits `data: {"token":"..."}` per chunk
-    then `data: {"done":true,"provider":"..."}`. Persists final turn."""
+    """SSE token-streaming chat. Emits meta → token(×N) → done frames.
+    Persists final turn and triggers background title generation."""
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 
     async def gen():
-        # Compute full response first (orchestrator + tool loop are not
-        # token-streamable today). Then chunk it back as SSE so the UI
-        # gets the live-typing UX without coupling to provider streams.
         try:
             result = await chat_with_tools(
                 prompt=body.prompt,
@@ -126,11 +187,9 @@ async def chat_stream(
         content = result.get("content", "") or ""
         provider = result.get("provider", "") or ""
 
-        # Emit session_id + provider first so the client can pin them
         meta = {"meta": True, "session_id": body.session_id, "provider": provider}
         yield f"data: {json.dumps(meta)}\n\n"
 
-        # Stream content in ~6-char chunks at ~15ms cadence
         CHUNK = 6
         i = 0
         while i < len(content):
@@ -139,9 +198,13 @@ async def chat_stream(
             i += CHUNK
             await asyncio.sleep(0.012)
 
-        # Persist + done
         await _persist_turn(user_id, body.session_id or "",
                             body.prompt, content, provider)
+        if body.session_id:
+            asyncio.create_task(
+                _maybe_set_title(user_id, body.session_id, body.prompt)
+            )
+
         done_payload = {
             "done": True,
             "provider": provider,
@@ -172,10 +235,15 @@ async def chat_history(
         return {"ok": True, "messages": [], "session_id": session_id}
     doc = await db.chat_sessions.find_one(
         {"session_id": session_id, "user_id": user["user_id"]},
-        {"_id": 0, "turns": 1},
+        {"_id": 0, "turns": 1, "title": 1},
     )
     turns = ((doc or {}).get("turns") or [])[-20:]
-    return {"ok": True, "messages": turns, "session_id": session_id}
+    return {
+        "ok": True,
+        "messages": turns,
+        "session_id": session_id,
+        "title": (doc or {}).get("title", ""),
+    }
 
 
 @router.get("/sessions")
@@ -189,7 +257,10 @@ async def chat_sessions_list(
         return {"ok": True, "sessions": []}
     cursor = db.chat_sessions.find(
         {"user_id": user["user_id"]},
-        {"_id": 0, "session_id": 1, "last_message": 1, "updated_at": 1, "created_at": 1},
+        {
+            "_id": 0, "session_id": 1, "title": 1,
+            "last_message": 1, "updated_at": 1, "created_at": 1,
+        },
     ).sort("updated_at", -1).limit(20)
     sessions = await cursor.to_list(length=20)
     return {"ok": True, "sessions": sessions}

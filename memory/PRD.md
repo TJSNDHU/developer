@@ -35,8 +35,21 @@ Stack:
 - Cross-user isolation verified (User B can't read/delete User A's sessions)
 - Result: 10/10 new pytest + 10/10 regression + full Playwright E2E pass
 
-## Backlog (P1)
-- Wire `GROQ_API_KEY` + `OPENROUTER_API_KEY` for 3-provider LLM ladder
+### Iter 4 — OpenRouter → DeepSeek-V3 only (2026-01-29)
+- `services/llm.py` rewritten as a single-provider gateway. Drops Groq + Emergent + OpenRouter-Claude. All traffic now goes to **`deepseek/deepseek-chat`** (DeepSeek V3) via OpenRouter.
+- Privacy directives in every payload: `data_collection: "deny"`, `allow_fallbacks: false`, `order: ["deepseek","streamlake","deepinfra","novita"]`. OpenRouter enforces `data_collection: deny` across all routed providers — no host stores or trains on traffic.
+- Headers: `X-No-Cache: true`, `HTTP-Referer: https://aurem.dev`, `X-Title: AUREM Dev`.
+- If OpenRouter is unreachable, `call_llm_with_meta` returns `{ok:false, error:"LLM unavailable: ..."}` — **never** silently routes to Emergent / Groq / Anthropic.
+- New file `/app/backend/tests/test_llm_provider.py` — **5/5 pass**: payload-privacy assertions, success path returns provider="deepseek", 5xx error path returns ok=False, network error path returns ok=False, missing API key raises.
+- Side note: OpenRouter does not expose DeepSeek's first-party endpoint for this account — the privacy-compliant V3 hosts available are streamlake / deepinfra / novita. All three are bound by the same `data_collection: deny` directive so the privacy posture is preserved.
+
+### Iter 3 — Session titles (2026-01-29)
+- Added `_generate_title()` + `_maybe_set_title()` in `routers/chat.py`. After first user/assistant turn, fires a background `asyncio.create_task` that asks the LLM to summarize the prompt in 3-5 words Title Case (no punctuation), stores it as `session.title`.
+- Idempotent: re-runs no-op if title already present or turns < 2.
+- Updated `GET /chat/sessions` + `GET /chat/history` to return `title` field.
+- Frontend `Shell.jsx` sidebar renders `title || last_message || "Untitled"` with bolder font weight when title is set.
+- `ChatPanel.jsx` schedules a second `onTurnSaved()` ~2.8s after stream done so the sidebar picks up the freshly-generated title without a reload.
+- Verified: "Help me design a Stripe checkout flow for my SaaS" → titled "Stripe Checkout Flow Design".
 - True per-token streaming from provider (currently full response → chunked SSE)
 - GitHub OAuth — `GITHUB_TOKEN` blank; `projects/create` GitHub push fails gracefully
 - Real DNS verification implementation (currently stub)

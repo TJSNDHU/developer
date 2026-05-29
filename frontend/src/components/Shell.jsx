@@ -277,6 +277,10 @@ export default function Shell({ children, requireAuth }) {
                 )}
                 {sessions.map((s) => {
                   const active = s.session_id === sessionId;
+                  const label = (s.title && s.title.trim()) ||
+                                 s.last_message ||
+                                 "Untitled";
+                  const display = label.length > 40 ? label.slice(0, 40) + "…" : label;
                   return (
                     <div
                       key={s.session_id}
@@ -314,14 +318,11 @@ export default function Shell({ children, requireAuth }) {
                           whiteSpace: "nowrap",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
+                          fontWeight: s.title ? 500 : 400,
                         }}
-                        title={s.last_message || s.session_id}
+                        title={label}
                       >
-                        {s.last_message
-                          ? s.last_message.length > 40
-                            ? s.last_message.slice(0, 40) + "…"
-                            : s.last_message
-                          : "Untitled"}
+                        {display}
                       </span>
                       <button
                         data-testid={`delete-session-${s.session_id}`}

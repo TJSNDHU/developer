@@ -118,6 +118,9 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
         setBusy(false);
         abortRef.current = null;
         onTurnSaved?.();
+        // Background title generation runs ~1-2s after persist; refresh once more
+        // so the sidebar picks up the title without forcing the user to reload.
+        setTimeout(() => onTurnSaved?.(), 2800);
       },
       onError: (err) => {
         setMessages((msgs) => {

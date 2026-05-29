@@ -1,192 +1,116 @@
 """
-Direct LLM gateway for aurem-cto — NO emergentintegrations dep.
-Groq primary (with retry-on-429), OpenRouter + Emergent fallback.
+services/llm.py — AUREM Dev
+Single-provider LLM gateway: OpenRouter → DeepSeek V3 only.
+
+Privacy posture:
+  - data_collection: deny  — OpenRouter enforces this across every provider
+    in the routing pool, so no host stores/trains on user traffic.
+  - allow_fallbacks: false — never silently routes to a non-DeepSeek model.
+
+Note on `provider.order`: OpenRouter does not currently expose DeepSeek's
+first-party endpoint for this account; the privacy-compliant DeepSeek-V3
+hosts available are streamlake / deepinfra / novita. They are all bound by
+`data_collection: deny`. We allow OpenRouter to pick the cheapest of the
+three; `allow_fallbacks: false` still pins us to the DeepSeek-V3 *model*.
+
+If OpenRouter is unreachable we return ok=False — we never fall back to
+Emergent / Anthropic / Groq. Surface AI downtime to the user, don't mask it.
 """
-import asyncio
+from __future__ import annotations
 import os
-import httpx
 import logging
 from typing import Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Emergent universal key is served via the emergentintegrations Python SDK,
-# not a public HTTP endpoint. We attempt to use the SDK if installed.
+
+# Providers that host DeepSeek-V3 with data-collection compliant terms.
+# OpenRouter will pick the best within this set; if none accept
+# data_collection=deny we surface a 404.
+_DEEPSEEK_HOSTS = ["deepseek", "streamlake", "deepinfra", "novita"]
 
 
-def _groq_key():
-    return os.getenv("GROQ_API_KEY")
+def _api_key() -> str:
+    return os.getenv("OPENROUTER_API_KEY", "")
 
 
-def _openrouter_key():
-    return os.getenv("OPENROUTER_API_KEY")
+def _model() -> str:
+    return os.getenv("LLM_MODEL", "deepseek/deepseek-chat")
 
 
-def _emergent_key():
-    return os.getenv("EMERGENT_LLM_KEY")
+async def call_llm(messages: list, system: str = "",
+                   max_tokens: int = 4000) -> str:
+    """Direct OpenRouter → DeepSeek-V3 call. Returns assistant content.
+    Raises on any non-2xx so the caller knows AI is down."""
+    api_key = _api_key()
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set")
 
-
-async def call_groq(system: str, user: str, max_tokens: int = 1200,
-                     max_retries: int = 2) -> Optional[str]:
-    """Call Groq llama-3.3-70b-versatile with retry-on-429."""
-    GROQ_API_KEY = _groq_key()
-    if not GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY not set")
-        return None
-
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://aurem.dev",
+        "X-Title": "AUREM Dev",
+        "X-No-Cache": "true",
+    }
+    msgs = ([{"role": "system", "content": system}] + messages) if system else messages
     payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
+        "model": _model(),
+        "messages": msgs,
         "max_tokens": max_tokens,
         "temperature": 0.7,
+        "provider": {
+            "data_collection": "deny",
+            "order": _DEEPSEEK_HOSTS,
+            "allow_fallbacks": False,
+        },
     }
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    backoffs = [1.0, 3.0]
-    for attempt in range(max_retries + 1):
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(GROQ_URL, json=payload, headers=headers)
-                if resp.status_code == 429 and attempt < max_retries:
-                    wait_s = backoffs[attempt] if attempt < len(backoffs) else 5.0
-                    logger.warning(
-                        f"Groq 429 (attempt {attempt+1}/{max_retries+1}) — "
-                        f"sleeping {wait_s}s and retrying"
-                    )
-                    await asyncio.sleep(wait_s)
-                    continue
-                resp.raise_for_status()
-                data = resp.json()
-                return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            if attempt >= max_retries:
-                logger.error(f"Groq call failed after {attempt+1} attempts: {e}")
-                return None
-            logger.warning(f"Groq attempt {attempt+1} raised {e!r}, retrying")
-            await asyncio.sleep(1.0)
-    return None
-
-
-async def call_openrouter(system: str, user: str, max_tokens: int = 1200) -> Optional[str]:
-    """Call OpenRouter claude-3.5-haiku. Returns content or None on failure."""
-    OPENROUTER_API_KEY = _openrouter_key()
-    if not OPENROUTER_API_KEY:
-        logger.warning("OPENROUTER_API_KEY not set")
-        return None
-    
-    payload = {
-        "model": "anthropic/claude-3.5-haiku",
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user}
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.7
-    }
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://aurem.live",
-        "X-Title": "AUREM CTO"
-    }
-    
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
+        r.raise_for_status()
+        data = r.json()
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.error(f"OpenRouter call failed: {e}")
-        return None
+        return data["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"OpenRouter returned malformed response: {e}: {data!r}")
 
 
-async def call_emergent(system: str, user: str, max_tokens: int = 1200) -> Optional[str]:
-    """Call Emergent universal key via emergentintegrations SDK."""
-    EMERGENT_LLM_KEY = _emergent_key()
-    if not EMERGENT_LLM_KEY:
-        logger.warning("EMERGENT_LLM_KEY not set")
-        return None
+async def call_llm_with_meta(system: str, user: str,
+                              max_tokens: int = 1500) -> dict:
+    """Orchestrator-facing entry point.
+    Returns {ok, provider, content, fallback_chain} so existing callers keep
+    working unchanged. provider is hard-coded to 'deepseek' on success."""
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
-    except ImportError:
-        logger.warning("emergentintegrations not installed — skip Emergent fallback")
-        return None
-    try:
-        import uuid as _uuid
-        sid = f"cto-{_uuid.uuid4().hex[:12]}"
-        chat = (
-            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=sid, system_message=system)
-            .with_model("anthropic", "claude-sonnet-4-5-20250929")
+        content = await call_llm(
+            messages=[{"role": "user", "content": user}],
+            system=system,
+            max_tokens=max_tokens,
         )
-        try:
-            chat = chat.with_max_tokens(max_tokens)
-        except Exception:
-            pass
-        resp = await asyncio.wait_for(
-            chat.send_message(UserMessage(text=user)),
-            timeout=30.0,
+        return {
+            "ok": True,
+            "provider": "deepseek",
+            "content": content,
+            "fallback_chain": ["deepseek"],
+        }
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"OpenRouter HTTP {e.response.status_code}: {e.response.text[:300]}"
         )
-        if isinstance(resp, str) and resp.strip():
-            return resp.strip()
-        return None
+        return {
+            "ok": False,
+            "provider": None,
+            "content": "",
+            "fallback_chain": ["deepseek"],
+            "error": f"LLM unavailable (HTTP {e.response.status_code})",
+        }
     except Exception as e:
-        logger.error(f"Emergent call failed: {e}")
-        return None
-
-
-async def call_llm_with_meta(system: str, user: str, max_tokens: int = 1200) -> dict:
-    """
-    Try groq → openrouter → emergent in order.
-    Returns {ok, provider, content, fallback_chain}.
-    """
-    fallback_chain = []
-    
-    # Try Groq
-    fallback_chain.append("groq")
-    content = await call_groq(system, user, max_tokens)
-    if content:
+        logger.error(f"OpenRouter call failed: {e!r}")
         return {
-            "ok": True,
-            "provider": "groq",
-            "content": content,
-            "fallback_chain": fallback_chain
+            "ok": False,
+            "provider": None,
+            "content": "",
+            "fallback_chain": ["deepseek"],
+            "error": f"LLM unavailable: {e}",
         }
-    
-    # Try OpenRouter
-    fallback_chain.append("openrouter")
-    content = await call_openrouter(system, user, max_tokens)
-    if content:
-        return {
-            "ok": True,
-            "provider": "openrouter",
-            "content": content,
-            "fallback_chain": fallback_chain
-        }
-    
-    # Try Emergent
-    fallback_chain.append("emergent")
-    content = await call_emergent(system, user, max_tokens)
-    if content:
-        return {
-            "ok": True,
-            "provider": "emergent",
-            "content": content,
-            "fallback_chain": fallback_chain
-        }
-    
-    # All failed
-    return {
-        "ok": False,
-        "provider": None,
-        "content": None,
-        "fallback_chain": fallback_chain
-    }
