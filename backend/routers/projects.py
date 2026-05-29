@@ -8,16 +8,21 @@ E2E project creation router:
       → return {project_id, repo_url, db_conn, files}
 """
 from __future__ import annotations
+import json as _json
 import logging
+import time as _t
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from cto_services.auth import current_dev
+from cto_services.db import get_db
 from services.project_generator import generate_project, get_project_files
 from services.github_auto import create_and_push
 from services.mongo_provisioner import provision_project_db
+from services.doc_generator import generate_all_docs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["AUREM Dev Projects"])
@@ -106,6 +111,69 @@ async def get_files(
 ) -> dict:
     """Get all generated files for a project."""
     await current_dev(authorization)
+
+
+# ── Two-phase build: plan → review → build ─────────────────────────────
+
+@router.post("/plan")
+async def plan_project(
+    body: CreateProjectBody,
+    authorization: str = Header(None),
+) -> dict:
+    """Phase 1: Generate the 6-doc plan. User reviews before building."""
+    await current_dev(authorization)
+    docs = await generate_all_docs(body.idea)
+    db = get_db()
+    plan_id = uuid.uuid4().hex[:10]
+    if db is not None:
+        await db.project_plans.insert_one({
+            "plan_id": plan_id,
+            "idea": body.idea,
+            "stack_id": body.stack_id,
+            "docs": docs,
+            "status": "pending_review",
+            "created_at": _t.time(),
+        })
+    return {
+        "ok": True,
+        "plan_id": plan_id,
+        "docs": docs,
+        "next": f"POST /api/aurem-dev/projects/build/{plan_id}",
+    }
+
+
+@router.post("/build/{plan_id}")
+async def build_from_plan(
+    plan_id: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Phase 2: Build project from a reviewed plan."""
+    await current_dev(authorization)
+    db = get_db()
+    plan = None
+    if db is not None:
+        plan = await db.project_plans.find_one({"plan_id": plan_id}, {"_id": 0})
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+
+    docs_context = "\n\n".join([
+        f"## {v['name']}\n{_json.dumps(v['data'], indent=2)}"
+        for v in (plan.get("docs") or {}).values() if v.get("ok")
+    ])
+    enriched = f"{plan['idea']}\n\nFollow these specs exactly:\n{docs_context[:3000]}"
+
+    gen = await generate_project(enriched, plan.get("stack_id", "react-fastapi"))
+    if db is not None:
+        await db.project_plans.update_one(
+            {"plan_id": plan_id},
+            {"$set": {
+                "status": "built",
+                "project_id": gen.get("project_id"),
+                "built_at": _t.time(),
+            }},
+        )
+    return {**gen, "plan_id": plan_id}
+
     files = await get_project_files(project_id)
     if not files:
         raise HTTPException(404, "Project not found")

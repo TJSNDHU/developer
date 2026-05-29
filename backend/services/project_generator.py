@@ -52,7 +52,7 @@ async def generate_project(
     max_tokens: int = 8000,
 ) -> dict:
     """Generate a full project from an idea. Returns project_id + files."""
-    from services.llm_gateway import call_llm
+    from services.llm import call_llm
 
     project_id = uuid.uuid4().hex[:10]
     logger.info(f"[generator] project_id={project_id} stack={stack_id} idea={idea[:60]}")
@@ -65,10 +65,11 @@ async def generate_project(
 
     try:
         raw = await call_llm(
+            messages=[{"role": "user", "content": prompt}],
             system=SYSTEM_PROMPT,
-            user=prompt,
             max_tokens=max_tokens,
-            json_mode=True,
+            temperature=0.0,
+            mode="code",
         )
         data = json.loads(raw)
     except Exception as e:
