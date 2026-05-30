@@ -20,6 +20,7 @@ from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
 from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 from services.repo_context import get_repo_context
+from services.url_fetcher import build_url_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -175,10 +176,12 @@ async def chat_send(
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     repo_ctx = await get_repo_context(user["user_id"], body.project_id or "")
+    url_ctx = await build_url_context(body.prompt)
+    extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
     result = await chat_with_tools(
         prompt=body.prompt,
         jwt_token=jwt_token,
-        system=(repo_ctx + "\n\n" if repo_ctx else None),
+        system=(extra_sys + "\n\n" if extra_sys else None),
         max_iters=min(body.max_tool_iters, 6),
         session_id=body.session_id,
         mongo_client=None,
@@ -228,13 +231,15 @@ async def chat_stream(
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
     repo_ctx = await get_repo_context(user_id, body.project_id or "")
+    url_ctx = await build_url_context(body.prompt)
+    extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
 
     async def gen():
         try:
             result = await chat_with_tools(
                 prompt=body.prompt,
                 jwt_token=jwt_token,
-                system=(repo_ctx + "\n\n" if repo_ctx else None),
+                system=(extra_sys + "\n\n" if extra_sys else None),
                 max_iters=min(body.max_tool_iters, 6),
                 session_id=body.session_id,
                 mongo_client=None,

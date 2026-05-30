@@ -47,6 +47,23 @@ Fixed by new `services/repo_context.py`:
 
 Verified end-to-end: asking "what's in my repo?" on a connected project now returns real file listings; "what does this project do?" returns content-aware answers based on the README.
 
+### Iter 8 — URL Fetching in Chat (May 2026)
+Bug: User asked AI to read a shared link → AI said "I can't access the internet". DeepSeek has no native browsing.
+
+Fixed by new `services/url_fetcher.py`:
+- Regex-extracts up to 5 URLs from the user's prompt
+- Parallel-fetches each (10s timeout, 6KB cap per URL, 20KB combined budget)
+- BeautifulSoup-strips HTML to readable text, prefers `<main>`/`<article>` over chrome
+- Passes through JSON / markdown / plain-text responses as-is
+- Captures page title separately
+- **SSRF guard**: blocks loopback / private / link-local / reserved IPs (`localhost`, `127.0.0.1`, `10.x`, etc.) so the bot can't be tricked into scanning internal infra
+- Failures (timeout/404/blocked) degrade gracefully — one bad URL doesn't break the others
+- Result is injected as system context alongside `repo_context` in `/chat/send` and `/chat/stream`
+
+Verified: passing `https://fastapi.tiangolo.com` to chat → AI returns accurate content-aware summary. 404 URL → reports cleanly. `http://localhost:8001` → blocked.
+
+`beautifulsoup4` added to `requirements.txt`.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
