@@ -36,6 +36,18 @@ const PREVIEW_KEY = "aurem_preview_open";
 
 const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
 
+// Detect HTML blob inside a message — either a fenced ```html block or a raw <html>/<div>
+function extractInlineHTML(text) {
+  if (!text) return null;
+  const m1 = text.match(/```html\n([\s\S]*?)```/i);
+  if (m1) return m1[1];
+  const m2 = text.match(/<html[\s\S]*<\/html>/i);
+  if (m2) return m2[0];
+  const m3 = text.match(/<!doctype html[\s\S]*<\/html>/i);
+  if (m3) return m3[0];
+  return null;
+}
+
 function extractCodeBlocks(content) {
   if (!content) return [];
   const blocks = [];
@@ -529,6 +541,27 @@ function MessageBubble({ idx, m, onRegenerate }) {
           whiteSpace: "pre-wrap", wordBreak: "break-word",
         }}>
           {m.content}
+          {/* Inline HTML preview directly inside the bubble (separate from side PreviewPanel) */}
+          {m.role === "assistant" && !m.streaming && (() => {
+            const html = extractInlineHTML(m.content);
+            return html ? (
+              <iframe
+                data-testid={`inline-html-${idx}`}
+                srcDoc={html}
+                sandbox="allow-scripts"
+                title="inline-preview"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  height: 360,
+                  marginTop: 12,
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  background: "white",
+                }}
+              />
+            ) : null;
+          })()}
           {m.streaming && !m.content && (
             <span data-testid="chat-thinking" style={{
               display: "inline-flex", alignItems: "center", gap: 8,

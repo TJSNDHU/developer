@@ -10,6 +10,7 @@ import Domain from "./pages/Domain";
 import Settings from "./pages/Settings";
 import Tokens from "./pages/Tokens";
 import Analytics from "./pages/Analytics";
+import Projects from "./pages/Projects";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/tokens" element={<Tokens />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/projects" element={<Projects />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

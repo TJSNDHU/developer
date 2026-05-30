@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { User, KeyRound, Github } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api, getUser } from "../lib/api";
+import GitHubCard from "../components/GitHubCard";
 
 export default function Settings() {
   const [me, setMe] = useState(getUser());
@@ -35,14 +36,7 @@ export default function Settings() {
           <Row k="tier" v={me?.tier || "free"} />
         </section>
 
-        <section className="card" data-testid="settings-github">
-          <h3 style={{ fontSize: 14, color: "var(--text)", margin: 0, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-            <Github size={14} /> GitHub integration
-          </h3>
-          <Row k="connected" v={github?.connected ? "yes" : "no"} />
-          <Row k="org" v={github?.org || "—"} />
-          <Row k="last sync" v={github?.last_sync || "—"} />
-        </section>
+        <GitHubCard />
 
         <section className="card" data-testid="settings-vault" style={{ gridColumn: "1 / -1" }}>
           <h3 style={{ fontSize: 14, color: "var(--text)", margin: 0, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>

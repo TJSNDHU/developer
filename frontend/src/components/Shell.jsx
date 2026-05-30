@@ -12,13 +12,14 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Rocket, Database, Globe, Settings as Cog,
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, FolderGit2,
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
 import TokenBell from "./TokenBell";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
+  { to: "/projects", label: "Projects", icon: FolderGit2, testid: "nav-projects" },
   { to: "/deploy", label: "Deploy", icon: Rocket, testid: "nav-deploy" },
   { to: "/database", label: "Database", icon: Database, testid: "nav-database" },
   { to: "/domain", label: "Domain", icon: Globe, testid: "nav-domain" },
