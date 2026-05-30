@@ -64,6 +64,19 @@ Verified: passing `https://fastapi.tiangolo.com` to chat → AI returns accurate
 
 `beautifulsoup4` added to `requirements.txt`.
 
+### Iter 9 — Clean Deployment Logs (May 2026)
+Production deploy logs were noisy with repeated `services.tools_bridge ERROR list_tools failed: Client error '401 Unauthorized' for url 'https://aurem.live/api/ora-tools/list'`.
+
+Cause: this deployment isn't paired with an `aurem.live` upstream account, so the optional tool catalog returns 401 on every chat call.
+
+Fixed in `services/tools_bridge.py`:
+- Downgraded expected 401/403/404 from ERROR → single INFO log
+- Added process-lifetime circuit breaker (`_upstream_giving_up`) — first 401 trips it, subsequent calls short-circuit without any HTTP traffic
+- New env var `DISABLE_UPSTREAM_TOOLS=1` to skip the call entirely from the start
+- Tightened `list_tools` timeout from 60s → 10s (it's optional, no reason to wait)
+
+Result: deployment logs are clean. Deployment agent confirmed the app is deployable (no actual blockers, just log noise).
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
