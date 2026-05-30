@@ -67,7 +67,7 @@ function estimateTokenCount(text) {
   return Math.ceil(text.split(/\s+/).filter(Boolean).length * 1.3);
 }
 
-export default function ChatPanel({ sessionId, onTurnSaved }) {
+export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -196,6 +196,10 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
     const text = input.trim();
     if (!text || busy || !sessionId) return;
     setInput("");
+    // Auto-augment prompt with active project context so the LLM stays scoped.
+    const finalPrompt = activeProject
+      ? `[Working on project: ${activeProject.name} — repo ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}]\n\n${text}`
+      : text;
     setMessages((m) => [
       ...m,
       { role: "user", content: text },
@@ -208,7 +212,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
     let providerSeen = "";
 
     await streamChat({
-      prompt: text,
+      prompt: finalPrompt,
       sessionId,
       maxToolIters: 2,
       maxxMode,
@@ -316,7 +320,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
       data-testid="chat-root"
       style={{
         display: "flex",
-        height: "100vh",
+        height: "100%",
         width: "100%",
         overflow: "hidden",
       }}
@@ -327,7 +331,7 @@ export default function ChatPanel({ sessionId, onTurnSaved }) {
           display: "flex", flexDirection: "column",
           flex: previewOpen ? "0 0 50%" : "1 1 auto",
           minWidth: 0,
-          height: "100vh",
+          height: "100%",
           background: "var(--panel)",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
