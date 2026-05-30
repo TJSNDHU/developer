@@ -35,6 +35,18 @@ Fixed all 5 user-reported bugs from message 414:
 - **BUG 5 — Chat history vanishing** (CRITICAL): Root cause was `_persist_turn` had a MongoDB WriteError 40 — `project_id` was being set in both `$setOnInsert` and `$set` simultaneously, causing every persist to fail silently. Fixed by moving `project_id` to `$setOnInsert` only, also added `project_id` to function signature and added new `/chat/sessions?project_id=X` filter to scope sidebar listing.
 - Verification: 12/12 new pytest + 20 prior tests pass on regression. Full Playwright E2E pass on 5 bug flows.
 
+### Iter 7 — Project-Aware Chat (May 2026)
+Bug: User on a project tab asked "scan my repo" and got "I don't have access" — the chat had project NAME injected but no real file context.
+
+Fixed by new `services/repo_context.py`:
+- Fetches GitHub recursive tree via `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
+- Inlines up to 10 priority files (README, package.json, requirements.txt, entry points, configs) capped at 15KB total
+- Injects as system prompt in `chat_with_tools` for both `/chat/send` and `/chat/stream`
+- 30-minute Mongo cache (`db.repo_contexts`) keyed by `project_id`, invalidated on PATCH (PAT/branch change)
+- Graceful 401/404 messaging when PAT bad or branch missing
+
+Verified end-to-end: asking "what's in my repo?" on a connected project now returns real file listings; "what does this project do?" returns content-aware answers based on the README.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

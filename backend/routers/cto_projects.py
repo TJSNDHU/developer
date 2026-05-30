@@ -124,6 +124,12 @@ async def update_project(
     )
     if r.matched_count == 0:
         raise HTTPException(404, "Project not found")
+    # PAT / branch changed → invalidate the cached repo context blob
+    try:
+        from services.repo_context import invalidate_repo_context
+        await invalidate_repo_context(project_id)
+    except Exception:
+        pass
     return {"ok": True, "updated_fields": list(updates.keys())}
 
 
