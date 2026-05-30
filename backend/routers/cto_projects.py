@@ -100,6 +100,33 @@ async def remove_project(project_id: str, authorization: str = Header(None)) -> 
     return {"ok": True, "deleted": r.deleted_count}
 
 
+class UpdateProject(BaseModel):
+    github_token: Optional[str] = None
+    branch: Optional[str] = None
+    tech_stack: Optional[str] = None
+
+
+@router.patch("/projects/{project_id}")
+async def update_project(
+    project_id: str,
+    body: UpdateProject,
+    authorization: str = Header(None),
+) -> dict:
+    """Update PAT / branch / tech stack of an existing project."""
+    me = await current_dev(authorization)
+    db = require_db()
+    updates = {k: v for k, v in body.model_dump().items() if v is not None and v != ""}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    r = await db.cto_projects.update_one(
+        {"project_id": project_id, "user_id": me["user_id"]},
+        {"$set": updates},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Project not found")
+    return {"ok": True, "updated_fields": list(updates.keys())}
+
+
 @router.post("/tasks/submit")
 async def submit_task(
     body: TaskBody,
