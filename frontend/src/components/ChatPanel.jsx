@@ -19,7 +19,8 @@ import {
   ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
-import { toast } from "./Toast";import SaveToGithubDialog from "./SaveToGithubDialog";
+import { toast } from "./Toast";
+import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
 import TemperatureBadge from "./TemperatureBadge";
 
@@ -148,6 +149,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             content: t.content,
             provider: t.provider,
             watchdog: t.watchdog,
+            feedback: t.feedback,
           })));
         }
       })
@@ -283,6 +285,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
         onTurnSaved?.();
         setTimeout(() => onTurnSaved?.(), 2800);
+        // Bug #3 — return cursor to the input after reply
+        setTimeout(() => taRef.current?.focus(), 80);
       },
       onError: (err) => {
         setMessages((msgs) => {

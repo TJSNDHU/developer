@@ -90,7 +90,12 @@ function Body() {
 
       <section style={{ minWidth: 0 }}>
         {active ? (
-          <ProjectDetail key={active.project_id} project={active} onRemoved={() => { setActive(null); refresh(); }} />
+          <ProjectDetail
+            key={active.project_id}
+            project={active}
+            onRemoved={() => { setActive(null); refresh(); }}
+            onChanged={refresh}
+          />
         ) : (
           <div className="card" data-testid="proj-empty" style={{ textAlign: "center", color: "var(--text-faint)", padding: 60 }}>
             <FolderGit2 size={28} style={{ opacity: 0.4, marginBottom: 10 }} />
@@ -289,7 +294,7 @@ function EditDialog({ project, onClose, onSaved }) {
   );
 }
 
-function ProjectDetail({ project, onRemoved }) {
+function ProjectDetail({ project, onRemoved, onChanged }) {
   const [task, setTask] = useState("");
   const [files, setFiles] = useState("");
   const [context, setContext] = useState("");
@@ -415,7 +420,7 @@ function ProjectDetail({ project, onRemoved }) {
         <EditDialog
           project={project}
           onClose={() => setShowEdit(false)}
-          onSaved={() => { setShowEdit(false); onRemoved(); }}
+          onSaved={() => { setShowEdit(false); onChanged?.(); }}
         />
       )}
     </div>

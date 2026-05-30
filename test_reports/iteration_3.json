@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 3: Full coverage of 5 P0 bugs (PAT save, edit save, chat-input autofocus, copy/like/dislike, chat history persistence + per-project filter). Backend: 12/12 new pytest pass + 100% regression (iter1+iter2 still green). Frontend Playwright: all 5 bug flows verified end-to-end on live preview URL. BUG 5 (critical chat persistence MongoDB conflict fix) confirmed: send→history returns 2 turns; per-project session filtering (home/p_xxx/no-filter) all working; history persists across page reload. BUG 4 feedback API persists vote into turns[idx].feedback. BUG 3 chat-input is document.activeElement after streaming completes. BUG 1 PAT stored on add, omitted from list response (no leak). Only one minor UI refresh issue spotted on BUG 2 (Edit save).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Projects → Edit save",
+        "issue": "PATCH succeeds (toast 'Project updated' appears, DB updated) but ProjectDetail panel still shows old branch (e.g. owner/ui-test@main) until manual refresh / re-click. Frontend appears to not re-fetch /cto/projects/list nor patch local state with new branch/tech_stack after save. Backend API is 100% correct.",
+        "affected_selectors": ["[data-testid='proj-edit-save']", "ProjectDetail branch text"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aurem_p0_bugs.py",
+    "/app/backend/tests/test_aurem_chat_persistence.py",
+    "/app/backend/tests/test_aurem_backend.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "MINOR: In Projects.jsx after proj-edit-save succeeds, refresh the project list (or merge updated fields into local state) so ProjectDetail shows the new branch / tech_stack immediately without page reload. Backend already returns {ok:true, updated_fields:[...]} — frontend just needs to call refresh()."
+  ],
+  "critical_code_review_comments": [
+    "chat.py /chat/feedback (line 369): set_field uses an f-string with turn_index from request body without type-validation; pydantic int coercion mitigates but consider asserting >= 0 to prevent negative indexes that MongoDB would silently accept as backward array access.",
+    "cto_projects.py /projects/add: github_token stored as plaintext in MongoDB. For production, this should be encrypted at rest (e.g. Fernet) before insert. Non-blocking for MVP.",
+    "cto_projects.py UpdateProject filters with `v is not None and v != ''` — good. Consider also stripping whitespace (e.g. branch=' ' would currently pass).",
+    "ChatPanel setTimeout focus (line ~287): works correctly per Playwright (document.activeElement === chat-input after done). No issue.",
+    "Projects.jsx EditDialog: after save the UI should optimistically update or call refresh — see action_item above.",
+    "Cosmetic from iter2 still present: api-pill flashes 'api offline' briefly on first mount."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_aurem_p0_bugs.py (new — 12 tests covering BUG 1/2/4/5)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 new P0 + regression on 20 prior tests)",
+    "frontend": "95% — all 5 bugs functionally pass; minor UI refresh issue on Edit"
+  },
+  "test_credentials": "test@aurem.dev / testpass123 (seeded)",
+  "seed_data_creation": "Created (and cleaned up via test_zzz_cleanup) one TEST_Proj project. Two transient projects p_filt_* and p_test_bug5 referenced only in chat_sessions (no cto_project doc). One UI project TEST_UI_1780183652 was created and NOT cleaned (UI test had no delete step) — safe to delete via API or UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three backend test files now: test_aurem_backend.py (iter1), test_aurem_chat_persistence.py (iter2), test_aurem_p0_bugs.py (iter3). All should pass on regression. Key testids: proj-add-btn, proj-name/url/pat/branch/tech, proj-add-submit, proj-edit, proj-edit-pat/branch/tech, proj-edit-save, chat-input, chat-send, chat-stop, copy-{idx}, thumbs-up-{idx}, thumbs-down-{idx}, session-row-{id}, new-chat-btn. Per-project chat: TabBar at top of /dashboard with Home + project tabs; localStorage key aurem_session_proj_{pid} or aurem_session_home. project_id='home' in /chat/sessions returns sessions where project_id is null or missing.",
+  "rca of the issue": "BUG 2 minor UI refresh issue: in Projects.jsx EditDialog onSubmit handler, after the PATCH api call succeeds, the parent component's projects state is not re-fetched. The 'Project updated' toast fires but `setProjects(...)` is never called with the new branch/tech_stack values. Fix: after `await api.patch(...)`, call the parent's `refresh()` callback (or update local state with the returned updated_fields). This is a one-line frontend change."
+}

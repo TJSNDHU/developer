@@ -117,8 +117,10 @@ async def _maybe_set_title(user_id: str, session_id: str,
 
 async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
                         assistant_reply: str, provider: str,
-                        watchdog: Optional[dict] = None) -> None:
-    """Append user+assistant turns to db.chat_sessions, capped at 40 turns."""
+                        watchdog: Optional[dict] = None,
+                        project_id: Optional[str] = None) -> None:
+    """Append user+assistant turns to db.chat_sessions, capped at 40 turns.
+    Tags the session with the project it belongs to (None == Home/global)."""
     db = get_db()
     if db is None or not session_id:
         return
@@ -130,19 +132,22 @@ async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
     }
     if watchdog:
         assistant_turn["watchdog"] = watchdog
+    set_on_insert = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "created_at": now,
+        "project_id": project_id,
+    }
+    set_fields = {
+        "updated_at": now,
+        "last_message": preview,
+    }
     try:
         await db.chat_sessions.update_one(
             {"session_id": session_id, "user_id": user_id},
             {
-                "$setOnInsert": {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "created_at": now,
-                },
-                "$set": {
-                    "updated_at": now,
-                    "last_message": preview,
-                },
+                "$setOnInsert": set_on_insert,
+                "$set": set_fields,
                 "$push": {
                     "turns": {
                         "$each": [
@@ -325,6 +330,8 @@ async def chat_sessions_list(
         return {"ok": True, "sessions": []}
     q = {"user_id": user["user_id"]}
     if project_id == "home":
+        # Home tab shows un-pinned sessions PLUS legacy sessions that have
+        # no project_id field at all (created before per-project chats).
         q["$or"] = [{"project_id": None}, {"project_id": {"$exists": False}}]
     elif project_id:
         q["project_id"] = project_id
