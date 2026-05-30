@@ -70,7 +70,7 @@ export function newSessionId() {
 
 /** SSE-style stream over fetch (we POST JSON, so EventSource won't work). */
 export async function streamChat({ prompt, sessionId, maxToolIters = 2,
-                                    maxxMode = false,
+                                    maxxMode = false, projectId = null,
                                     onMeta, onToken, onWatchdog, onWatchdogPending,
                                     onDone, onError, signal }) {
   const token = getToken();
@@ -85,6 +85,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       session_id: sessionId,
       max_tool_iters: maxToolIters,
       maxx_mode: maxxMode,
+      project_id: projectId,
     }),
     signal,
   });

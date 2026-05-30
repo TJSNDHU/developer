@@ -52,13 +52,38 @@ export default function Shell({ children, requireAuth }) {
   const user = getUser();
   const token = getToken();
   const [health, setHealth] = useState({ ok: true, _initial: true });
-  const [sessionId, setSessionIdState] = useState(() =>
-    localStorage.getItem(SESSION_KEY) || null
-  );
+  const [sessionId, setSessionIdState] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [collapsed, setCollapsedState] = useState(
     () => localStorage.getItem(COLLAPSED_KEY) === "1"
   );
+
+  // ── Active project (synced across tabs/components) ────────────────
+  const [activeProjectId, setActiveProjectId] = useState(() =>
+    localStorage.getItem("aurem_active_project") || null
+  );
+  useEffect(() => {
+    const onChange = () =>
+      setActiveProjectId(localStorage.getItem("aurem_active_project") || null);
+    window.addEventListener("aurem:project-changed", onChange);
+    return () => window.removeEventListener("aurem:project-changed", onChange);
+  }, []);
+
+  const sessionKeyFor = useCallback(
+    (pid) => (pid ? `aurem_session_proj_${pid}` : "aurem_session_home"),
+    []
+  );
+
+  // When the active project changes (or on first mount), switch session
+  useEffect(() => {
+    const key = sessionKeyFor(activeProjectId);
+    let existing = localStorage.getItem(key);
+    if (!existing) {
+      existing = newSessionId();
+      localStorage.setItem(key, existing);
+    }
+    setSessionIdState(existing);
+  }, [activeProjectId, sessionKeyFor]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsedState((c) => {
@@ -106,31 +131,32 @@ export default function Shell({ children, requireAuth }) {
 
   const setSessionId = useCallback((id) => {
     setSessionIdState(id);
-    if (id) localStorage.setItem(SESSION_KEY, id);
-    else localStorage.removeItem(SESSION_KEY);
-  }, []);
+    const key = sessionKeyFor(activeProjectId);
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
+  }, [activeProjectId]);
 
   const refreshSessions = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await api.get("/chat/sessions");
+      const params = activeProjectId
+        ? { project_id: activeProjectId }
+        : { project_id: "home" };
+      const r = await api.get("/chat/sessions", { params });
       setSessions(r.data?.sessions || []);
     } catch {
       /* ignore */
     }
-  }, [token]);
+  }, [token, activeProjectId]);
 
   useEffect(() => {
     if (token) refreshSessions();
   }, [token, refreshSessions]);
 
-  // Ensure there's always an active session id once authenticated
+  // Re-fetch sidebar when project changes
   useEffect(() => {
-    if (token && !sessionId) {
-      const id = newSessionId();
-      setSessionId(id);
-    }
-  }, [token, sessionId, setSessionId]);
+    if (token) refreshSessions();
+  }, [activeProjectId, token, refreshSessions]);
 
   const startNewSession = useCallback(() => {
     const id = newSessionId();

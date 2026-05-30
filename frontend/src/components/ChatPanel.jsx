@@ -15,11 +15,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Bot, User, Loader2, Square, Paperclip, Github, Zap,
-  ShieldCheck, AlertTriangle, RefreshCw, Eye,
+  ShieldCheck, AlertTriangle, RefreshCw, Eye, Copy as CopyIcon,
+  ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
-import { toast } from "./Toast";
-import SaveToGithubDialog from "./SaveToGithubDialog";
+import { toast } from "./Toast";import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
 import TemperatureBadge from "./TemperatureBadge";
 
@@ -213,6 +213,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
     await streamChat({
       prompt: finalPrompt,
+      projectId: activeProject?.project_id || null,
       sessionId,
       maxToolIters: 2,
       maxxMode,
@@ -356,7 +357,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => (
-          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} />
+          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} />
         ))}
         <div ref={endRef} />
       </div>
@@ -366,10 +367,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         style={{
           borderTop: "1px solid var(--border)",
           padding: 14, background: "var(--bg-elev)",
-          display: "flex", flexDirection: "column", gap: 10,
+          display: "flex", flexDirection: "column", gap: 8,
         }}
       >
-        {/* Toolbar */}
+        {/* Input on top */}
+        <textarea
+          ref={taRef}
+          data-testid="chat-input"
+          className="input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
+          rows={Math.min(6, Math.max(2, input.split("\n").length))}
+          autoFocus
+          disabled={busy}
+          style={{ resize: "none", width: "100%", fontFamily: "'Jost', system-ui, sans-serif" }}
+        />
+
+        {/* Toolbar + Send BELOW input */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <input
             ref={fileInputRef}
@@ -379,9 +395,28 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             style={{ display: "none" }}
             onChange={(e) => {
               handleFiles(e.target.files);
-              e.target.value = ""; // allow re-select same file
+              e.target.value = "";
             }}
           />
+          {activeProject && (
+            <span
+              data-testid="chat-project-pill"
+              title={`Pinned to ${activeProject.name} — ${activeProject.github_owner}/${activeProject.github_repo}`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px", fontSize: 10,
+                fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.08em",
+                color: "var(--accent-2)",
+                background: "var(--accent-soft)",
+                border: "1px solid var(--accent)",
+                borderRadius: 999,
+                marginRight: 4,
+              }}
+            >
+              ▸ {activeProject.name}
+            </span>
+          )}
           <ToolButton
             testid="chat-attach-btn"
             title="Attach file (max 50 KB each)"
@@ -390,7 +425,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           />
           <ToolButton
             testid="chat-github-btn"
-            title="Save to GitHub"
+            title={activeProject
+              ? `Save to ${activeProject.github_owner}/${activeProject.github_repo}`
+              : "Save to GitHub"}
             onClick={() => setShowGithub(true)}
             Icon={Github}
           />
@@ -401,6 +438,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             Icon={Zap}
             active={maxxMode}
           />
+          <ToolButton
+            testid="chat-preview-btn"
+            title={previewOpen ? "Hide live preview" : "Show live preview"}
+            onClick={togglePreview}
+            Icon={Eye}
+            active={previewOpen}
+          />
           <span style={{ flex: 1 }} />
           {maxxMode && (
             <span
@@ -409,31 +453,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                 fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
                 letterSpacing: "0.16em", color: "var(--accent-2)",
                 padding: "4px 10px", border: "1px solid var(--accent)",
-                borderRadius: 999,
-                background: "var(--accent-soft)",
+                borderRadius: 999, background: "var(--accent-soft)",
                 boxShadow: "0 0 12px -2px var(--accent)",
               }}
             >
               ⚡ MAXX
             </span>
           )}
-        </div>
-
-        {/* Input + Send/Stop */}
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-          <textarea
-            ref={taRef}
-            data-testid="chat-input"
-            className="input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
-            rows={Math.min(6, Math.max(1, input.split("\n").length))}
-            autoFocus
-            disabled={busy}
-            style={{ resize: "none", flex: 1, fontFamily: "'Jost', system-ui, sans-serif" }}
-          />
           {busy ? (
             <button
               type="button" data-testid="chat-stop"
@@ -457,6 +483,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         open={showGithub}
         onClose={() => setShowGithub(false)}
         sessionId={sessionId}
+        activeProject={activeProject}
       />
 
       <style>{`
@@ -475,6 +502,34 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       )}
     </div>
+  );
+}
+
+function ActionBtn({ testid, title, onClick, Icon, active, color }) {
+  return (
+    <button
+      type="button" data-testid={testid} title={title} onClick={onClick}
+      style={{
+        background: "none",
+        border: "1px solid var(--border)",
+        color: active ? (color || "var(--accent-2)") : "var(--text-faint)",
+        cursor: "pointer", padding: "4px 6px",
+        borderRadius: 4, display: "inline-flex",
+        transition: "color 120ms, border-color 120ms",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = color || "var(--accent-2)";
+        e.currentTarget.style.borderColor = "var(--border-strong)";
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.color = "var(--text-faint)";
+          e.currentTarget.style.borderColor = "var(--border)";
+        }
+      }}
+    >
+      <Icon size={11} />
+    </button>
   );
 }
 
@@ -513,7 +568,32 @@ function ToolButton({ testid, title, onClick, Icon, active }) {
   );
 }
 
-function MessageBubble({ idx, m, onRegenerate }) {
+function MessageBubble({ idx, m, onRegenerate, sessionId }) {
+  const [copied, setCopied] = useState(false);
+  const [vote, setVote] = useState(m.feedback?.vote || null);
+
+  function copyText() {
+    if (!m.content) return;
+    navigator.clipboard.writeText(m.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function sendVote(v) {
+    if (!sessionId) return;
+    const next = vote === v ? null : v; // toggle off if same
+    setVote(next);
+    if (!next) return;
+    try {
+      await api.post("/chat/feedback", {
+        session_id: sessionId, turn_index: idx, vote: next,
+      });
+      toast({ message: next === "up" ? "Thanks — noted 👍" : "Got it — we'll do better", kind: "info", duration: 1800 });
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div
       data-testid={`chat-msg-${m.role}-${idx}`}
@@ -604,6 +684,18 @@ function MessageBubble({ idx, m, onRegenerate }) {
             </div>
           )}
         </div>
+
+        {/* Action row for assistant bubbles — copy / 👍 / 👎 */}
+        {m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error && (
+          <div data-testid={`msg-actions-${idx}`} style={{
+            display: "flex", gap: 4, marginTop: 6,
+            paddingLeft: 4,
+          }}>
+            <ActionBtn testid={`copy-${idx}`} title={copied ? "Copied!" : "Copy"} onClick={copyText} Icon={CopyIcon} active={copied} />
+            <ActionBtn testid={`thumbs-up-${idx}`} title="Good reply" onClick={() => sendVote("up")} Icon={ThumbsUp} active={vote === "up"} color="var(--ok)" />
+            <ActionBtn testid={`thumbs-down-${idx}`} title="Bad reply — we'll refine" onClick={() => sendVote("down")} Icon={ThumbsDown} active={vote === "down"} color="var(--danger)" />
+          </div>
+        )}
 
         {/* Watchdog pending */}
         {m.role === "assistant" && m.watchdogPending && (

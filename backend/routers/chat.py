@@ -59,6 +59,7 @@ class ChatBody(BaseModel):
     session_id: Optional[str] = None
     max_tool_iters: int = 2
     maxx_mode: bool = False
+    project_id: Optional[str] = None
 
 
 _TITLE_SYSTEM = "Generate ultra-short chat titles. 3-5 words, Title Case, no punctuation. Just the title."
@@ -187,7 +188,8 @@ async def chat_send(
         provider = (provider or "deepseek") + "+emergent-watchdog"
 
     await _persist_turn(user["user_id"], body.session_id or "",
-                        body.prompt, content, provider, watchdog=watchdog)
+                        body.prompt, content, provider, watchdog=watchdog,
+                        project_id=body.project_id)
     if body.session_id:
         asyncio.create_task(
             _maybe_set_title(user["user_id"], body.session_id, body.prompt)
@@ -259,7 +261,8 @@ async def chat_stream(
             provider = (provider or "deepseek") + "+emergent-watchdog"
 
         await _persist_turn(user_id, body.session_id or "",
-                            body.prompt, content, provider, watchdog=watchdog)
+                            body.prompt, content, provider, watchdog=watchdog,
+                            project_id=body.project_id)
         if body.session_id:
             asyncio.create_task(
                 _maybe_set_title(user_id, body.session_id, body.prompt)
@@ -310,22 +313,62 @@ async def chat_history(
 
 @router.get("/sessions")
 async def chat_sessions_list(
+    project_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Return up to 20 most-recent chat sessions for the current user."""
+    """Return up to 20 most-recent chat sessions for the current user.
+    Filter to a specific project_id when provided; pass 'home' to get
+    sessions that aren't bound to any project."""
     user = await current_dev(authorization)
     db = get_db()
     if db is None:
         return {"ok": True, "sessions": []}
+    q = {"user_id": user["user_id"]}
+    if project_id == "home":
+        q["$or"] = [{"project_id": None}, {"project_id": {"$exists": False}}]
+    elif project_id:
+        q["project_id"] = project_id
     cursor = db.chat_sessions.find(
-        {"user_id": user["user_id"]},
+        q,
         {
-            "_id": 0, "session_id": 1, "title": 1,
+            "_id": 0, "session_id": 1, "title": 1, "project_id": 1,
             "last_message": 1, "updated_at": 1, "created_at": 1,
         },
     ).sort("updated_at", -1).limit(20)
     sessions = await cursor.to_list(length=20)
     return {"ok": True, "sessions": sessions}
+
+
+class FeedbackBody(BaseModel):
+    session_id: str
+    turn_index: int       # index within the turns array (assistant turn)
+    vote: str             # 'up' | 'down'
+    comment: Optional[str] = None
+
+
+@router.post("/feedback")
+async def chat_feedback(
+    body: FeedbackBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Record like/dislike on an assistant turn. Used for future fine-tuning
+    + lets the UI show that feedback was captured."""
+    user = await current_dev(authorization)
+    if body.vote not in ("up", "down"):
+        raise HTTPException(400, "vote must be 'up' or 'down'")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    set_field = f"turns.{body.turn_index}.feedback"
+    await db.chat_sessions.update_one(
+        {"session_id": body.session_id, "user_id": user["user_id"]},
+        {"$set": {set_field: {
+            "vote": body.vote,
+            "comment": body.comment,
+            "ts": time.time(),
+        }}},
+    )
+    return {"ok": True}
 
 
 @router.delete("/sessions/{session_id}")
