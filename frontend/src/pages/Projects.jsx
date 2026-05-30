@@ -38,7 +38,12 @@ function Body() {
   const refresh = useCallback(async () => {
     try {
       const r = await api.get("/cto/projects/list");
-      setProjects(r.data?.projects || []);
+      const list = r.data?.projects || [];
+      setProjects(list);
+      // Keep `active` in sync with the latest server copy of the selected project
+      setActive((cur) =>
+        cur ? list.find((p) => p.project_id === cur.project_id) || null : cur
+      );
     } catch (e) {
       toast({ message: "Couldn't load projects", kind: "error" });
     }

@@ -1,70 +1,80 @@
-# AUREM Dev — PRD
+# AUREM Dev / Aurem CTO — PRD
 
 ## Original Problem Statement
-User uploaded `aurem-dev.zip` + `EMERGENT_PROMPT.md`. Goal: make the **AUREM Dev** developer platform fully working, production-ready, and runnable.
+User uploaded `aurem-dev.zip` to build a developer platform. Evolved into **Aurem CTO**: a multi-project workspace where developers connect client GitHub repos (OAuth or PAT), chat with an AI scoped per project, queue background tasks to clone repos, apply AI fixes, and push back to GitHub. Premium glassmorphic UI overhaul is the next major phase.
 
 Stack:
 - Backend: FastAPI on :8001 with `/api/aurem-dev/*` route prefix
-- Frontend: React + Vite on :3000 (adapted for the Emergent supervisor)
-- DB: local MongoDB on 27017
-- LLM chat: Groq → OpenRouter → Emergent fallback (Emergent universal key wired; others left blank)
+- Frontend: React + Vite on :3000
+- DB: local MongoDB
+- LLM: DeepSeek V3 via OpenRouter for chat; Emergent LLM key for Maxx-mode watchdog
+
+Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 ## Implemented Iterations
 
-### Iter 1 — MVP (2026-01-29)
-- Adapted aurem-dev zip to supervisor: ports 3000/8001, `server.py` shim for uvicorn
-- New `routers/auth.py` (signup / login / me — JWT HS256, 30-day expiry)
-- New `routers/chat.py` (send / history)
-- Fixed `cto_services/auth.py` + `db.py` (proper JWT verifier, `get_db()`)
-- Patched all routers' broken relative imports `..services.*` → `cto_services.*`
-- Moved `load_dotenv()` before router imports, lazy-read env in `services/llm.py`
-- Frontend rewritten: clean Cinzel + Jost + JetBrains-Mono dark amber aesthetic
-- Pages: Landing, Login, Signup, Dashboard, Deploy, Database, Domain, Tokens, Analytics, Settings
-- Result: 10/10 backend pytest pass, full Playwright E2E pass
+### Iter 1–4 (Jan 2026)
+- MVP: auth, chat, session persistence, SSE streaming, session titles
+- Single-provider DeepSeek V3 via OpenRouter (privacy-locked: `data_collection: deny`)
+- Token billing system + TokenBell UI
+- Inline live HTML/JSX preview via Babel-standalone in iframe
 
-### Iter 2 — Chat sessions + SSE streaming (2026-01-29)
-- `routers/chat.py` expanded to 5 endpoints:
-  - `POST /send` — now persists turns to `db.chat_sessions`
-  - `POST /stream` — SSE token streaming via FastAPI `StreamingResponse` with `text/event-stream`. Emits `data: {meta}` → `data: {token}` → `data: {done}`. Persists on completion.
-  - `GET /history?session_id=X` — last 20 turns for current user
-  - `GET /sessions` — list of sessions sorted by `updated_at` desc
-  - `DELETE /sessions/{id}` — remove session
-- Frontend `lib/api.js`: added `newSessionId()` (uses crypto.randomUUID()) and `streamChat()` (fetch + ReadableStream SSE parser)
-- Frontend `Shell.jsx`: `SessionCtx` provider, "Recent Chats" sidebar section, new-chat (+) button, delete-session trash icon, active session highlighted, localStorage key `aurem_active_session` for refresh persistence
-- Frontend `ChatPanel.jsx`: loads `/chat/history` on session change, streams via `streamChat()` with token-by-token cursor, Stop button via AbortController, "thinking…" indicator during pre-token latency
-- Cross-user isolation verified (User B can't read/delete User A's sessions)
-- Result: 10/10 new pytest + 10/10 regression + full Playwright E2E pass
+### Iter 5 — Aurem CTO Multi-Project (Jan 2026)
+- New `routers/cto_projects.py` — add/list/delete client GitHub projects, submit AI tasks, background worker (clone → AI fix → push)
+- New `routers/github_oauth.py` — GitHub OAuth flow
+- New `components/TabBar.jsx` — Emergent-style tab bar per project on dashboard
+- `pages/Projects.jsx` — CRUD for client projects
+- Per-project chat scoping (session keyed to `project_id` in localStorage + DB)
 
-### Iter 4 — OpenRouter → DeepSeek-V3 only (2026-01-29)
-- `services/llm.py` rewritten as a single-provider gateway. Drops Groq + Emergent + OpenRouter-Claude. All traffic now goes to **`deepseek/deepseek-chat`** (DeepSeek V3) via OpenRouter.
-- Privacy directives in every payload: `data_collection: "deny"`, `allow_fallbacks: false`, `order: ["deepseek","streamlake","deepinfra","novita"]`. OpenRouter enforces `data_collection: deny` across all routed providers — no host stores or trains on traffic.
-- Headers: `X-No-Cache: true`, `HTTP-Referer: https://aurem.dev`, `X-Title: AUREM Dev`.
-- If OpenRouter is unreachable, `call_llm_with_meta` returns `{ok:false, error:"LLM unavailable: ..."}` — **never** silently routes to Emergent / Groq / Anthropic.
-- New file `/app/backend/tests/test_llm_provider.py` — **5/5 pass**: payload-privacy assertions, success path returns provider="deepseek", 5xx error path returns ok=False, network error path returns ok=False, missing API key raises.
-- Side note: OpenRouter does not expose DeepSeek's first-party endpoint for this account — the privacy-compliant V3 hosts available are streamlake / deepinfra / novita. All three are bound by the same `data_collection: deny` directive so the privacy posture is preserved.
+### Iter 6 — P0 Bug Sweep (May 2026)
+Fixed all 5 user-reported bugs from message 414:
+- **BUG 1 — PAT not reading**: Project's `github_token` now properly stored and used in clone/push URL (preferred over user OAuth).
+- **BUG 2 — Edit save not working**: Added `PATCH /cto/projects/{id}` endpoint + `EditDialog` in Projects.jsx. Also fixed local state sync after save (parent `refresh()` now keeps `active` project in sync).
+- **BUG 3 — Chat input cursor refocus**: `setTimeout(() => taRef.current?.focus(), 80)` on stream `done`.
+- **BUG 4 — Copy/Like/Dislike vanished**: `ActionBtn` row in `MessageBubble` (assistant non-streaming, non-system, non-error). New `POST /chat/feedback` endpoint persists vote into `turns[idx].feedback`.
+- **BUG 5 — Chat history vanishing** (CRITICAL): Root cause was `_persist_turn` had a MongoDB WriteError 40 — `project_id` was being set in both `$setOnInsert` and `$set` simultaneously, causing every persist to fail silently. Fixed by moving `project_id` to `$setOnInsert` only, also added `project_id` to function signature and added new `/chat/sessions?project_id=X` filter to scope sidebar listing.
+- Verification: 12/12 new pytest + 20 prior tests pass on regression. Full Playwright E2E pass on 5 bug flows.
 
-### Iter 3 — Session titles (2026-01-29)
-- Added `_generate_title()` + `_maybe_set_title()` in `routers/chat.py`. After first user/assistant turn, fires a background `asyncio.create_task` that asks the LLM to summarize the prompt in 3-5 words Title Case (no punctuation), stores it as `session.title`.
-- Idempotent: re-runs no-op if title already present or turns < 2.
-- Updated `GET /chat/sessions` + `GET /chat/history` to return `title` field.
-- Frontend `Shell.jsx` sidebar renders `title || last_message || "Untitled"` with bolder font weight when title is set.
-- `ChatPanel.jsx` schedules a second `onTurnSaved()` ~2.8s after stream done so the sidebar picks up the freshly-generated title without a reload.
-- Verified: "Help me design a Stripe checkout flow for my SaaS" → titled "Stripe Checkout Flow Design".
-- True per-token streaming from provider (currently full response → chunked SSE)
-- GitHub OAuth — `GITHUB_TOKEN` blank; `projects/create` GitHub push fails gracefully
-- Real DNS verification implementation (currently stub)
+## Active Phase / Next Up
+
+### P1 — Premium UI/UX Redesign (NOT STARTED)
+User provided detailed prompt (Message 412 WhatsApp screenshot) requesting:
+- Glassmorphic textures, edge-to-edge layout
+- Floating top nav
+- Auto day/night mode
+- Premium minimalist feel
+
+Plan: call `design_agent_full_stack` to produce design guidelines, then modularize the now-very-large `ChatPanel.jsx` while applying the refactor.
 
 ## Backlog (P2)
-- ProjectWorkspace (file tree + AI code edits) UI
-- Save-to-GitHub one-click flow
-- Token wallet refill cron + Stripe billing
-- Audit log viewer with filtering
-- Cloudflare tunnel + outbox worker (`infra/outbox/`) — kept for self-host
+- Stripe integration for paid tier / token recharge
+- Per-project deploy buttons (Vercel/Netlify)
+- Encrypt `github_token` at rest (Fernet) in `cto_projects` collection
+- ChatPanel.jsx modularization (currently ~800 LOC, handles too many concerns)
+- Fix transient "api offline" flash on first mount
 
-## Test Files
-- `/app/backend/tests/test_aurem_backend.py` — iter1 (health, auth, /chat/send, stacks)
-- `/app/backend/tests/test_aurem_chat_persistence.py` — iter2 (history, sessions, delete, SSE, isolation)
-- Reports: `/app/test_reports/iteration_1.json`, `/app/test_reports/iteration_2.json`
+## Data Models (MongoDB)
+- `dev_users`: `{user_id, email, tokens_remaining, github: {access_token, login}}`
+- `chat_sessions`: `{session_id, user_id, project_id, title, last_message, updated_at, turns: [{role, content, ts, provider, watchdog?, feedback?}]}`
+- `cto_projects`: `{project_id, user_id, name, github_url, github_owner, github_repo, github_token, branch, tech_stack, status, tasks_done, created_at}`
+- `cto_tasks`: `{task_id, project_id, user_id, task, status, steps[], commit_sha, result, error, created_at}`
+
+## Key API Endpoints
+- `POST /api/aurem-dev/chat/send|stream` — accepts `project_id` for scoping
+- `GET /api/aurem-dev/chat/history?session_id=X` — returns turns incl. feedback
+- `GET /api/aurem-dev/chat/sessions?project_id=home|p_xxx` — filtered sidebar list
+- `POST /api/aurem-dev/chat/feedback` — `{session_id, turn_index, vote: 'up'|'down'}`
+- `POST /api/aurem-dev/cto/projects/add` — `{name, github_url, github_token, branch, tech_stack}`
+- `GET /api/aurem-dev/cto/projects/list` — excludes `github_token` from response (security)
+- `PATCH /api/aurem-dev/cto/projects/{id}` — `{github_token?, branch?, tech_stack?}`
+- `POST /api/aurem-dev/cto/tasks/submit` — queues background task
 
 ## Credentials
 See `/app/memory/test_credentials.md`.
+
+## Test Coverage
+- `/app/backend/tests/test_aurem_backend.py` — iter1 (health, auth, /chat/send, stacks)
+- `/app/backend/tests/test_aurem_chat_persistence.py` — iter2 (history, sessions, delete, SSE, isolation)
+- `/app/backend/tests/test_aurem_p0_bugs.py` — iter6 (PAT, edit PATCH, feedback API, persistence with project_id, project filter, etc.)
+- `/app/backend/tests/test_llm_provider.py` — iter4 (privacy assertions, deepseek-only)
+- Reports: `/app/test_reports/iteration_{1,2,3}.json`
