@@ -15,7 +15,7 @@ import re
 from typing import Optional
 
 from .llm import call_llm_with_meta
-from .tools_bridge import list_tools, invoke_tool, extract_tool_calls
+from .tools_bridge import list_tools, invoke_tool, extract_tool_calls, strip_tool_calls
 from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
 
 logger = logging.getLogger(__name__)
@@ -271,6 +271,10 @@ async def chat_with_tools(
 
         calls = extract_tool_calls(content)
         if not calls:
+            # Iter 35: scrub any trailing/orphan tool fences the LLM may
+            # have included alongside its final answer — they were already
+            # parsed above; leaking them to the UI confuses users.
+            content = strip_tool_calls(content)
             # Persistence is handled by chat.py:_persist_turn — no double-write here.
             return {
                 "ok": meta.get("ok", True),
@@ -327,9 +331,24 @@ async def chat_with_tools(
             f"(or call more tools if needed)."
         )
 
+    # Iter 35: max_iters hit. If the LLM was still emitting tool_call fences
+    # in its last reply, scrub them (already executed, would otherwise leak
+    # as raw JSON to the UI) and append a graceful note.
+    clean = strip_tool_calls(content)
+    if clean != content:
+        clean = (
+            (clean + "\n\n").lstrip()
+            + f"_(I exhausted my {max_iters}-tool-call budget for this "
+            "turn without finishing. Ask me to continue or narrow the "
+            "question and I'll pick up from here.)_"
+        )
+    else:
+        clean = content
+
+
     return {
         "ok": True,
-        "content": content,
+        "content": clean,
         "provider": final_provider,
         "fallback_chain": fallback_chain,
         "iterations": iters,

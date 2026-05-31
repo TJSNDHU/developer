@@ -156,3 +156,20 @@ def extract_tool_calls(text: str) -> list[dict]:
         calls.append({"tool": tool_name, "args": tool_args})
 
     return calls
+
+
+def strip_tool_calls(text: str) -> str:
+    """Remove any ```tool_call``` / ```json``` tool-call fences from text.
+
+    Iter 35: the orchestrator EXECUTES tool calls behind the scenes; the
+    user must never see them in the final streamed answer. Previously,
+    when the LLM emitted a tool_call fence in its FINAL iteration (max
+    iters hit without convergence), the raw JSON got streamed to the UI
+    and rendered as a markdown code block — exact bug the user reported.
+    """
+    if not text:
+        return text
+    cleaned = _TOOL_CALL_RE.sub("", text)
+    # Collapse runs of >2 blank lines that the fence removal might have left
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()

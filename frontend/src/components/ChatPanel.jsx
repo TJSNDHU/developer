@@ -381,11 +381,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                 ...last,
                 temperature: m.temperature,
                 mode: m.mode,
+                thinkingS: m.thinking_s,
+                toolCallsRun: m.tool_calls_run,
               };
             }
             return copy;
           });
         }
+      },
+      // Iter 35: server emits periodic {thinking:true, elapsed_s} frames
+      // during the tool-call loop so we can show a live elapsed counter.
+      onThinking: (elapsed) => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            copy[copy.length - 1] = { ...last, elapsedS: elapsed };
+          }
+          return copy;
+        });
       },
       onToken: (tok) => {
         setMessages((msgs) => {
@@ -1133,18 +1147,32 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
             <span data-testid="chat-thinking" style={{
               display: "inline-flex", alignItems: "center", gap: 8,
               color: "var(--text-faint)", fontStyle: "italic", fontSize: 13,
+              fontFamily: "'JetBrains Mono', monospace",
             }}>
               <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
-              thinking…
+              {/* iter 35: live elapsed time so the user knows AUREM is
+                  actually working through tool calls, not frozen */}
+              {typeof m.elapsedS === "number"
+                ? `thinking ${m.elapsedS.toFixed(1)}s…`
+                : "thinking…"}
             </span>
           )}
           {m.streaming && m.content && (
-            <span data-testid="chat-cursor" style={{
-              display: "inline-block", width: 7, height: 14,
-              marginLeft: 2, background: "var(--accent-2)",
-              verticalAlign: "middle",
-              animation: "blink 0.9s steps(1) infinite",
-            }} />
+            <>
+              <span data-testid="chat-cursor" style={{
+                display: "inline-block", width: 7, height: 14,
+                marginLeft: 2, background: "var(--accent-2)",
+                verticalAlign: "middle",
+                animation: "blink 0.9s steps(1) infinite",
+              }} />
+              {typeof m.elapsedS === "number" && m.elapsedS > 1.5 && (
+                <div style={{ marginTop: 6, fontSize: 10,
+                              color: "var(--text-faint)",
+                              fontFamily: "'JetBrains Mono', monospace" }}>
+                  · {m.elapsedS.toFixed(1)}s
+                </div>
+              )}
+            </>
           )}
           {m.provider && m.provider !== "system" && !m.streaming && m.maxxMode && (
             <div style={{

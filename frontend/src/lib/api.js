@@ -72,7 +72,7 @@ export function newSessionId() {
 export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     maxxMode = false, projectId = null,
                                     onMeta, onToken, onWatchdog, onWatchdogPending,
-                                    onDone, onError, signal }) {
+                                    onThinking, onDone, onError, signal }) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -110,6 +110,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.meta) onMeta?.(payload);
         else if (payload.token) onToken?.(payload.token);
+        else if (payload.thinking) onThinking?.(payload.elapsed_s || 0);
         else if (payload.watchdog_pending) onWatchdogPending?.();
         else if (payload.watchdog) onWatchdog?.(payload.watchdog);
         else if (payload.done) onDone?.(payload);

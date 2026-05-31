@@ -237,21 +237,74 @@ async def chat_stream(
     extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
 
     async def gen():
-        try:
-            result = await chat_with_tools(
-                prompt=body.prompt,
-                jwt_token=jwt_token,
-                system=(extra_sys + "\n\n" if extra_sys else None),
-                max_iters=min(body.max_tool_iters, 6),
-                session_id=body.session_id,
-                mongo_client=None,
-                user_id=user_id,
-                project_id=body.project_id,
-            )
-        except Exception as e:
-            logger.exception("chat_stream orchestrator failed")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            return
+        import time as _t
+        t_start = _t.monotonic()
+        # Iter 35: emit a heartbeat every ~600ms so the UI can show an
+        # elapsed-time "Thinking 12s…" indicator while we wait for the
+        # orchestrator (which may run several tool iterations).
+        stop_event = asyncio.Event()
+
+        async def _heartbeat():
+            while not stop_event.is_set():
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=0.6)
+                except asyncio.TimeoutError:
+                    pass
+                if stop_event.is_set():
+                    break
+                # produced via queue below
+
+        # We use a queue so heartbeat events and the final result can be
+        # interleaved cleanly.
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def _ticker():
+            while True:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=0.6)
+                    return
+                except asyncio.TimeoutError:
+                    elapsed = round(_t.monotonic() - t_start, 1)
+                    await q.put({"type": "tick", "elapsed_s": elapsed})
+
+        async def _worker():
+            try:
+                result = await chat_with_tools(
+                    prompt=body.prompt,
+                    jwt_token=jwt_token,
+                    system=(extra_sys + "\n\n" if extra_sys else None),
+                    max_iters=min(body.max_tool_iters, 6),
+                    session_id=body.session_id,
+                    mongo_client=None,
+                    user_id=user_id,
+                    project_id=body.project_id,
+                )
+                await q.put({"type": "result", "result": result})
+            except Exception as e:
+                logger.exception("chat_stream orchestrator failed")
+                await q.put({"type": "error", "error": str(e)})
+            finally:
+                stop_event.set()
+
+        asyncio.create_task(_ticker())
+        asyncio.create_task(_worker())
+
+        result = None
+        while True:
+            ev = await q.get()
+            if ev["type"] == "tick":
+                yield (
+                    "data: "
+                    + json.dumps({"thinking": True,
+                                  "elapsed_s": ev["elapsed_s"]})
+                    + "\n\n"
+                )
+            elif ev["type"] == "error":
+                yield f"data: {json.dumps({'error': ev['error']})}\n\n"
+                return
+            elif ev["type"] == "result":
+                result = ev["result"]
+                break
 
         content = result.get("content", "") or ""
         provider = result.get("provider", "") or ""
@@ -260,7 +313,9 @@ async def chat_stream(
         temperature = temperature_for(mode)
 
         meta = {"meta": True, "session_id": body.session_id,
-                "provider": provider, "mode": mode, "temperature": temperature}
+                "provider": provider, "mode": mode, "temperature": temperature,
+                "thinking_s": round(_t.monotonic() - t_start, 1),
+                "tool_calls_run": result.get("tool_calls_run", 0)}
         yield f"data: {json.dumps(meta)}\n\n"
 
         CHUNK = 6

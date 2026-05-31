@@ -652,6 +652,29 @@ The bug we'd carried across 4+ iters. User shipped a task, refreshed the page, b
 
 Full regression: **129 passed, 0 failed** (was 124).
 
+## Active Phase / Next Up
+
+### Iter 35 — Tool-fence leak fix + live "Thinking 12.4s…" indicator (Feb 2026)
+User reported on production: AUREM replies were ending with raw ```tool_call``` JSON fences visible in the chat UI. Also asked for an Emergent-style elapsed-time indicator so the user knows AUREM is working through tool calls, not frozen.
+
+**Root cause** (verified by code read): when the orchestrator hit `max_iters=6` without the LLM converging to a clean final answer, it returned the LAST LLM reply verbatim as `content`. That last reply still contained ```tool_call``` fences (which had already been extracted & executed). Frontend rendered them as plain markdown code blocks → user saw raw JSON.
+
+**Fix #1 — strip tool fences from final content**:
+- `services/tools_bridge.py` — new `strip_tool_calls(text)` helper that re-runs the same regex used by `extract_tool_calls` and removes every match, then collapses any runs of >2 blank lines.
+- `services/orchestrator.py` — calls `strip_tool_calls()` in BOTH exit paths:
+  - Successful convergence (`if not calls`) — scrub any orphan fences from the answer.
+  - Max-iters hit — scrub + append a graceful note: "I exhausted my N-tool-call budget for this turn without finishing. Ask me to continue or narrow the question and I'll pick up from here."
+
+**Fix #2 — live elapsed-time indicator** (Emergent-style):
+- `routers/chat.py::chat_stream` — the SSE generator now spawns two background tasks: `_ticker` emits `{thinking: true, elapsed_s: N}` every 600 ms, `_worker` runs the orchestrator. An `asyncio.Queue` interleaves the two streams cleanly. `stop_event` halts the ticker once the worker finishes.
+- Meta frame at the end carries `thinking_s` (total) and `tool_calls_run` for audit.
+- `lib/api.js::streamChat` — added `onThinking(elapsed)` callback, routed by `payload.thinking` frames.
+- `components/ChatPanel.jsx::send` — new `onThinking` handler updates `last.elapsedS`. Renders:
+  - `thinking 12.4s…` (with monospace font) when no content yet
+  - Under the cursor: `· 12.4s` once content starts streaming (only if elapsed > 1.5s)
+
+**Tests**: 6 new in `test_strip_tool_calls.py` (uses the actual production transcript as the failing input — locks the contract). Full regression: **135 passed, 0 failed**.
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
