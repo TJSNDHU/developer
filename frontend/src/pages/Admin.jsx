@@ -873,11 +873,30 @@ export default function Admin() {
   const [me, setMe] = useState(null);
 
   useEffect(() => {
+    // Guard order matters: NO token at all → bounce to /login with a
+    // `next=/admin` so we come right back after sign-in. With a token
+    // but no admin → /dashboard (the regular app surface).
+    // Previously we always went to /dashboard which, for unauthed users,
+    // re-bounced to / — making /admin look like it "doesn't exist".
+    const tok = localStorage.getItem("aurem_token");
+    if (!tok) {
+      navigate("/login?next=/admin", { replace: true });
+      return;
+    }
     api.get("/admin/me")
       .then((r) => setMe(r.data))
-      .catch(() => {
-        toast({ message: "Admin access required", kind: "error" });
-        navigate("/dashboard");
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401) {
+          // Token expired / invalid — clear it and bounce to login
+          localStorage.removeItem("aurem_token");
+          localStorage.removeItem("aurem_user");
+          navigate("/login?next=/admin", { replace: true });
+        } else {
+          // 403 or anything else — user is signed in but not admin
+          toast({ message: "Admin access required", kind: "error" });
+          navigate("/dashboard", { replace: true });
+        }
       });
   }, [navigate]);
 

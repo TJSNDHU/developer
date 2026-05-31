@@ -2,7 +2,7 @@
  * Signup.jsx — Developer sign-up.
  */
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
@@ -15,6 +15,9 @@ export default function Signup() {
     canonical: "https://auremcto.com/signup",
   });
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const rawNext = searchParams.get("next") || "";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -39,7 +42,7 @@ export default function Signup() {
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
       });
-      navigate("/dashboard");
+      navigate(next, { replace: true });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign up failed.");
     } finally {

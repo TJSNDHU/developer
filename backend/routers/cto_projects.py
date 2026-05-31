@@ -436,22 +436,87 @@ def _sh(cmd: list, cwd: Path, timeout: int = 60) -> subprocess.CompletedProcess:
 
 
 _AI_SYS = (
-    "You are AUREM CTO. You can create new files AND modify existing ones "
-    "to complete the user's task. Be precise.\n"
-    "Reply ONLY in this format:\n"
-    "SUMMARY: <one line describing what changed>\n"
-    "FILE: <relative/path/from/repo/root>\n"
-    "```\n<complete final file content>\n```\n"
-    "FILE: <another/path>\n```\n...\n```\n\n"
-    "Rules:\n"
-    "  - To CREATE a new file: emit a FILE block with a path that doesn't "
-    "yet exist — parent directories are auto-created.\n"
-    "  - To EDIT a file: emit its FILE block with the COMPLETE final "
-    "contents (not a diff, not a patch).\n"
-    "  - To DELETE a file: skip it (rollback is available, deletes need a "
-    "separate workflow).\n"
-    "  - No prose anywhere outside the SUMMARY line and FILE blocks."
+    "You are AUREM CTO — a senior engineer who SHIPS production-grade code.\n"
+    "\n"
+    "OUTPUT CONTRACT (NON-NEGOTIABLE):\n"
+    "  Line 1 must be exactly:  SUMMARY: <one line, <=120 chars>\n"
+    "  Then, for EVERY file you change, output:\n"
+    "    FILE: <relative/path/from/repo/root>\n"
+    "    ```\n"
+    "    <COMPLETE final file content — every single line, top to bottom>\n"
+    "    ```\n"
+    "  Use as many FILE blocks as needed. Nothing else outside SUMMARY + FILE blocks.\n"
+    "\n"
+    "HARD RULES — violations cause the commit to be REJECTED by the verifier:\n"
+    "  1. Each FILE block MUST contain the complete final file, not a diff,\n"
+    "     not a patch, not a snippet, not ellipses. Write every line, every\n"
+    "     import, every closing brace, end-to-end.\n"
+    "  2. NEVER use placeholder comments like '// ... rest of file ...',\n"
+    "     '/* existing code */', '# ... unchanged ...', '... (truncated)',\n"
+    "     '<keep the rest>', or any synonym. If you cannot fit the whole\n"
+    "     file, split the task — do NOT abbreviate.\n"
+    "  3. If editing a file you were shown, preserve everything you did\n"
+    "     not intend to change. Copy lines verbatim if needed.\n"
+    "  4. Do not invent file paths. Only emit paths that exist in the\n"
+    "     context, OR paths you genuinely want to create.\n"
+    "  5. Tests, configs and docs that need to change MUST also be emitted\n"
+    "     as FILE blocks — do not just describe them in prose.\n"
+    "  6. NO prose, NO markdown headings, NO 'Here is the change…' lines\n"
+    "     outside the SUMMARY + FILE blocks.\n"
+    "\n"
+    "QUALITY BAR:\n"
+    "  • Match the existing project's conventions (naming, indentation,\n"
+    "    quote style, import order) exactly — you were shown those files.\n"
+    "  • Prefer minimal, surgical edits over large refactors unless the\n"
+    "    task explicitly asks for one.\n"
+    "  • If the task is ambiguous, make the most defensible choice and\n"
+    "    mention the tradeoff in the SUMMARY line."
 )
+
+
+# Patterns the verifier rejects — AI sometimes sneaks placeholders past
+# the prompt. We catch them client-side BEFORE pushing to GitHub so the
+# user never sees a commit that silently truncates their file.
+_TRUNCATION_PATTERNS = [
+    "... rest of file",
+    "... existing code",
+    "... unchanged",
+    "...(truncated)",
+    "... (truncated)",
+    "// rest of file",
+    "/* existing code */",
+    "/* ... */",
+    "# ... existing",
+    "# rest of file",
+    "<keep the rest",
+    "<rest of file",
+    "<existing code",
+    "[rest of file",
+    "[existing code",
+    "// keep existing",
+    "// ... (",
+    "/* TODO: keep",
+]
+
+
+def _looks_truncated(path: str, body: str) -> Optional[str]:
+    """Return a human reason if `body` looks like an AI-truncated edit,
+    else None. Run on every FILE block before we push."""
+    if not body or not body.strip():
+        return "empty file body"
+    low = body.lower()
+    for pat in _TRUNCATION_PATTERNS:
+        if pat.lower() in low:
+            return f"contains placeholder '{pat}'"
+    # Very short edits to non-trivial files are suspicious too — but we
+    # only flag them when the body has fewer than 3 non-blank lines AND
+    # the extension suggests code (not config/markdown).
+    non_blank = sum(1 for ln in body.splitlines() if ln.strip())
+    is_codey = path.endswith((".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java"))
+    if is_codey and non_blank < 3:
+        return f"only {non_blank} non-blank lines for a code file"
+    return None
+
 
 
 async def _run_task(task_id, proj, task, files, context, user_token):
@@ -543,6 +608,22 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
             return
         await _log(task_id, f"✏️ {len(edits)} files to update", "success")
 
+        # 2b) PRE-PUSH GATE — reject AI output that looks truncated. We'd
+        # rather fail loudly here than silently push a half-file that
+        # later confuses Claude/users when they scan the repo.
+        bad: list[str] = []
+        for path, body in edits.items():
+            reason = _looks_truncated(path, body)
+            if reason:
+                bad.append(f"{path} — {reason}")
+        if bad:
+            err = "AI returned suspect edits (refusing to push):\n  - " + "\n  - ".join(bad)
+            await _log(task_id, f"🚫 {err}", "error")
+            await _set_status(task_id, status="failed", error=err[:2000],
+                              completed_at=time.time())
+            return
+        await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
+
         # 3) Commit + push as one atomic API call
         await _set_status(task_id, status="pushing")
 
@@ -556,8 +637,63 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
             progress=_prog,
         )
         sha = result["sha"]
+        commit_full_sha = result.get("full_sha") or sha
+
+        # POST-PUSH VERIFY — re-fetch every edited file at the new commit's
+        # SHA and confirm the remote content equals what we just pushed.
+        # This catches:
+        #   • branch protection that silently rejected the ref update
+        #   • partial / drift writes if a future GitHub API change ever
+        #     broke our blob/tree pipeline
+        #   • the original user complaint: "Claude says fix isn't in the
+        #     repo even though our UI says shipped"
+        # The verification proves on every task that the deployed code
+        # actually contains the AI's edits — no more silent successes.
+        await _log(task_id, f"🔎 Verifying {len(edits)} file(s) on remote @ {sha}…")
+
+        async def _verify_one(path: str, expected: str) -> tuple[str, bool, str]:
+            async with httpx.AsyncClient(timeout=20.0) as vc:
+                remote = await gh_api_fetch_file(
+                    vc, owner, repo, path, commit_full_sha, user_token,
+                )
+            if remote is None:
+                return path, False, "remote returned 404"
+            if remote.rstrip() != expected.rstrip():
+                # Show a precise diff hint (first divergent line)
+                a, b = expected.splitlines(), remote.splitlines()
+                first_diff = next(
+                    (i for i in range(min(len(a), len(b))) if a[i] != b[i]),
+                    None,
+                )
+                hint = (f"differs from line {first_diff + 1}" if first_diff is not None
+                        else f"length local={len(expected)} remote={len(remote)}")
+                return path, False, hint
+            return path, True, "ok"
+
+        verify_results = await asyncio.gather(*[
+            _verify_one(p, c) for p, c in edits.items()
+        ])
+        failed = [(p, reason) for p, ok, reason in verify_results if not ok]
+        for p, ok, reason in verify_results:
+            await _log(task_id,
+                       f"   {'✅' if ok else '❌'} {p} ({reason})",
+                       "success" if ok else "error")
+        if failed:
+            err = "Post-push verification FAILED for: " + ", ".join(
+                f"{p} ({r})" for p, r in failed
+            )
+            await _log(task_id, f"🚫 {err}", "error")
+            await _set_status(task_id, status="failed", error=err[:2000],
+                              commit_sha=sha, completed_at=time.time())
+            return
+        await _log(task_id,
+                   f"✅ Verified {len(edits)} file(s) live on {branch}@{sha}",
+                   "success")
+
         await _set_status(task_id, status="done", result=summary,
-                          commit_sha=sha, completed_at=time.time())
+                          commit_sha=sha,
+                          verified=True,
+                          completed_at=time.time())
         db = get_db()
         if db is not None:
             await db.cto_projects.update_one(

@@ -2,7 +2,7 @@
  * Login.jsx — Developer sign-in.
  */
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LogIn } from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
@@ -15,6 +15,10 @@ export default function Login() {
     canonical: "https://auremcto.com/login",
   });
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Honour ?next=… for safe in-app paths only (must start with /, not //)
+  const rawNext = searchParams.get("next") || "";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,7 +38,7 @@ export default function Login() {
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
       });
-      navigate("/dashboard");
+      navigate(next, { replace: true });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign in failed. Try again.");
     } finally {

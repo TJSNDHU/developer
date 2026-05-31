@@ -1,0 +1,50 @@
+{
+  "summary": "Iter 30 (founder unlimited mode + admin redirect resilience + truncation guard) tested end-to-end. Backend: 21/21 pytest passes (15 local tests + 6 new public-URL E2E). Frontend: discovered + FIXED a CRITICAL ReferenceError in Login.jsx and Signup.jsx (navigate(next, ...) referenced an undeclared variable — useSearchParams import was missing, so EVERY successful login showed 'Sign in failed. Try again.' and never navigated). After the fix, founder login via /login?next=/admin lands on /admin with full sidebar (Dashboard/Users/Projects/Tasks/Token P&L/Payments/Support/Architecture/Settings) and footer shows teji.ss1986@gmail.com. Default login (no ?next) correctly goes to /dashboard. Anon /admin correctly redirects to /login?next=/admin. Post-push verification block in routers/cto_projects.py confirmed via code review (lines 565-693, including _looks_truncated guard, _TRUNCATION_PATTERNS, and POST-PUSH VERIFY re-fetch loop).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Login.jsx & Signup.jsx",
+        "issue": "FIXED BY TESTER. Original code referenced `next` on `navigate(next, ...)` but never declared it (no useSearchParams import). Every successful login/signup threw ReferenceError, was caught by the form's catch, and showed 'Sign in failed. Try again.' — even though the API returned 200 and the token was stored in localStorage. Founder→/admin flow was completely blocked. Fix: added `useSearchParams` import and `const next = ...safe path validation... || '/dashboard'`.",
+        "selector": "data-testid=login-submit / signup-submit",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_founder_and_admin_resilience.py",
+    "/app/backend/tests/test_truncation_guard.py",
+    "/app/backend/tests/test_founder_public_url.py",
+    "/app/test_reports/pytest/pytest_iter6.xml",
+    "/app/test_reports/pytest/pytest_iter6_public.xml"
+  ],
+  "action_items": [
+    "Review and accept the Login.jsx + Signup.jsx fix applied by tester (useSearchParams import + safe-path next variable). All other Iter 30 work is intact and verified."
+  ],
+  "critical_code_review_comments": [
+    "Login.jsx/Signup.jsx were not actually implementing the ?next= handoff that the PRD/handoff note claimed — the variable `next` was referenced but never declared. Always grep for `useSearchParams` after touching ?next= code paths.",
+    "The Login.jsx catch block swallows ReferenceError silently and shows 'Sign in failed' even when the API returned 200 and the token was already persisted. Consider logging caught exceptions to console (or sentry) so silent JS errors don't masquerade as auth failures.",
+    "routers/cto_projects.py is ~813 lines — at the 700-line guideline boundary. _AI_SYS, _TRUNCATION_PATTERNS, _looks_truncated, and the post-push verify block could be moved into a dedicated services/ai_codegen.py module to keep the router focused on HTTP handling.",
+    "Post-push verification in cto_projects.py is a single source of truth that re-fetches via gh_api_fetch_file at the new commit SHA — looks correct. Just ensure gh_api_fetch_file uses ref=new_commit_sha (not 'main') for the verify, which it does (line ~603)."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/Login.jsx",
+    "/app/frontend/src/pages/Signup.jsx",
+    "/app/backend/tests/test_founder_public_url.py"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 pytest, including 6 new public-URL E2E)",
+    "frontend": "100% after Login/Signup fix (3/3 redirect flows verified: anon→login?next, founder→/admin, default→/dashboard)"
+  },
+  "test_credentials": "test@aurem.dev / testpass123 (free; happens to be is_admin=true in this env via ADMIN_EMAIL); teji.ss1986@gmail.com / FounderOwn123! (auto-promoted founder; deleted by tester after run)",
+  "seed_data_creation": "Created founder dev_users row for E2E, deleted after run. Created/deleted t_pub_founder_* and t_pub_regress_* cto_tasks rows; all cleaned up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 30 founder/unlimited/admin-resilience + truncation guard verified GREEN end-to-end. Tester applied a 1-line-import + 3-line-variable patch to Login.jsx and Signup.jsx to make ?next=/admin actually work (the handoff doc claimed it was done but the variable was undeclared). All token-burn enforcement still gates non-founders (5th public-URL test confirmed 402 still fires for test@aurem.dev when their cto_tasks exceed budget). Post-push GitHub verification is code-reviewed only (no sandbox repo to E2E).",
+  "rca_of_the_issue": "Bug: 'Founder login redirects to homepage instead of /admin'. Root cause: Login.jsx and Signup.jsx referenced `navigate(next, ...)` where `next` was never declared (no useSearchParams hook). The JS ReferenceError propagated into the try/catch's catch block, which set the error state to 'Sign in failed. Try again.' — masking a successful API call (token was already in localStorage). Reproduction: navigate to /login?next=/admin, fill correct credentials, click submit → API returns 200 but page shows error banner and stays at /login?next=/admin. Mitigation applied: added `import { ..., useSearchParams }`, then `const [searchParams]=useSearchParams(); const rawNext=searchParams.get('next')||''; const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/dashboard';` to both files. Validated post-fix: /login?next=/admin → /admin with full admin sidebar; /login (no next) → /dashboard."
+}

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from cto_services.auth import create_token, current_dev
 from cto_services.db import get_db
+from services.usage import is_founder_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -40,23 +41,33 @@ async def signup(body: SignupBody) -> dict:
         raise HTTPException(409, "Email already registered")
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     user_id = uuid.uuid4().hex
+    # Founder allow-list: anyone on the list signs up directly into the
+    # `founder` tier with admin rights so first-time onboarding doesn't
+    # require a manual DB update.
+    is_founder = is_founder_email(body.email)
+    tier = "founder" if is_founder else "free"
+    starting_tokens = 10**9 if is_founder else 1000
     await db.dev_users.insert_one({
         "user_id": user_id,
         "email": body.email,
         "name": body.name or body.email.split("@")[0],
         "password": hashed,
-        "tier": "free",
-        "tokens_remaining": 1000,
+        "tier": tier,
+        "tokens_remaining": starting_tokens,
+        "is_admin": is_founder,
+        "is_unlimited": is_founder,
     })
-    token = create_token(user_id, body.email)
+    token = create_token(user_id, body.email, is_admin=is_founder)
     return {
         "ok": True,
         "token": token,
         "user_id": user_id,
         "email": body.email,
         "name": body.name or body.email.split("@")[0],
-        "tier": "free",
-        "tokens_remaining": 1000,
+        "tier": tier,
+        "tokens_remaining": starting_tokens,
+        "is_admin": is_founder,
+        "is_unlimited": is_founder,
     }
 
 
@@ -72,13 +83,26 @@ async def login(body: LoginBody) -> dict:
         raise HTTPException(401, "Invalid credentials")
     # Auto-promote whoever matches ADMIN_EMAIL env var (cheap, idempotent)
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
-    is_admin = bool(user.get("is_admin")) or (
+    # Founder allow-list takes precedence over admin email — founder implies
+    # admin + unlimited tokens. Idempotent: writes only when the DB row is
+    # missing the founder bits.
+    is_founder = is_founder_email(user["email"])
+    is_admin = bool(user.get("is_admin")) or is_founder or (
         admin_email and user["email"].lower() == admin_email
     )
+    promote: dict = {}
     if is_admin and not user.get("is_admin"):
+        promote["is_admin"] = True
+    if is_founder:
+        if user.get("tier") != "founder":
+            promote["tier"] = "founder"
+        if not user.get("is_unlimited"):
+            promote["is_unlimited"] = True
+    if promote:
         await db.dev_users.update_one(
-            {"user_id": user["user_id"]}, {"$set": {"is_admin": True}},
+            {"user_id": user["user_id"]}, {"$set": promote},
         )
+        user.update(promote)
     token = create_token(user["user_id"], user["email"], is_admin)
     return {
         "ok": True,
@@ -89,6 +113,7 @@ async def login(body: LoginBody) -> dict:
         "tier": user.get("tier", "free"),
         "tokens_remaining": user.get("tokens_remaining", 0),
         "is_admin": is_admin,
+        "is_unlimited": bool(user.get("is_unlimited") or is_founder),
     }
 
 
