@@ -440,16 +440,171 @@ function PaymentsPage() {
     api.get("/admin/payments").then((r) => setD(r.data)).catch(() => {});
   }, []);
   if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  return <ComingSoon title="Payments" note={d._note} />;
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Total revenue" value={fmtMoney(d.total_revenue)} accent="var(--ok)" />
+        <MCard label="Transactions" value={d.count} />
+        <MCard label="Pending" value={(d.payments || []).filter(p => p.payment_status !== 'paid').length} />
+      </div>
+      <Card>
+        <Table
+          cols={["Tier", "User", "Amount", "Status", "When"]}
+          rows={(d.payments || []).map((p) => [
+            <Badge>{p.tier}</Badge>,
+            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{p.user_email}</span>,
+            fmtMoney(p.amount),
+            <Badge color={p.payment_status === "paid" ? "var(--ok)" : "var(--text-faint)"}>
+              {p.payment_status || p.status}
+            </Badge>,
+            <span style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
 }
 
 function SupportPage() {
-  const [d, setD] = useState(null);
-  useEffect(() => {
-    api.get("/admin/support").then((r) => setD(r.data)).catch(() => {});
-  }, []);
-  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  return <ComingSoon title="Support inbox" note={d._note} />;
+  const [tickets, setTickets] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [reply, setReply] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api.get("/admin/support");
+      setTickets(r.data.tickets || []);
+      if (r.data.tickets?.length && !selected) setSelected(r.data.tickets[0]);
+    } finally { setLoading(false); }
+  }, [selected]);
+
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  async function sendReply() {
+    if (!reply.trim() || !selected) return;
+    try {
+      await api.post(`/admin/support/${selected.ticket_id}/reply`, { message: reply });
+      setReply("");
+      toast({ message: "Reply sent", kind: "success" });
+      await load();
+    } catch (e) {
+      toast({ message: e?.response?.data?.detail || "Send failed", kind: "error" });
+    }
+  }
+
+  async function resolve(tid) {
+    if (!window.confirm("Mark as resolved?")) return;
+    try {
+      await api.post(`/admin/support/${tid}/resolve`);
+      toast({ message: "Resolved", kind: "success" });
+      await load();
+    } catch (e) {
+      toast({ message: "Failed", kind: "error" });
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 12px" }}>
+        Support inbox ({tickets.filter(t => t.status === "open").length} open)
+      </h3>
+      {tickets.length === 0 ? (
+        <Card style={{ padding: 24, textAlign: "center", color: "var(--text-faint)" }}>
+          No tickets yet.
+        </Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "280px 1fr",
+                       gap: 12, height: 520 }}>
+          <Card style={{ overflowY: "auto" }}>
+            {tickets.map((t) => (
+              <div
+                key={t.ticket_id}
+                data-testid={`admin-support-ticket-${t.ticket_id}`}
+                onClick={() => setSelected(t)}
+                style={{
+                  padding: "10px 12px", borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  background: selected?.ticket_id === t.ticket_id ? "var(--bg-elev)" : "",
+                }}>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{t.subject}</div>
+                <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
+                  {t.user_email} · {ago(t.created_at)}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <Badge color={STATUS_COLOR[t.status === "resolved" ? "done" : (t.status === "open" ? "failed" : "running")]}>
+                    {t.status}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </Card>
+          {selected && (
+            <Card style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)",
+                             display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{selected.subject}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                    {selected.user_email} · {ago(selected.created_at)}
+                  </div>
+                </div>
+                {selected.status !== "resolved" && (
+                  <button
+                    data-testid={`admin-support-resolve-${selected.ticket_id}`}
+                    className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => resolve(selected.ticket_id)}>
+                    resolve
+                  </button>
+                )}
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: 12,
+                             display: "flex", flexDirection: "column", gap: 8 }}>
+                {(selected.messages || []).map((m, i) => (
+                  <div key={i} style={{
+                    alignSelf: m.sender === "admin" ? "flex-end" : "flex-start",
+                    maxWidth: "80%",
+                    padding: "8px 12px", borderRadius: 4, fontSize: 12,
+                    background: m.sender === "admin"
+                      ? "rgba(255,138,42,0.1)" : "var(--bg-elev)",
+                    border: "1px solid var(--border)",
+                  }}>
+                    <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4 }}>
+                      {m.sender} · {ago(m.ts)}
+                    </div>
+                    {m.message}
+                  </div>
+                ))}
+              </div>
+              {selected.status !== "resolved" && (
+                <div style={{ padding: 10, borderTop: "1px solid var(--border)",
+                               display: "flex", gap: 8 }}>
+                  <input
+                    data-testid="admin-support-reply-input"
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="Type reply…"
+                    className="input"
+                    onKeyDown={(e) => e.key === "Enter" && sendReply()}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    data-testid="admin-support-reply-send"
+                    className="btn-primary" onClick={sendReply}>
+                    send
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Architecture() {
@@ -496,9 +651,41 @@ function Architecture() {
 function SettingsPage() {
   const [s, setS] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [upgrading, setUpgrading] = useState(null);  // tier id while in flight
   useEffect(() => {
     api.get("/admin/settings").then((r) => setS(r.data)).catch(() => {});
+    // After Stripe redirect, poll status once
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get("session_id");
+    if (sid) {
+      api.get(`/payments/status/${sid}`).then((r) => {
+        if (r.data.payment_status === "paid") {
+          toast({ message: `Upgraded to ${r.data.tier} ✓`, kind: "success" });
+        } else {
+          toast({ message: `Payment ${r.data.payment_status}`, kind: "info" });
+        }
+        window.history.replaceState({}, "", "/admin");
+      }).catch(() => {});
+    }
   }, []);
+
+  async function upgrade(tier) {
+    setUpgrading(tier);
+    try {
+      const r = await api.post("/payments/checkout", {
+        tier,
+        origin_url: window.location.origin,
+      });
+      window.location.href = r.data.url;
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Couldn't start checkout",
+        kind: "error",
+      });
+      setUpgrading(null);
+    }
+  }
+
   if (!s) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
 
   async function save() {
@@ -512,8 +699,29 @@ function SettingsPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 520 }}>
-      <h3 style={{ fontSize: 13, margin: "0 0 14px" }}>Token limits per plan</h3>
+    <div style={{ padding: 24, maxWidth: 560 }}>
+      <h3 style={{ fontSize: 13, margin: "0 0 14px" }}>Upgrade your plan</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+        {[
+          { id: "pro", label: "Pro", price: "$29/mo" },
+          { id: "team", label: "Team", price: "$99/mo" },
+        ].map((p) => (
+          <Card key={p.id} style={{ padding: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{p.label}</div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>{p.price}</div>
+            <button
+              data-testid={`upgrade-${p.id}`}
+              onClick={() => upgrade(p.id)}
+              disabled={upgrading === p.id}
+              className="btn-primary"
+              style={{ width: "100%" }}>
+              {upgrading === p.id ? "redirecting…" : `Upgrade → ${p.label}`}
+            </button>
+          </Card>
+        ))}
+      </div>
+
+      <h3 style={{ fontSize: 13, margin: "20px 0 14px" }}>Token limits per plan</h3>
       {["free", "pro", "team"].map((plan) => (
         <div key={plan} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
           <span style={{ width: 80, textTransform: "capitalize", fontSize: 12 }}>{plan}</span>

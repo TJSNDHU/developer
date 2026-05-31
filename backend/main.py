@@ -33,6 +33,9 @@ from routers.github_oauth import router as github_oauth_router
 from routers.cto_projects import router as cto_projects_router
 from routers.upload import router as upload_router
 from routers.admin import router as admin_router
+from routers.support import router as support_router
+from routers.payments import router as payments_router
+from services.daily_digest import schedule_daily_digest
 
 # Services
 from cto_services.db import set_db
@@ -63,7 +66,12 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  MongoDB unreachable: {e}")
         app.state.mongo = None
         app.state.db    = None
+    # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
+    import asyncio as _asyncio
+    app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
     yield
+    if getattr(app.state, "digest_task", None):
+        app.state.digest_task.cancel()
     if app.state.mongo:
         app.state.mongo.close()
     logger.info("AUREM Dev shutdown")
@@ -107,3 +115,5 @@ app.include_router(github_oauth_router, prefix="/api/aurem-dev")
 app.include_router(cto_projects_router, prefix="/api/aurem-dev")
 app.include_router(upload_router,        prefix="/api/aurem-dev")
 app.include_router(admin_router,         prefix="/api/aurem-dev")
+app.include_router(support_router,       prefix="/api/aurem-dev")
+app.include_router(payments_router,      prefix="/api/aurem-dev")

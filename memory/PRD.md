@@ -377,6 +377,39 @@ Full admin panel build per user spec. Built as **separate `/admin` route** in th
 - ✅ Dashboard/users/projects/tasks/architecture all return live DB data
 - ✅ UI screenshot shows beautifully rendered panel with all 9 nav buttons
 
+### Iter 25 — All 4 in One: Token Tracking + Support Inbox + Daily Digest + Stripe (May 2026)
+
+**1) Per-task token tracking** (`routers/cto_projects.py::_run_task_via_api`):
+- Captures real `tokens_used` (char/4 estimate — DeepSeek doesn't expose precise usage in our LLM path) and `agent_used` on every completed task
+- Admin Token P&L now aggregates real numbers per agent with real cost per 1k tokens (DeepSeek $0.30, Maxx $0.65, Groq $0.03)
+
+**2) Support inbox** (new `routers/support.py` + admin endpoints):
+- User-side: `POST /support/tickets`, `GET /support/tickets`, `GET /support/tickets/{id}` — creates ticket + first message, lists own tickets, returns full thread
+- Admin-side (`/admin/support`, `/admin/support/{id}/reply`, `/admin/support/{id}/resolve`): list all with messages, reply (auto-transitions to `pending_user`), resolve
+- Frontend Admin → Support tab: inline two-pane inbox with live thread, reply box, resolve button — full UI
+
+**3) Daily digest** (`services/daily_digest.py` + admin endpoint):
+- Background asyncio task fires daily at `DIGEST_HOUR_UTC` (default 6 AM)
+- Aggregates: new users (24h), tasks done/failed, chat sessions, open tickets, AI cost + tokens, top-1 failed-task sample
+- If `RESEND_API_KEY` is set → emails it to `ADMIN_EMAIL`; otherwise logs the digest to supervisor stdout
+- Admin can preview anytime via `GET /admin/digest`
+
+**4) Stripe Checkout** (new `routers/payments.py` + integration playbook):
+- Used Emergent's `emergentintegrations.payments.stripe.checkout` library + pre-configured `STRIPE_API_KEY`
+- Server-defined packages (Pro $29, Team $99) — no client price tampering
+- Endpoints: `POST /payments/checkout` (create session, create pending `cto_payments` doc), `GET /payments/status/{session_id}` (poll), `POST /webhook/stripe` (verify + flip tier)
+- Idempotent tier flip — `_flip_tier_idempotent` ensures no double-credit even with parallel polling + webhook
+- Admin Payments tab now shows real data from `cto_payments` collection
+- Frontend Admin Settings page: Pro/Team upgrade cards → click → Stripe Checkout → redirect back to `/admin?session_id=...` → polls status → toast on success
+
+**Verified live**:
+- ✅ POST /payments/checkout returns real Stripe URL (`cs_test_...`)
+- ✅ Bad tier → 400
+- ✅ Admin /payments shows the pending tx with tier=pro
+- ✅ Daily digest scheduler logs *"sleeping 2h until 06:00 UTC"* on startup
+- ✅ Support: user creates → admin lists → admin replies → user sees thread → admin resolves
+- ✅ Token P&L now uses real `tokens_used` from completed tasks (real cost in $)
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

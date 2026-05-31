@@ -186,7 +186,34 @@ async def token_pnl(authorization: Optional[str] = Header(None)):
     day_ago = now - 86400
     month_ago = now - 86400 * 30
 
-    # We don't track per-task token usage yet — use task counts as a proxy.
+    # Real token usage from done tasks (Iter 25 — token tracking)
+    pipe = [
+        {"$match": {"created_at": {"$gte": month_ago}, "status": "done"}},
+        {"$group": {"_id": "$agent_used", "tokens": {"$sum": "$tokens_used"}}},
+    ]
+    month_by_agent = {}
+    async for d in db.cto_tasks.aggregate(pipe):
+        month_by_agent[d.get("_id") or "deepseek"] = d.get("tokens") or 0
+
+    day_pipe = [
+        {"$match": {"created_at": {"$gte": day_ago}, "status": "done"}},
+        {"$group": {"_id": "$agent_used", "tokens": {"$sum": "$tokens_used"}}},
+    ]
+    day_by_agent = {}
+    async for d in db.cto_tasks.aggregate(day_pipe):
+        day_by_agent[d.get("_id") or "deepseek"] = d.get("tokens") or 0
+
+    # Cost per 1k tokens — DeepSeek via OpenRouter ~ $0.30 average
+    cost_per_1k = {"deepseek": 0.30, "maxx": 0.65, "groq": 0.03}
+    def calc(agent_map):
+        return round(sum(
+            (t / 1000) * cost_per_1k.get(a, 0.30)
+            for a, t in agent_map.items()
+        ), 2)
+
+    ai_cost_month = calc(month_by_agent)
+    ai_cost_today = calc(day_by_agent)
+
     done_month = await db.cto_tasks.count_documents(
         {"created_at": {"$gte": month_ago}, "status": "done"}
     )
@@ -196,10 +223,6 @@ async def token_pnl(authorization: Optional[str] = Header(None)):
     chat_month = await db.chat_sessions.count_documents(
         {"updated_at": {"$gte": month_ago}}
     )
-
-    # Rough cost estimate: $0.01/task + $0.005/chat session
-    ai_cost_month = round(done_month * 0.01 + chat_month * 0.005, 2)
-    ai_cost_today = round(done_today * 0.01, 2)
 
     return {
         "revenue_month": 0,
@@ -212,11 +235,12 @@ async def token_pnl(authorization: Optional[str] = Header(None)):
         "tasks_done_month": done_month,
         "tasks_done_today": done_today,
         "chat_sessions_month": chat_month,
+        "month_by_agent": month_by_agent,
+        "day_by_agent": day_by_agent,
         "stripe_configured": False,
         "_note": (
-            "Stripe not configured yet — revenue is 0. Token tracking "
-            "per task is on the P2 backlog; current AI cost is a "
-            "task-count proxy ($0.01/task, $0.005/chat session)."
+            "Real token usage from completed tasks. Cost rates: "
+            "DeepSeek $0.30, Maxx $0.65, Groq $0.03 per 1k tokens."
         ),
     }
 
@@ -225,21 +249,97 @@ async def token_pnl(authorization: Optional[str] = Header(None)):
 @router.get("/payments")
 async def list_payments(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
+    db = require_db()
+    payments = await db.cto_payments.find(
+        {}, {"_id": 0},
+    ).sort("created_at", -1).limit(100).to_list(100)
+    total_revenue = round(sum(
+        p.get("amount", 0) for p in payments
+        if p.get("payment_status") == "paid"
+    ), 2)
     return {
-        "payments": [],
-        "total_revenue": 0,
-        "_note": "Stripe integration is on the P2 backlog. No payment data yet.",
+        "payments": payments,
+        "total_revenue": total_revenue,
+        "count": len(payments),
     }
 
 
 @router.get("/support")
-async def list_support_tickets(authorization: Optional[str] = Header(None)):
+async def list_support_tickets(
+    status: str = "",
+    authorization: Optional[str] = Header(None),
+):
     await _require_admin(authorization)
-    return {
-        "tickets": [],
-        "_note": "Support inbox not yet built. Add a `cto_support` "
-                 "collection + ticket UI to enable.",
-    }
+    db = require_db()
+    q: dict = {}
+    if status:
+        q["status"] = status
+    tickets = await db.cto_support.find(q, {"_id": 0}).sort(
+        "updated_at", -1
+    ).limit(100).to_list(100)
+    for t in tickets:
+        t["messages"] = await db.cto_support_messages.find(
+            {"ticket_id": t.get("ticket_id")}, {"_id": 0},
+        ).sort("ts", 1).to_list(200)
+    return {"tickets": tickets}
+
+
+class SupportReply(BaseModel):
+    message: str
+
+
+@router.post("/support/{ticket_id}/reply")
+async def admin_reply(
+    ticket_id: str,
+    body: SupportReply,
+    authorization: Optional[str] = Header(None),
+):
+    user = await _require_admin(authorization)
+    db = require_db()
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(400, "Empty message")
+    now = time.time()
+    await db.cto_support_messages.insert_one({
+        "ticket_id": ticket_id,
+        "sender": "admin",
+        "admin_email": user.get("email"),
+        "message": msg,
+        "ts": now,
+    })
+    r = await db.cto_support.update_one(
+        {"ticket_id": ticket_id},
+        {"$set": {"status": "pending_user", "updated_at": now, "last_reply_at": now}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Ticket not found")
+    return {"ok": True}
+
+
+@router.post("/support/{ticket_id}/resolve")
+async def admin_resolve(
+    ticket_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    db = require_db()
+    r = await db.cto_support.update_one(
+        {"ticket_id": ticket_id},
+        {"$set": {"status": "resolved", "resolved_at": time.time(),
+                  "updated_at": time.time()}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Ticket not found")
+    return {"ok": True, "status": "resolved"}
+
+
+# ── Daily digest ──────────────────────────────────────────────────────
+@router.get("/digest")
+async def get_digest(authorization: Optional[str] = Header(None)):
+    """Returns the same 1-pager that the daily cron sends. Preview-friendly."""
+    await _require_admin(authorization)
+    from services.daily_digest import build_digest
+    return await build_digest()
 
 
 # ── Architecture ──────────────────────────────────────────────────────

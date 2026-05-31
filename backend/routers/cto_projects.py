@@ -518,6 +518,14 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
             messages=[{"role": "user", "content": user_msg}],
             system=_AI_SYS, max_tokens=3500, temperature=0.0,
         )
+        # Coarse token estimate (chars/4) so P&L has real numbers
+        approx_in = (len(_AI_SYS) + len(user_msg)) // 4
+        approx_out = len(reply or "") // 4
+        await _set_status(
+            task_id,
+            tokens_used=approx_in + approx_out,
+            agent_used="deepseek",
+        )
         summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
         summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
         edits: dict[str, str] = {}
