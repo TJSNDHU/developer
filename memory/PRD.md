@@ -173,6 +173,21 @@ Fix:
 
 Verified end-to-end: Turn 1 told AUREM "color teal, codename BlueFox". Turn 2 same session asked "what is my favorite color and codename?" → got "Your favorite color is **teal** and your project codename is **BlueFox**." ✅
 
+### Iter 16 — Verify-Before-Plan Persona (May 2026)
+User complaint: AUREM was making plans for bugs that weren't actually verified to exist in the real repo. Wanted Emergent-style "check the code first, then plan".
+
+Reworked `AUREM_CTO_PERSONA` from 5 steps → 6 steps with **VERIFY** as mandatory step 1:
+1. **VERIFY** — open the repo context, quote the offending line(s) verbatim, confirm the bug is real / already fixed / not visible
+2. ANALYZE
+3. PLAN (concrete files, functions, exact changes)
+4. RISKS
+5. VERIFY-AFTER (how to test)
+6. ASK TO PROCEED ("Reply 'go'…")
+
+Explicit anti-fabrication rules added: never invent line numbers / code you haven't seen; if a file is in the tree but not inlined, the AI must say exactly *"I can see `<path>` in the tree but its contents aren't loaded — paste the function or confirm and I'll pull it."*
+
+Verified live with Hello-World repo + fake bug claim about `routers/auth.py`: AI correctly identified the file isn't in the tree and refused to fabricate a fix.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
