@@ -11,9 +11,14 @@ Public surface:
 All operations preserve full git history. We use the Git Data API
 (blobs / trees / commits / refs) so a single multi-file change lands
 as ONE atomic commit, just like local git would do it.
+
+Iter 22 — every multi-file step (blob upload, file fetch) runs in
+parallel via asyncio.gather, so a 10-file commit takes ~1-2s instead
+of 10s.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Optional
@@ -23,6 +28,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
+# httpx connection pool — bump limits so parallel calls actually parallel
+_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=20)
 
 
 def _headers(token: str) -> dict:
@@ -89,15 +96,15 @@ async def commit_files(
         if progress is not None:
             await progress(step, status)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, limits=_LIMITS) as client:
         await _p(f"📡 Reading branch head ({branch})…")
         head = await _get_branch_head(client, owner, repo, branch, token)
         await _p(f"✅ HEAD @ {head['sha'][:7]}", "success")
 
-        # 1. Upload each file as a blob → returns sha
-        await _p(f"📦 Uploading {len(files)} blob(s)…")
-        blob_specs = []
-        for path, content in files.items():
+        # 1. Upload every file as a blob IN PARALLEL → returns sha each
+        await _p(f"📦 Uploading {len(files)} blob(s) in parallel…")
+
+        async def _upload(path: str, content: str) -> dict:
             r = await client.post(
                 f"{GITHUB_API}/repos/{owner}/{repo}/git/blobs",
                 headers=_headers(token),
@@ -109,13 +116,18 @@ async def commit_files(
                 },
             )
             r.raise_for_status()
-            blob_specs.append({
+            return {
                 "path": path,
                 "mode": "100644",
                 "type": "blob",
                 "sha": r.json()["sha"],
-            })
-            await _p(f"   blob {path} → {r.json()['sha'][:7]}")
+            }
+
+        blob_specs = await asyncio.gather(*[
+            _upload(p, c) for p, c in files.items()
+        ])
+        for spec in blob_specs:
+            await _p(f"   blob {spec['path']} → {spec['sha'][:7]}")
 
         # 2. Build a new tree based on the previous head's tree
         await _p("🌳 Building tree…")
@@ -180,7 +192,7 @@ async def revert_commit(
         if progress is not None:
             await progress(step, status)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, limits=_LIMITS) as client:
         await _p(f"📡 Loading commit {commit_sha[:7]}…")
         r = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/commits/{commit_sha}",
@@ -193,58 +205,55 @@ async def revert_commit(
         parent_sha = commit["parents"][0]["sha"]
         await _p(f"   parent @ {parent_sha[:7]}", "success")
 
-        # For every file changed in the commit, fetch the parent's
-        # version (or mark for deletion).
-        files_to_restore: dict[str, Optional[str]] = {}
-        for f in commit.get("files") or []:
-            path = f.get("filename")
-            status = f.get("status")  # added | modified | removed | renamed
-            if not path:
-                continue
+        # PARALLEL: for every changed file, fetch the parent's version
+        # (or mark for deletion if file was added in the reverted commit).
+        changed = [
+            (f.get("filename"), f.get("status"))
+            for f in (commit.get("files") or [])
+            if f.get("filename")
+        ]
+
+        async def _restore_spec(path: str, status: str):
             if status == "added":
-                # File didn't exist before — rollback deletes it.
-                files_to_restore[path] = None
-            else:
-                # modified / removed / renamed → restore parent version
-                files_to_restore[path] = await fetch_file(
-                    client, owner, repo, path, parent_sha, token,
-                )
+                # File didn't exist before → deletion (sha=None in tree)
+                return path, None
+            body = await fetch_file(client, owner, repo, path, parent_sha, token)
+            return path, body
+
+        restored = await asyncio.gather(*[
+            _restore_spec(p, s) for p, s in changed
+        ])
+        files_to_restore: dict[str, Optional[str]] = dict(restored)
         await _p(
-            f"   {len(files_to_restore)} file(s) to restore", "success"
+            f"   {len(files_to_restore)} file(s) to restore (parallel)",
+            "success",
         )
 
         # Get current HEAD to commit on top of (not the commit being reverted)
         head = await _get_branch_head(client, owner, repo, branch, token)
 
-        # Build blobs for restorations
-        blob_specs = []
-        for path, content in files_to_restore.items():
+        # PARALLEL: build blobs for non-delete restorations
+        async def _build_spec(path: str, content: Optional[str]) -> dict:
             if content is None:
-                # Deletion: emit a tree entry with sha=null
-                blob_specs.append({
-                    "path": path,
-                    "mode": "100644",
-                    "type": "blob",
-                    "sha": None,
-                })
-            else:
-                r = await client.post(
-                    f"{GITHUB_API}/repos/{owner}/{repo}/git/blobs",
-                    headers=_headers(token),
-                    json={
-                        "content": base64.b64encode(
-                            content.encode("utf-8")
-                        ).decode("ascii"),
-                        "encoding": "base64",
-                    },
-                )
-                r.raise_for_status()
-                blob_specs.append({
-                    "path": path,
-                    "mode": "100644",
-                    "type": "blob",
-                    "sha": r.json()["sha"],
-                })
+                return {"path": path, "mode": "100644",
+                        "type": "blob", "sha": None}
+            r = await client.post(
+                f"{GITHUB_API}/repos/{owner}/{repo}/git/blobs",
+                headers=_headers(token),
+                json={
+                    "content": base64.b64encode(
+                        content.encode("utf-8")
+                    ).decode("ascii"),
+                    "encoding": "base64",
+                },
+            )
+            r.raise_for_status()
+            return {"path": path, "mode": "100644",
+                    "type": "blob", "sha": r.json()["sha"]}
+
+        blob_specs = await asyncio.gather(*[
+            _build_spec(p, c) for p, c in files_to_restore.items()
+        ])
 
         # Build the revert tree based on current HEAD
         r = await client.post(

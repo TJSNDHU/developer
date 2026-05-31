@@ -480,25 +480,28 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
         await _set_status(task_id, status="pulling", started_at=time.time())
         await _log(task_id, f"📡 Reading {owner}/{repo}@{branch} via API…")
 
-        # 1) Read target files (or auto-pick a few likely ones)
+        # 1) Read target files (or auto-pick a few likely ones) IN PARALLEL
         await _set_status(task_id, status="reading")
-        contents: dict = {}
+        target_files = list(files or [])
+        if not target_files:
+            target_files = [
+                "main.py", "app.py", "server.py", "index.html",
+                "src/App.jsx", "src/main.jsx", "pages/index.js",
+                "README.md",
+            ]
         async with httpx.AsyncClient(timeout=30.0) as client:
-            target_files = list(files or [])
-            if not target_files:
-                target_files = [
-                    "main.py", "app.py", "server.py", "index.html",
-                    "src/App.jsx", "src/main.jsx", "pages/index.js",
-                    "README.md",
-                ]
-            for f in target_files[:6]:
-                body = await gh_api_fetch_file(client, owner, repo, f,
-                                                branch, user_token)
-                if body is not None:
-                    contents[f] = body[:10000]
-                    await _log(task_id, f"📄 read {f}")
-                    if len(contents) >= 4 and not files:
-                        break
+            fetched = await asyncio.gather(*[
+                gh_api_fetch_file(client, owner, repo, f, branch, user_token)
+                for f in target_files[:8]
+            ])
+        contents: dict = {}
+        for path, body in zip(target_files[:8], fetched):
+            if body is not None:
+                contents[path] = body[:10000]
+                await _log(task_id, f"📄 read {path}")
+                # When user didn't specify files, keep first 4 hits
+                if not files and len(contents) >= 4:
+                    break
 
         # 2) AI codegen (same prompt format as the git path)
         await _set_status(task_id, status="fixing")

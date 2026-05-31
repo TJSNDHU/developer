@@ -16,7 +16,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import {
   Send, Bot, User, Loader2, Square, Paperclip, Github, Zap,
   ShieldCheck, AlertTriangle, RefreshCw, Eye, Copy as CopyIcon,
-  ThumbsUp, ThumbsDown,
+  ThumbsUp, ThumbsDown, Undo2, ExternalLink,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
@@ -169,6 +169,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             provider: t.provider,
             watchdog: t.watchdog,
             feedback: t.feedback,
+            shipped_task_id: t.shipped_task_id,
           })));
         }
       })
@@ -650,11 +651,224 @@ function ToolButton({ testid, title, onClick, Icon, active }) {
   );
 }
 
+function ShipStatusCard({ taskId, task, project, onRollback }) {
+  // Status sequence we show to the user (mapped from raw worker status)
+  const STAGES = [
+    { key: "pulling", label: "Cloning…", icon: "📡" },
+    { key: "reading", label: "Reading files…", icon: "📄" },
+    { key: "fixing",  label: "AI thinking…", icon: "🧠" },
+    { key: "pushing", label: "Writing & pushing…", icon: "🚀" },
+    { key: "done",    label: "Pushed",            icon: "✅" },
+  ];
+  const status = task?.status || "queued";
+  const rbStatus = task?.rollback_status;
+  const rbRunning = rbStatus === "queued" || rbStatus === "running";
+
+  // While running
+  if (!task || (status !== "done" && status !== "failed")) {
+    const stageIdx = STAGES.findIndex((s) => s.key === status);
+    const current = stageIdx >= 0 ? STAGES[stageIdx] : { icon: "⏳", label: status };
+    return (
+      <div data-testid={`ship-status-${taskId}`} style={{
+        padding: "10px 12px",
+        background: "var(--panel-2)",
+        border: "1px solid var(--border)",
+        borderRadius: 4,
+        fontSize: 12, color: "var(--text-dim)",
+        fontFamily: "'JetBrains Mono', monospace",
+        minWidth: 260,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Loader2 size={12} style={{ animation: "spin 1s linear infinite", color: "var(--accent-2)" }} />
+          <span>{current.icon} {current.label}</span>
+          <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10 }}>{taskId}</span>
+        </div>
+        {(task?.steps || []).slice(-2).map((s, i) => (
+          <div key={i} style={{ marginTop: 4, fontSize: 10, color: s.status === "error" ? "var(--danger)" : "var(--text-faint)" }}>
+            {s.step}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Failed
+  if (status === "failed") {
+    return (
+      <div data-testid={`ship-status-${taskId}`} style={{
+        padding: "10px 12px",
+        background: "rgba(255,107,107,0.06)",
+        border: "1px solid rgba(255,107,107,0.3)",
+        borderRadius: 4,
+        fontSize: 12, color: "var(--danger)",
+        fontFamily: "'JetBrains Mono', monospace",
+        maxWidth: 460,
+      }}>
+        <div>❌ Task failed · <span style={{ opacity: 0.7 }}>{taskId}</span></div>
+        {task.error && (
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)", whiteSpace: "pre-wrap" }}>
+            {String(task.error).slice(0, 240)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Success
+  const sha = task.commit_sha;
+  const owner = project?.github_owner;
+  const repo = project?.github_repo;
+  const commitUrl = sha && owner && repo
+    ? `https://github.com/${owner}/${repo}/commit/${sha}`
+    : null;
+
+  // Extract changed file paths from the worker's steps (lines starting with "💾")
+  const files = (task.steps || [])
+    .filter((s) => (s.step || "").startsWith("💾"))
+    .map((s) => s.step.replace(/^💾\s*/, ""));
+
+  const reverted = !!task.rollback_sha;
+
+  return (
+    <div data-testid={`ship-status-${taskId}`} style={{
+      padding: "12px 14px",
+      background: reverted ? "var(--panel-2)" : "rgba(0, 230, 118, 0.05)",
+      border: `1px solid ${reverted ? "var(--border)" : "rgba(0,230,118,0.3)"}`,
+      borderRadius: 4,
+      fontSize: 12,
+      maxWidth: 460,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        fontFamily: "'JetBrains Mono', monospace",
+        color: reverted ? "var(--text-dim)" : "var(--ok)",
+        fontWeight: 600,
+      }}>
+        {reverted ? "↩︎ Reverted" : "✅ Pushed"}
+        {sha && (commitUrl ? (
+          <a href={commitUrl} target="_blank" rel="noreferrer"
+             data-testid={`ship-commit-link-${taskId}`}
+             style={{ color: "var(--accent-2)", textDecoration: "none" }}
+             title="View commit on GitHub">
+            {sha} <ExternalLink size={10} style={{ display: "inline" }} />
+          </a>
+        ) : <span>{sha}</span>)}
+        {task.rollback_sha && (
+          <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>
+            → {task.rollback_sha}
+          </span>
+        )}
+      </div>
+
+      {task.result && (
+        <div style={{ marginTop: 6, color: "var(--text)" }}>{task.result}</div>
+      )}
+
+      {files.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
+          <div style={{ marginBottom: 2, color: "var(--text-faint)", letterSpacing: "0.05em" }}>
+            FILES CHANGED
+          </div>
+          {files.slice(0, 4).map((f, i) => (
+            <div key={i} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              • {f}
+            </div>
+          ))}
+          {files.length > 4 && (
+            <div style={{ color: "var(--text-faint)" }}>+ {files.length - 4} more</div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        {commitUrl && (
+          <a href={commitUrl} target="_blank" rel="noreferrer"
+             className="btn-ghost"
+             style={{ padding: "5px 10px", fontSize: 11, textDecoration: "none" }}>
+            <ExternalLink size={11} /> View diff
+          </a>
+        )}
+        {!reverted && !rbRunning && (
+          <button
+            data-testid={`ship-rollback-${taskId}`}
+            onClick={onRollback}
+            className="btn-ghost"
+            style={{
+              padding: "5px 10px", fontSize: 11,
+              borderColor: "rgba(255,107,107,0.3)",
+              color: "var(--danger)",
+            }}
+          >
+            <Undo2 size={11} /> Rollback
+          </button>
+        )}
+        {rbRunning && (
+          <span style={{ fontSize: 11, color: "var(--accent-2)",
+                         display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} /> reverting…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
   const [hover, setHover] = useState(false);
-  const [shipState, setShipState] = useState({ status: "idle", taskId: null, error: null });
+  const [shipState, setShipState] = useState({
+    status: m.shipped_task_id ? "shipped" : "idle",  // restore from history
+    taskId: m.shipped_task_id || null,
+    error: null,
+  });
+  // Live task progress (polled while shipped task is in-flight)
+  const [taskInfo, setTaskInfo] = useState(null);
+
+  // Poll the CTO task while it's in progress, until done/failed
+  useEffect(() => {
+    const tid = shipState.taskId;
+    if (!tid) return;
+    let cancelled = false;
+    const TERMINAL = new Set(["done", "failed"]);
+    async function tick() {
+      try {
+        const r = await api.get(`/cto/tasks/${tid}`);
+        const t = r.data?.task || null;
+        if (cancelled || !t) return;
+        setTaskInfo(t);
+        if (!TERMINAL.has(t.status)) {
+          setTimeout(tick, 2000);
+        }
+      } catch {
+        /* keep last known state */
+      }
+    }
+    tick();
+    return () => { cancelled = true; };
+  }, [shipState.taskId]);
+
+  async function rollbackShipped() {
+    const tid = shipState.taskId;
+    if (!tid) return;
+    const ok1 = window.confirm(
+      "Rollback this commit?\nA new revert commit will be pushed " +
+      "(history preserved, no force-push)."
+    );
+    if (!ok1) return;
+    const ok2 = window.confirm("Are you sure? This pushes to your repo right now.");
+    if (!ok2) return;
+    try {
+      await api.post(`/cto/tasks/${tid}/rollback`, { confirm: "ROLLBACK" });
+      toast({ message: "Rollback queued", kind: "info" });
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Rollback failed to start",
+        kind: "error",
+      });
+    }
+  }
 
   function copyText() {
     if (!m.content) return;
@@ -706,6 +920,16 @@ function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
       });
       const taskId = r.data?.task_id || null;
       setShipState({ status: "shipped", taskId, error: null });
+      // Persist on the turn so refresh/rejoin doesn't show the button again
+      if (taskId && sessionId) {
+        try {
+          await api.post("/chat/turn/shipped", {
+            session_id: sessionId,
+            turn_index: idx,
+            task_id: taskId,
+          });
+        } catch { /* non-fatal */ }
+      }
       toast({
         message: taskId ? `Task queued — ${taskId}` : "Task queued",
         kind: "success", duration: 3000,
@@ -853,16 +1077,12 @@ function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
                 Switch to a connected project to enable Ship via CTO.
               </div>
             ) : shipState.status === "shipped" ? (
-              <div style={{
-                fontSize: 12, color: "var(--ok)",
-                fontFamily: "'JetBrains Mono', monospace",
-                display: "inline-flex", alignItems: "center", gap: 6,
-              }}>
-                ✅ Queued{shipState.taskId ? ` — ${shipState.taskId}` : ""}
-                <a href="/projects" style={{ color: "var(--accent-2)", textDecoration: "underline" }}>
-                  view in Projects →
-                </a>
-              </div>
+              <ShipStatusCard
+                taskId={shipState.taskId}
+                task={taskInfo}
+                project={activeProject}
+                onRollback={rollbackShipped}
+              />
             ) : (
               <button
                 data-testid={`ship-cto-btn-${idx}`}

@@ -360,6 +360,31 @@ async def chat_sessions_list(
     return {"ok": True, "sessions": sessions}
 
 
+class TurnShippedBody(BaseModel):
+    session_id: str
+    turn_index: int
+    task_id: str
+
+
+@router.post("/turn/shipped")
+async def chat_turn_shipped(
+    body: TurnShippedBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Record that an assistant turn was shipped via CTO so the Ship button
+    doesn't re-appear on refresh/rejoin. Stores `task_id` on the turn doc."""
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    set_field = f"turns.{body.turn_index}.shipped_task_id"
+    await db.chat_sessions.update_one(
+        {"session_id": body.session_id, "user_id": user["user_id"]},
+        {"$set": {set_field: body.task_id}},
+    )
+    return {"ok": True}
+
+
 class FeedbackBody(BaseModel):
     session_id: str
     turn_index: int       # index within the turns array (assistant turn)
