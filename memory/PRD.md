@@ -410,6 +410,20 @@ Full admin panel build per user spec. Built as **separate `/admin` route** in th
 - ✅ Support: user creates → admin lists → admin replies → user sees thread → admin resolves
 - ✅ Token P&L now uses real `tokens_used` from completed tasks (real cost in $)
 
+### Iter 26 — Landing Redesign + BG Image (May 2026)
+User asked: remove sidebar from `auremcto.com` homepage and add their uploaded artwork as background.
+
+- Downloaded the artifact to `/app/frontend/public/aurem-bg.jpg` (19 MB — served as static asset by Vite)
+- Rewrote `pages/Landing.jsx` to NOT use `<Shell>` (which always renders the in-app sidebar). Now it has its own minimal layout:
+  - Full-bleed `background: linear-gradient(rgba(8,8,12,.82)→.92) + url('/aurem-bg.jpg') cover fixed` so the dark gradient keeps copy readable over the colourful art
+  - Floating sticky top-nav with `backdrop-filter: blur(8px)`, AUREM mono logo, Sign in + Get started buttons
+  - Hero / features / cost-strip / footer all preserved
+  - Feature cards now use translucent glass: `rgba(20,20,28,0.55) + backdrop-filter blur(10px)` for the floating-over-art look
+- All other auth-protected pages still use `<Shell>` (sidebar) — only `/` is sidebar-free
+- Smoke screenshot confirmed: zero sidebar, hero gorgeous over the image, all CTAs functional
+
+About `auremcto.com/admin not working`: this is iters 24+25 code that hasn't been deployed yet. Path forward documented in next chat reply.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
