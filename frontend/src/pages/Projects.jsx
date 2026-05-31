@@ -473,7 +473,13 @@ function TaskRow({ t, onRollback }) {
   const running = !["done", "failed"].includes(t.status);
   const rbStatus = t.rollback_status;
   const rbRunning = rbStatus === "queued" || rbStatus === "running";
-  const canRollback = t.status === "done" && t.commit_sha && !t.rollback_sha && !rbRunning;
+  const canRollback = (
+    t.status === "done"
+    && t.commit_sha
+    && !t.rollback_sha
+    && !rbRunning
+    && rbStatus !== "failed"
+  );
 
   async function handleRollback(e) {
     e.stopPropagation();

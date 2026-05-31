@@ -201,6 +201,11 @@ async def rollback_task(
         raise HTTPException(409, "Task already rolled back")
     if t.get("rollback_status") in ("queued", "running"):
         raise HTTPException(409, "Rollback already in progress")
+    if t.get("rollback_status") == "failed":
+        raise HTTPException(
+            409,
+            "Previous rollback failed — manual intervention required",
+        )
 
     proj = await db.cto_projects.find_one(
         {"project_id": t["project_id"], "user_id": me["user_id"]}
@@ -251,6 +256,12 @@ async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
 
     db = get_db()
 
+    def _scrub(s: str) -> str:
+        """Strip the PAT from any error/log string before we persist it."""
+        if not s or not user_token:
+            return s or ""
+        return s.replace(user_token, "***PAT***")
+
     async def _set(**fields):
         if db is not None:
             await db.cto_tasks.update_one({"task_id": task_id}, {"$set": fields})
@@ -262,7 +273,7 @@ async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
         r = _sh(["git", "clone", "--branch", branch, clone_url, str(repo_path)],
                 cwd=ws, timeout=120)
         if r.returncode != 0:
-            raise RuntimeError(f"git clone failed: {r.stderr[:300]}")
+            raise RuntimeError(f"git clone failed: {_scrub(r.stderr)[:300]}")
         await _rollback_log(task_id, "✅ Cloned", "success")
 
         _sh(["git", "config", "user.email", "cto@auremcto.com"], repo_path)
@@ -284,13 +295,13 @@ async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
             )
         if revert.returncode != 0:
             raise RuntimeError(
-                f"git revert failed (possibly conflicts): {revert.stderr[:300]}"
+                f"git revert failed (possibly conflicts): {_scrub(revert.stderr)[:300]}"
             )
         await _rollback_log(task_id, f"✏️ Reverted {commit_sha}", "success")
 
         push = _sh(["git", "push", "origin", branch], repo_path, timeout=90)
         if push.returncode != 0:
-            raise RuntimeError(f"git push failed: {push.stderr[:300]}")
+            raise RuntimeError(f"git push failed: {_scrub(push.stderr)[:300]}")
 
         new_sha = _sh(["git", "rev-parse", "--short", "HEAD"], repo_path).stdout.strip()
         await _rollback_log(task_id, f"🚀 pushed revert — {new_sha}", "success")
@@ -301,10 +312,11 @@ async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
         )
     except Exception as e:
         logger.exception(f"[rollback {task_id}] failed")
-        await _rollback_log(task_id, f"❌ {e}", "error")
+        safe_msg = _scrub(str(e))
+        await _rollback_log(task_id, f"❌ {safe_msg}", "error")
         await _set(
             rollback_status="failed",
-            rollback_error=str(e),
+            rollback_error=safe_msg,
             rollback_completed_at=time.time(),
         )
     finally:

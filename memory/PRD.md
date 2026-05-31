@@ -129,6 +129,26 @@ Empty state polish: when no preview URL is set, panel shows: *"No preview URL se
 
 Verified backend end-to-end via curl (add → list → PATCH → list); UI screenshot confirms the Add dialog renders the new field. Frontend lint clean.
 
+### Iter 13 — Commit Rollback Button (May 2026)
+User requested: after a CTO task pushes a commit, show a Rollback button; always require two confirmations before reverting; wire and E2E test.
+
+**Backend** (`routers/cto_projects.py`):
+- New `POST /api/aurem-dev/cto/tasks/{task_id}/rollback` — body `{confirm: "ROLLBACK"}` (must echo string)
+- Guards: 401 (no auth), 400 (wrong confirm, status!=done, no commit_sha, no PAT on project), 404 (unknown task / no parent project), 409 (already rolled back, rollback in progress, **previous rollback failed → manual intervention required**)
+- Background worker `_run_rollback`: full-history clone, `git revert --no-edit -m 1 <sha>` (with fallback to plain revert for non-merge commits), `git push origin <branch>` — **never force-push, history preserved**
+- Task doc gains: `rollback_status` (queued→running→done|failed), `rollback_sha`, `rollback_error`, `rollback_steps[]`, `rollback_started_at`, `rollback_completed_at`
+- **Security fix**: PAT scrubbed (`_scrub()`) from every error/log string before persisting → no leak via Mongo
+
+**Frontend** (`Projects.jsx`):
+- `Undo2` icon import; `TaskRow` accepts `onRollback` callback
+- Rollback button rendered ONLY when `status=='done' && commit_sha && !rollback_sha && !rbRunning && rollback_status !== 'failed'`
+- `handleRollback` triggers TWO sequential `window.confirm()` dialogs — first explains revert semantics, second is final "are you sure?". Cancelling either aborts.
+- Inline status line shows `rolling back…` / `reverted → <new_sha>` / `rollback failed`
+- Expanded panel renders a `── rollback ──` section with all `rollback_steps[]` and any `rollback_error`
+- Polling effect kept alive while `rollback_status` ∈ {queued, running} so UI updates live
+
+**Test report**: `/app/test_reports/iteration_4.json`. Backend 13/13 + 22/22 regression pass. Testing agent flagged one HIGH UI bug (button still showing on failed rollbacks) + PAT-leak via stderr — **both fixed** in this iteration. New `/app/backend/tests/test_aurem_rollback.py` (13 tests) committed.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
