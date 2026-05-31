@@ -511,9 +511,31 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           </div>
         )}
 
-        {messages.map((m, i) => (
-          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} activeProject={activeProject} exhausted={exhausted} />
-        ))}
+        {messages.map((m, i) => {
+          // The DB `turns` array does NOT contain the front-end-only
+          // WELCOME / system messages. So when we ship a turn and tell
+          // the backend "this is turn N", N must be computed from the
+          // user/assistant pairs only — not from the rendered position.
+          // Otherwise on first refresh the shipped_task_id lands on a
+          // sparse / nonexistent index and the button reappears.
+          //                                              — Iter 34 fix
+          const dbTurnIndex = messages
+            .slice(0, i + 1)
+            .filter((mm) => mm.provider !== "system")
+            .length - 1;
+          return (
+            <MessageBubble
+              key={i}
+              idx={i}
+              dbTurnIndex={dbTurnIndex}
+              m={m}
+              onRegenerate={regenerate}
+              sessionId={sessionId}
+              activeProject={activeProject}
+              exhausted={exhausted}
+            />
+          );
+        })}
         <div ref={endRef} />
       </div>
 
@@ -896,7 +918,7 @@ function ShipStatusCard({ taskId, task, project, onRollback }) {
 }
 
 
-function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject, exhausted }) {
+function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activeProject, exhausted }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
   const [hover, setHover] = useState(false);
@@ -1007,7 +1029,10 @@ function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject, exhaust
         try {
           await api.post("/chat/turn/shipped", {
             session_id: sessionId,
-            turn_index: idx,
+            // Iter 34: use DB index (skips WELCOME / system messages) —
+            // not the rendered messages array position. Falls back to
+            // idx for safety on legacy history payloads.
+            turn_index: typeof dbTurnIndex === "number" ? dbTurnIndex : idx,
             task_id: taskId,
           });
         } catch { /* non-fatal */ }

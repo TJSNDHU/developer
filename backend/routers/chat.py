@@ -372,17 +372,50 @@ async def chat_turn_shipped(
     authorization: Optional[str] = Header(None),
 ) -> dict:
     """Record that an assistant turn was shipped via CTO so the Ship button
-    doesn't re-appear on refresh/rejoin. Stores `task_id` on the turn doc."""
+    doesn't re-appear on refresh/rejoin. Stores `task_id` on the turn doc.
+
+    Iter 34 — defensive validation: refuse to write past the end of the
+    turns array. MongoDB silently creates sparse `turns[N]` entries when
+    asked to $set on an out-of-range index, which corrupts the document
+    and brings the Ship button back on every refresh. Front-end already
+    sends a DB-correct index, but legacy clients / stale tabs might not.
+    """
     user = await current_dev(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
+    if body.turn_index < 0:
+        raise HTTPException(400, "turn_index must be >= 0")
+
+    # Look up the live turn count before we write
+    sess = await db.chat_sessions.find_one(
+        {"session_id": body.session_id, "user_id": user["user_id"]},
+        {"_id": 0, "turns": 1},
+    )
+    if not sess:
+        raise HTTPException(404, "Session not found")
+    turns = sess.get("turns") or []
+    if body.turn_index >= len(turns):
+        # Off-by-one or stale index — don't corrupt the doc. Fall back to
+        # marking the latest assistant turn as shipped (safest default).
+        last_asst = max(
+            (i for i, t in enumerate(turns) if (t or {}).get("role") == "assistant"),
+            default=None,
+        )
+        if last_asst is None:
+            raise HTTPException(409,
+                                "Cannot record shipped state — no assistant "
+                                "turns in this session yet")
+        body = TurnShippedBody(session_id=body.session_id,
+                               turn_index=last_asst,
+                               task_id=body.task_id)
+
     set_field = f"turns.{body.turn_index}.shipped_task_id"
     await db.chat_sessions.update_one(
         {"session_id": body.session_id, "user_id": user["user_id"]},
         {"$set": {set_field: body.task_id}},
     )
-    return {"ok": True}
+    return {"ok": True, "turn_index": body.turn_index}
 
 
 class FeedbackBody(BaseModel):

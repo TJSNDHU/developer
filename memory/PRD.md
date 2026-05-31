@@ -627,6 +627,31 @@ User uploaded 3 drafted files (`llm.py`, `local_tools.py`, `orchestrator.py`) wi
 
 Full regression: **124 passed, 4 skipped** (the 4 are vault-roundtrip tests that correctly skip when `AUREM_MASTER_KEY` is unset).
 
+## Active Phase / Next Up
+
+### Iter 34 — Ship via CTO button refresh persistence (THE bug) (Feb 2026)
+The bug we'd carried across 4+ iters. User shipped a task, refreshed the page, button reappeared. Maddening for daily use.
+
+**Root cause — verified by code read**:
+- Frontend renders `messages = [WELCOME, user_t1, asst_t1, …]` where `WELCOME` (`provider='system'`) is a hardcoded greeting that is NEVER persisted to DB.
+- Old frontend code sent `turn_index = idx` from the rendered array position.
+- Shipping the first assistant reply (rendered at `idx=2`) wrote to `db.chat_sessions.turns[2].shipped_task_id`, but the DB array only had **2 elements**.
+- MongoDB silently created a sparse third element `{shipped_task_id}` with **no role/content**.
+- On reload, history returned 3 turns; the real assistant turn (now at rendered idx=1 because WELCOME isn't prepended after a successful load) had no `shipped_task_id` → button reappeared.
+
+**Fix — two layers**:
+- **Frontend** (`ChatPanel.jsx`): when mapping `messages` → `<MessageBubble>`, also compute a `dbTurnIndex` that counts only non-system messages up to position `i`. Send THAT to the backend, not the raw rendered index. Falls back to `idx` if the prop is missing (legacy safety).
+- **Backend** (`routers/chat.py::chat_turn_shipped`): defensive validation. Reads the live `turns` array, rejects negative indices (400), rejects unknown sessions (404), rejects 0-assistant sessions (409). If `turn_index >= len(turns)`, falls back to the **latest assistant turn index** instead of corrupting the doc with a sparse write. Returns the actual `turn_index` used.
+
+**Tests** — 5 new tests in `tests/test_ship_turn_index.py`:
+- ✅ Happy path with correct index → writes to right turn, array length preserved
+- ✅ Out-of-bounds index → falls back to latest assistant, array length unchanged, **no sparse write**
+- ✅ Negative index → 400
+- ✅ Unknown session → 404
+- ✅ User-only session with stale ship → 409 (refuses rather than corrupts)
+
+Full regression: **129 passed, 0 failed** (was 124).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
