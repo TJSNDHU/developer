@@ -642,6 +642,7 @@ function ToolButton({ testid, title, onClick, Icon, active }) {
 function MessageBubble({ idx, m, onRegenerate, sessionId }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
+  const [hover, setHover] = useState(false);
 
   function copyText() {
     if (!m.content) return;
@@ -665,9 +666,14 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
     }
   }
 
+  const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
+  const showUserCopy = m.role === "user" && !!m.content;
+
   return (
     <div
       data-testid={`chat-msg-${m.role}-${idx}`}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         display: "flex", gap: 12, alignItems: "flex-start",
         flexDirection: m.role === "user" ? "row-reverse" : "row",
@@ -683,7 +689,7 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
       }}>
         {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
       </div>
-      <div style={{ maxWidth: "80%" }}>
+      <div style={{ maxWidth: "80%", position: "relative" }}>
         <div style={{
           padding: "12px 16px",
           borderRadius: 4,
@@ -695,6 +701,33 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
           color: m.error ? "var(--danger)" : "var(--text)",
           whiteSpace: "pre-wrap", wordBreak: "break-word",
         }}>
+          {/* Floating copy button for USER bubbles — appears on hover only */}
+          {showUserCopy && (
+            <button
+              data-testid={`copy-user-${idx}`}
+              onClick={copyText}
+              title={copied ? "Copied!" : "Copy"}
+              aria-label="Copy message"
+              style={{
+                position: "absolute",
+                top: 6, left: 6,             // bubble is right-aligned for user, so left edge is "outside-inner"
+                width: 24, height: 24,
+                display: "inline-flex",
+                alignItems: "center", justifyContent: "center",
+                background: "var(--panel-2)",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+                color: copied ? "var(--ok)" : "var(--text-dim)",
+                cursor: "pointer",
+                opacity: hover ? 1 : 0,
+                transition: "opacity 0.15s ease",
+                pointerEvents: hover ? "auto" : "none",
+                padding: 0,
+              }}
+            >
+              <CopyIcon size={12} />
+            </button>
+          )}
           {m.content}
           {/* Inline HTML preview directly inside the bubble (separate from side PreviewPanel) */}
           {m.role === "assistant" && !m.streaming && (() => {
@@ -756,11 +789,14 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
           )}
         </div>
 
-        {/* Action row for assistant bubbles — copy / 👍 / 👎 */}
-        {m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error && (
+        {/* Action row for assistant bubbles — copy / 👍 / 👎 — visible on hover */}
+        {showActions && (
           <div data-testid={`msg-actions-${idx}`} style={{
             display: "flex", gap: 4, marginTop: 6,
             paddingLeft: 4,
+            opacity: hover ? 1 : 0,
+            transition: "opacity 0.15s ease",
+            pointerEvents: hover ? "auto" : "none",
           }}>
             <ActionBtn testid={`copy-${idx}`} title={copied ? "Copied!" : "Copy"} onClick={copyText} Icon={CopyIcon} active={copied} />
             <ActionBtn testid={`thumbs-up-${idx}`} title="Good reply" onClick={() => sendVote("up")} Icon={ThumbsUp} active={vote === "up"} color="var(--ok)" />

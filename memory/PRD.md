@@ -149,6 +149,15 @@ User requested: after a CTO task pushes a commit, show a Rollback button; always
 
 **Test report**: `/app/test_reports/iteration_4.json`. Backend 13/13 + 22/22 regression pass. Testing agent flagged one HIGH UI bug (button still showing on failed rollbacks) + PAT-leak via stderr — **both fixed** in this iteration. New `/app/backend/tests/test_aurem_rollback.py` (13 tests) committed.
 
+### Iter 14 — Hover-Only Copy Buttons (May 2026)
+User: chat bubbles need a Copy button that shows ONLY on cursor hover and hides otherwise — both user messages (new) and assistant action row (was always-visible).
+
+`ChatPanel.jsx` MessageBubble:
+- Added `hover` state with `onMouseEnter`/`onMouseLeave` on the row
+- **User bubbles**: new absolutely-positioned floating copy button (`data-testid="copy-user-{idx}"`), opacity 0 → 1 on hover, 0.15s transition
+- **Assistant bubbles**: existing copy/👍/👎 action row now also opacity-toggled on hover (same transition)
+- `pointer-events: none` when hidden so it doesn't intercept clicks
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
