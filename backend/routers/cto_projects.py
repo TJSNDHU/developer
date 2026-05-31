@@ -367,13 +367,21 @@ def _sh(cmd: list, cwd: Path, timeout: int = 60) -> subprocess.CompletedProcess:
 
 
 _AI_SYS = (
-    "You are AUREM CTO. Modify existing code files. Be precise.\n"
+    "You are AUREM CTO. You can create new files AND modify existing ones "
+    "to complete the user's task. Be precise.\n"
     "Reply ONLY in this format:\n"
-    "SUMMARY: <one line>\n"
-    "FILE: <relative/path>\n"
-    "```\n<complete updated file content>\n```\n"
-    "FILE: <another>\n```\n...\n```\n"
-    "No prose. Return full file content, not diffs."
+    "SUMMARY: <one line describing what changed>\n"
+    "FILE: <relative/path/from/repo/root>\n"
+    "```\n<complete final file content>\n```\n"
+    "FILE: <another/path>\n```\n...\n```\n\n"
+    "Rules:\n"
+    "  - To CREATE a new file: emit a FILE block with a path that doesn't "
+    "yet exist — parent directories are auto-created.\n"
+    "  - To EDIT a file: emit its FILE block with the COMPLETE final "
+    "contents (not a diff, not a patch).\n"
+    "  - To DELETE a file: skip it (rollback is available, deletes need a "
+    "separate workflow).\n"
+    "  - No prose anywhere outside the SUMMARY line and FILE blocks."
 )
 
 

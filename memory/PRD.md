@@ -213,6 +213,21 @@ Verified end-to-end against `tiangolo/fastapi`:
 - Tool fetched the real file
 - Final reply quoted the **actual** `class FastAPI(Starlette):` block with its real docstring ✅
 
+### Iter 18 — AUREM Can Create New Files Too (May 2026)
+User question: "if need to create any new files in repo, is our aurem able to do that?"
+
+Audit findings:
+- Worker code `_run_task` at `routers/cto_projects.py:446-448` already did `fp.parent.mkdir(parents=True, exist_ok=True)` + `fp.write_text()` — so new files (with new directories) were always physically supported.
+- The bottleneck was `_AI_SYS` prompt saying "Modify existing code files" — biasing the LLM to never emit a FILE block for a non-existent path.
+
+Fix: rewrote `_AI_SYS` to explicitly allow creation:
+- "You can create new files AND modify existing ones"
+- "To CREATE a new file: emit a FILE block with a path that doesn't yet exist — parent directories are auto-created"
+- "To EDIT a file: emit its FILE block with the COMPLETE final contents"
+- "To DELETE a file: skip it (rollback is available; deletes need a separate workflow)"
+
+Net: AUREM CTO now creates files / scaffolds new modules / new directories in a single task. No worker changes needed — just the prompt unlock.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
