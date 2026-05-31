@@ -5,9 +5,15 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LogIn } from "lucide-react";
 import AuthShell from "../components/AuthShell";
+import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
 
 export default function Login() {
+  usePageMeta({
+    title: "Sign in · AUREM Dev",
+    description: "Sign in to your AUREM Dev account and continue shipping features to your GitHub repo with an autonomous AI engineer.",
+    canonical: "https://auremcto.com/login",
+  });
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

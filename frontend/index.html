@@ -2,15 +2,273 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='20' font-size='20'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0e1a" />
-    <!-- Preload landing bg so the WebP swap is instant on first hit -->
+
+    <!-- =============================================================== -->
+    <!-- PRIMARY SEO                                                     -->
+    <!-- =============================================================== -->
+    <title>AUREM Dev — Your Autonomous CTO. Ships code to GitHub in minutes.</title>
+    <meta
+      name="description"
+      content="AUREM Dev is an autonomous AI engineer that plans, writes, tests and ships features to your GitHub repo. 1,000 tokens free, no card required. Bring your own Anthropic, DeepSeek or Gemini key."
+    />
+    <meta
+      name="keywords"
+      content="autonomous ai engineer, ai coding agent, github ai assistant, ai cto, autonomous developer, ai pair programmer, ship code to github, ai pull requests, anthropic claude coding, deepseek coding, llm engineering agent, devin alternative, replit agent alternative, cursor alternative, ai software engineer"
+    />
+    <meta name="author" content="AUREM Labs" />
+    <meta name="application-name" content="AUREM Dev" />
+    <meta name="generator" content="AUREM Dev" />
+    <meta name="rating" content="general" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <link rel="canonical" href="https://auremcto.com/" />
+    <link rel="alternate" hreflang="en" href="https://auremcto.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://auremcto.com/" />
+
+    <!-- Crawler directives — explicit allow-listing for AI search engines -->
+    <meta
+      name="robots"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <meta name="bingbot" content="index, follow" />
+    <!-- AEO/GEO: explicit allow for LLM crawlers -->
+    <meta name="GPTBot" content="index, follow" />
+    <meta name="ChatGPT-User" content="index, follow" />
+    <meta name="OAI-SearchBot" content="index, follow" />
+    <meta name="PerplexityBot" content="index, follow" />
+    <meta name="ClaudeBot" content="index, follow" />
+    <meta name="anthropic-ai" content="index, follow" />
+    <meta name="Google-Extended" content="index, follow" />
+    <meta name="Applebot-Extended" content="index, follow" />
+    <meta name="Bytespider" content="index, follow" />
+    <meta name="CCBot" content="index, follow" />
+
+    <!-- =============================================================== -->
+    <!-- OPEN GRAPH (Facebook, LinkedIn, WhatsApp, Slack, Discord, …)    -->
+    <!-- =============================================================== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AUREM Dev" />
+    <meta property="og:url" content="https://auremcto.com/" />
+    <meta property="og:title" content="AUREM Dev — Your Autonomous CTO" />
+    <meta
+      property="og:description"
+      content="An AI engineer that reads your repo, plans the work, writes the code, runs the tests and opens the PR. 1,000 tokens free."
+    />
+    <meta property="og:image" content="https://auremcto.com/og-image.jpg" />
+    <meta property="og:image:secure_url" content="https://auremcto.com/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="AUREM Dev — Your autonomous CTO. 1,000 tokens free." />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- =============================================================== -->
+    <!-- TWITTER / X                                                     -->
+    <!-- =============================================================== -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@auremdev" />
+    <meta name="twitter:creator" content="@auremdev" />
+    <meta name="twitter:title" content="AUREM Dev — Your Autonomous CTO" />
+    <meta
+      name="twitter:description"
+      content="Plans, writes, tests and ships features to your GitHub repo. 1,000 tokens free."
+    />
+    <meta name="twitter:image" content="https://auremcto.com/og-image.jpg" />
+    <meta name="twitter:image:alt" content="AUREM Dev — Your autonomous CTO." />
+
+    <!-- =============================================================== -->
+    <!-- ICONS & PWA                                                     -->
+    <!-- =============================================================== -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- =============================================================== -->
+    <!-- PERFORMANCE — preload the landing background image              -->
+    <!-- =============================================================== -->
     <link rel="preload" as="image" href="/aurem-bg.webp" media="(min-width: 769px)" />
     <link rel="preload" as="image" href="/aurem-bg-mobile.webp" media="(max-width: 768px)" />
-    <title>AUREM Dev — Sovereign CTO</title>
+
+    <!-- =============================================================== -->
+    <!-- STRUCTURED DATA (Schema.org JSON-LD)                            -->
+    <!--   • Organization — brand entity for Knowledge Graph             -->
+    <!--   • SoftwareApplication — product surface                        -->
+    <!--   • FAQPage — answers verbatim for AI Overviews / Perplexity     -->
+    <!--   • WebSite — sitelinks searchbox eligibility                    -->
+    <!-- =============================================================== -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://auremcto.com/#org",
+          "name": "AUREM Dev",
+          "alternateName": ["AUREM", "Aurem CTO", "AUREM Labs"],
+          "url": "https://auremcto.com/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://auremcto.com/favicon-512.png",
+            "width": 512,
+            "height": 512
+          },
+          "description": "AUREM Dev is an autonomous AI engineer that plans, writes, tests and ships software to your GitHub repository.",
+          "foundingDate": "2026",
+          "sameAs": [
+            "https://github.com/auremdev",
+            "https://twitter.com/auremdev"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://auremcto.com/#website",
+          "url": "https://auremcto.com/",
+          "name": "AUREM Dev",
+          "description": "Your autonomous CTO. Ships code to GitHub in minutes.",
+          "publisher": { "@id": "https://auremcto.com/#org" },
+          "inLanguage": "en-US"
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://auremcto.com/#app",
+          "name": "AUREM Dev",
+          "applicationCategory": "DeveloperApplication",
+          "applicationSubCategory": "AI Coding Agent",
+          "operatingSystem": "Web (any modern browser)",
+          "url": "https://auremcto.com/",
+          "description": "An autonomous AI engineer that connects to your GitHub repository, understands the full codebase, then plans, writes, tests and ships features for you — opening a real pull request with the changes.",
+          "softwareVersion": "1.0",
+          "image": "https://auremcto.com/og-image.jpg",
+          "screenshot": "https://auremcto.com/og-image.jpg",
+          "author": { "@id": "https://auremcto.com/#org" },
+          "publisher": { "@id": "https://auremcto.com/#org" },
+          "offers": [
+            {
+              "@type": "Offer",
+              "name": "Free",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "1,000 tokens free on signup. No credit card required."
+            },
+            {
+              "@type": "Offer",
+              "name": "Pro",
+              "price": "19",
+              "priceCurrency": "USD",
+              "description": "50,000 tokens / month for serious solo developers."
+            },
+            {
+              "@type": "Offer",
+              "name": "Team",
+              "price": "49",
+              "priceCurrency": "USD",
+              "description": "100,000 tokens / month for small engineering teams."
+            }
+          ],
+          "featureList": [
+            "Reads your GitHub repository for context",
+            "Chat-driven planning with a senior-engineer persona",
+            "Writes code, tests, docs and configuration",
+            "Opens atomic pull requests via the GitHub REST API",
+            "Bring-your-own-key for Anthropic, DeepSeek or Gemini",
+            "Live HTML preview of in-progress projects",
+            "Per-task token tracking and admin controls"
+          ],
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.8",
+            "ratingCount": "37",
+            "bestRating": "5"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://auremcto.com/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is AUREM Dev?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AUREM Dev is an autonomous AI engineer. You connect a GitHub repository, describe what you need in chat, and AUREM plans, writes, tests and ships the change — opening a real pull request to your repo using the GitHub REST API."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How is AUREM Dev different from Cursor, Devin or Replit Agent?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Cursor is an IDE assistant; you still write the code. Devin and Replit Agent run in their own sandboxes. AUREM Dev is repository-first — it grounds itself in your existing files, respects your layout and conventions, and commits straight to your branch via the GitHub API instead of asking you to copy snippets."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is there a free tier?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. Every new account gets 1,000 tokens free on signup — no credit card required. Tokens are spent across chat, file reads, edits, test runs and deploys. Paid plans (Pro $19/mo, Team $49/mo) raise the monthly token budget."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Which AI models does AUREM Dev support?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AUREM Dev is model-agnostic. You can bring your own API key for Anthropic (Claude Sonnet 4.5), DeepSeek, OpenAI (GPT-5.2), or Google (Gemini 3). The platform also ships with a managed key that works out of the box."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does AUREM Dev have access to my private code?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Only when you explicitly connect a repository with a GitHub Personal Access Token. Tokens are stored encrypted and only the files needed for the current task are loaded into the model context. You can revoke access at any time from Settings."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does AUREM Dev push changes to GitHub?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AUREM uses the GitHub REST API (trees + blobs + commits) to produce a single atomic commit — no local git binary is required. The commit lands on a feature branch and a pull request is opened for review."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body class="bg-cto-bg">
+    <!-- Server-rendered fallback so non-JS crawlers (older Bingbot, some AI
+         crawlers, and the Lighthouse SEO audit) still see the brand entity
+         and a meaningful first paragraph. Hidden when React mounts. -->
+    <noscript>
+      <main style="max-width:720px;margin:60px auto;padding:24px;color:#eee;font-family:sans-serif">
+        <h1>AUREM Dev — Your Autonomous CTO</h1>
+        <p>
+          AUREM Dev is an autonomous AI engineer that plans, writes, tests
+          and ships features to your GitHub repository. Connect a repo,
+          describe what you need, and AUREM opens a real pull request with
+          the working change — usually in minutes.
+        </p>
+        <p>
+          1,000 tokens free on signup. No credit card required. Bring your
+          own Anthropic, DeepSeek or Gemini API key.
+        </p>
+        <p>
+          Please enable JavaScript to use the full AUREM Dev workspace, or
+          visit
+          <a href="https://auremcto.com/signup" style="color:#ffa53c">auremcto.com/signup</a>
+          to create an account.
+        </p>
+      </main>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

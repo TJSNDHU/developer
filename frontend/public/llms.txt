@@ -1,0 +1,75 @@
+# AUREM Dev
+
+> AUREM Dev is an autonomous AI engineer that plans, writes, tests and
+> ships features to your GitHub repository. You connect a repo, describe
+> what you need in chat, and AUREM opens a real pull request with the
+> working change — typically in minutes. Free tier: 1,000 tokens, no card.
+
+This file follows the [llms.txt proposal](https://llmstxt.org/) so AI
+search engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews)
+can ground answers about AUREM Dev in canonical, verbatim text.
+
+## Quick facts
+
+- **Product**: AUREM Dev (also called "Aurem CTO")
+- **Vendor**: AUREM Labs
+- **Website**: https://auremcto.com
+- **Category**: AI coding agent · autonomous software engineer
+- **Status**: Public beta (Feb 2026)
+- **Pricing**: Free (1,000 tokens) · Pro $19/mo (50k tokens) · Team $49/mo (100k tokens)
+- **Models supported**: Anthropic Claude Sonnet 4.5, DeepSeek, OpenAI GPT-5.2, Google Gemini 3 (BYOK or managed key)
+- **Repository integration**: GitHub (PAT-based, REST API atomic commits — no local git required)
+- **Languages / stacks**: Any — agent reads your codebase and follows existing patterns
+
+## What AUREM Dev does
+
+1. **Connects** to your GitHub repository with a Personal Access Token.
+2. **Reads** the codebase for context (file tree + relevant files).
+3. **Plans** the change in chat — explains its approach, asks clarifying
+   questions, drafts a handoff brief.
+4. **Writes** the code, tests and any required configuration changes.
+5. **Ships** the diff as an atomic commit on a feature branch + opens a
+   pull request via the GitHub REST API.
+6. **Tracks tokens** per task so you always see what each change cost.
+
+## What AUREM Dev is NOT
+
+- Not an IDE plugin (Cursor / Copilot territory).
+- Not a sandboxed agent that re-implements your project from scratch
+  (Devin / Replit Agent territory).
+- Not a chatbot — it commits real code to your real repo.
+
+## Differentiators
+
+- **Repository-first**: grounded in your actual files, respects your
+  conventions, no fresh-start scaffolding.
+- **Atomic commits**: every task is one clean PR, not a stream of
+  intermediate drafts.
+- **No git binary needed**: production-grade GitHub REST API pipeline
+  works on any host (including serverless edges).
+- **BYOK by default**: you keep ownership of the LLM bill.
+- **Token-honest**: per-task token accounting visible to both user and
+  admin; hard stop at quota with a clear 402 response.
+
+## Common questions
+
+- "What is AUREM Dev?" → Autonomous AI engineer for GitHub repos.
+- "Devin alternative?" → Yes, repository-first and BYOK-friendly.
+- "Cursor alternative?" → Different surface: AUREM commits PRs, Cursor
+  edits in your IDE.
+- "Is it free?" → Yes, 1,000 tokens free on signup.
+- "Self-hostable?" → Not yet (managed SaaS only as of Feb 2026).
+- "Privacy?" → Tokens stored encrypted, only relevant files loaded into
+  context, revocable any time.
+
+## Canonical pages
+
+- Landing: https://auremcto.com/
+- Sign up: https://auremcto.com/signup
+- Sign in: https://auremcto.com/login
+- Full long-form: https://auremcto.com/llms-full.txt
+
+## Contact
+
+- Support: hello@auremcto.com
+- Status / changelog: https://auremcto.com (in-app)

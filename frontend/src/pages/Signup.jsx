@@ -5,9 +5,15 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import AuthShell from "../components/AuthShell";
+import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
 
 export default function Signup() {
+  usePageMeta({
+    title: "Sign up · Claim 1,000 free tokens · AUREM Dev",
+    description: "Create your AUREM Dev account in 30 seconds. 1,000 tokens free on signup — no credit card required. Bring your own Anthropic, DeepSeek or Gemini key.",
+    canonical: "https://auremcto.com/signup",
+  });
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);

@@ -1,0 +1,99 @@
+# robots.txt — AUREM Dev (auremcto.com)
+# Last updated: 2026-05-31
+#
+# Policy: we welcome traditional crawlers AND AI/LLM crawlers — answer
+# engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews) are
+# now a significant share of dev tool discovery. Block only the dashboard
+# surfaces that require login.
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /deploy
+Disallow: /database
+Disallow: /domain
+Disallow: /settings
+Disallow: /tokens
+Disallow: /analytics
+Disallow: /projects
+Disallow: /api/
+
+# ── Traditional search engines (explicit allow for clarity) ─────────
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+User-agent: YandexBot
+Allow: /
+
+# ── AI / LLM crawlers — AEO / GEO opt-in ────────────────────────────
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: Diffbot
+Allow: /
+
+# ── No high-frequency scrapers / archivers we don't want ────────────
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+# Hint files for AI engines (informal — but widely picked up)
+Sitemap: https://auremcto.com/sitemap.xml
+Host: https://auremcto.com

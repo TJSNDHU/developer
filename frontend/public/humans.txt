@@ -1,0 +1,19 @@
+/* AUREM Dev — humans.txt */
+/* The humans behind auremcto.com */
+
+# TEAM
+Builder: AUREM Labs
+Contact: hello@auremcto.com
+Location: Earth
+
+# THANKS
+React, FastAPI, MongoDB, Anthropic, DeepSeek, OpenAI, Google AI,
+Emergent — the platforms and people that make a one-person AI
+engineering company possible in 2026.
+
+# SITE
+Last update: 2026-05-31
+Standards: HTML5, ES2022, OpenAPI 3.1
+Components: React 18, Vite 5, FastAPI, Motor (MongoDB)
+Software: VS Code, GitHub, AUREM Dev (yes — we ship features on
+ourselves with our own agent. Recursion is the best dogfooding.)

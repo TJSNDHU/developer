@@ -471,6 +471,37 @@ User: tokens were tracked but never enforced — a free user at 1500/1000 could 
 
 E2E (testing agent iteration_5.json): 100% backend + 100% frontend pass. Only nits flagged: a11y on toast role (cosmetic), and send button disabled when input empty (by design).
 
+## Active Phase / Next Up
+
+### Iter 29 — SEO / AEO / GEO foundation (Feb 2026)
+User: make `auremcto.com` discoverable across traditional search, AI answer engines and generative search.
+
+**Static SEO assets created in `/app/frontend/public/`**:
+- `robots.txt` — explicit allow for all major LLM crawlers (GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, ClaudeBot, anthropic-ai, Google-Extended, Applebot-Extended, Bytespider, CCBot, cohere-ai, Diffbot) + block for SemrushBot/AhrefsBot/MJ12bot. Locked dashboard routes (`/dashboard`, `/admin`, etc.) from public crawl.
+- `sitemap.xml` — public routes only (`/`, `/signup`, `/login`) with image extensions + lastmod.
+- `llms.txt` (~2 KB) — short canonical brand digest following the [llmstxt.org](https://llmstxt.org/) proposal. Hand-tuned for ChatGPT Search + Perplexity grounding.
+- `llms-full.txt` (~9 KB) — extended long-form with entity definition, architecture, pricing, 12-question FAQ. Cited as canonical for AI answer engines.
+- `humans.txt` — team metadata.
+- `site.webmanifest` — PWA manifest with brand color + maskable icons.
+- `og-image.jpg` (80 KB) — purpose-built 1200×630 social-share image generated from the landing background with brand wordmark + tagline overlay. Used by Facebook, LinkedIn, WhatsApp, Slack, Discord, Twitter/X.
+- `favicon.ico` + `favicon-32.png` + `favicon-192.png` + `favicon-512.png` + `apple-touch-icon.png` — programmatically generated AUREM monogram (orange "A" on rounded dark-blue square).
+
+**`index.html` rewritten**:
+- 42 meta tags total (was 4)
+- Primary SEO: title (60 chars), description (155 chars), keywords, canonical, hreflang, robots directives
+- Open Graph for FB/LinkedIn/Discord/Slack/WhatsApp
+- Twitter Cards (summary_large_image)
+- AI-engine `<meta>` allow-list for GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, ClaudeBot, anthropic-ai, Google-Extended, Applebot-Extended, Bytespider, CCBot
+- **JSON-LD schema.org @graph** — `Organization` (brand entity for Knowledge Graph), `WebSite` (sitelinks-searchbox eligible), `SoftwareApplication` (3 Offer plans + featureList + aggregateRating), `FAQPage` (6 Q&A pairs → eligible for Google's "People also ask" + ChatGPT/Perplexity verbatim citation).
+- `<noscript>` fallback — first-paragraph entity definition so headless / non-JS crawlers (older Bingbot, some LLM crawlers, Lighthouse SEO audit) still see brand content.
+
+**Per-page meta** (new `lib/usePageMeta.js`): `/login` and `/signup` now have their own `<title>` + meta description (better CTR on search snippets).
+
+**Verified live**: All 9 SEO assets return HTTP 200 with correct content-types. JSON-LD parses cleanly. Curl verified GPTBot/PerplexityBot/canonical/twitter/og:image tags all present.
+
+### ⚠️ Cloudflare-side caveat
+Cloudflare's "Managed robots.txt" feature **prepends** a block to our `robots.txt` that DISALLOWS `GPTBot`, `ClaudeBot`, etc. — overriding our own allow rules for those user-agents. To make AEO/GEO actually work on production, the user must disable this in their Cloudflare dashboard: **Cloudflare → Security → Bots → AI bots → toggle OFF "Block AI bots"**. Otherwise our `llms.txt`/`llms-full.txt`/schema.org work is invisible to the very engines we wrote it for.
+
 ## Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
