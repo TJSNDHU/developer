@@ -36,6 +36,7 @@ from routers.admin import router as admin_router
 from routers.support import router as support_router
 from routers.payments import router as payments_router
 from routers.usage import router as usage_router
+from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
 # Services
@@ -119,3 +120,4 @@ app.include_router(admin_router,         prefix="/api/aurem-dev")
 app.include_router(support_router,       prefix="/api/aurem-dev")
 app.include_router(payments_router,      prefix="/api/aurem-dev")
 app.include_router(usage_router,         prefix="/api/aurem-dev")
+app.include_router(codebase_router,      prefix="/api/aurem-dev")

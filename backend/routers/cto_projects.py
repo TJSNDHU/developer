@@ -474,6 +474,23 @@ _AI_SYS = (
 )
 
 
+def _load_design_system() -> str:
+    """Load the AUREM design-system prompt once at module import. If the
+    file is missing (e.g. fresh deploy), we degrade gracefully — the
+    base _AI_SYS still ships."""
+    try:
+        import pathlib
+        p = pathlib.Path(__file__).parent.parent / "prompts" / "aurem_design_system.md"
+        if p.exists():
+            return "\n\n# AUREM DESIGN SYSTEM — when emitting frontend code (.jsx/.tsx/.css/.html), follow EVERY rule below:\n\n" + p.read_text()
+    except Exception:
+        pass
+    return ""
+
+
+_AI_SYS = _AI_SYS + _load_design_system()
+
+
 # Patterns the verifier rejects — AI sometimes sneaks placeholders past
 # the prompt. We catch them client-side BEFORE pushing to GitHub so the
 # user never sees a commit that silently truncates their file.
@@ -573,8 +590,21 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
                 if not files and len(contents) >= 4:
                     break
 
-        # 2) AI codegen (same prompt format as the git path)
+        # 2) AI codegen — augment the user message with the cached
+        # repo index so AUREM sees the project's overall shape, not
+        # just the 4-8 explicitly-fetched files. Falls back silently
+        # if no index has been built yet for this project.
         await _set_status(task_id, status="fixing")
+        try:
+            from services.codebase_indexer import build_context_block
+            repo_block = await build_context_block(
+                proj.get("user_id", ""), proj.get("project_id", ""),
+                max_chars=4500,
+            )
+            if repo_block:
+                await _log(task_id, "🗂️ injected cached repo index")
+        except Exception as _e:
+            repo_block = None
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
@@ -582,7 +612,8 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
         user_msg = (
             f"TASK: {task}\n"
             f"{('CONTEXT: ' + context) if context else ''}\n\n"
-            f"Tech: {proj.get('tech_stack','auto')}\n\n{files_blob}"
+            f"Tech: {proj.get('tech_stack','auto')}\n\n"
+            f"{repo_block or ''}\n\n{files_blob}"
         )
         reply = await call_llm(
             messages=[{"role": "user", "content": user_msg}],
