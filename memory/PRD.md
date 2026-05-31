@@ -531,6 +531,65 @@ User reported 4 issues: (1) `/admin` keeps bouncing to homepage even after login
 
 **Bug caught by tester**: when I cleaned up duplicate JSX trailing fragments in Login.jsx/Signup.jsx, my `useSearchParams` import was lost — `next` was referenced but undeclared, throwing a silent ReferenceError that masqueraded as a login failure. Tester re-added the import + safe-path validation in both files.
 
+## Active Phase / Next Up
+
+### Iter 32 — AUREM behavioural overhaul: from "ask-mode" to "Emergent-mode" (Feb 2026)
+User shared a damning transcript: a single question ("look at pillar 4, do I need a new file?") burned **4 chat turns** because AUREM kept ending with "Reply 'check' to continue". Never actually opened a single pillar file. Finally produced a hand-wavy handoff brief saying "investigate by checking these files" — meaning the worker also had to guess.
+
+**Root cause #1 — hardcoded 6-step ritual**:
+The old `AUREM_CTO_PERSONA` literally said:
+> 6. ASK TO PROCEED: end with exactly one line: "Ready to ship? Reply 'go' and I'll start with step 1." Do NOT write the final code in the same turn.
+
+Every chat became a minimum 2-turn ritual.
+
+**Root cause #2 — no file-discovery tool**:
+`read_repo_file` only worked if you already knew the exact path. When the user said "pillar 4", AUREM couldn't glob the tree — so it guessed paths (`backend/api/pillars.py`, `backend/middleware/health_checks.py`) and then hallucinated they didn't exist instead of looking for the real paths.
+
+**Root cause #3 — tree summary lost top-level folders**:
+`_format_tree` truncated at 400 entries with one giant flat list. On a 1,691-file monorepo, top-level folders like `pillars/`, `legion/`, `camofox/` got pushed past the cap. AI never saw them and confidently said "doesn't exist".
+
+**Fix — 3 surgical changes**:
+
+1. **Persona rewritten** (`services/orchestrator.py`):
+   - New CORE RULE: "Every user message is an order, not a starting point for a conversation. Do the work, then answer."
+   - **Forbidden** to end with "Reply 'X' to continue" or any synonym
+   - **Forbidden** to list candidate paths and ask which to investigate — read them in parallel
+   - **Forbidden** to say "may need / could require / if exists" — either it exists (quote it) or it doesn't (say so plainly)
+   - "Genuinely ambiguous" defined explicitly (with examples of what is + is NOT ambiguous)
+   - Always end actionable tasks with `\`\`\`aurem-handoff` fence inline — no "Ready?" question
+   - Tone: senior engineer, execute first, ask only when truly stuck
+
+2. **New `list_repo_files` tool** (`services/local_tools.py`):
+   - fnmatch-based glob over the connected GitHub tree
+   - Persona instructs: "FIRST whenever the user mentions a folder you don't see in the inlined tree, call `list_repo_files`"
+   - Returns matching paths + count + truncation flag
+   - Solves: "pillar 4" → `list_repo_files(pattern='**/pillar*')` → real paths → `read_repo_file` in parallel
+   - 200-cap, 80-default, traversal-safe
+
+3. **Tree formatter rewritten** (`services/repo_context.py`):
+   - Top-level directories ALWAYS surfaced first, never truncated
+   - Top-level files always surfaced
+   - Then deeper paths fill remaining `MAX_TREE_ENTRIES` budget
+   - Final cap message tells the AI: "call `list_repo_files` with a glob to see the rest"
+
+**Architecture comparison (Emergent vs AUREM) — for the PRD record**:
+
+| | Emergent (the reference) | AUREM v1 (was) | AUREM v2 (now) |
+|---|---|---|---|
+| Confirmation per task | 0 turns | 2+ turns ("Reply 'go'") | 0 turns |
+| Default behavior | Execute on first command | Ask + verify + ask | Execute on first command |
+| File discovery | `glob_files` + `view_file` in parallel | Hardcoded priority list only | `list_repo_files` + `read_repo_file` in parallel |
+| "Not found" handling | Glob the tree | Say "doesn't exist" | Glob the tree, then say |
+| Hedge language | Never | "may need / could require" | Forbidden |
+
+**Tests**: 12 new tests in `test_aurem_persona_v2.py` lock the new contract:
+- Persona has the EXECUTE ON FIRST COMMAND clause
+- Persona does NOT contain any of the 4 forbidden patterns from the v1 ritual
+- `list_repo_files` registered in the catalog
+- Tree formatter always surfaces top-level dirs even with 1,200 deep paths
+
+**Full regression**: 53 passed, 4 vault tests correctly skipped (master key not set in preview).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

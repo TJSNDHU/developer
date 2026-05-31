@@ -99,20 +99,52 @@ async def _fetch_file(owner: str, repo: str, path: str, branch: str,
 
 
 def _format_tree(tree: list[dict]) -> str:
-    """One path per line. Trim binary / huge stuff, mark directories with /."""
-    rows = []
-    for node in tree[:MAX_TREE_ENTRIES]:
+    """One path per line. Trim binary / huge stuff, mark directories with /.
+
+    Iter 32: ensure every TOP-LEVEL directory is included in the summary
+    even on huge monorepos (was: silently truncated at 400 entries, so
+    folders like `pillars/`, `legion/`, `camofox/` vanished and the AI
+    told the user 'pillars/ doesn't exist'). Strategy: split into
+    (dirs+root-files) shown first, then deeper paths up to the cap.
+    """
+    top_dirs: list[str] = []
+    top_files: list[str] = []
+    deep: list[str] = []
+    seen_top_dirs: set[str] = set()
+    for node in tree:
         t = node.get("type")
         p = node.get("path", "")
         if not p:
             continue
-        if t == "tree":
-            rows.append(f"{p}/")
+        if "/" not in p:
+            if t == "tree":
+                top_dirs.append(f"{p}/")
+                seen_top_dirs.add(p)
+            else:
+                top_files.append(f"{p}  ({node.get('size') or 0}b)")
         else:
-            sz = node.get("size") or 0
-            rows.append(f"{p}  ({sz}b)")
-    if len(tree) > MAX_TREE_ENTRIES:
-        rows.append(f"... +{len(tree) - MAX_TREE_ENTRIES} more entries")
+            # Also record any new second-level dirs we discover
+            first_seg = p.split("/", 1)[0]
+            seen_top_dirs.add(first_seg)
+            if t == "tree":
+                deep.append(f"{p}/")
+            else:
+                deep.append(f"{p}  ({node.get('size') or 0}b)")
+
+    # Always preserve full top-level visibility
+    rows: list[str] = []
+    rows.append("# Top-level folders:")
+    rows.extend(sorted(set(top_dirs)) or ["(none)"])
+    if top_files:
+        rows.append("# Top-level files:")
+        rows.extend(sorted(top_files))
+    if deep:
+        rows.append("# Deeper paths (capped):")
+        cap = max(0, MAX_TREE_ENTRIES - len(rows))
+        rows.extend(deep[:cap])
+        if len(deep) > cap:
+            rows.append(f"... +{len(deep) - cap} more entries — "
+                        f"call `list_repo_files` with a glob to see them")
     return "\n".join(rows)
 
 
