@@ -767,24 +767,14 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
               animation: "blink 0.9s steps(1) infinite",
             }} />
           )}
-          {m.provider && m.provider !== "system" && !m.streaming && (
+          {m.provider && m.provider !== "system" && !m.streaming && m.maxxMode && (
             <div style={{
               marginTop: 8, fontSize: 10,
               fontFamily: "'JetBrains Mono', monospace",
               color: "var(--text-faint)", letterSpacing: "0.1em",
               display: "inline-flex", alignItems: "center", gap: 6,
-              flexWrap: "wrap",
             }}>
-              via {m.provider}
-              {m.maxxMode && <Zap size={10} style={{ color: "var(--accent-2)" }} />}
-              <span data-testid={`token-cost-${idx}`} style={{
-                opacity: 0.7,
-              }}>
-                · ~{estimateTokenCount(m.content)} tokens
-              </span>
-              {typeof m.temperature === "number" && (
-                <TemperatureBadge temperature={m.temperature} mode={m.mode} />
-              )}
+              <Zap size={10} style={{ color: "var(--accent-2)" }} /> maxx
             </div>
           )}
         </div>

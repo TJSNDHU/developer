@@ -228,6 +228,21 @@ Fix: rewrote `_AI_SYS` to explicitly allow creation:
 
 Net: AUREM CTO now creates files / scaffolds new modules / new directories in a single task. No worker changes needed — just the prompt unlock.
 
+### Iter 19 — "go" Loop Fix + Footer Cleanup (May 2026)
+Two bugs:
+1. **Plan repetition loop**: User replied "go" → AUREM re-emitted the SAME 6-step plan instead of moving forward. Root cause: the chat AI literally CANNOT write files (only the CTO task worker can), so the persona had no "what happens on go" guidance and DeepSeek defaulted to re-stating its earlier output.
+2. **UI noise**: Message footer leaked `via deepseek · ~263 tokens · 0.7 · chat` to end users.
+
+**Fix 1** in `services/orchestrator.py` — added HANDOFF MODE to persona:
+- Triggers on confirmation tokens: `go / yes / ship it / do it / ok / proceed / go ahead`
+- Forbids plan repetition
+- Responds with exactly 2 sections: a "Queueing now. Click **Submit Task**..." line + a one-paragraph CTO-worker brief inside a code fence
+- Notes the Rollback button is right there if needed
+
+**Fix 2** in `ChatPanel.jsx` — removed the entire `via {provider} · ~tokens · temperature` footer block. Kept only an opt-in `⚡ maxx` indicator when Maxx Mode is on (zero noise otherwise).
+
+Verified live: Turn 1 = full 6-step plan; Turn 2 reply "go" → handoff brief for the CTO worker (no plan re-emission). UI lint clean.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
