@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
 from services.llm import call_llm
+from services.usage import assert_has_budget, get_usage
 from services.github_api_writer import (
     commit_files as gh_api_commit,
     revert_commit as gh_api_revert,
@@ -157,6 +158,10 @@ async def submit_task(
     authorization: str = Header(None),
 ) -> dict:
     me = await current_dev(authorization)
+    # THING 1 — hard-stop token enforcement. Raises HTTP 402 if the user has
+    # spent their plan_limit + any admin-granted bonus. The AI is NEVER
+    # called and no row is written to `cto_tasks`.
+    await assert_has_budget(me["user_id"])
     db = require_db()
     proj = await db.cto_projects.find_one(
         {"project_id": body.project_id, "user_id": me["user_id"]}

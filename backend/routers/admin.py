@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
+from services.usage import get_usage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -123,7 +124,60 @@ async def get_user(user_id: str, authorization: Optional[str] = Header(None)):
     user["project_count"] = len(user["projects"])
     user["task_count"] = await db.cto_tasks.count_documents({"user_id": user_id})
     user["session_count"] = await db.chat_sessions.count_documents({"user_id": user_id})
+    # Live token budget (plan + admin-granted bonus - used)
+    try:
+        user["usage"] = await get_usage(user_id)
+    except Exception as e:
+        logger.warning(f"usage lookup failed for {user_id}: {e}")
+        user["usage"] = None
+    # Recent admin grants for this user
+    user["token_grants"] = await db.cto_token_grants.find(
+        {"user_id": user_id}, {"_id": 0},
+    ).sort("granted_at", -1).limit(20).to_list(20)
     return user
+
+
+class GrantTokensBody(BaseModel):
+    tokens: int
+    reason: str = ""
+
+
+@router.post("/users/{user_id}/grant-tokens")
+async def grant_tokens(
+    user_id: str,
+    body: GrantTokensBody,
+    authorization: Optional[str] = Header(None),
+):
+    """Admin manually credits a user with bonus tokens.
+
+    Bonus tokens are tracked SEPARATELY on `dev_users.tokens_granted` and added
+    on top of the plan limit (see `services.usage.get_usage`). Every grant is
+    appended to `cto_token_grants` for audit.
+    """
+    admin = await _require_admin(authorization)
+    db = require_db()
+    if not isinstance(body.tokens, int) or body.tokens <= 0:
+        raise HTTPException(400, "tokens must be a positive integer")
+    if body.tokens > 10_000_000:
+        raise HTTPException(400, "tokens grant too large (max 10M)")
+    target = await db.dev_users.find_one({"user_id": user_id}, {"user_id": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    now = time.time()
+    await db.dev_users.update_one(
+        {"user_id": user_id},
+        {"$inc": {"tokens_granted": body.tokens}, "$set": {"updated_at": now}},
+    )
+    await db.cto_token_grants.insert_one({
+        "user_id": user_id,
+        "tokens": body.tokens,
+        "reason": (body.reason or "").strip()[:500],
+        "granted_by": admin.get("email") or admin.get("user_id"),
+        "granted_at": now,
+    })
+    usage = await get_usage(user_id)
+    return {"ok": True, "granted": body.tokens, "usage": usage}
 
 
 class SuspendBody(BaseModel):

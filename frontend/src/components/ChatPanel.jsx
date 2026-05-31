@@ -80,6 +80,72 @@ function estimateTokenCount(text) {
   return Math.ceil(text.split(/\s+/).filter(Boolean).length * 1.3);
 }
 
+// THING 2 — Token-budget banner shown above the chat input.
+//   pct_used >= 100%: red, "🚫 Tokens exhausted — upgrade …"
+//   pct_used >=  80%: yellow, "⚠️ 80% tokens used — N remaining …"
+//   below 80%:        nothing (returns null)
+function TokenBanner({ usage }) {
+  if (!usage) return null;
+  const pct = usage.pct_used || 0;
+  const exhausted = usage.is_exhausted || pct >= 100;
+  if (!exhausted && pct < 80) return null;
+  const remaining = Math.max(0, usage.remaining || 0);
+  const used = usage.used || 0;
+  const limit = usage.effective_limit || 0;
+
+  const tone = exhausted
+    ? { bg: "rgba(255,77,77,0.10)", border: "rgba(255,77,77,0.45)", color: "#ff8585", icon: "🚫" }
+    : { bg: "rgba(255,196,0,0.10)", border: "rgba(255,196,0,0.45)", color: "#ffcf5c", icon: "⚠️" };
+
+  return (
+    <div
+      data-testid="token-banner"
+      data-state={exhausted ? "exhausted" : "warning"}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        padding: "8px 12px",
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        borderRadius: 8,
+        fontSize: 12,
+        color: tone.color,
+        fontFamily: "'Jost', system-ui, sans-serif",
+      }}
+    >
+      <span style={{ fontSize: 14 }}>{tone.icon}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        {exhausted ? (
+          <>
+            <b>Tokens exhausted.</b> {used.toLocaleString()} / {limit.toLocaleString()} used.
+            Upgrade your plan to continue.
+          </>
+        ) : (
+          <>
+            <b>{Math.round(pct)}% tokens used</b> · {remaining.toLocaleString()} remaining.
+            Upgrade to keep going.
+          </>
+        )}
+      </span>
+      <a
+        href="/admin?tab=settings"
+        data-testid="token-banner-upgrade"
+        style={{
+          padding: "5px 12px",
+          background: tone.color,
+          color: "#0a0a0e",
+          fontWeight: 600,
+          fontSize: 11,
+          borderRadius: 6,
+          textDecoration: "none",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Upgrade →
+      </a>
+    </div>
+  );
+}
+
 export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
@@ -93,10 +159,23 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     () => localStorage.getItem(PREVIEW_KEY) === "1"
   );
   const [previewBlocks, setPreviewBlocks] = useState([]);
+  const [usage, setUsage] = useState(null);  // {used, effective_limit, remaining, pct_used, is_exhausted}
   const endRef = useRef(null);
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
   const taRef = useRef(null);
+
+  // Load token usage on mount + every time a turn is saved (so the banner
+  // reflects fresh consumption right after a chat reply / CTO task).
+  const refreshUsage = useCallback(async () => {
+    try {
+      const r = await api.get("/usage/me");
+      setUsage(r.data);
+    } catch (_) { /* non-fatal */ }
+  }, []);
+  useEffect(() => { refreshUsage(); }, [refreshUsage]);
+
+  const exhausted = !!usage?.is_exhausted;
 
   const toggleMaxx = useCallback(() => {
     setMaxxMode((v) => {
@@ -356,6 +435,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
         onTurnSaved?.();
         setTimeout(() => onTurnSaved?.(), 2800);
+        refreshUsage();
         // Bug #3 — return cursor to the input after reply
         setTimeout(() => taRef.current?.focus(), 80);
       },
@@ -432,7 +512,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => (
-          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} activeProject={activeProject} />
+          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} activeProject={activeProject} exhausted={exhausted} />
         ))}
         <div ref={endRef} />
       </div>
@@ -445,6 +525,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           display: "flex", flexDirection: "column", gap: 8,
         }}
       >
+        <TokenBanner usage={usage} />
         {/* Input on top */}
         <textarea
           ref={taRef}
@@ -456,7 +537,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
-          disabled={busy}
+          disabled={busy || exhausted}
           style={{ resize: "none", width: "100%", fontFamily: "'Jost', system-ui, sans-serif" }}
         />
 
@@ -546,7 +627,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             <button
               type="submit" data-testid="chat-send"
               className="btn-primary"
-              disabled={!input.trim() || !sessionId}
+              disabled={!input.trim() || !sessionId || exhausted}
+              title={exhausted ? "Tokens exhausted — upgrade your plan" : undefined}
             >
               <Send size={14} /> Send
             </button>
@@ -814,7 +896,7 @@ function ShipStatusCard({ taskId, task, project, onRollback }) {
 }
 
 
-function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
+function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject, exhausted }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
   const [hover, setHover] = useState(false);
@@ -896,7 +978,7 @@ function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
   const showUserCopy = m.role === "user" && !!m.content;
   // Detect ```aurem-handoff fence → render one-click Ship via CTO button
   const handoffBrief = showActions ? extractHandoffBrief(m.content) : null;
-  const canShip = !!(handoffBrief && activeProject?.project_id);
+  const canShip = !!(handoffBrief && activeProject?.project_id && !exhausted);
 
   async function shipViaCTO() {
     if (!canShip || shipState.status === "shipping" || shipState.status === "shipped") return;
@@ -1074,7 +1156,9 @@ function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
           }}>
             {!canShip ? (
               <div style={{ fontSize: 11, color: "var(--text-faint)", fontStyle: "italic" }}>
-                Switch to a connected project to enable Ship via CTO.
+                {exhausted
+                  ? "🚫 Tokens exhausted — upgrade your plan to ship via CTO."
+                  : "Switch to a connected project to enable Ship via CTO."}
               </div>
             ) : shipState.status === "shipped" ? (
               <ShipStatusCard

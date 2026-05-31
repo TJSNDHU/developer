@@ -238,6 +238,10 @@ function UsersList({ onSelect }) {
 function UserDetail({ user, onBack }) {
   const [d, setD] = useState(user);
   const [busy, setBusy] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
+  const [grantTokens, setGrantTokens] = useState("");
+  const [grantReason, setGrantReason] = useState("");
+  const [granting, setGranting] = useState(false);
 
   useEffect(() => {
     api.get(`/admin/users/${user.user_id}`).then((r) => setD(r.data)).catch(() => {});
@@ -256,6 +260,31 @@ function UserDetail({ user, onBack }) {
     } finally { setBusy(false); }
   }
 
+  async function submitGrant() {
+    const n = parseInt(grantTokens, 10);
+    if (!n || n <= 0) {
+      toast({ message: "Enter a positive token amount", kind: "error" });
+      return;
+    }
+    setGranting(true);
+    try {
+      const r = await api.post(`/admin/users/${user.user_id}/grant-tokens`, {
+        tokens: n,
+        reason: grantReason.trim(),
+      });
+      toast({ message: `Granted ${n.toLocaleString()} tokens ✓`, kind: "success" });
+      setD((prev) => ({ ...prev, usage: r.data.usage, token_grants: [
+        { tokens: n, reason: grantReason.trim(), granted_at: Date.now() / 1000, granted_by: "you" },
+        ...(prev.token_grants || []),
+      ] }));
+      setGrantOpen(false);
+      setGrantTokens("");
+      setGrantReason("");
+    } catch (e) {
+      toast({ message: e?.response?.data?.detail || "Grant failed", kind: "error" });
+    } finally { setGranting(false); }
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <button className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11, marginBottom: 14 }}
@@ -271,10 +300,20 @@ function UserDetail({ user, onBack }) {
             <div><b>Tier:</b> {d.tier || "free"}</div>
             <div><b>Status:</b> <Badge color={STATUS_COLOR[d.status || "active"]}>{d.status || "active"}</Badge></div>
             <div><b>Tokens remaining:</b> {fmt(d.tokens_remaining || 0)}</div>
+            {d.usage && (
+              <div data-testid="admin-user-usage" style={{ marginTop: 6, padding: "6px 8px",
+                background: "rgba(255,255,255,0.03)", borderRadius: 6 }}>
+                <div><b>Plan limit:</b> {fmt(d.usage.plan_limit)} · <b>Granted:</b> {fmt(d.usage.tokens_granted)}</div>
+                <div><b>Effective:</b> {fmt(d.usage.effective_limit)} · <b>Used:</b> {fmt(d.usage.used)} ({d.usage.pct_used}%)</div>
+                <div style={{ color: d.usage.is_exhausted ? "var(--danger)" : "var(--ok)" }}>
+                  <b>Remaining:</b> {fmt(d.usage.remaining)}{d.usage.is_exhausted ? " — EXHAUSTED" : ""}
+                </div>
+              </div>
+            )}
             <div><b>Joined:</b> {ago(d.created_at)}</div>
             <div><b>Projects:</b> {d.project_count ?? 0} · <b>Tasks:</b> {d.task_count ?? 0} · <b>Sessions:</b> {d.session_count ?? 0}</div>
           </div>
-          <div style={{ marginTop: 14 }}>
+          <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               data-testid="admin-user-suspend"
               className="btn-ghost"
@@ -284,7 +323,64 @@ function UserDetail({ user, onBack }) {
               onClick={toggleSuspend}>
               {d.status === "suspended" ? "Unsuspend" : "Suspend"}
             </button>
+            <button
+              data-testid="admin-user-grant-open"
+              className="btn-ghost"
+              disabled={granting}
+              style={{ padding: "6px 12px", fontSize: 11,
+                       borderColor: "rgba(120,200,255,0.35)", color: "var(--accent-2)" }}
+              onClick={() => setGrantOpen((v) => !v)}>
+              {grantOpen ? "Cancel grant" : "Grant tokens"}
+            </button>
           </div>
+          {grantOpen && (
+            <div data-testid="admin-user-grant-form" style={{
+              marginTop: 12, padding: 10,
+              background: "rgba(120,200,255,0.06)",
+              border: "1px solid rgba(120,200,255,0.25)",
+              borderRadius: 8, display: "flex", flexDirection: "column", gap: 8,
+            }}>
+              <input
+                data-testid="admin-grant-tokens-input"
+                type="number"
+                min="1"
+                placeholder="Tokens to grant (e.g. 5000)"
+                value={grantTokens}
+                onChange={(e) => setGrantTokens(e.target.value)}
+                className="input"
+                style={{ fontSize: 12, padding: "6px 8px" }}
+              />
+              <input
+                data-testid="admin-grant-reason-input"
+                type="text"
+                placeholder="Reason (e.g. support credit)"
+                value={grantReason}
+                onChange={(e) => setGrantReason(e.target.value)}
+                className="input"
+                style={{ fontSize: 12, padding: "6px 8px" }}
+              />
+              <button
+                data-testid="admin-grant-submit"
+                className="btn-primary"
+                onClick={submitGrant}
+                disabled={granting || !grantTokens}
+                style={{ padding: "6px 12px", fontSize: 11 }}>
+                {granting ? "Granting…" : "Grant tokens"}
+              </button>
+            </div>
+          )}
+          {(d.token_grants || []).length > 0 && (
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)" }}>
+              <b style={{ fontSize: 11 }}>Recent grants ({d.token_grants.length})</b>
+              <div style={{ maxHeight: 110, overflowY: "auto", marginTop: 4 }}>
+                {d.token_grants.map((g, i) => (
+                  <div key={i} style={{ padding: "3px 0", borderBottom: "1px solid var(--border)" }}>
+                    +{fmt(g.tokens)} · {g.reason || "no reason"} · <span style={{ color: "var(--text-faint)" }}>{ago(g.granted_at)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
         <Card style={{ padding: 16 }}>
           <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Projects ({(d.projects || []).length})</h3>

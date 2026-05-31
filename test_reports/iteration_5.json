@@ -1,0 +1,33 @@
+{
+  "summary": "Token enforcement end-to-end testing — backend 402 contract, /usage/me shape, admin grant endpoint + validation, and ChatPanel banner colors (none/warning/exhausted) and Admin UserDetail grant form all PASS. 4/4 pytest in test_token_enforcement.py pass. Direct curls against public URL confirm 402 with exact detail shape {error:'token_limit_reached', used, limit, upgrade_url:'/pricing'}, no cto_tasks row inserted on 402, and submit unlocks after admin grant. UI: green (<80% no banner), yellow data-state='warning' shows '94% tokens used · 100 remaining · Upgrade →', red data-state='exhausted' shows '🚫 Tokens exhausted...' with chat-send disabled. Admin Grant Tokens flow: POST returns 200, form closes, 'Granted 500 tokens ✓' toast visible, recent grants list updated, tokens_granted bumped from 600→1100.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin UserDetail", "issues": ["Success toast 'Granted 500 tokens ✓' is not wired via role=status / aria-live — assistive-tech users won't hear it (selector check returned empty); only visual fade-in. Consider adding role='status' to the toast container."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_token_enforcement.py",
+    "/app/test_reports/pytest/pytest_iter5.xml"
+  ],
+  "action_items": [
+    "(Optional nit) Add role='status' / aria-live='polite' to the admin grant success toast so a11y + screen readers see it. Functionality is correct.",
+    "(Optional nit) When ChatPanel input is empty AND state is warning (<100%), send button is disabled because of input-empty check — that is by design (input.trim()), but worth knowing for spec compliance."
+  ],
+  "critical_code_review_comments": [
+    "services/usage.py PLAN_LIMITS hardcoded — fine for MVP, but consider env-driven config for staging vs prod.",
+    "routers/cto_projects.py — assert_has_budget is called BEFORE require_db so 402 fires before any DB write (verified: no cto_tasks row appears on 402). Good.",
+    "ChatPanel.jsx — TokenBanner correctly uses semantic data-state='warning'|'exhausted' and renders nothing below 80%. Banner is above textarea. ✓",
+    "Admin.jsx UserDetail — grant form correctly closes on success, fires refresh of /admin/users/{id}, and shows recent grants list. ✓"
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "test@aurem.dev / testpass123 (also ADMIN_EMAIL)",
+  "seed_data_creation": "Seeded cto_tasks with task_id=t_test_enforce_<uuid>, tokens_used=1500 to drive is_exhausted=true; cleaned up after run. Briefly set dev_users.tokens_granted to 0, 600, 100000, 1100 during test; reset to 0 at end. All cto_token_grants for the test user cleaned up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All token enforcement features work as spec'd. test@aurem.dev (uid 6560b900321f456b8bc3ac1ad6a37f09) is the admin+test user. Real cto_tasks has been left untouched — only TEST_ prefixed rows were inserted and cleaned. For future runs, to drive exhausted UI state insert one row into cto_tasks (tokens_used>=1000) and refresh /dashboard.",
+  "rca_of_the_issue": "N/A — no bugs found."
+}
