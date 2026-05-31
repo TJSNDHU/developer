@@ -20,9 +20,23 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
 from services.llm import call_llm
+from services.github_api_writer import (
+    commit_files as gh_api_commit,
+    revert_commit as gh_api_revert,
+    fetch_file as gh_api_fetch_file,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cto", tags=["AUREM CTO Projects"])
+
+# Detect whether `git` binary is available — production containers don't
+# have it (Iter 21). When missing we route to the pure-HTTP GitHub API path.
+_GIT_AVAILABLE = shutil.which("git") is not None
+if not _GIT_AVAILABLE:
+    logger.warning(
+        "`git` binary not found on this server. CTO tasks will use the "
+        "GitHub REST API path (no clone, no push subprocess)."
+    )
 
 WORKSPACE = Path(os.getenv("WORKSPACE_PATH", "/tmp/aurem-dev-projects"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
@@ -245,6 +259,56 @@ async def _rollback_log(task_id: str, step: str, status: str = "info"):
 
 async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
                          user_token: str) -> None:
+    """Dispatcher — git-subprocess path locally, GitHub-API path in
+    production where git isn't installed."""
+    if _GIT_AVAILABLE:
+        return await _run_rollback_with_git(task_id, proj, commit_sha, user_token)
+    return await _run_rollback_via_api(task_id, proj, commit_sha, user_token)
+
+
+async def _run_rollback_via_api(task_id: str, proj: dict, commit_sha: str,
+                                  user_token: str) -> None:
+    """Pure-API rollback — uses GitHub Git Data API to push a revert
+    commit on top of branch HEAD. No force-push, full history preserved."""
+    owner = proj["github_owner"]
+    repo = proj["github_repo"]
+    branch = proj.get("branch", "main")
+    db = get_db()
+
+    def _scrub(s: str) -> str:
+        return (s or "").replace(user_token or "", "***PAT***") if user_token else (s or "")
+
+    async def _set(**fields):
+        if db is not None:
+            await db.cto_tasks.update_one({"task_id": task_id}, {"$set": fields})
+
+    async def _prog(step: str, status: str = "info"):
+        await _rollback_log(task_id, step, status)
+
+    try:
+        await _set(rollback_status="running")
+        result = await gh_api_revert(
+            owner=owner, repo=repo, branch=branch, token=user_token,
+            commit_sha=commit_sha, progress=_prog,
+        )
+        await _set(
+            rollback_status="done",
+            rollback_sha=result["sha"],
+            rollback_completed_at=time.time(),
+        )
+    except Exception as e:
+        logger.exception(f"[rollback-api {task_id}] failed")
+        safe = _scrub(str(e))
+        await _rollback_log(task_id, f"❌ {safe}", "error")
+        await _set(
+            rollback_status="failed",
+            rollback_error=safe,
+            rollback_completed_at=time.time(),
+        )
+
+
+async def _run_rollback_with_git(task_id: str, proj: dict, commit_sha: str,
+                                   user_token: str) -> None:
     """Clone, `git revert --no-edit <sha>`, push the revert commit."""
     ws = WORKSPACE / f"rb_{task_id}"
     ws.mkdir(parents=True, exist_ok=True)
@@ -386,6 +450,113 @@ _AI_SYS = (
 
 
 async def _run_task(task_id, proj, task, files, context, user_token):
+    """Dispatcher — uses git-subprocess path when git is installed, falls
+    back to the pure GitHub-API path when it isn't (Iter 21)."""
+    if _GIT_AVAILABLE:
+        return await _run_task_with_git(
+            task_id, proj, task, files, context, user_token
+        )
+    return await _run_task_via_api(
+        task_id, proj, task, files, context, user_token
+    )
+
+
+async def _run_task_via_api(task_id, proj, task, files, context, user_token):
+    """API-only worker — no `git` binary needed. Reads target files from
+    GitHub, asks AUREM to generate edits, then commits everything as ONE
+    atomic commit via the Git Data API."""
+    import re
+    import httpx
+    owner = proj["github_owner"]
+    repo = proj["github_repo"]
+    branch = proj.get("branch", "main")
+    if not user_token:
+        await _set_status(task_id, status="failed",
+                          error="No PAT on project — open Edit and add one",
+                          completed_at=time.time())
+        return
+
+    try:
+        await _set_status(task_id, status="pulling", started_at=time.time())
+        await _log(task_id, f"📡 Reading {owner}/{repo}@{branch} via API…")
+
+        # 1) Read target files (or auto-pick a few likely ones)
+        await _set_status(task_id, status="reading")
+        contents: dict = {}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            target_files = list(files or [])
+            if not target_files:
+                target_files = [
+                    "main.py", "app.py", "server.py", "index.html",
+                    "src/App.jsx", "src/main.jsx", "pages/index.js",
+                    "README.md",
+                ]
+            for f in target_files[:6]:
+                body = await gh_api_fetch_file(client, owner, repo, f,
+                                                branch, user_token)
+                if body is not None:
+                    contents[f] = body[:10000]
+                    await _log(task_id, f"📄 read {f}")
+                    if len(contents) >= 4 and not files:
+                        break
+
+        # 2) AI codegen (same prompt format as the git path)
+        await _set_status(task_id, status="fixing")
+        await _log(task_id, "🧠 DeepSeek thinking…")
+        files_blob = "\n\n".join(
+            f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
+        )
+        user_msg = (
+            f"TASK: {task}\n"
+            f"{('CONTEXT: ' + context) if context else ''}\n\n"
+            f"Tech: {proj.get('tech_stack','auto')}\n\n{files_blob}"
+        )
+        reply = await call_llm(
+            messages=[{"role": "user", "content": user_msg}],
+            system=_AI_SYS, max_tokens=3500, temperature=0.0,
+        )
+        summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
+        summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
+        edits: dict[str, str] = {}
+        for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL):
+            edits[m.group(1).strip()] = m.group(2)
+        if not edits:
+            await _log(task_id, "⚠️ AI returned no file edits", "warning")
+            await _set_status(task_id, status="done", result=summary,
+                              completed_at=time.time())
+            return
+        await _log(task_id, f"✏️ {len(edits)} files to update", "success")
+
+        # 3) Commit + push as one atomic API call
+        await _set_status(task_id, status="pushing")
+
+        async def _prog(step: str, status: str = "info"):
+            await _log(task_id, step, status)
+
+        result = await gh_api_commit(
+            owner=owner, repo=repo, branch=branch, token=user_token,
+            files=edits,
+            commit_message=f"AUREM CTO: {task[:60]}",
+            progress=_prog,
+        )
+        sha = result["sha"]
+        await _set_status(task_id, status="done", result=summary,
+                          commit_sha=sha, completed_at=time.time())
+        db = get_db()
+        if db is not None:
+            await db.cto_projects.update_one(
+                {"project_id": proj["project_id"]},
+                {"$inc": {"tasks_done": 1}, "$set": {"last_task": time.time()}},
+            )
+    except Exception as e:
+        logger.exception(f"[cto-task-api {task_id}] failed")
+        safe = str(e).replace(user_token or "", "***PAT***")
+        await _log(task_id, f"❌ {safe}", "error")
+        await _set_status(task_id, status="failed", error=safe,
+                          completed_at=time.time())
+
+
+async def _run_task_with_git(task_id, proj, task, files, context, user_token):
     import re
     ws = WORKSPACE / task_id
     ws.mkdir(parents=True, exist_ok=True)

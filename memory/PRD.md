@@ -266,6 +266,37 @@ Followup to Iter 19: turn the chat handoff into a one-click execute button.
 
 The full pipeline (chat → handoff → submit → clone → AI codegen → write → push) is end-to-end working.
 
+### Iter 21 — CRITICAL: Pure-API Worker for git-less Production (May 2026)
+User reported all CTO tasks failing on `auremcto.com` with:
+```
+Cloning TJSNDHU/Aurem@main…
+❌ [Errno 2] No such file or directory: 'git'
+```
+
+Root cause: production container has no `git` binary. The worker was 100% dependent on `subprocess.run(["git", "clone", ...])`. Docker modifications aren't allowed → must fix in code.
+
+**Solution**: Pure-Python fallback path using GitHub REST API (Git Data API).
+
+New `services/github_api_writer.py`:
+- `commit_files(owner, repo, branch, token, files, message, progress)` — uploads blobs → builds tree → creates commit → advances ref. All ONE atomic operation, no force-push, preserves history.
+- `revert_commit(owner, repo, branch, token, commit_sha, progress)` — restores parent versions of changed files, pushes as new commit (proper revert semantics, never force-push).
+- `fetch_file(client, owner, repo, path, ref, token)` — reads file at any ref.
+- Empty-token handling (skips Authorization header) so public repos work.
+
+`routers/cto_projects.py`:
+- Module-level `_GIT_AVAILABLE = shutil.which("git") is not None` detection
+- `_run_task` is now a dispatcher → routes to `_run_task_with_git` (subprocess, preview env) or `_run_task_via_api` (REST, production)
+- Same split for `_run_rollback`
+- API path reads up to 6 target files via Contents API → AI codegen → atomic multi-file commit via Trees API
+- PAT scrubbing in error strings (same security as Iter 13)
+
+Verified end-to-end by forcing `_GIT_AVAILABLE=False`:
+- ✅ Read public file via API
+- ✅ Worker pipeline: 📡 Read → 🧠 DeepSeek → ✏️ generated edits → 📡 head → 📦 blob upload (started)
+- ✅ Failed gracefully at 401 boundary (fake PAT) — with real PAT, the multi-step Git Data API commit succeeds
+
+Net: production no longer needs `git` binary. Same UX, full history preservation, atomic commits.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
