@@ -675,6 +675,25 @@ User reported on production: AUREM replies were ending with raw ```tool_call``` 
 
 **Tests**: 6 new in `test_strip_tool_calls.py` (uses the actual production transcript as the failing input — locks the contract). Full regression: **135 passed, 0 failed**.
 
+## Active Phase / Next Up
+
+### Iter 36 — Crash fix + anti-hallucination guard + retry button + 90s timeout (Feb 2026)
+User caught 4 production problems in one screenshot/transcript:
+
+**P0 — Crash**: every Ship via CTO failing with `name '_retry' is not defined`. Root cause: my Iter 35 edit accidentally deleted the function body during a search-replace conflict. **Fixed**: re-added `_retry` (exponential backoff: 1.5s → 3s → 6s → fail). Wraps AI codegen + GitHub commit so transient upstream errors (OpenRouter rate-limit, GitHub 5xx, network blip) self-heal.
+
+**P0 — Hallucination**: AUREM was emitting handoff briefs with fabricated line numbers, fake percentages ("83% improvement", "92% fewer failures"), and invented file paths. The Maxx watchdog was correctly catching it but the underlying behavior had to stop. **Fixed two ways**:
+- **Persona** (`services/orchestrator.py`): added the ANTI-HALLUCINATION CONTRACT — strictest rule in the document. AI may ONLY cite file paths / line numbers / percentages that appeared in tool results THIS turn. Forbids inventing stress-test metrics, "I've identified" / "confirmed" language without tool evidence, and plugging gaps with plausible-sounding fabrication.
+- **Server-side scanner** (`services/tools_bridge.py::detect_unsourced_citations`): regex-scans every final AI reply for `line N` references, `83% improvement`-style metric language, and backticked file paths. Cross-checks against the actual paths the AI fetched this turn (via `read_repo_file` / `read_repo_files`). If any unsourced citations slip through, the reply gets a warning footer: `⚠️ Possible unsourced citations — I did not fetch the file(s) backing these claims this turn:` followed by the offending excerpts. User sees the warning in real time, no more silently-trusted fabrications.
+
+**P1 — Retry button**: new `POST /cto/tasks/{task_id}/retry` endpoint creates a fresh task record copying the original's payload, marks `retry_of: <old_id>` for audit, and queues it. UI button "↻ Retry" appears in the failed `ShipStatusCard`. Uses the same `_retry`-armed worker so the new task is automatically more resilient than the failed one.
+
+**P1 — Wall-clock timeout**: `routers/chat.py::chat_stream` now enforces `HARD_TIMEOUT_S = 90.0`. If the orchestrator doesn't return within 90 seconds, both worker and ticker get cancelled and a friendly error frame goes out: `"AUREM timed out after 90s. Reload and try a smaller question…"`. Prevents the 15-minute spinning indicator the user saw in production.
+
+**P1 — Activity labels** in the SSE tick: orchestrator now takes an `activity_hook(label)` callback. The streaming generator yields `{thinking, elapsed_s, activity}` frames; frontend renders "running 3 tool(s) in parallel: read_repo_file, search_repo, list_repo_files · 4.2s" instead of just "thinking…". User always sees WHAT AUREM is doing.
+
+**Tests**: 14 new in `test_iter36_anti_hallucination.py` (3 `_retry` happy/eventual/exhausted, 6 hallucination-scanner cases, 3 persona-contract guards, 2 retry-endpoint state checks). Full regression: **149 passed, 0 failed** (was 135, +14).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

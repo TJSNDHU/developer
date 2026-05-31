@@ -817,6 +817,26 @@ function ShipStatusCard({ taskId, task, project, onRollback }) {
 
   // Failed
   if (status === "failed") {
+    const [retrying, setRetrying] = useState(false);
+    async function retry() {
+      if (retrying) return;
+      setRetrying(true);
+      try {
+        const r = await api.post(`/cto/tasks/${taskId}/retry`, {});
+        toast({ message: "Re-queued", kind: "success" });
+        // Caller polls task status anyway; nothing else to do
+        if (r.data?.task_id) {
+          // optional callback hook in the future
+        }
+      } catch (e) {
+        toast({
+          message: e?.response?.data?.detail || "Retry failed",
+          kind: "error",
+        });
+      } finally {
+        setRetrying(false);
+      }
+    }
     return (
       <div data-testid={`ship-status-${taskId}`} style={{
         padding: "10px 12px",
@@ -827,7 +847,20 @@ function ShipStatusCard({ taskId, task, project, onRollback }) {
         fontFamily: "'JetBrains Mono', monospace",
         maxWidth: 460,
       }}>
-        <div>❌ Task failed · <span style={{ opacity: 0.7 }}>{taskId}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <span>❌ Task failed · <span style={{ opacity: 0.7 }}>{taskId}</span></span>
+          <button
+            data-testid={`ship-retry-${taskId}`}
+            onClick={retry}
+            disabled={retrying}
+            className="btn-ghost"
+            style={{ padding: "2px 8px", fontSize: 10,
+                     borderColor: "rgba(255,107,107,0.5)",
+                     color: "var(--danger)" }}
+          >
+            {retrying ? "Re-queuing…" : "↻ Retry"}
+          </button>
+        </div>
         {task.error && (
           <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)", whiteSpace: "pre-wrap" }}>
             {String(task.error).slice(0, 240)}

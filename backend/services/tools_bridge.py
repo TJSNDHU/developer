@@ -173,3 +173,53 @@ def strip_tool_calls(text: str) -> str:
     # Collapse runs of >2 blank lines that the fence removal might have left
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+
+# Iter 36: detect hallucinated citations (line numbers, fabricated metrics)
+# in an AI reply that lack supporting tool evidence. Returns a list of
+# offending excerpts. Used by the orchestrator to either strip them or
+# tag the reply with a "may be fabricated" warning. The check is
+# conservative: only flag a citation if the cited file path was NOT
+# among the tool results this turn.
+_LINE_CITATION_RE = re.compile(
+    r"(?:line|lines)\s+(\d{1,5})(?:\s*[-–]\s*\d{1,5})?",
+    re.IGNORECASE,
+)
+_FAKE_METRIC_RE = re.compile(
+    r"\b\d{1,3}\s*%\s+(?:of|reduction|improvement|less|fewer|faster|"
+    r"more|stress|test|failure|success)",
+    re.IGNORECASE,
+)
+_FILE_PATH_RE = re.compile(
+    r"`([a-zA-Z0-9_./-]+\.(?:py|jsx?|tsx?|md|json|ya?ml|toml|html|css))`"
+)
+
+
+def detect_unsourced_citations(reply: str, tool_paths_read: set[str]) -> list[str]:
+    """Scan an AI reply for line-number references and fabricated-looking
+    metrics. Returns a deduped list of suspicious snippets. Empty if
+    every citation is backed by a file actually fetched this turn."""
+    if not reply:
+        return []
+    flags: list[str] = []
+    # Any file path referenced in backticks that wasn't fetched this turn
+    for m in _FILE_PATH_RE.finditer(reply):
+        path = m.group(1)
+        if path not in tool_paths_read and "/" in path:
+            flags.append(f"path `{path}` not read this turn")
+    # Line-number references (line N, lines N-M) regardless of file
+    for m in _LINE_CITATION_RE.finditer(reply):
+        if not tool_paths_read:
+            flags.append(f"line citation '{m.group(0)}' with no file fetched")
+            break  # one flag is enough
+    # Suspicious metric language ("reduces failures by 83%")
+    for m in _FAKE_METRIC_RE.finditer(reply):
+        flags.append(f"fabricated-style metric: '{m.group(0)}'")
+    # Dedup while preserving order
+    seen, out = set(), []
+    for f in flags:
+        if f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out[:6]  # cap so the warning footer stays short

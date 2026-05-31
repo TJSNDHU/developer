@@ -15,7 +15,10 @@ import re
 from typing import Optional
 
 from .llm import call_llm_with_meta
-from .tools_bridge import list_tools, invoke_tool, extract_tool_calls, strip_tool_calls
+from .tools_bridge import (
+    list_tools, invoke_tool, extract_tool_calls,
+    strip_tool_calls, detect_unsourced_citations,
+)
 from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
 
 logger = logging.getLogger(__name__)
@@ -136,6 +139,25 @@ AUREM_CTO_PERSONA = (
     "\"Let me know if you have questions!\" — close with the handoff "
     "fence or a precise next-step ask.\n\n"
 
+    "# ANTI-HALLUCINATION CONTRACT — STRICTEST RULE\n"
+    "  You may ONLY cite a file path, line number, function name, "
+    "percentage, or metric if it appeared in a tool result you read THIS "
+    "TURN. Concretely:\n"
+    "  - To say 'line 476 of worker.py' you MUST have called "
+    "`read_repo_file` on `worker.py` THIS TURN and that line 476 must "
+    "exist in the snippet returned.\n"
+    "  - NEVER write 'stress test shows 83%' / 'reduces failures by 92%' "
+    "or any metric. You did not run a stress test.\n"
+    "  - NEVER invent file paths like 'backend/middleware/health_probe.py' "
+    "if your `list_repo_files` call did not return that path.\n"
+    "  - NEVER say 'I've identified' / 'investigation shows' / "
+    "'confirmed' unless the tool results literally contain the words you "
+    "claim were found.\n"
+    "  - If you do not have evidence, SAY SO PLAINLY: 'I haven't read "
+    "X.py yet — let me fetch it.' and call the tool. Do NOT plug the gap "
+    "with plausible-sounding fabrication. Hallucinated citations are the "
+    "single most user-trust-destroying thing you can do.\n\n"
+
     "# NEVER\n"
     "  - End with \"Reply 'X' to continue\" or any synonym.\n"
     "  - List candidate paths and ask which to investigate.\n"
@@ -143,7 +165,8 @@ AUREM_CTO_PERSONA = (
     "either it exists (quote it) or it doesn't (say so plainly).\n"
     "  - Restate the user's task back at them. Convert it to action.\n"
     "  - Skip tools when they would answer the question for you.\n"
-    "  - Claim a file isn't found before calling `list_repo_files`."
+    "  - Claim a file isn't found before calling `list_repo_files`.\n"
+    "  - Cite a line number / function name / metric without tool evidence."
 )
 
 
@@ -287,6 +310,33 @@ async def chat_with_tools(
             # have included alongside its final answer — they were already
             # parsed above; leaking them to the UI confuses users.
             content = strip_tool_calls(content)
+
+            # Iter 36: hallucination guard. If the AI cited line numbers
+            # or fabricated metrics WITHOUT actually fetching the source
+            # file this turn, append a warning footer so the user (and
+            # the Maxx watchdog) know to scrutinise those citations.
+            tool_paths_read = {
+                inv.get("args", {}).get("path", "")
+                for inv in invocations
+                if inv.get("tool") in ("read_repo_file",)
+            } | {
+                p
+                for inv in invocations
+                if inv.get("tool") in ("read_repo_files",)
+                for p in (inv.get("args", {}).get("paths") or [])
+            }
+            tool_paths_read.discard("")
+            flags = detect_unsourced_citations(content, tool_paths_read)
+            if flags:
+                content = (
+                    content.rstrip()
+                    + "\n\n_⚠️ Possible unsourced citations — I did not "
+                    "fetch the file(s) backing these claims this turn:_\n"
+                    + "\n".join(f"  • {f}" for f in flags)
+                    + "\n_Re-run with a tighter scope (e.g. 'read X.py') "
+                    "or ignore the citations._"
+                )
+
             # Persistence is handled by chat.py:_persist_turn — no double-write here.
             return {
                 "ok": meta.get("ok", True),

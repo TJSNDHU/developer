@@ -404,6 +404,59 @@ async def get_task(task_id: str, authorization: str = Header(None)) -> dict:
     return {"ok": True, "task": t}
 
 
+@router.post("/tasks/{task_id}/retry")
+async def retry_task(
+    task_id: str,
+    bg: BackgroundTasks,
+    authorization: str = Header(None),
+) -> dict:
+    """Iter 36: re-queue a FAILED task as a brand-new task with the same
+    payload. We don't mutate the old row — easier audit + the user can
+    see what error the original hit. Returns the new `task_id`."""
+    me = await current_dev(authorization)
+    await assert_has_budget(me["user_id"])
+    db = require_db()
+    old = await db.cto_tasks.find_one(
+        {"task_id": task_id, "user_id": me["user_id"]}
+    )
+    if not old:
+        raise HTTPException(404, "Task not found")
+    if old.get("status") != "failed":
+        raise HTTPException(400,
+                            f"Only failed tasks can be retried "
+                            f"(current: {old.get('status')})")
+
+    proj = await db.cto_projects.find_one(
+        {"project_id": old["project_id"], "user_id": me["user_id"]}
+    )
+    if not proj:
+        raise HTTPException(404, "Parent project not found")
+
+    new_task_id = "t_" + uuid.uuid4().hex[:12]
+    await db.cto_tasks.insert_one({
+        "task_id":      new_task_id,
+        "user_id":      me["user_id"],
+        "project_id":   old["project_id"],
+        "task":         old.get("task", ""),
+        "files":        old.get("files", []),
+        "context":      old.get("context", ""),
+        "status":       "queued",
+        "created_at":   time.time(),
+        "retry_of":     task_id,
+        "steps":        [{"step": f"🔁 retry of {task_id}", "status": "info",
+                          "ts": time.time()}],
+    })
+    user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
+    bg.add_task(
+        _run_task,
+        new_task_id, proj, old.get("task", ""),
+        old.get("files", []), old.get("context", ""), user_token,
+    )
+    return {"ok": True, "task_id": new_task_id, "retry_of": task_id}
+
+
+
+
 @router.get("/tasks/project/{project_id}")
 async def project_tasks(project_id: str, authorization: str = Header(None)) -> dict:
     me = await current_dev(authorization)
@@ -533,6 +586,35 @@ def _looks_truncated(path: str, body: str) -> Optional[str]:
     if is_codey and non_blank < 3:
         return f"only {non_blank} non-blank lines for a code file"
     return None
+
+
+# Iter 36: bulletproof retry wrapper for transient upstream failures.
+# Wraps an async coroutine factory in exponential-backoff retry. Every
+# failed attempt is logged to the task feed so the user sees WHAT went
+# wrong, not just a silent "task failed". This is what makes Ship via
+# CTO self-heal on rate-limit / 5xx / network blips instead of giving up.
+async def _retry(coro_factory, *, what: str, task_id: str,
+                 attempts: int = 3, base_sleep: float = 1.5):
+    """Run `coro_factory()` up to `attempts` times with exp backoff
+    (1.5s → 3s → 6s …). Re-raises the LAST exception if every attempt fails."""
+    last_exc: Optional[Exception] = None
+    for i in range(1, attempts + 1):
+        try:
+            return await coro_factory()
+        except Exception as e:
+            last_exc = e
+            await _log(
+                task_id,
+                f"⏳ {what} failed (attempt {i}/{attempts}): "
+                f"{type(e).__name__}: {str(e)[:140]}",
+                "warning",
+            )
+            if i < attempts:
+                await asyncio.sleep(base_sleep * (2 ** (i - 1)))
+    assert last_exc is not None
+    raise last_exc
+
+
 
 
 
