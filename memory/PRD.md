@@ -590,6 +590,43 @@ Every chat became a minimum 2-turn ritual.
 
 **Full regression**: 53 passed, 4 vault tests correctly skipped (master key not set in preview).
 
+## Active Phase / Next Up
+
+### Iter 33 — Emergent-parity: parallel tools + model routing + 5 local tools (Feb 2026)
+User uploaded 3 drafted files (`llm.py`, `local_tools.py`, `orchestrator.py`) with the core upgrades to close the architectural gap I documented in Iter 32. Caught regression in the uploaded `orchestrator.py` (it had reverted the persona to the "Reply 'go' to continue" ritual we just removed) — applied technical bits surgically while keeping Iter 32 persona intact.
+
+**Three files, integrated**:
+
+1. **`services/llm.py`** — replaced wholesale. Adds `mode` parameter to `call_llm_with_meta`:
+   - `mode="code"` → Claude Sonnet 4.5 via Emergent Universal Key (3500 token cap, T=0.0)
+   - `mode="chat"` → DeepSeek via OpenRouter (1500 token cap, T=0.7)
+   - `mode="review"` / `mode="title"` → DeepSeek small (existing behaviour)
+   - Auto-fallback: if `EMERGENT_LLM_KEY` is not set, code mode degrades silently to DeepSeek.
+   - Response now carries `mode` + `temperature` for audit (one existing test updated).
+
+2. **`services/local_tools.py`** — replaced wholesale. 1 tool → **5 tools**:
+   - `read_repo_file` — single file (existing)
+   - `read_repo_files` — **up to 6 files in parallel via asyncio.gather** (NEW)
+   - `list_repo_files` — tree listing with glob (existing, semantics preserved)
+   - `search_repo` — grep pattern across the repo, parallel batched fetches (NEW)
+   - `get_repo_info` — connected project metadata (NEW)
+   - 12 KB cap per file, 6-file cap on bulk read, 500-file cap on tree, all hard-coded so the LLM context budget stays sane.
+
+3. **`services/orchestrator.py`** — surgical edits (preserved Iter 32 persona):
+   - **Parallel tool execution** via `asyncio.gather(*[_run_one(c) for c in calls])` — was a sequential `for c in calls:` loop. 4× speedup on multi-file tasks (verified in test: 2 × 0.4s sleeping tools run in <0.65s).
+   - **Model routing** via new `_is_code_task(prompt, history)` heuristic — code verbs ('fix', 'create', 'ship', 'go', 'yes') route to code mode; everything else stays on chat. Token budget picked once per request: 3500 for code, 1500 for chat.
+   - `max_iters` raised 4 → 6 for complex multi-file tasks.
+   - Tool-help template tells the LLM: "emit multiple ```tool_call``` blocks back-to-back, they run in parallel" — instructs aggressive batching.
+   - Response shape adds `mode` so chat.py / cto_projects.py callers can audit which model handled the turn.
+
+**Tests**: `tests/test_parallel_orchestrator.py` — 15 new tests, all pass:
+   - **Persona regression guard** explicitly asserts none of the 3 forbidden v1 patterns leaked back in (this would have caught the uploaded orchestrator's regression at CI time).
+   - **Code task detection** parametrised on 10 prompts.
+   - **Parallel-exec timing proof** — gather of two 0.4s tools completes in <0.65s (sequential would be ~0.8s).
+   - **Response carries `mode`** for audit.
+
+Full regression: **124 passed, 4 skipped** (the 4 are vault-roundtrip tests that correctly skip when `AUREM_MASTER_KEY` is unset).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

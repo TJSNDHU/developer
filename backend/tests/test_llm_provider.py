@@ -116,12 +116,12 @@ async def test_call_llm_with_meta_success_reports_deepseek():
         meta = await call_llm_with_meta(
             system="sys", user="hi", max_tokens=32
         )
-    assert meta == {
-        "ok": True,
-        "provider": "deepseek",
-        "content": "ok",
-        "fallback_chain": ["deepseek"],
-    }
+    # iter 33: response now carries mode + temperature metadata for the
+    # orchestrator's model-routing logic. Assert the core contract only.
+    assert meta["ok"] is True
+    assert meta["provider"] == "deepseek"
+    assert meta["content"] == "ok"
+    assert meta["fallback_chain"] == ["deepseek"]
 
 
 @pytest.mark.asyncio

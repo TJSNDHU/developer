@@ -8,8 +8,10 @@ Returns: {ok, content, provider, iterations, tool_calls_run,
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 from typing import Optional
 
 from .llm import call_llm_with_meta
@@ -30,12 +32,20 @@ _TOOL_HELP_TEMPLATE = (
     + _BT + "tool_call\n"
     '{"tool": "<name>", "args": {...}}\n'
     + _BT + "\n"
-    "Then STOP. The orchestrator will execute it and feed you the real "
-    "result in the next turn. Only AFTER you see the real result, give "
-    "your final answer.\n\n"
-    "If you need to read any file in the connected repo to verify a claim, "
-    "CALL `read_repo_file` — never tell the user a file 'returned 404' or "
-    "'wasn't found' without actually invoking the tool first.\n\n"
+    "You can call MULTIPLE tools in ONE turn by emitting multiple "
+    + _BT + "tool_call" + _BT + " blocks back-to-back. The orchestrator "
+    "runs them ALL IN PARALLEL and feeds you every result at once — "
+    "reading 5 files in one turn is the same wall-clock speed as reading "
+    "1. Use this aggressively whenever you need to look at >1 file.\n\n"
+    "Tools available:\n"
+    "  • read_repo_file   — one file by path\n"
+    "  • read_repo_files  — UP TO 6 files in parallel (preferred for multi-file tasks)\n"
+    "  • list_repo_files  — list the tree, glob-filterable\n"
+    "  • search_repo      — grep a pattern across the repo\n"
+    "  • get_repo_info    — connected project metadata\n\n"
+    "NEVER tell the user a file 'returned 404' or 'wasn't found' without "
+    "actually invoking a tool first. Call `list_repo_files` first if you "
+    "don't know the path.\n\n"
     "Tool catalog:\n"
 )
 
@@ -137,11 +147,32 @@ AUREM_CTO_PERSONA = (
 )
 
 
+# Keywords that indicate a code-execution task → route to Claude Sonnet
+# via Emergent (better code quality + larger token budget).
+# Chat/Q&A goes to DeepSeek (fast, cheap). Iter 33.
+_CODE_KEYWORDS = re.compile(
+    r'\b(fix|patch|create|add|remove|refactor|implement|update|ship|deploy|'
+    r'write|build|edit|change|replace|go|do it|proceed|ship it|yes|ok)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_code_task(prompt: str, history_lines: list[str]) -> bool:
+    """Heuristic — should this turn use the code model (Claude) + bigger
+    token budget? True for explicit code verbs OR short confirmations
+    after a plan ('go', 'yes', 'ship it')."""
+    if _CODE_KEYWORDS.search(prompt or ""):
+        return True
+    if len((prompt or "").strip()) < 20 and history_lines:
+        return True
+    return False
+
+
 async def chat_with_tools(
     prompt: str,
     jwt_token: str,
     system: Optional[str] = None,
-    max_iters: int = 4,
+    max_iters: int = 6,                 # iter 33: was 4 — bigger headroom
     session_id: Optional[str] = None,
     mongo_client=None,
     user_id: Optional[str] = None,
@@ -221,11 +252,16 @@ async def chat_with_tools(
     final_provider = "?"
     iters = 0
     fallback_chain: list[str] = []
+    # iter 33: pick model + token budget once per request
+    use_code_model = _is_code_task(prompt, history_lines)
+    token_budget = 3500 if use_code_model else 1500
+    llm_mode = "code" if use_code_model else "chat"
 
     while iters < max_iters:
         iters += 1
         meta = await call_llm_with_meta(
-            enhanced_system, transcript, max_tokens=1500,
+            enhanced_system, transcript,
+            max_tokens=token_budget, mode=llm_mode,
         )
         content = meta.get("content") or ""
         final_provider = meta.get("provider") or final_provider
@@ -244,27 +280,30 @@ async def chat_with_tools(
                 "iterations": iters,
                 "tool_calls_run": len(invocations),
                 "tool_invocations": invocations,
+                "mode": llm_mode,
             }
 
-        # Execute every tool call and feed results back into the transcript
-        # Local tools (e.g. read_repo_file) are routed in-process; everything
-        # else falls through to the upstream tools_bridge.
+        # iter 33: PARALLEL tool execution via asyncio.gather.
+        # Was a sequential `for c in calls:` loop — 4 tools × 8s = 32s.
+        # Now: 4 tools × 8s = 8s total. 4× speedup on multi-file tasks.
         local_ctx = {"user_id": user_id, "project_id": project_id}
-        results_for_llm: list[dict] = []
-        for c in calls:
+
+        async def _run_one(c: dict) -> dict:
             tool_name = c["tool"]
             tool_args = c.get("args") or {}
             res = await invoke_local_tool(tool_name, tool_args, local_ctx)
             if res is None:
                 res = await invoke_tool(tool_name, tool_args, jwt_token)
             invocations.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "ok": res.get("ok"),
+                "tool":       tool_name,
+                "args":       tool_args,
+                "ok":         res.get("ok"),
                 "elapsed_ms": res.get("elapsed_ms"),
-                "error": res.get("error"),
+                "error":      res.get("error"),
             })
-            results_for_llm.append({"tool": tool_name, "result": res})
+            return {"tool": tool_name, "result": res}
+
+        results_for_llm = await asyncio.gather(*[_run_one(c) for c in calls])
 
         # iter 323ad — per-tool truncation (was: total 4000 chars cut
         # across ALL results → ORA half-results dekh ke wrong conclusions).
@@ -296,5 +335,6 @@ async def chat_with_tools(
         "iterations": iters,
         "tool_calls_run": len(invocations),
         "tool_invocations": invocations,
+        "mode": llm_mode,
         "max_iters_hit": True,
     }

@@ -1,20 +1,22 @@
 """
-services/llm.py — AUREM Dev
-Single-provider LLM gateway: OpenRouter → DeepSeek V3 only.
+services/llm.py — AUREM Dev LLM gateway
 
-Privacy posture:
-  - data_collection: deny  — OpenRouter enforces this across every provider
-    in the routing pool, so no host stores/trains on user traffic.
-  - allow_fallbacks: false — never silently routes to a non-DeepSeek model.
+Iter 35 — Model routing upgrade:
 
-Note on `provider.order`: OpenRouter does not currently expose DeepSeek's
-first-party endpoint for this account; the privacy-compliant DeepSeek-V3
-hosts available are streamlake / deepinfra / novita. They are all bound by
-`data_collection: deny`. We allow OpenRouter to pick the cheapest of the
-three; `allow_fallbacks: false` still pins us to the DeepSeek-V3 *model*.
+  chat / review / title  → DeepSeek via OpenRouter (fast, cheap, private)
+  code / ship tasks      → Claude Sonnet via Emergent (better code quality)
+  maxx mode              → Claude + watchdog review pass (unchanged)
 
-If OpenRouter is unreachable we return ok=False — we never fall back to
-Emergent / Anthropic / Groq. Surface AI downtime to the user, don't mask it.
+Routing logic lives in call_llm_with_meta via `mode` param:
+  mode="code"   → Claude Sonnet 4.5 (EMERGENT_LLM_KEY)
+  mode="chat"   → DeepSeek V3 (OPENROUTER_API_KEY)
+  mode="review" → DeepSeek (fast, cheap)
+  mode="title"  → DeepSeek (tiny output)
+  mode="default"→ DeepSeek
+
+Privacy:
+  DeepSeek path: data_collection=deny (OpenRouter enforced)
+  Claude path:   Emergent platform key — no training on user data
 """
 from __future__ import annotations
 import os
@@ -27,23 +29,28 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Token caps per request mode — keeps LLM bills predictable.
+# Token caps per mode
 MAX_TOKENS = {
-    "chat": 1500,
-    "code": 3000,
-    "review": 500,
-    "title": 30,
+    "chat":    1500,
+    "code":    3500,   # iter 35: raised for code tasks
+    "review":   500,
+    "title":     30,
     "default": 1000,
 }
 
-# Temperature per mode — deterministic for code/review/title, warm for chat.
+# Temperature per mode
 TEMPERATURE = {
-    "code": 0.0,
-    "review": 0.0,
-    "title": 0.0,
-    "chat": 0.7,
+    "code":    0.0,
+    "review":  0.0,
+    "title":   0.0,
+    "chat":    0.7,
     "default": 0.3,
 }
+
+_DEEPSEEK_HOSTS = ["deepseek", "streamlake", "deepinfra", "novita"]
+
+# Modes that use Claude for better code quality
+_CLAUDE_MODES = {"code"}
 
 
 def cap_for(mode: str) -> int:
@@ -54,38 +61,36 @@ def temperature_for(mode: str) -> float:
     return TEMPERATURE.get(mode, TEMPERATURE["default"])
 
 
-# Providers that host DeepSeek-V3 with data-collection compliant terms.
-# OpenRouter will pick the best within this set; if none accept
-# data_collection=deny we surface a 404.
-_DEEPSEEK_HOSTS = ["deepseek", "streamlake", "deepinfra", "novita"]
-
-
-def _api_key() -> str:
+def _openrouter_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "")
 
 
-def _model() -> str:
+def _emergent_key() -> str:
+    return os.getenv("EMERGENT_LLM_KEY", "")
+
+
+def _deepseek_model() -> str:
     return os.getenv("LLM_MODEL", "deepseek/deepseek-chat")
 
 
-async def call_llm(messages: list, system: str = "",
-                   max_tokens: int = 4000,
-                   temperature: float = 0.7) -> str:
-    """Direct OpenRouter → DeepSeek-V3 call. Returns assistant content.
-    Raises on any non-2xx so the caller knows AI is down."""
-    api_key = _api_key()
+# ── DeepSeek path (chat, review, title) ─────────────────────────────────────
+
+async def _call_deepseek(messages: list, system: str = "",
+                         max_tokens: int = 1500,
+                         temperature: float = 0.7) -> str:
+    api_key = _openrouter_key()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": os.getenv("APP_URL", "https://aurem.dev"),
+        "HTTP-Referer": os.getenv("APP_URL", "https://auremcto.com"),
         "X-Title": "AUREM Dev",
         "X-No-Cache": "true",
     }
     msgs = ([{"role": "system", "content": system}] + messages) if system else messages
     payload = {
-        "model": _model(),
+        "model": _deepseek_model(),
         "messages": msgs,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -102,55 +107,118 @@ async def call_llm(messages: list, system: str = "",
     try:
         return data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"OpenRouter returned malformed response: {e}: {data!r}")
+        raise RuntimeError(f"OpenRouter malformed response: {e}: {data!r}")
 
 
-async def call_llm_with_meta(system: str, user: str,
-                              max_tokens: int = 1500,
-                              mode: str = "chat") -> dict:
-    """Orchestrator-facing entry point. `mode` selects temperature."""
-    temperature = temperature_for(mode)
-    try:
-        content = await call_llm(
+# ── Claude path (code tasks) ─────────────────────────────────────────────────
+
+async def _call_claude(system: str, user: str,
+                       max_tokens: int = 3500,
+                       temperature: float = 0.0) -> str:
+    """Call Claude Sonnet via Emergent LLM key for code tasks."""
+    emergent_key = _emergent_key()
+    if not emergent_key:
+        # Fall back to DeepSeek if Emergent key not configured
+        logger.info("EMERGENT_LLM_KEY not set — falling back to DeepSeek for code task")
+        return await _call_deepseek(
             messages=[{"role": "user", "content": user}],
             system=system,
             max_tokens=max_tokens,
             temperature=temperature,
         )
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import uuid as _uuid
+
+        chat = (
+            LlmChat(
+                api_key=emergent_key,
+                session_id=f"cto-code-{_uuid.uuid4().hex[:8]}",
+                system_message=system,
+            )
+            .with_model("anthropic", "claude-sonnet-4-5-20250929")
+            .with_params(max_tokens=max_tokens, temperature=temperature)
+        )
+        result = await chat.send_message(UserMessage(text=user))
+        return result or ""
+    except Exception as e:
+        logger.warning(f"Claude call failed, falling back to DeepSeek: {e!r}")
+        return await _call_deepseek(
+            messages=[{"role": "user", "content": user}],
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+
+# ── Unified entry point ───────────────────────────────────────────────────────
+
+async def call_llm(messages: list, system: str = "",
+                   max_tokens: int = 4000,
+                   temperature: float = 0.7) -> str:
+    """Direct OpenRouter → DeepSeek call (backwards compat). Returns content."""
+    return await _call_deepseek(messages, system, max_tokens, temperature)
+
+
+async def call_llm_with_meta(system: str, user: str,
+                              max_tokens: int = 1500,
+                              mode: str = "chat") -> dict:
+    """
+    Orchestrator-facing entry point.
+
+    mode="code"  → Claude Sonnet (better code quality, higher token budget)
+    mode="chat"  → DeepSeek (fast, cheap)
+    mode=other   → DeepSeek
+    """
+    temperature = temperature_for(mode)
+    actual_tokens = min(max_tokens, cap_for(mode))
+    use_claude = mode in _CLAUDE_MODES and bool(_emergent_key())
+
+    provider_name = "claude-sonnet" if use_claude else "deepseek"
+
+    try:
+        if use_claude:
+            content = await _call_claude(system, user, actual_tokens, temperature)
+        else:
+            content = await _call_deepseek(
+                messages=[{"role": "user", "content": user}],
+                system=system,
+                max_tokens=actual_tokens,
+                temperature=temperature,
+            )
         return {
-            "ok": True,
-            "provider": "deepseek",
-            "content": content,
-            "temperature": temperature,
-            "mode": mode,
-            "fallback_chain": ["deepseek"],
+            "ok":           True,
+            "provider":     provider_name,
+            "content":      content,
+            "temperature":  temperature,
+            "mode":         mode,
+            "fallback_chain": [provider_name],
         }
     except httpx.HTTPStatusError as e:
-        logger.error(
-            f"OpenRouter HTTP {e.response.status_code}: {e.response.text[:300]}"
-        )
+        logger.error(f"LLM HTTP {e.response.status_code}: {e.response.text[:300]}")
         return {
             "ok": False, "provider": None, "content": "",
             "temperature": temperature, "mode": mode,
-            "fallback_chain": ["deepseek"],
+            "fallback_chain": [provider_name],
             "error": f"LLM unavailable (HTTP {e.response.status_code})",
         }
     except Exception as e:
-        logger.error(f"OpenRouter call failed: {e!r}")
+        logger.error(f"LLM call failed: {e!r}")
         return {
             "ok": False, "provider": None, "content": "",
             "temperature": temperature, "mode": mode,
-            "fallback_chain": ["deepseek"],
+            "fallback_chain": [provider_name],
             "error": f"LLM unavailable: {e}",
         }
 
 
-# ── Emergent watchdog ─────────────────────────────────────────────────────
+# ── Emergent watchdog (Maxx mode) ─────────────────────────────────────────────
+
 async def call_emergent_watchdog(text_to_review: str) -> dict:
-    """Maxx mode: ask Emergent Universal LLM (Claude) to grade DeepSeek's
-    output. Returns {ok, score, issues, review, error}.
-    Score 0-10, passed=True iff score >= 7."""
-    emergent_key = os.getenv("EMERGENT_LLM_KEY", "")
+    """Maxx mode: ask Claude to grade DeepSeek's output.
+    Returns {ok, score, issues, review, error}. passed=True iff score >= 7."""
+    emergent_key = _emergent_key()
     if not emergent_key:
         return {
             "ok": False, "score": None, "issues": [], "review": "",
@@ -167,10 +235,6 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
             "ISSUES: <semicolon list; 'none' if perfect>\n"
             "VERDICT: <one sentence>"
         )
-        review_prompt = (
-            f"Review this reply (score 1-10, issues only if score<7):\n\n"
-            f"{text_to_review[:3000]}"
-        )
         chat = (
             LlmChat(
                 api_key=emergent_key,
@@ -180,10 +244,11 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
             .with_model("anthropic", "claude-sonnet-4-5-20250929")
             .with_params(max_tokens=cap_for("review"), temperature=temperature_for("review"))
         )
-        review = await chat.send_message(UserMessage(text=review_prompt))
+        review = await chat.send_message(
+            UserMessage(text=f"Review (score 1-10):\n\n{text_to_review[:3000]}")
+        )
         review_txt = (review or "").strip()
 
-        # Parse
         score = None
         issues_str = ""
         verdict = ""
@@ -191,10 +256,7 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
             ls = line.strip()
             if ls.upper().startswith("SCORE:"):
                 try:
-                    score = int(
-                        "".join(ch for ch in ls.split(":", 1)[1] if ch.isdigit())[:2]
-                        or "0"
-                    )
+                    score = int("".join(ch for ch in ls.split(":", 1)[1] if ch.isdigit())[:2] or "0")
                 except Exception:
                     score = None
             elif ls.upper().startswith("ISSUES:"):
@@ -207,11 +269,8 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
             issues = [s.strip() for s in issues_str.split(";") if s.strip()]
 
         return {
-            "ok": True,
-            "score": score,
-            "issues": issues,
-            "verdict": verdict,
-            "review": review_txt,
+            "ok": True, "score": score, "issues": issues,
+            "verdict": verdict, "review": review_txt,
             "passed": (score is not None and score >= 7),
         }
     except Exception as e:
