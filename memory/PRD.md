@@ -158,6 +158,21 @@ User: chat bubbles need a Copy button that shows ONLY on cursor hover and hides 
 - **Assistant bubbles**: existing copy/👍/👎 action row now also opacity-toggled on hover (same transition)
 - `pointer-events: none` when hidden so it doesn't intercept clicks
 
+### Iter 15 — CRITICAL: Chat Memory Was Broken (May 2026)
+User: "now can you do it again my last prompt i shared" → AUREM replied "I don't have access to your previous messages…". Memory was silently dead.
+
+Root cause in `services/orchestrator.py`:
+1. The history loader was querying the wrong collection (`aurem_cto_sessions`) — but actual turns are written by `chat.py:_persist_turn` into `chat_sessions`
+2. The loader was gated on `mongo_client is not None`, but `chat.py` calls `chat_with_tools(..., mongo_client=None)` → condition never true → history always empty
+
+Fix:
+- Loader now uses `cto_services.db.get_db()` (same connection as the rest of the app)
+- Reads from `chat_sessions` (correct collection)
+- Removed obsolete duplicate persistence path inside orchestrator (chat.py already handles it via `_persist_turn`)
+- Per-turn cap of 4000 chars + last 20 turns to stay inside context window
+
+Verified end-to-end: Turn 1 told AUREM "color teal, codename BlueFox". Turn 2 same session asked "what is my favorite color and codename?" → got "Your favorite color is **teal** and your project codename is **BlueFox**." ✅
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

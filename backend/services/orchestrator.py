@@ -84,28 +84,36 @@ async def chat_with_tools(
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
     which HTTP-proxies to upstream AUREM (`/api/ora-tools/execute`).
 
-    iter 322fk-4 — when `session_id` + `mongo_client` are supplied, the
-    previous turns of this session are prepended to the transcript so ORA
-    remembers context. After answering, the new prompt + reply are
-    persisted back into `aurem_cto_sessions` for the next turn.
+    iter 322fk-4 — when `session_id` is supplied, the previous turns of
+    this session are prepended to the transcript so AUREM remembers
+    context. After answering, the new prompt + reply are persisted back
+    into `chat_sessions` by the chat router (see `_persist_turn`).
     """
-    # iter 322fk-4: load prior conversation, if any.
+    # iter 322fk-4 (fix 14B): load prior conversation from `chat_sessions`
+    # (where chat.py:_persist_turn writes turns). The legacy code looked
+    # at `aurem_cto_sessions` and required an explicit `mongo_client` arg
+    # that chat.py never passes — so history was silently always empty.
     history_lines: list[str] = []
-    sessions_col = None
-    if session_id and mongo_client is not None:
+    if session_id:
         try:
-            db = mongo_client.get_default_database() or mongo_client["aurem_db"]
-            sessions_col = db["aurem_cto_sessions"]
-            doc = await sessions_col.find_one(
-                {"session_id": session_id},
-                {"_id": 0, "turns": 1},
-            )
-            for t in (doc or {}).get("turns") or []:
-                role = t.get("role", "user")
-                content = (t.get("content") or "").strip()
-                if content:
-                    history_lines.append(f"[{role.upper()}] {content}")
-            history_lines = history_lines[-20:]
+            from cto_services.db import get_db
+            db = get_db()
+            if db is not None:
+                doc = await db.chat_sessions.find_one(
+                    {"session_id": session_id},
+                    {"_id": 0, "turns": 1},
+                )
+                for t in (doc or {}).get("turns") or []:
+                    role = t.get("role", "user")
+                    content = (t.get("content") or "").strip()
+                    if content:
+                        # Hard-cap each turn so a long earlier answer
+                        # doesn't eat the whole context window.
+                        if len(content) > 4000:
+                            content = content[:4000] + " …[truncated]"
+                        history_lines.append(f"[{role.upper()}] {content}")
+                # Keep the most recent N turns to stay within context.
+                history_lines = history_lines[-20:]
         except Exception as e:
             logger.warning(f"session history load failed (continuing fresh): {e!r}")
 
@@ -158,31 +166,7 @@ async def chat_with_tools(
 
         calls = extract_tool_calls(content)
         if not calls:
-            # iter 322fk-4: persist this turn so the next call has memory.
-            if sessions_col is not None and session_id:
-                try:
-                    import time as _t
-                    now = _t.time()
-                    await sessions_col.update_one(
-                        {"session_id": session_id},
-                        {
-                            "$setOnInsert": {"session_id": session_id, "created_at": now},
-                            "$set": {"updated_at": now},
-                            "$push": {
-                                "turns": {
-                                    "$each": [
-                                        {"role": "user",      "content": prompt,  "ts": now},
-                                        {"role": "assistant", "content": content, "ts": now,
-                                         "provider": final_provider},
-                                    ],
-                                    "$slice": -40,  # bound at 40 turns / 20 pairs
-                                },
-                            },
-                        },
-                        upsert=True,
-                    )
-                except Exception as e:
-                    logger.warning(f"session history save failed: {e!r}")
+            # Persistence is handled by chat.py:_persist_turn — no double-write here.
             return {
                 "ok": meta.get("ok", True),
                 "content": content,
