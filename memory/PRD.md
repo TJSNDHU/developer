@@ -77,6 +77,25 @@ Fixed in `services/tools_bridge.py`:
 
 Result: deployment logs are clean. Deployment agent confirmed the app is deployable (no actual blockers, just log noise).
 
+### Iter 10 — MarkItDown File Upload (May 2026)
+User requested: integrate Microsoft's [MarkItDown](https://github.com/microsoft/markitdown) so uploads (PDF/DOCX/XLSX/PPTX/images/CSV/etc.) auto-convert to Markdown before hitting the LLM — saves token cost and lets AI actually read binary files.
+
+Installed `markitdown[all]==0.1.6` (pulls pdfminer, mammoth, openpyxl, python-pptx, magika, etc.).
+
+New `routers/upload.py`:
+- `POST /api/aurem-dev/upload/convert` — multipart `file`, JWT-gated
+- 25MB request cap, 60K-char output cap with `truncated: true` flag
+- Returns `{filename, content_type, original_size, md_size, markdown, truncated}`
+- Drops upload to temp file with original suffix (MarkItDown uses suffix for format detection), converts, cleans up
+
+Frontend `ChatPanel.jsx` `handleFiles` now has a smart fast path:
+- ≤50 KB text-extension files → read in browser, no server roundtrip (unchanged from before)
+- Everything else (PDF/DOCX/XLSX/images/large code/etc.) → multipart POST to `/upload/convert`, returned markdown gets appended to the chat input as `[File: name · 1.2 MB → 18 KB markdown]\n\n<md>`
+- Max upload bumped from 50 KB → 25 MB to match backend cap
+- Tooltip updated: "PDF, DOCX, XLSX, PPTX, images, code (max 25 MB)"
+
+Verified end-to-end via curl: HTML → clean MD with headings/lists, CSV → markdown table, PDF (13KB) → text extracted, auth guard returns 401 without token.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

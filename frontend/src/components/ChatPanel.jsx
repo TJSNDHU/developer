@@ -31,7 +31,8 @@ const WELCOME = {
   provider: "system",
 };
 
-const MAX_FILE_BYTES = 50 * 1024; // 50 KB
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB (server enforces same cap)
+const TEXT_FAST_PATH_BYTES = 50 * 1024;  // <=50KB text → skip server roundtrip
 const MAXX_KEY = "aurem_maxx_mode";
 const PREVIEW_KEY = "aurem_preview_open";
 
@@ -173,23 +174,74 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   async function handleFiles(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
+
+    // Plain-text extensions we can safely read in the browser without a
+    // server roundtrip (saves a request for small snippets).
+    const TEXT_EXTS = new Set([
+      "txt", "md", "markdown", "log", "csv", "tsv",
+      "js", "jsx", "ts", "tsx", "py", "rb", "go", "rs",
+      "java", "c", "cc", "cpp", "h", "hpp", "cs", "kt", "swift",
+      "html", "htm", "css", "scss", "less",
+      "json", "yaml", "yml", "toml", "xml", "ini", "env", "sh", "bash",
+      "sql", "vue", "svelte", "lua", "php",
+    ]);
+
     const chunks = [];
     for (const f of files) {
       if (f.size > MAX_FILE_BYTES) {
-        toast({ message: `${f.name} exceeds 50 KB — skipped.`, kind: "error" });
+        toast({
+          message: `${f.name} exceeds 25 MB — skipped.`,
+          kind: "error",
+        });
         continue;
       }
+
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      const isSmallText = TEXT_EXTS.has(ext) && f.size <= TEXT_FAST_PATH_BYTES;
+
       try {
-        const text = await f.text();
-        const ext = (f.name.split(".").pop() || "").toLowerCase();
-        chunks.push(`[File: ${f.name}]\n\`\`\`${ext}\n${text}\n\`\`\``);
+        if (isSmallText) {
+          // Fast path — read in browser
+          const text = await f.text();
+          chunks.push(`[File: ${f.name}]\n\`\`\`${ext}\n${text}\n\`\`\``);
+        } else {
+          // Server path — push file through MarkItDown
+          toast({
+            message: `Converting ${f.name} via MarkItDown…`,
+            kind: "info",
+            duration: 1500,
+          });
+          const form = new FormData();
+          form.append("file", f);
+          const r = await api.post("/upload/convert", form, {
+            headers: { "Content-Type": "multipart/form-data" },
+            timeout: 90000,
+          });
+          const d = r.data || {};
+          const truncNote = d.truncated
+            ? " *(server truncated — large file)*"
+            : "";
+          chunks.push(
+            `[File: ${d.filename || f.name}` +
+            ` · ${(d.original_size / 1024).toFixed(1)} KB` +
+            ` → ${(d.md_size / 1024).toFixed(1)} KB markdown${truncNote}]\n\n` +
+            d.markdown
+          );
+        }
       } catch (e) {
-        toast({ message: `Couldn't read ${f.name}: ${e.message}`, kind: "error" });
+        const msg =
+          e?.response?.data?.detail ||
+          e?.message ||
+          "Couldn't read file.";
+        toast({ message: `${f.name}: ${msg}`, kind: "error" });
       }
     }
     if (chunks.length) {
       setInput((prev) => (prev ? prev + "\n\n" : "") + chunks.join("\n\n"));
-      toast({ message: `Attached ${chunks.length} file(s).`, kind: "success" });
+      toast({
+        message: `Attached ${chunks.length} file(s).`,
+        kind: "success",
+      });
     }
   }
 
@@ -423,7 +475,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           )}
           <ToolButton
             testid="chat-attach-btn"
-            title="Attach file (max 50 KB each)"
+            title="Attach file — PDF, DOCX, XLSX, PPTX, images, code (max 25 MB)"
             onClick={() => fileInputRef.current?.click()}
             Icon={Paperclip}
           />

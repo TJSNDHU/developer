@@ -31,6 +31,7 @@ from routers.auth import router as auth_router
 from routers.chat import router as chat_router
 from routers.github_oauth import router as github_oauth_router
 from routers.cto_projects import router as cto_projects_router
+from routers.upload import router as upload_router
 
 # Services
 from cto_services.db import set_db
@@ -103,3 +104,4 @@ app.include_router(auth_router,         prefix="/api/aurem-dev")
 app.include_router(chat_router,         prefix="/api/aurem-dev")
 app.include_router(github_oauth_router, prefix="/api/aurem-dev")
 app.include_router(cto_projects_router, prefix="/api/aurem-dev")
+app.include_router(upload_router,        prefix="/api/aurem-dev")
