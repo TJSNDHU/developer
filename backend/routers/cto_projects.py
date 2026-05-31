@@ -661,11 +661,14 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
         async def _prog(step: str, status: str = "info"):
             await _log(task_id, step, status)
 
-        result = await gh_api_commit(
-            owner=owner, repo=repo, branch=branch, token=user_token,
-            files=edits,
-            commit_message=f"AUREM CTO: {task[:60]}",
-            progress=_prog,
+        result = await _retry(
+            lambda: gh_api_commit(
+                owner=owner, repo=repo, branch=branch, token=user_token,
+                files=edits,
+                commit_message=f"AUREM CTO: {task[:60]}",
+                progress=_prog,
+            ),
+            what="GitHub commit", task_id=task_id, attempts=4, base_sleep=2.0,
         )
         sha = result["sha"]
         commit_full_sha = result.get("full_sha") or sha
@@ -787,9 +790,12 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token):
             f"{('CONTEXT: ' + context) if context else ''}\n\n"
             f"Tech: {proj.get('tech_stack','auto')}\n\n{files_blob}"
         )
-        reply = await call_llm(
-            messages=[{"role": "user", "content": user_msg}],
-            system=_AI_SYS, max_tokens=3500, temperature=0.0,
+        reply = await _retry(
+            lambda: call_llm(
+                messages=[{"role": "user", "content": user_msg}],
+                system=_AI_SYS, max_tokens=3500, temperature=0.0,
+            ),
+            what="AI codegen", task_id=task_id,
         )
         summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
         summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]

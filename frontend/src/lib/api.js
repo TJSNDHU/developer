@@ -110,7 +110,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.meta) onMeta?.(payload);
         else if (payload.token) onToken?.(payload.token);
-        else if (payload.thinking) onThinking?.(payload.elapsed_s || 0);
+        else if (payload.thinking) onThinking?.(payload.elapsed_s || 0, payload.activity);
         else if (payload.watchdog_pending) onWatchdogPending?.();
         else if (payload.watchdog) onWatchdog?.(payload.watchdog);
         else if (payload.done) onDone?.(payload);

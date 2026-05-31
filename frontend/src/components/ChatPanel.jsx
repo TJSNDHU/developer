@@ -389,14 +389,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           });
         }
       },
-      // Iter 35: server emits periodic {thinking:true, elapsed_s} frames
-      // during the tool-call loop so we can show a live elapsed counter.
-      onThinking: (elapsed) => {
+      // Iter 35/36: server emits periodic {thinking:true, elapsed_s, activity}
+      // frames during the tool-call loop so we can show a live counter +
+      // a status label ("running 3 tools in parallel…").
+      onThinking: (elapsed, activity) => {
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
           if (last && last.role === "assistant" && last.streaming) {
-            copy[copy.length - 1] = { ...last, elapsedS: elapsed };
+            copy[copy.length - 1] = {
+              ...last,
+              elapsedS: elapsed,
+              ...(activity ? { activity } : {}),
+            };
           }
           return copy;
         });
@@ -1150,11 +1155,14 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
               fontFamily: "'JetBrains Mono', monospace",
             }}>
               <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
-              {/* iter 35: live elapsed time so the user knows AUREM is
-                  actually working through tool calls, not frozen */}
-              {typeof m.elapsedS === "number"
-                ? `thinking ${m.elapsedS.toFixed(1)}s…`
-                : "thinking…"}
+              {/* iter 35/36: live elapsed + activity label so the user
+                  always sees WHAT AUREM is doing, not just THAT it is */}
+              <span>
+                {m.activity || "thinking"}
+                {typeof m.elapsedS === "number"
+                  ? ` · ${m.elapsedS.toFixed(1)}s`
+                  : "…"}
+              </span>
             </span>
           )}
           {m.streaming && m.content && (

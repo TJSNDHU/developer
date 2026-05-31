@@ -239,24 +239,15 @@ async def chat_stream(
     async def gen():
         import time as _t
         t_start = _t.monotonic()
-        # Iter 35: emit a heartbeat every ~600ms so the UI can show an
-        # elapsed-time "Thinking 12s…" indicator while we wait for the
-        # orchestrator (which may run several tool iterations).
+        # Iter 36: hard wall-clock ceiling — if the worker doesn't return
+        # within HARD_TIMEOUT_S we abort and emit a friendly error so the
+        # UI can never "thinking…" for 15 minutes again.
+        HARD_TIMEOUT_S = 90.0
         stop_event = asyncio.Event()
-
-        async def _heartbeat():
-            while not stop_event.is_set():
-                try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=0.6)
-                except asyncio.TimeoutError:
-                    pass
-                if stop_event.is_set():
-                    break
-                # produced via queue below
-
-        # We use a queue so heartbeat events and the final result can be
-        # interleaved cleanly.
         q: asyncio.Queue = asyncio.Queue()
+        # Shared activity hint the worker mutates as it progresses; the
+        # ticker copies it into every tick frame.
+        activity = {"label": "thinking…"}
 
         async def _ticker():
             while True:
@@ -265,10 +256,15 @@ async def chat_stream(
                     return
                 except asyncio.TimeoutError:
                     elapsed = round(_t.monotonic() - t_start, 1)
-                    await q.put({"type": "tick", "elapsed_s": elapsed})
+                    await q.put({
+                        "type": "tick",
+                        "elapsed_s": elapsed,
+                        "activity": activity["label"],
+                    })
 
         async def _worker():
             try:
+                activity["label"] = "thinking…"
                 result = await chat_with_tools(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
@@ -278,6 +274,7 @@ async def chat_stream(
                     mongo_client=None,
                     user_id=user_id,
                     project_id=body.project_id,
+                    activity_hook=lambda s: activity.__setitem__("label", s),
                 )
                 await q.put({"type": "result", "result": result})
             except Exception as e:
@@ -286,18 +283,37 @@ async def chat_stream(
             finally:
                 stop_event.set()
 
-        asyncio.create_task(_ticker())
-        asyncio.create_task(_worker())
+        ticker_t = asyncio.create_task(_ticker())
+        worker_t = asyncio.create_task(_worker())
 
         result = None
+        deadline_at = _t.monotonic() + HARD_TIMEOUT_S
         while True:
-            ev = await q.get()
+            try:
+                ev = await asyncio.wait_for(
+                    q.get(), timeout=max(0.1, deadline_at - _t.monotonic()),
+                )
+            except asyncio.TimeoutError:
+                # Wall-clock blown. Cancel everything, tell the user.
+                worker_t.cancel()
+                ticker_t.cancel()
+                yield (
+                    "data: " + json.dumps({
+                        "error": (
+                            f"AUREM timed out after {int(HARD_TIMEOUT_S)}s. "
+                            "Reload and try a smaller question, or ask me "
+                            "to narrow scope (e.g. 'just check file X')."
+                        ),
+                    }) + "\n\n"
+                )
+                return
             if ev["type"] == "tick":
                 yield (
-                    "data: "
-                    + json.dumps({"thinking": True,
-                                  "elapsed_s": ev["elapsed_s"]})
-                    + "\n\n"
+                    "data: " + json.dumps({
+                        "thinking":  True,
+                        "elapsed_s": ev["elapsed_s"],
+                        "activity":  ev["activity"],
+                    }) + "\n\n"
                 )
             elif ev["type"] == "error":
                 yield f"data: {json.dumps({'error': ev['error']})}\n\n"

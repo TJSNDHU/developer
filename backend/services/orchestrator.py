@@ -177,6 +177,7 @@ async def chat_with_tools(
     mongo_client=None,
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    activity_hook=None,                 # iter 36: optional callback(label)
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -259,6 +260,17 @@ async def chat_with_tools(
 
     while iters < max_iters:
         iters += 1
+        # Iter 36: surface activity to the SSE stream so the UI can show
+        # "calling Claude…" / "running 3 tools in parallel…" instead of a
+        # mute "thinking…" for minutes.
+        if activity_hook:
+            try:
+                activity_hook(
+                    f"calling {'Claude' if use_code_model else 'DeepSeek'}"
+                    f" (iter {iters}/{max_iters})…"
+                )
+            except Exception:
+                pass
         meta = await call_llm_with_meta(
             enhanced_system, transcript,
             max_tokens=token_budget, mode=llm_mode,
@@ -291,6 +303,13 @@ async def chat_with_tools(
         # Was a sequential `for c in calls:` loop — 4 tools × 8s = 32s.
         # Now: 4 tools × 8s = 8s total. 4× speedup on multi-file tasks.
         local_ctx = {"user_id": user_id, "project_id": project_id}
+        # Iter 36: announce tool batch to the UI activity hook
+        if activity_hook:
+            try:
+                names = ", ".join(c.get("tool", "?") for c in calls)
+                activity_hook(f"running {len(calls)} tool(s) in parallel: {names}")
+            except Exception:
+                pass
 
         async def _run_one(c: dict) -> dict:
             tool_name = c["tool"]
