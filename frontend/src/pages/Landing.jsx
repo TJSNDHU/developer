@@ -65,7 +65,7 @@ export default function Landing() {
           fontFamily: "'JetBrains Mono', monospace",
           fontWeight: 600, fontSize: 14, letterSpacing: "0.08em",
         }}>
-          AUREM
+          AUREM DEV
         </Link>
         <div style={{ display: "flex", gap: 10 }}>
           <Link to="/login" data-testid="nav-login" className="btn-ghost">

@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Rocket } from "lucide-react";
-import Shell from "../components/Shell";
+import AuthShell from "../components/AuthShell";
 import { api, setToken, setUser } from "../lib/api";
 
 export default function Signup() {
@@ -42,8 +42,14 @@ export default function Signup() {
   }
 
   return (
-    <Shell>
-      <section style={{ maxWidth: 460, margin: "60px auto" }}>
+    <AuthShell
+      secondaryCta={
+        <Link to="/login" data-testid="auth-nav-login" className="btn-ghost" style={{ fontSize: 12 }}>
+          Sign in
+        </Link>
+      }
+    >
+      <section style={{ maxWidth: 460, margin: "20px auto" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <span className="eyebrow">sign up</span>
           <h1 className="serif" style={{ fontSize: 32, marginTop: 10 }}>Create your developer account</h1>
@@ -52,7 +58,11 @@ export default function Signup() {
           </p>
         </div>
 
-        <div className="card" data-testid="signup-card">
+        <div className="card" data-testid="signup-card" style={{
+          background: "rgba(20, 20, 28, 0.55)",
+          backdropFilter: "blur(10px)",
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}>
           <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
             <label>
               <span className="label-mini">Full name (optional)</span>
@@ -123,6 +133,6 @@ export default function Signup() {
           </div>
         </div>
       </section>
-    </Shell>
+    </AuthShell>
   );
 }
