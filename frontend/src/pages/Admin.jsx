@@ -1,0 +1,678 @@
+/**
+ * pages/Admin.jsx — AuremCTO Admin Panel
+ * Guarded route: only users with is_admin in localStorage 'aurem_user'.
+ * All data lives under /api/aurem-dev/admin/*.
+ */
+import { useState, useEffect, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
+  Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
+  LogOut, ExternalLink, ArrowLeft, Loader2,
+} from "lucide-react";
+import { api } from "../lib/api";
+import { toast } from "../components/Toast";
+
+// ── Helpers ────────────────────────────────────────────────────────────
+const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
+const fmtMoney = (n) => `$${(n || 0).toFixed(2)}`;
+const ago = (sec) => {
+  if (!sec) return "—";
+  const s = Math.floor(Date.now() / 1000 - sec);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+};
+
+const STATUS_COLOR = {
+  done: "var(--ok)",
+  failed: "var(--danger)",
+  running: "var(--accent-2)",
+  queued: "var(--text-faint)",
+  active: "var(--ok)",
+  suspended: "var(--danger)",
+};
+
+function Badge({ children, color }) {
+  return (
+    <span style={{
+      display: "inline-block", padding: "2px 8px",
+      fontSize: 10, letterSpacing: "0.05em",
+      fontFamily: "'JetBrains Mono', monospace",
+      background: "var(--bg-elev)",
+      border: `1px solid ${color || "var(--border)"}`,
+      borderRadius: 4, color: color || "var(--text-dim)",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function Card({ children, style }) {
+  return (
+    <div style={{
+      background: "var(--panel-2)",
+      border: "1px solid var(--border)",
+      borderRadius: 4,
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function MCard({ label, value, sub, accent }) {
+  return (
+    <Card style={{ padding: "14px 16px" }}>
+      <div style={{ fontSize: 10, letterSpacing: "0.1em",
+                     color: "var(--text-faint)", textTransform: "uppercase" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 600, marginTop: 6,
+                     color: accent || "var(--text)",
+                     fontFamily: "'JetBrains Mono', monospace" }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11, marginTop: 4, color: "var(--text-faint)" }}>{sub}</div>}
+    </Card>
+  );
+}
+
+function Table({ cols, rows, onRowClick }) {
+  if (!rows || rows.length === 0) {
+    return <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "var(--text-faint)" }}>
+      No data yet.
+    </div>;
+  }
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      <thead>
+        <tr>{cols.map((c, i) => (
+          <th key={i} style={{
+            textAlign: "left", padding: "8px 12px", fontSize: 10,
+            color: "var(--text-faint)", textTransform: "uppercase",
+            letterSpacing: "0.1em", borderBottom: "1px solid var(--border)",
+            background: "var(--bg-elev)", whiteSpace: "nowrap",
+          }}>{c}</th>
+        ))}</tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}
+              onClick={onRowClick ? () => onRowClick(i) : undefined}
+              style={{ cursor: onRowClick ? "pointer" : "default" }}
+              onMouseEnter={(e) => onRowClick && (e.currentTarget.style.background = "var(--bg-elev)")}
+              onMouseLeave={(e) => onRowClick && (e.currentTarget.style.background = "")}>
+            {r.map((cell, j) => (
+              <td key={j} style={{ padding: "10px 12px",
+                                    borderBottom: "1px solid var(--border)",
+                                    verticalAlign: "middle" }}>
+                {cell}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Pages ──────────────────────────────────────────────────────────────
+function Dashboard() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/admin/dashboard").then((r) => setData(r.data)).catch(() => {});
+  }, []);
+  if (!data) return <div style={{ padding: 24, color: "var(--text-faint)" }}><Loader2 size={14} className="spin" /> Loading…</div>;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Users" value={data.total_users} sub={`${data.total_projects} projects`} />
+        <MCard label="Tasks today" value={data.tasks_today} sub={`${data.success_rate}% success`} />
+        <MCard label="Done / Failed" value={`${data.done_tasks}/${data.failed_tasks}`} accent="var(--ok)" />
+        <MCard label="Chat sessions" value={data.total_sessions} sub="lifetime" />
+      </div>
+
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Recent tasks
+      </h3>
+      <Card>
+        <Table
+          cols={["Task", "User", "Status", "Commit", "Time"]}
+          rows={(data.recent_tasks || []).map((t) => [
+            <span style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
+            <span style={{ color: "var(--text-faint)",
+                            fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {(t.user_id || "").slice(0, 10)}
+            </span>,
+            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+          ])}
+        />
+      </Card>
+
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "20px 0 8px" }}>
+        Recent users
+      </h3>
+      <Card>
+        <Table
+          cols={["Email", "Name", "Tier", "Joined"]}
+          rows={(data.recent_users || []).map((u) => [
+            u.email,
+            u.name || "—",
+            <Badge>{u.tier || "free"}</Badge>,
+            <span style={{ color: "var(--text-faint)" }}>{ago(u.created_at)}</span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function UsersList({ onSelect }) {
+  const [users, setUsers] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (s) => {
+    setLoading(true);
+    try {
+      const r = await api.get("/admin/users", { params: { search: s } });
+      setUsers(r.data.users || []);
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => load(search), 250);
+    return () => clearTimeout(t);
+  }, [search, load]);
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between",
+                     alignItems: "center", marginBottom: 14 }}>
+        <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                      color: "var(--text-faint)", margin: 0 }}>
+          Users ({users.length})
+        </h3>
+        <input
+          data-testid="admin-users-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search email / name…"
+          className="input"
+          style={{ width: 260 }}
+        />
+      </div>
+      <Card>
+        {loading ? <div style={{ padding: 24, color: "var(--text-faint)" }}><Loader2 size={14} className="spin" /> Loading…</div> : (
+          <Table
+            cols={["Email", "Name", "Tier", "Projects", "Tasks", "Status", ""]}
+            rows={users.map((u) => [
+              u.email,
+              u.name || "—",
+              <Badge>{u.tier || "free"}</Badge>,
+              u.project_count ?? 0,
+              u.task_count ?? 0,
+              <Badge color={STATUS_COLOR[u.status || "active"]}>{u.status || "active"}</Badge>,
+              <button
+                data-testid={`admin-user-view-${u.user_id}`}
+                className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }}
+                onClick={() => onSelect(u)}>
+                view →
+              </button>,
+            ])}
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function UserDetail({ user, onBack }) {
+  const [d, setD] = useState(user);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get(`/admin/users/${user.user_id}`).then((r) => setD(r.data)).catch(() => {});
+  }, [user.user_id]);
+
+  async function toggleSuspend() {
+    const wantSuspend = d.status !== "suspended";
+    if (!window.confirm(`${wantSuspend ? "Suspend" : "Unsuspend"} ${d.email}?`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/users/${user.user_id}/suspend`, { suspend: wantSuspend });
+      setD((prev) => ({ ...prev, status: wantSuspend ? "suspended" : "active" }));
+      toast({ message: wantSuspend ? "Suspended" : "Unsuspended", kind: "success" });
+    } catch (e) {
+      toast({ message: e?.response?.data?.detail || "Failed", kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ padding: 24 }}>
+      <button className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11, marginBottom: 14 }}
+              onClick={onBack}>
+        <ArrowLeft size={11} /> Users
+      </button>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        <Card style={{ padding: 16 }}>
+          <h3 style={{ fontSize: 13, margin: "0 0 12px" }}>{d.email}</h3>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.8 }}>
+            <div><b>Name:</b> {d.name || "—"}</div>
+            <div><b>User ID:</b> <code style={{ fontSize: 11 }}>{d.user_id}</code></div>
+            <div><b>Tier:</b> {d.tier || "free"}</div>
+            <div><b>Status:</b> <Badge color={STATUS_COLOR[d.status || "active"]}>{d.status || "active"}</Badge></div>
+            <div><b>Tokens remaining:</b> {fmt(d.tokens_remaining || 0)}</div>
+            <div><b>Joined:</b> {ago(d.created_at)}</div>
+            <div><b>Projects:</b> {d.project_count ?? 0} · <b>Tasks:</b> {d.task_count ?? 0} · <b>Sessions:</b> {d.session_count ?? 0}</div>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <button
+              data-testid="admin-user-suspend"
+              className="btn-ghost"
+              disabled={busy}
+              style={{ padding: "6px 12px", fontSize: 11,
+                       borderColor: "rgba(255,107,107,0.3)", color: "var(--danger)" }}
+              onClick={toggleSuspend}>
+              {d.status === "suspended" ? "Unsuspend" : "Suspend"}
+            </button>
+          </div>
+        </Card>
+        <Card style={{ padding: 16 }}>
+          <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Projects ({(d.projects || []).length})</h3>
+          <div style={{ maxHeight: 200, overflowY: "auto", fontSize: 12 }}>
+            {(d.projects || []).map((p) => (
+              <div key={p.project_id} style={{ padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                <b>{p.name}</b> · {p.github_owner}/{p.github_repo}@{p.branch}
+                {" "}<Badge>{p.tech_stack || "auto"}</Badge>
+              </div>
+            ))}
+            {(!d.projects || d.projects.length === 0) && <div style={{ color: "var(--text-faint)" }}>No projects.</div>}
+          </div>
+        </Card>
+      </div>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>Recent tasks</h3>
+      <Card>
+        <Table
+          cols={["Task", "Status", "Commit", "Time"]}
+          rows={(d.recent_tasks || []).map((t) => [
+            <span style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
+            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function ProjectsPage() {
+  const [data, setData] = useState([]);
+  useEffect(() => {
+    api.get("/admin/projects").then((r) => setData(r.data.projects || [])).catch(() => {});
+  }, []);
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        All projects ({data.length})
+      </h3>
+      <Card>
+        <Table
+          cols={["Name", "Repo", "Branch", "Stack", "Tasks", "User", "Created"]}
+          rows={data.map((p) => [
+            p.name,
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {p.github_owner}/{p.github_repo}
+            </span>,
+            p.branch,
+            <Badge>{p.tech_stack || "auto"}</Badge>,
+            p.tasks_done ?? 0,
+            <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
+              {(p.user_id || "").slice(0, 10)}
+            </span>,
+            <span style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function TasksPage() {
+  const [data, setData] = useState([]);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    api.get("/admin/tasks", { params: { status, limit: 100 } })
+      .then((r) => setData(r.data.tasks || [])).catch(() => {});
+  }, [status]);
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+        <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                      color: "var(--text-faint)", margin: 0 }}>
+          Tasks ({data.length})
+        </h3>
+        <select
+          data-testid="admin-tasks-status"
+          value={status} onChange={(e) => setStatus(e.target.value)}
+          className="input" style={{ width: 140 }}>
+          <option value="">All</option>
+          <option value="done">Done</option>
+          <option value="failed">Failed</option>
+          <option value="running">Running</option>
+          <option value="queued">Queued</option>
+        </select>
+      </div>
+      <Card>
+        <Table
+          cols={["Task ID", "Task", "User", "Status", "Commit", "Created"]}
+          rows={data.map((t) => [
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {t.task_id?.slice(0, 12)}
+            </span>,
+            <span style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
+            <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
+              {(t.user_id || "").slice(0, 10)}
+            </span>,
+            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function TokenPnL() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/token-pnl").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Revenue (mo)" value={fmtMoney(d.revenue_month)} sub="Stripe pending" />
+        <MCard label="AI cost (mo)" value={fmtMoney(d.ai_cost_month)} accent="var(--danger)" />
+        <MCard label="Net profit" value={fmtMoney(d.net_profit)}
+                accent={d.net_profit >= 0 ? "var(--ok)" : "var(--danger)"} />
+        <MCard label="Tasks done (mo)" value={d.tasks_done_month} sub={`${d.tasks_done_today} today`} />
+      </div>
+      {d._note && (
+        <Card style={{ padding: 12, fontSize: 12, color: "var(--text-dim)" }}>
+          <b>Note:</b> {d._note}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ComingSoon({ title, note }) {
+  return (
+    <div style={{ padding: 24 }}>
+      <Card style={{ padding: 24, textAlign: "center", color: "var(--text-faint)" }}>
+        <h3 style={{ fontSize: 14, marginBottom: 8 }}>{title}</h3>
+        <div style={{ fontSize: 12 }}>{note}</div>
+      </Card>
+    </div>
+  );
+}
+
+function PaymentsPage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/payments").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  return <ComingSoon title="Payments" note={d._note} />;
+}
+
+function SupportPage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/support").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  return <ComingSoon title="Support inbox" note={d._note} />;
+}
+
+function Architecture() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/architecture").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>External services</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+        {Object.entries(d.services).map(([name, info]) => (
+          <Card key={name} style={{ padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <b style={{ fontSize: 13 }}>{name}</b>
+              <Badge color={info.status === "live" ? "var(--ok)" : "var(--danger)"}>
+                {info.status}
+              </Badge>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6,
+                           fontFamily: "'JetBrains Mono', monospace" }}>
+              {info.latency_ms}ms
+            </div>
+          </Card>
+        ))}
+      </div>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>Integrations</h3>
+      <Card style={{ padding: 14 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {Object.entries(d.integrations).map(([k, v]) => (
+            <Badge key={k} color={v ? "var(--ok)" : "var(--text-faint)"}>
+              {k} · {v ? "OK" : "missing"}
+            </Badge>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function SettingsPage() {
+  const [s, setS] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.get("/admin/settings").then((r) => setS(r.data)).catch(() => {});
+  }, []);
+  if (!s) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api.post("/admin/settings", s);
+      toast({ message: "Settings saved", kind: "success" });
+    } catch (e) {
+      toast({ message: e?.response?.data?.detail || "Save failed", kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ padding: 24, maxWidth: 520 }}>
+      <h3 style={{ fontSize: 13, margin: "0 0 14px" }}>Token limits per plan</h3>
+      {["free", "pro", "team"].map((plan) => (
+        <div key={plan} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span style={{ width: 80, textTransform: "capitalize", fontSize: 12 }}>{plan}</span>
+          <input
+            data-testid={`admin-limit-${plan}`}
+            type="number" className="input"
+            value={s.token_limits?.[plan] || 0}
+            onChange={(e) => setS({
+              ...s, token_limits: { ...s.token_limits, [plan]: +e.target.value }
+            })} />
+        </div>
+      ))}
+      <h3 style={{ fontSize: 13, margin: "20px 0 14px" }}>Pricing ($/mo)</h3>
+      {["free", "pro", "team"].map((plan) => (
+        <div key={plan} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span style={{ width: 80, textTransform: "capitalize", fontSize: 12 }}>{plan}</span>
+          <input
+            data-testid={`admin-price-${plan}`}
+            type="number" className="input"
+            value={s.pricing?.[plan] || 0}
+            onChange={(e) => setS({
+              ...s, pricing: { ...s.pricing, [plan]: +e.target.value }
+            })} />
+        </div>
+      ))}
+      <button
+        data-testid="admin-settings-save"
+        onClick={save} disabled={busy}
+        className="btn-primary" style={{ marginTop: 14 }}>
+        {busy ? "Saving…" : "Save settings"}
+      </button>
+    </div>
+  );
+}
+
+// ── Shell ──────────────────────────────────────────────────────────────
+const NAV = [
+  { id: "dash", label: "Dashboard", Icon: LayoutDashboard },
+  { id: "users", label: "Users", Icon: Users },
+  { id: "projects", label: "Projects", Icon: Folder },
+  { id: "tasks", label: "Tasks", Icon: ListChecks },
+  { id: "tokens", label: "Token P&L", Icon: Cpu },
+  { id: "payments", label: "Payments", Icon: CreditCard },
+  { id: "support", label: "Support", Icon: MessageCircle },
+  { id: "arch", label: "Architecture", Icon: SitemapIcon },
+  { id: "settings", label: "Settings", Icon: SettingsIcon },
+];
+
+export default function Admin() {
+  const navigate = useNavigate();
+  const [page, setPage] = useState("dash");
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [me, setMe] = useState(null);
+
+  useEffect(() => {
+    api.get("/admin/me")
+      .then((r) => setMe(r.data))
+      .catch(() => {
+        toast({ message: "Admin access required", kind: "error" });
+        navigate("/dashboard");
+      });
+  }, [navigate]);
+
+  if (!me) return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center",
+                   background: "var(--bg)", color: "var(--text-faint)" }}>
+      <Loader2 size={18} className="spin" />
+    </div>
+  );
+
+  function logout() {
+    localStorage.removeItem("aurem_token");
+    localStorage.removeItem("aurem_user");
+    navigate("/login");
+  }
+
+  function go(id) { setPage(id); setSelectedUser(null); }
+
+  const renderPage = () => {
+    if (page === "users" && selectedUser) {
+      return <UserDetail user={selectedUser} onBack={() => setSelectedUser(null)} />;
+    }
+    switch (page) {
+      case "dash": return <Dashboard />;
+      case "users": return <UsersList onSelect={setSelectedUser} />;
+      case "projects": return <ProjectsPage />;
+      case "tasks": return <TasksPage />;
+      case "tokens": return <TokenPnL />;
+      case "payments": return <PaymentsPage />;
+      case "support": return <SupportPage />;
+      case "arch": return <Architecture />;
+      case "settings": return <SettingsPage />;
+      default: return <Dashboard />;
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "grid",
+                   gridTemplateColumns: "220px 1fr", background: "var(--bg)" }}>
+      <aside style={{ borderRight: "1px solid var(--border)",
+                       background: "var(--panel-2)",
+                       padding: "20px 12px",
+                       display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "0 8px 16px",
+                       borderBottom: "1px solid var(--border)", marginBottom: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>
+            AUREM CTO
+          </div>
+          <div style={{ fontSize: 10, color: "var(--text-faint)",
+                         letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            Admin Panel
+          </div>
+        </div>
+        {NAV.map(({ id, label, Icon }) => {
+          const active = page === id;
+          return (
+            <button
+              key={id}
+              data-testid={`admin-nav-${id}`}
+              onClick={() => go(id)}
+              className="btn-ghost"
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 10px", marginBottom: 2,
+                background: active ? "var(--bg-elev)" : "transparent",
+                color: active ? "var(--text)" : "var(--text-dim)",
+                border: "none", fontSize: 12, textAlign: "left",
+                width: "100%", cursor: "pointer", borderRadius: 4,
+              }}>
+              <Icon size={14} /> {label}
+            </button>
+          );
+        })}
+        <div style={{ marginTop: "auto", paddingTop: 12,
+                       borderTop: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, color: "var(--text-faint)",
+                         padding: "0 8px", marginBottom: 8 }}>
+            {me.email}
+          </div>
+          <Link to="/dashboard"
+                style={{ display: "flex", alignItems: "center", gap: 8,
+                          padding: "6px 8px", fontSize: 11,
+                          color: "var(--text-faint)", textDecoration: "none" }}>
+            <ExternalLink size={11} /> back to app
+          </Link>
+          <button onClick={logout} className="btn-ghost"
+                  data-testid="admin-logout"
+                  style={{ display: "flex", alignItems: "center", gap: 8,
+                            padding: "6px 8px", fontSize: 11,
+                            border: "none", color: "var(--text-faint)",
+                            background: "transparent", width: "100%",
+                            cursor: "pointer", textAlign: "left" }}>
+            <LogOut size={11} /> sign out
+          </button>
+        </div>
+      </aside>
+      <main style={{ overflow: "auto" }}>
+        {renderPage()}
+      </main>
+    </div>
+  );
+}

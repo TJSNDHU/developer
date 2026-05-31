@@ -4,6 +4,7 @@ Developer signup, login, token endpoints.
 """
 from __future__ import annotations
 import uuid
+import os
 import logging
 from typing import Optional
 
@@ -69,7 +70,16 @@ async def login(body: LoginBody) -> dict:
         raise HTTPException(401, "Invalid credentials")
     if not bcrypt.checkpw(body.password.encode(), user["password"].encode()):
         raise HTTPException(401, "Invalid credentials")
-    token = create_token(user["user_id"], user["email"], user.get("is_admin", False))
+    # Auto-promote whoever matches ADMIN_EMAIL env var (cheap, idempotent)
+    admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
+    is_admin = bool(user.get("is_admin")) or (
+        admin_email and user["email"].lower() == admin_email
+    )
+    if is_admin and not user.get("is_admin"):
+        await db.dev_users.update_one(
+            {"user_id": user["user_id"]}, {"$set": {"is_admin": True}},
+        )
+    token = create_token(user["user_id"], user["email"], is_admin)
     return {
         "ok": True,
         "token": token,
@@ -78,6 +88,7 @@ async def login(body: LoginBody) -> dict:
         "name": user.get("name", user["email"].split("@")[0]),
         "tier": user.get("tier", "free"),
         "tokens_remaining": user.get("tokens_remaining", 0),
+        "is_admin": is_admin,
     }
 
 

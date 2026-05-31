@@ -350,6 +350,33 @@ Verified end-to-end:
 - GET `/chat/history` returns `shipped_task_id` per turn ✅
 - Frontend lint clean ✅
 
+### Iter 24 — Admin Panel (May 2026)
+Full admin panel build per user spec. Built as **separate `/admin` route** in the same app (not replacing user-facing App.jsx — that would break customers).
+
+**Backend** (`routers/admin.py`, mounted at `/api/aurem-dev/admin/*`):
+- All endpoints guarded by `is_admin` JWT claim (regular users → 403)
+- Login auto-promotes whoever matches env `ADMIN_EMAIL` (lazy bootstrap)
+- Endpoints: `/me`, `/dashboard`, `/users`, `/users/{id}`, `/users/{id}/suspend`, `/projects`, `/tasks`, `/token-pnl`, `/payments`, `/support`, `/architecture`, `/settings`
+- Maps to EXISTING collections (`dev_users`, `cto_projects`, `cto_tasks`, `chat_sessions`, `cto_settings`) — no mock data, real DB
+- Payments + Support return empty + a `_note` field explaining they're on the P2 backlog (Stripe not configured / inbox not built)
+- Token P&L uses task counts as proxy until per-task token tracking is added
+
+**Frontend** (`pages/Admin.jsx`, route `/admin`):
+- 9-tab navigation: Dashboard, Users, Projects, Tasks, Token P&L, Payments, Support, Architecture, Settings
+- Dark glassmorphic theme matching the rest of the app
+- Live data: 7 users, 1 task, 54 sessions, integrations status, all wired to backend
+- User detail page with suspend/unsuspend (two-step confirm)
+- Settings page with editable token limits + pricing per plan (POST `/admin/settings`)
+- Auto-redirects non-admins to `/dashboard` with toast
+
+**Auth**: Added `ADMIN_EMAIL=test@aurem.dev` to `/app/backend/.env`. Existing `create_token` already supported `is_admin`. Auth router auto-promotes matching email on login.
+
+**Verified end-to-end**:
+- ✅ Login as admin → `is_admin: true` in JWT
+- ✅ `/admin/me` returns 200 for admin, 403 for regular users
+- ✅ Dashboard/users/projects/tasks/architecture all return live DB data
+- ✅ UI screenshot shows beautifully rendered panel with all 9 nav buttons
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
