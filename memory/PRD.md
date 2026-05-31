@@ -502,7 +502,36 @@ User: make `auremcto.com` discoverable across traditional search, AI answer engi
 ### ⚠️ Cloudflare-side caveat
 Cloudflare's "Managed robots.txt" feature **prepends** a block to our `robots.txt` that DISALLOWS `GPTBot`, `ClaudeBot`, etc. — overriding our own allow rules for those user-agents. To make AEO/GEO actually work on production, the user must disable this in their Cloudflare dashboard: **Cloudflare → Security → Bots → AI bots → toggle OFF "Block AI bots"**. Otherwise our `llms.txt`/`llms-full.txt`/schema.org work is invisible to the very engines we wrote it for.
 
-## Backlog (P2)
+## Active Phase / Next Up
+
+### Iter 30 — Founder mode + GitHub-push verification + AI hardening (Feb 2026)
+User reported 4 issues: (1) `/admin` keeps bouncing to homepage even after login, (2) need unlimited tokens / no-burn mode for the company founder `teji.ss1986@gmail.com`, (3) AUREM marks tasks "done" but Claude scanning the same repo says fixes aren't actually there, (4) make AI code-writing better.
+
+**1. Founder tier ("no token burn mode")**:
+- `services/usage.py` — new `"founder"` tier in `PLAN_LIMITS` with 1B sentinel; `is_unlimited` flag short-circuits `assert_has_budget()` to OK; `get_usage` reports `is_unlimited=true, is_exhausted=false` for founders.
+- New `is_founder_email()` helper reads `FOUNDER_EMAILS` env var + hardcoded fallback set `{teji.ss1986@gmail.com}` so the founder is always recognised even on a fresh deploy without env.
+- `routers/auth.py::signup` auto-creates founders with `tier='founder'`, `is_admin=true`, `is_unlimited=true`, 1B starting tokens.
+- `routers/auth.py::login` idempotently promotes existing free-tier rows whose email is on the allow-list — no manual DB edits required.
+
+**2. `/admin` routing fix**:
+- `Admin.jsx::useEffect` now reads `localStorage.aurem_token` BEFORE calling `/admin/me`. No token → `navigate('/login?next=/admin')`. 401 → clear token + same. 403 (logged-in non-admin) → `/dashboard`.
+- `Login.jsx` + `Signup.jsx` honour `?next=` via `useSearchParams`. Path is validated as safe in-app (must start with `/`, not `//`) before navigation.
+- `routers/admin.py::_require_admin` now reads live DB row as fallback when JWT lacks `is_admin` — supports stale tokens from before promotion (the original cause of "I logged in but admin still says no").
+
+**3. GitHub push verification (the silent-success bug)**:
+- `routers/cto_projects.py` rewrites the AI system prompt with strict file-completeness mandate + 6 hard rules forbidding placeholders (`// ... rest of file`, etc.).
+- New `_TRUNCATION_PATTERNS` + `_looks_truncated()` gate runs BEFORE push: rejects any FILE block that contains placeholder markers, is empty, or has <3 non-blank lines for a code file. Task is marked `status='failed'` with detailed reason; nothing reaches GitHub.
+- New POST-PUSH VERIFICATION block: after `gh_api_commit()`, the worker re-fetches every edited file at the new commit SHA via `gh_api_fetch_file()` and asserts `remote == local_edits`. Any drift → `status='failed'` with `'Post-push verification FAILED for <path> (differs from line N)'`. Task is only marked `verified=true, status='done'` after every file passes.
+- Every step logs to the task feed so the user can see the proof in the UI: `🔎 Verifying 3 file(s) on remote @ abc123…` → `✅ src/App.jsx (ok)` → `✅ Verified 3 file(s) live on main@abc123`.
+
+**Tests**:
+- `tests/test_founder_and_admin_resilience.py` — 4 tests (founder signup, founder-login-promotes-stale, never-exhausted, stale-JWT admin escape hatch). All pass.
+- `tests/test_truncation_guard.py` — 19 unit tests for `_looks_truncated()`. All pass.
+- Testing agent iteration_6.json: 21/21 backend pytest + 3/3 frontend redirect flows GREEN end-to-end.
+
+**Bug caught by tester**: when I cleaned up duplicate JSX trailing fragments in Login.jsx/Signup.jsx, my `useSearchParams` import was lost — `next` was referenced but undeclared, throwing a silent ReferenceError that masqueraded as a login failure. Tester re-added the import + safe-path validation in both files.
+
+### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
 - Encrypt `github_token` at rest (Fernet) in `cto_projects` collection
