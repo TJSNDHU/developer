@@ -185,6 +185,8 @@ async def chat_send(
         max_iters=min(body.max_tool_iters, 6),
         session_id=body.session_id,
         mongo_client=None,
+        user_id=user["user_id"],
+        project_id=body.project_id,
     )
     content = result.get("content", "") or ""
     provider = result.get("provider", "") or ""
@@ -243,6 +245,8 @@ async def chat_stream(
                 max_iters=min(body.max_tool_iters, 6),
                 session_id=body.session_id,
                 mongo_client=None,
+                user_id=user_id,
+                project_id=body.project_id,
             )
         except Exception as e:
             logger.exception("chat_stream orchestrator failed")

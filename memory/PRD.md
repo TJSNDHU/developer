@@ -188,6 +188,31 @@ Explicit anti-fabrication rules added: never invent line numbers / code you have
 
 Verified live with Hello-World repo + fake bug claim about `routers/auth.py`: AI correctly identified the file isn't in the tree and refused to fabricate a fix.
 
+### Iter 17 — `read_repo_file` On-Demand Tool (May 2026)
+Followup to Iter 16: VERIFY-first was working but AUREM had to ask user to paste any non-inlined file. Now it can fetch ANY file from the connected repo directly.
+
+New `services/local_tools.py`:
+- First-party tool registry (`TOOL_SPECS`) + dispatch (`LOCAL_TOOLS`)
+- `read_repo_file(ctx, args)` — fetches a file from the user's connected repo via GitHub Contents API (uses project's stored PAT for private repos). Path-traversal guard, 12 KB cap per file, optional `lines: [start, end]` slice
+- `invoke_local_tool()` returns None if the tool isn't local — caller falls back to upstream `tools_bridge.invoke_tool`
+
+`services/orchestrator.py` changes:
+- New `user_id` + `project_id` params on `chat_with_tools()`
+- Local tool specs merged with upstream catalog
+- Tool dispatch tries local first, falls back to upstream
+- Strengthened `_TOOL_HELP_TEMPLATE`: explicit "do NOT fabricate tool results", explicit "CALL `read_repo_file` — never tell the user a file returned 404 without actually invoking the tool"
+- Persona Step 1 updated: "If a file is in the tree but NOT inlined, USE THE `read_repo_file` TOOL — do NOT ask the user to paste files you can fetch yourself"
+
+`services/repo_context.py`: `_fetch_file` + `_fetch_tree` now `follow_redirects=True` — GitHub's branch-rename redirects (e.g. `master` → `main`) no longer cause silent 301 misses.
+
+`routers/chat.py`: passes `user_id` + `project_id` into the orchestrator on both `/send` and `/stream`.
+
+Verified end-to-end against `tiangolo/fastapi`:
+- Asked AUREM "quote the FastAPI class signature from fastapi/applications.py"
+- DeepSeek emitted: ```` ```tool_call\n{"tool":"read_repo_file","args":{"path":"fastapi/applications.py","lines":[1,3]}}\n``` ````
+- Tool fetched the real file
+- Final reply quoted the **actual** `class FastAPI(Starlette):` block with its real docstring ✅
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

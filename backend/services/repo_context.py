@@ -68,7 +68,7 @@ async def _fetch_tree(owner: str, repo: str, branch: str,
         f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
         f"{branch}?recursive=1"
     )
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
         r = await client.get(url, headers=_gh_headers(token))
         r.raise_for_status()
         data = r.json()
@@ -83,7 +83,7 @@ async def _fetch_file(owner: str, repo: str, path: str, branch: str,
         f"?ref={branch}"
     )
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             r = await client.get(url, headers=_gh_headers(token))
             r.raise_for_status()
             data = r.json()

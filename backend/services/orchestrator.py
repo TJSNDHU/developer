@@ -14,6 +14,7 @@ from typing import Optional
 
 from .llm import call_llm_with_meta
 from .tools_bridge import list_tools, invoke_tool, extract_tool_calls
+from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +24,18 @@ logger = logging.getLogger(__name__)
 # ``` inside f-strings risk truncation; assemble at runtime instead.
 _BT = chr(96) * 3
 _TOOL_HELP_TEMPLATE = (
-    "\n\n# AVAILABLE TOOLS — call them when you need REAL data.\n"
-    "Emit a JSON block (fenced with " + _BT + "tool_call) like:\n"
+    "\n\n# TOOLS — call them to fetch REAL data. Do NOT fabricate tool results.\n"
+    "To invoke a tool, emit EXACTLY this format on its own (no other text "
+    "in the same turn):\n"
     + _BT + "tool_call\n"
     '{"tool": "<name>", "args": {...}}\n'
     + _BT + "\n"
     "Then STOP. The orchestrator will execute it and feed you the real "
-    "result, after which give your final answer.\n\n"
+    "result in the next turn. Only AFTER you see the real result, give "
+    "your final answer.\n\n"
+    "If you need to read any file in the connected repo to verify a claim, "
+    "CALL `read_repo_file` — never tell the user a file 'returned 404' or "
+    "'wasn't found' without actually invoking the tool first.\n\n"
     "Tool catalog:\n"
 )
 
@@ -48,11 +54,11 @@ AUREM_CTO_PERSONA = (
     "and confirm the claim is REAL. If the user says \"file X has bug Y\", "
     "QUOTE the offending line(s) verbatim from the inlined file contents "
     "and state whether the bug actually exists, was already fixed, or the "
-    "file isn't visible in your current context. If the file is in the "
-    "file tree but NOT inlined, say exactly: \"I can see "
-    "`<path>` in the tree but its contents aren't loaded — paste the "
-    "function or confirm and I'll pull it.\" Never invent line numbers or "
-    "code you haven't actually seen. Never accept a fix request on faith.\n"
+    "file isn't visible in your current context. If a file is in the tree "
+    "but NOT inlined, USE THE `read_repo_file` TOOL to pull it — do NOT "
+    "ask the user to paste files you can fetch yourself. Never invent line "
+    "numbers or code you haven't actually seen. Never accept a fix request "
+    "on faith.\n"
     "  2. ANALYZE: in 1 sentence, state the real goal now that you've "
     "verified the claim. If the bug doesn't exist, say so plainly and "
     "stop — don't fabricate a fix.\n"
@@ -88,6 +94,8 @@ async def chat_with_tools(
     max_iters: int = 4,
     session_id: Optional[str] = None,
     mongo_client=None,
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -126,12 +134,14 @@ async def chat_with_tools(
         except Exception as e:
             logger.warning(f"session history load failed (continuing fresh): {e!r}")
 
-    # 1. Fetch tool catalog from upstream
+    # 1. Fetch tool catalog from upstream + merge local first-party tools
     try:
         tools = await list_tools(jwt_token)
     except Exception as e:
         logger.warning(f"list_tools upstream failed: {e!r}")
         tools = []
+    # Local tools are always available regardless of upstream state
+    tools = list(tools or []) + list(LOCAL_TOOL_SPECS)
 
     catalog_lines = [
         f"- {t.get('name')}: {t.get('description', '')}\n"
@@ -187,17 +197,24 @@ async def chat_with_tools(
             }
 
         # Execute every tool call and feed results back into the transcript
+        # Local tools (e.g. read_repo_file) are routed in-process; everything
+        # else falls through to the upstream tools_bridge.
+        local_ctx = {"user_id": user_id, "project_id": project_id}
         results_for_llm: list[dict] = []
         for c in calls:
-            res = await invoke_tool(c["tool"], c.get("args") or {}, jwt_token)
+            tool_name = c["tool"]
+            tool_args = c.get("args") or {}
+            res = await invoke_local_tool(tool_name, tool_args, local_ctx)
+            if res is None:
+                res = await invoke_tool(tool_name, tool_args, jwt_token)
             invocations.append({
-                "tool": c["tool"],
-                "args": c.get("args") or {},
+                "tool": tool_name,
+                "args": tool_args,
                 "ok": res.get("ok"),
                 "elapsed_ms": res.get("elapsed_ms"),
                 "error": res.get("error"),
             })
-            results_for_llm.append({"tool": c["tool"], "result": res})
+            results_for_llm.append({"tool": tool_name, "result": res})
 
         # iter 323ad — per-tool truncation (was: total 4000 chars cut
         # across ALL results → ORA half-results dekh ke wrong conclusions).
