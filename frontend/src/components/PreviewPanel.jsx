@@ -11,18 +11,21 @@
  * so any code rendered here cannot read parent state.
  */
 import React, { useMemo, useState } from "react";
-import { X, Copy, RefreshCw, Code2, Eye } from "lucide-react";
+import { X, Copy, RefreshCw, Code2, Eye, ExternalLink } from "lucide-react";
 import { toast } from "./Toast";
 
 const RENDERABLE = new Set([
   "html", "htm",
   "jsx", "tsx",
   "js", "javascript",
+  "live_url",  // iframe of an arbitrary preview URL
 ]);
 
 function filename(block, idx) {
   if (!block) return `file_${idx}`;
+  if (block.label) return block.label;
   const l = block.lang.toLowerCase();
+  if (l === "live_url") return "Live Site";
   if (l === "jsx" || l === "tsx") return `App.${l}`;
   if (l === "html" || l === "htm") return "index.html";
   if (l === "css") return "styles.css";
@@ -104,9 +107,10 @@ export default function PreviewPanel({ blocks, onClose }) {
 
   const block = blocks?.[activeTab];
   const isRenderable = !!block && RENDERABLE.has((block.lang || "").toLowerCase());
+  const isLiveUrl = (block?.lang || "").toLowerCase() === "live_url";
   const srcDoc = useMemo(
-    () => (isRenderable ? buildIframeDoc(block) : ""),
-    [block, isRenderable, refreshKey]
+    () => (isRenderable && !isLiveUrl ? buildIframeDoc(block) : ""),
+    [block, isRenderable, isLiveUrl, refreshKey]
   );
 
   const copyCode = () => {
@@ -197,7 +201,19 @@ export default function PreviewPanel({ blocks, onClose }) {
 
       {/* Body */}
       <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-        {viewMode === "preview" && isRenderable ? (
+        {viewMode === "preview" && isLiveUrl ? (
+          <iframe
+            key={`liveurl-${block.code}-${refreshKey}`}
+            data-testid="preview-iframe-live"
+            src={block.code}
+            title="live-site"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+            style={{
+              width: "100%", height: "100%",
+              border: "none", background: "white",
+            }}
+          />
+        ) : viewMode === "preview" && isRenderable ? (
           <iframe
             key={`iframe-${activeTab}-${refreshKey}`}
             data-testid="preview-iframe"
@@ -252,6 +268,19 @@ export default function PreviewPanel({ blocks, onClose }) {
           >
             <RefreshCw size={11} /> Refresh
           </button>
+        )}
+        {isLiveUrl && (
+          <a
+            data-testid="preview-open-newtab"
+            href={block.code}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost"
+            style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none" }}
+            title="Open in new tab"
+          >
+            <ExternalLink size={11} /> Open
+          </a>
         )}
         <span style={{
           marginLeft: "auto", color: "var(--text-faint)",

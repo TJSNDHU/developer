@@ -227,6 +227,12 @@ function AddDialog({ onClose, onAdded }) {
           <label><span className="label-mini">Tech (optional)</span>
             <input data-testid="proj-tech" className="input" value={f.tech_stack} onChange={(e) => up("tech_stack", e.target.value)} placeholder="WordPress, Next.js, FastAPI…" /></label>
         </div>
+        <label>
+          <span className="label-mini">Live preview URL (optional)</span>
+          <input data-testid="proj-preview-url" className="input" value={f.preview_url}
+                 onChange={(e) => up("preview_url", e.target.value)}
+                 placeholder="https://yoursite.com or http://localhost:3000" />
+        </label>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
           <button type="submit" data-testid="proj-add-submit" className="btn-primary" disabled={busy || !canSubmit}>
@@ -239,12 +245,12 @@ function AddDialog({ onClose, onAdded }) {
 }
 
 function EditDialog({ project, onClose, onSaved }) {
-  const [f, setF] = useState({ github_token: "", branch: project.branch || "main", tech_stack: project.tech_stack || "" });
+  const [f, setF] = useState({ github_token: "", branch: project.branch || "main", tech_stack: project.tech_stack || "", preview_url: project.preview_url || "" });
   const [busy, setBusy] = useState(false);
   const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
   async function submit(e) {
     e.preventDefault();
-    if (!f.github_token.trim() && !f.branch.trim() && !f.tech_stack.trim()) {
+    if (!f.github_token.trim() && !f.branch.trim() && !f.tech_stack.trim() && !f.preview_url.trim()) {
       toast({ message: "Nothing to update — fill at least one field.", kind: "warn" });
       return;
     }
@@ -288,6 +294,12 @@ function EditDialog({ project, onClose, onSaved }) {
             <input data-testid="proj-edit-tech" className="input" value={f.tech_stack}
                    onChange={(e) => up("tech_stack", e.target.value)} /></label>
         </div>
+        <label>
+          <span className="label-mini">Live preview URL</span>
+          <input data-testid="proj-edit-preview-url" className="input" value={f.preview_url}
+                 onChange={(e) => up("preview_url", e.target.value)}
+                 placeholder="https://yoursite.com or http://localhost:3000" />
+        </label>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
           <button type="submit" data-testid="proj-edit-save" className="btn-primary" disabled={busy}>

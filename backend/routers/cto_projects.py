@@ -35,6 +35,7 @@ class AddProject(BaseModel):
     github_token: Optional[str] = None  # PAT; fall back to user's OAuth token
     branch: str = "main"
     tech_stack: Optional[str] = None
+    preview_url: Optional[str] = None   # public URL of the running site/app
 
 
 class TaskBody(BaseModel):
@@ -74,6 +75,7 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
         "github_owner": owner, "github_repo": repo,
         "github_token": body.github_token,
         "branch": body.branch, "tech_stack": body.tech_stack or "auto",
+        "preview_url": (body.preview_url or "").strip() or None,
         "status": "connected", "tasks_done": 0,
         "created_at": time.time(),
     }
@@ -104,6 +106,7 @@ class UpdateProject(BaseModel):
     github_token: Optional[str] = None
     branch: Optional[str] = None
     tech_stack: Optional[str] = None
+    preview_url: Optional[str] = None
 
 
 @router.patch("/projects/{project_id}")

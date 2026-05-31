@@ -132,6 +132,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }
   }, [latestAssistant]);
 
+  // Auto-open preview when a project with a preview_url is selected
+  useEffect(() => {
+    if (!activeProject?.preview_url) return;
+    if (localStorage.getItem(PREVIEW_KEY) === "0") return; // user explicitly closed
+    setPreviewOpen(true);
+  }, [activeProject?.preview_url, activeProject?.project_id]);
+
   // Load history on session change
   useEffect(() => {
     if (!sessionId) return;
@@ -548,15 +555,23 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       `}</style>
       </div>
 
-      {previewOpen && (
-        <PreviewPanel
-          blocks={previewBlocks.length > 0 ? previewBlocks : [{
-            lang: "text",
-            code: "No code blocks in the current chat yet. Ask AUREM to write some — Hint: ```html ... ``` or ```jsx ... ``` will render live here.",
-          }]}
-          onClose={togglePreview}
-        />
-      )}
+      {previewOpen && (() => {
+        const liveBlock = activeProject?.preview_url
+          ? [{ lang: "live_url", code: activeProject.preview_url, label: "Live Site" }]
+          : [];
+        const finalBlocks = [...liveBlock, ...previewBlocks];
+        return (
+          <PreviewPanel
+            blocks={finalBlocks.length > 0 ? finalBlocks : [{
+              lang: "text",
+              code: activeProject
+                ? `No preview URL set for "${activeProject.name}". Open Projects → Edit → "Live preview URL" to add one (e.g. https://yoursite.com).`
+                : "No code blocks in the current chat yet. Ask AUREM to write some — Hint: ```html ... ``` or ```jsx ... ``` will render live here.",
+            }]}
+            onClose={togglePreview}
+          />
+        );
+      })()}
     </div>
   );
 }

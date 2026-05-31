@@ -114,6 +114,21 @@ Persona is always the floor of the system prompt; repo_context + url_context lay
 
 Verified: prompting with the exact task list the user complained about now produces a proper 5-section execution plan ending with "Ready to ship? Reply 'go'…".
 
+### Iter 12 — Live Project Preview Panel (May 2026)
+User asked: clicking the Preview button should show the *actual* connected project's frontend (so code changes flow into the visible UI in real time), not just code blocks from chat.
+
+New flow:
+- `cto_projects` schema: added `preview_url` (optional public URL of the running site/dev server)
+- `AddProject` and `UpdateProject` models accept it; `PATCH /cto/projects/{id}` honours it
+- Add Project dialog: new "Live preview URL (optional)" field (`data-testid="proj-preview-url"`)
+- Edit dialog: same field (`data-testid="proj-edit-preview-url"`)
+- `ChatPanel.jsx`: when `activeProject.preview_url` is set, prepends a `{lang:"live_url", code:url, label:"Live Site"}` block at index 0 of PreviewPanel tabs; auto-opens panel on project switch (respects user's explicit close)
+- `PreviewPanel.jsx`: new `live_url` block type renders `<iframe src={url}>` with full sandbox (allow-same-origin / forms / popups / modals) so the user's site works. Footer gets a new "Open" button (lucide `ExternalLink`) that opens the site in a new tab — useful when the site blocks iframe embedding via `X-Frame-Options`.
+
+Empty state polish: when no preview URL is set, panel shows: *"No preview URL set for "<project>". Open Projects → Edit → 'Live preview URL' to add one."*
+
+Verified backend end-to-end via curl (add → list → PATCH → list); UI screenshot confirms the Add dialog renders the new field. Frontend lint clean.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
