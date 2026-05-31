@@ -697,9 +697,12 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
             f"Tech: {proj.get('tech_stack','auto')}\n\n"
             f"{repo_block or ''}\n\n{files_blob}"
         )
-        reply = await call_llm(
-            messages=[{"role": "user", "content": user_msg}],
-            system=_AI_SYS, max_tokens=3500, temperature=0.0,
+        reply = await _retry(
+            lambda: call_llm(
+                messages=[{"role": "user", "content": user_msg}],
+                system=_AI_SYS, max_tokens=3500, temperature=0.0,
+            ),
+            what="AI codegen", task_id=task_id,
         )
         # Coarse token estimate (chars/4) so P&L has real numbers
         approx_in = (len(_AI_SYS) + len(user_msg)) // 4
