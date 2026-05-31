@@ -96,6 +96,24 @@ Frontend `ChatPanel.jsx` `handleFiles` now has a smart fast path:
 
 Verified end-to-end via curl: HTML → clean MD with headings/lists, CSV → markdown table, PDF (13KB) → text extracted, auth guard returns 401 without token.
 
+### Iter 11 — Proactive Engineer Persona (May 2026)
+User complaint: when given a task list, Aurem CTO was just summarizing it back ("This appears to be a comprehensive system update that addresses...") instead of producing an execution plan.
+
+Root cause: The default system prompt was just `"You are ORA CTO Sovereign, running on the Legion laptop."` — passive and generic. With no behavioral anchoring, the model defaulted to summarizing what it saw.
+
+Added `AUREM_CTO_PERSONA` constant in `services/orchestrator.py` that anchors EVERY chat turn with explicit rules:
+1. **ANALYZE** — 1-sentence goal restatement
+2. **PLAN** — numbered steps with concrete files/functions to touch
+3. **RISKS** — call out breakage in 1-2 lines
+4. **VERIFY** — state how to test
+5. **ASK TO PROCEED** — end with "Ready to ship? Reply 'go' and I'll start with step 1."
+
+Plus explicit prohibitions: no parroting user's own task list back, no "this appears to be...", no "Let me know if you have questions!" trailers, no claims that connected repo / fetched URLs are inaccessible.
+
+Persona is always the floor of the system prompt; repo_context + url_context layer on top of it (not replace it).
+
+Verified: prompting with the exact task list the user complained about now produces a proper 5-section execution plan ending with "Ready to ship? Reply 'go'…".
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)
