@@ -243,6 +243,29 @@ Two bugs:
 
 Verified live: Turn 1 = full 6-step plan; Turn 2 reply "go" → handoff brief for the CTO worker (no plan re-emission). UI lint clean.
 
+### Iter 20 — Ship via CTO Button (May 2026)
+Followup to Iter 19: turn the chat handoff into a one-click execute button.
+
+**Backend** (`services/orchestrator.py`):
+- HANDOFF MODE persona now emits brief inside a ```` ```aurem-handoff ```` fenced block (custom lang tag) so the frontend can detect and parse it reliably
+- Persona instructed: "The fence MUST be exactly ```aurem-handoff — that's what the frontend uses to render the Ship button. Do not change it."
+
+**Frontend** (`ChatPanel.jsx`):
+- New `extractHandoffBrief(content)` regex parser
+- When an assistant message contains an ```` ```aurem-handoff ```` block AND an active project is selected, a **🚀 Ship via CTO** button renders right under the action row
+- One window.confirm() showing exactly what will happen (clone → apply → commit → push), then POST to `/api/aurem-dev/cto/tasks/submit` with `{project_id, task: brief, files: [], context: "from chat session <id>, turn <idx>"}`
+- Button states: idle → shipping (with spinner) → shipped (✅ green + task_id + "view in Projects →" link) | error (inline red message)
+- Disabled message shown if no project active: "Switch to a connected project to enable Ship via CTO."
+
+**E2E verified** with `octocat/Hello-World` + fake PAT:
+1. Turn 1: "create new file backend/health.py..." → AI emits full 6-step plan
+2. Turn 2: "go" → AI emits ```` ```aurem-handoff ```` brief
+3. Frontend parser detected brief (1 fence)
+4. POST /cto/tasks/submit → got `task_id: t_1d75fdf2c164`
+5. Worker: ✅ Cloned → 🧠 DeepSeek → ✏️ 1 file to update → 💾 backend/health.py → ❌ push failed (fake PAT, as expected in test — with real PAT this completes)
+
+The full pipeline (chat → handoff → submit → clone → AI codegen → write → push) is end-to-end working.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

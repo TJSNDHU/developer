@@ -63,6 +63,17 @@ function extractCodeBlocks(content) {
   return blocks;
 }
 
+// Detect a ```aurem-handoff fenced block — emitted by AUREM in HANDOFF MODE
+// to signal "this is an executable CTO worker brief". We render a one-click
+// Ship via CTO button when present.
+function extractHandoffBrief(content) {
+  if (!content) return null;
+  const m = content.match(/```aurem-handoff\s*\n([\s\S]*?)```/);
+  if (!m) return null;
+  const brief = (m[1] || "").trim();
+  return brief.length > 0 ? brief : null;
+}
+
 function estimateTokenCount(text) {
   if (!text) return 0;
   // ~1.3 tokens per word, rough heuristic — same model the backend deducts on.
@@ -420,7 +431,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => (
-          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} />
+          <MessageBubble key={i} idx={i} m={m} onRegenerate={regenerate} sessionId={sessionId} activeProject={activeProject} />
         ))}
         <div ref={endRef} />
       </div>
@@ -639,10 +650,11 @@ function ToolButton({ testid, title, onClick, Icon, active }) {
   );
 }
 
-function MessageBubble({ idx, m, onRegenerate, sessionId }) {
+function MessageBubble({ idx, m, onRegenerate, sessionId, activeProject }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
   const [hover, setHover] = useState(false);
+  const [shipState, setShipState] = useState({ status: "idle", taskId: null, error: null });
 
   function copyText() {
     if (!m.content) return;
@@ -668,6 +680,42 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
 
   const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
   const showUserCopy = m.role === "user" && !!m.content;
+  // Detect ```aurem-handoff fence → render one-click Ship via CTO button
+  const handoffBrief = showActions ? extractHandoffBrief(m.content) : null;
+  const canShip = !!(handoffBrief && activeProject?.project_id);
+
+  async function shipViaCTO() {
+    if (!canShip || shipState.status === "shipping" || shipState.status === "shipped") return;
+    // One UI confirm is enough; the brief is already shown inline above.
+    const ok = window.confirm(
+      `Ship via CTO will:\n\n` +
+      `1. Clone ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}\n` +
+      `2. Apply the AI-generated changes\n` +
+      `3. git commit + push to your repo\n\n` +
+      `Rollback is available once the task completes if anything looks wrong.\n\n` +
+      `Proceed?`
+    );
+    if (!ok) return;
+    setShipState({ status: "shipping", taskId: null, error: null });
+    try {
+      const r = await api.post("/cto/tasks/submit", {
+        project_id: activeProject.project_id,
+        task: handoffBrief,
+        files: [],
+        context: `from chat session ${sessionId}, turn ${idx}`,
+      });
+      const taskId = r.data?.task_id || null;
+      setShipState({ status: "shipped", taskId, error: null });
+      toast({
+        message: taskId ? `Task queued — ${taskId}` : "Task queued",
+        kind: "success", duration: 3000,
+      });
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "Submit failed";
+      setShipState({ status: "error", taskId: null, error: msg });
+      toast({ message: msg, kind: "error" });
+    }
+  }
 
   return (
     <div
@@ -791,6 +839,63 @@ function MessageBubble({ idx, m, onRegenerate, sessionId }) {
             <ActionBtn testid={`copy-${idx}`} title={copied ? "Copied!" : "Copy"} onClick={copyText} Icon={CopyIcon} active={copied} />
             <ActionBtn testid={`thumbs-up-${idx}`} title="Good reply" onClick={() => sendVote("up")} Icon={ThumbsUp} active={vote === "up"} color="var(--ok)" />
             <ActionBtn testid={`thumbs-down-${idx}`} title="Bad reply — we'll refine" onClick={() => sendVote("down")} Icon={ThumbsDown} active={vote === "down"} color="var(--danger)" />
+          </div>
+        )}
+
+        {/* Ship via CTO button — only when an aurem-handoff brief is present */}
+        {handoffBrief && (
+          <div data-testid={`ship-cto-row-${idx}`} style={{
+            marginTop: 10, paddingLeft: 4,
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          }}>
+            {!canShip ? (
+              <div style={{ fontSize: 11, color: "var(--text-faint)", fontStyle: "italic" }}>
+                Switch to a connected project to enable Ship via CTO.
+              </div>
+            ) : shipState.status === "shipped" ? (
+              <div style={{
+                fontSize: 12, color: "var(--ok)",
+                fontFamily: "'JetBrains Mono', monospace",
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}>
+                ✅ Queued{shipState.taskId ? ` — ${shipState.taskId}` : ""}
+                <a href="/projects" style={{ color: "var(--accent-2)", textDecoration: "underline" }}>
+                  view in Projects →
+                </a>
+              </div>
+            ) : (
+              <button
+                data-testid={`ship-cto-btn-${idx}`}
+                onClick={shipViaCTO}
+                disabled={shipState.status === "shipping"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "8px 14px",
+                  background: shipState.status === "shipping"
+                    ? "var(--panel-2)"
+                    : "var(--accent-2)",
+                  color: shipState.status === "shipping"
+                    ? "var(--text-dim)"
+                    : "var(--bg)",
+                  border: "1px solid var(--accent-2)",
+                  borderRadius: 4,
+                  fontSize: 12, fontWeight: 600,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.05em",
+                  cursor: shipState.status === "shipping" ? "wait" : "pointer",
+                }}
+                title={`Ship to ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}`}
+              >
+                {shipState.status === "shipping"
+                  ? (<><Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> shipping…</>)
+                  : (<>🚀 Ship via CTO</>)}
+              </button>
+            )}
+            {shipState.status === "error" && (
+              <span style={{ fontSize: 11, color: "var(--danger)" }}>
+                {shipState.error}
+              </span>
+            )}
           </div>
         )}
 
