@@ -11,7 +11,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
-  Pencil, Info,
+  Pencil, Info, Undo2,
 } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
@@ -341,7 +341,11 @@ function ProjectDetail({ project, onRemoved, onChanged }) {
           return exists ? cur.map((x) => (x.task_id === t.task_id ? t : x)) : [t, ...cur];
         });
         if (t && ["done", "failed"].includes(t.status)) {
-          setActiveTaskId(null);
+          // If a rollback is in flight, keep polling until it settles
+          const rb = t.rollback_status;
+          if (rb !== "queued" && rb !== "running") {
+            setActiveTaskId(null);
+          }
         }
       } catch {}
     }, 2000);
@@ -375,6 +379,20 @@ function ProjectDetail({ project, onRemoved, onChanged }) {
       onRemoved();
     } catch (e) {
       toast({ message: "Remove failed", kind: "error" });
+    }
+  }
+
+  async function rollbackTask(t) {
+    try {
+      const r = await api.post(`/cto/tasks/${t.task_id}/rollback`, { confirm: "ROLLBACK" });
+      toast({ message: "Rollback queued — reverting commit…", kind: "info" });
+      setActiveTaskId(r.data.task_id);
+      await refresh();
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Rollback failed to start",
+        kind: "error",
+      });
     }
   }
 
@@ -429,7 +447,7 @@ function ProjectDetail({ project, onRemoved, onChanged }) {
         {tasks.length === 0 ? (
           <p style={{ fontSize: 12, color: "var(--text-faint)" }}>No tasks yet.</p>
         ) : (
-          tasks.map((t) => <TaskRow key={t.task_id} t={t} />)
+          tasks.map((t) => <TaskRow key={t.task_id} t={t} onRollback={rollbackTask} />)
         )}
       </div>
 
@@ -444,7 +462,7 @@ function ProjectDetail({ project, onRemoved, onChanged }) {
   );
 }
 
-function TaskRow({ t }) {
+function TaskRow({ t, onRollback }) {
   const [open, setOpen] = useState(["pulling", "reading", "fixing", "pushing"].includes(t.status));
   const STATUS_COLOR = {
     queued: "var(--text-faint)", pulling: "#60a5fa", reading: "#60a5fa",
@@ -453,6 +471,28 @@ function TaskRow({ t }) {
   };
   const color = STATUS_COLOR[t.status] || "var(--text-faint)";
   const running = !["done", "failed"].includes(t.status);
+  const rbStatus = t.rollback_status;
+  const rbRunning = rbStatus === "queued" || rbStatus === "running";
+  const canRollback = t.status === "done" && t.commit_sha && !t.rollback_sha && !rbRunning;
+
+  async function handleRollback(e) {
+    e.stopPropagation();
+    // Two-step confirmation — guard against accidental clicks
+    const ok1 = window.confirm(
+      `Rollback commit ${t.commit_sha}?\n\n` +
+      `This will create a new "Revert" commit on the project repo. ` +
+      `Original history is preserved (no force-push).`
+    );
+    if (!ok1) return;
+    const ok2 = window.confirm(
+      `Are you sure?\n\n` +
+      `AUREM CTO will push a revert of ${t.commit_sha} to the remote branch right now. ` +
+      `Click OK to proceed.`
+    );
+    if (!ok2) return;
+    onRollback?.(t);
+  }
+
   return (
     <div data-testid={`task-row-${t.task_id}`} style={{
       borderTop: "1px solid var(--border)", padding: "10px 0",
@@ -469,8 +509,46 @@ function TaskRow({ t }) {
           </div>
           <div style={{ fontSize: 10, color, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
             {t.status}{t.commit_sha ? ` · ${t.commit_sha}` : ""}
+            {t.rollback_sha && (
+              <span style={{ color: "var(--text-faint)", marginLeft: 8 }}>
+                · reverted → {t.rollback_sha}
+              </span>
+            )}
+            {rbRunning && (
+              <span style={{ color: "var(--accent-2)", marginLeft: 8 }}>
+                · rolling back…
+              </span>
+            )}
+            {rbStatus === "failed" && (
+              <span style={{ color: "var(--danger)", marginLeft: 8 }}>
+                · rollback failed
+              </span>
+            )}
           </div>
         </div>
+        {canRollback && (
+          <button
+            data-testid={`task-rollback-${t.task_id}`}
+            onClick={handleRollback}
+            title="Revert this commit on the remote repo"
+            className="btn-ghost"
+            style={{
+              padding: "4px 10px", fontSize: 11,
+              borderColor: "rgba(255,107,107,0.3)",
+              color: "var(--danger)",
+            }}
+          >
+            <Undo2 size={11} /> Rollback
+          </button>
+        )}
+        {rbRunning && (
+          <span data-testid={`task-rollback-status-${t.task_id}`}
+                style={{ fontSize: 11, color: "var(--accent-2)",
+                         display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+            reverting…
+          </span>
+        )}
       </div>
       {open && (
         <div style={{
@@ -486,6 +564,19 @@ function TaskRow({ t }) {
           ))}
           {t.result && <div style={{ marginTop: 8, color: "var(--ok)" }}>→ {t.result}</div>}
           {t.error && <div style={{ marginTop: 8, color: "var(--danger)" }}>✗ {t.error}</div>}
+          {(t.rollback_steps && t.rollback_steps.length > 0) && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+              <div style={{ color: "var(--accent-2)", marginBottom: 4 }}>
+                ── rollback ──
+              </div>
+              {t.rollback_steps.map((s, i) => (
+                <div key={i} style={{ padding: "2px 0", color: s.status === "error" ? "var(--danger)" : s.status === "success" ? "var(--ok)" : "var(--text-dim)" }}>
+                  {s.step}
+                </div>
+              ))}
+            </div>
+          )}
+          {t.rollback_error && <div style={{ marginTop: 8, color: "var(--danger)" }}>✗ rollback: {t.rollback_error}</div>}
         </div>
       )}
     </div>

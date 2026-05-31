@@ -163,6 +163,154 @@ async def submit_task(
     return {"ok": True, "task_id": task_id}
 
 
+class RollbackBody(BaseModel):
+    # User must echo "ROLLBACK" to confirm intent server-side too —
+    # double safety on top of the two-click client confirmation.
+    confirm: str
+
+
+@router.post("/tasks/{task_id}/rollback")
+async def rollback_task(
+    task_id: str,
+    body: RollbackBody,
+    bg: BackgroundTasks,
+    authorization: str = Header(None),
+) -> dict:
+    """Revert a previously-pushed AUREM CTO commit on the project's repo.
+    Uses `git revert --no-edit <sha>` so the rollback is itself a new
+    commit (no force-push, full history preserved). Idempotent: a task
+    that's already been rolled back returns 409."""
+    me = await current_dev(authorization)
+    if (body.confirm or "").strip().upper() != "ROLLBACK":
+        raise HTTPException(400, "Must confirm with 'ROLLBACK'")
+
+    db = require_db()
+    t = await db.cto_tasks.find_one(
+        {"task_id": task_id, "user_id": me["user_id"]}
+    )
+    if not t:
+        raise HTTPException(404, "Task not found")
+    if t.get("status") != "done":
+        raise HTTPException(
+            400,
+            f"Only completed tasks can be rolled back (current: {t.get('status')})",
+        )
+    if not t.get("commit_sha"):
+        raise HTTPException(400, "Task has no commit to revert")
+    if t.get("rollback_sha"):
+        raise HTTPException(409, "Task already rolled back")
+    if t.get("rollback_status") in ("queued", "running"):
+        raise HTTPException(409, "Rollback already in progress")
+
+    proj = await db.cto_projects.find_one(
+        {"project_id": t["project_id"], "user_id": me["user_id"]}
+    )
+    if not proj:
+        raise HTTPException(404, "Parent project not found")
+
+    user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
+    if not user_token:
+        raise HTTPException(
+            400,
+            "No PAT on file for this project — open Projects → Edit and add one.",
+        )
+
+    await db.cto_tasks.update_one(
+        {"task_id": task_id},
+        {"$set": {
+            "rollback_status": "queued",
+            "rollback_started_at": time.time(),
+        }},
+    )
+    bg.add_task(_run_rollback, task_id, proj, t["commit_sha"], user_token)
+    return {"ok": True, "task_id": task_id, "rollback_status": "queued"}
+
+
+# ── Rollback worker ──────────────────────────────────────────────────────
+async def _rollback_log(task_id: str, step: str, status: str = "info"):
+    """Append a step to the task's `rollback_steps` array."""
+    db = get_db()
+    if db is None:
+        return
+    await db.cto_tasks.update_one(
+        {"task_id": task_id},
+        {"$push": {"rollback_steps": {"step": step, "status": status, "ts": time.time()}}},
+    )
+
+
+async def _run_rollback(task_id: str, proj: dict, commit_sha: str,
+                         user_token: str) -> None:
+    """Clone, `git revert --no-edit <sha>`, push the revert commit."""
+    ws = WORKSPACE / f"rb_{task_id}"
+    ws.mkdir(parents=True, exist_ok=True)
+    repo_path = ws / "repo"
+    owner = proj["github_owner"]
+    repo = proj["github_repo"]
+    branch = proj.get("branch", "main")
+    clone_url = f"https://{user_token}@github.com/{owner}/{repo}.git"
+
+    db = get_db()
+
+    async def _set(**fields):
+        if db is not None:
+            await db.cto_tasks.update_one({"task_id": task_id}, {"$set": fields})
+
+    try:
+        await _set(rollback_status="running")
+        await _rollback_log(task_id, f"Cloning {owner}/{repo}@{branch}…")
+        # Full history needed (no --depth=1) so the revert can find the sha
+        r = _sh(["git", "clone", "--branch", branch, clone_url, str(repo_path)],
+                cwd=ws, timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError(f"git clone failed: {r.stderr[:300]}")
+        await _rollback_log(task_id, "✅ Cloned", "success")
+
+        _sh(["git", "config", "user.email", "cto@auremcto.com"], repo_path)
+        _sh(["git", "config", "user.name", "AUREM CTO"], repo_path)
+
+        # Use `git revert` so we never force-push; it produces a new commit
+        # that undoes the changes. `-m 1` lets us revert merge commits if
+        # the original was a merge.
+        revert = _sh(
+            ["git", "revert", "--no-edit", "-m", "1", commit_sha],
+            repo_path, timeout=60,
+        )
+        if revert.returncode != 0:
+            # Plain (non-merge) commits don't accept `-m`; retry without it
+            _sh(["git", "revert", "--abort"], repo_path)
+            revert = _sh(
+                ["git", "revert", "--no-edit", commit_sha],
+                repo_path, timeout=60,
+            )
+        if revert.returncode != 0:
+            raise RuntimeError(
+                f"git revert failed (possibly conflicts): {revert.stderr[:300]}"
+            )
+        await _rollback_log(task_id, f"✏️ Reverted {commit_sha}", "success")
+
+        push = _sh(["git", "push", "origin", branch], repo_path, timeout=90)
+        if push.returncode != 0:
+            raise RuntimeError(f"git push failed: {push.stderr[:300]}")
+
+        new_sha = _sh(["git", "rev-parse", "--short", "HEAD"], repo_path).stdout.strip()
+        await _rollback_log(task_id, f"🚀 pushed revert — {new_sha}", "success")
+        await _set(
+            rollback_status="done",
+            rollback_sha=new_sha,
+            rollback_completed_at=time.time(),
+        )
+    except Exception as e:
+        logger.exception(f"[rollback {task_id}] failed")
+        await _rollback_log(task_id, f"❌ {e}", "error")
+        await _set(
+            rollback_status="failed",
+            rollback_error=str(e),
+            rollback_completed_at=time.time(),
+        )
+    finally:
+        shutil.rmtree(ws, ignore_errors=True)
+
+
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str, authorization: str = Header(None)) -> dict:
     me = await current_dev(authorization)

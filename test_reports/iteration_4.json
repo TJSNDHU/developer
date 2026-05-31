@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 4 — Rollback feature E2E. Backend: 13/13 new pytest pass on POST /api/aurem-dev/cto/tasks/{id}/rollback covering every guard (401/400/404/409) + happy path queueing + graceful failure with fake PAT. Regression: 22/22 prior P0 + chat persistence still green. Frontend Playwright: button visibility, two-step confirm gating (cancel-1, cancel-2, confirm-both), API trigger, and expanded-panel rollback_steps rendering all verified. ONE CRITICAL UI BUG FOUND: tasks with rollback_status='failed' still display the Rollback button (spec says it MUST NOT reappear — no auto-retry).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /cto/tasks/{id}/rollback",
+        "issue": "After rollback_status='failed', a subsequent POST is NOT blocked by backend (it re-queues). This contradicts the UI spec 'no auto-retry'. The 409 guard only checks queued/running. Consider also rejecting 'failed' OR documenting that the UI is the source of truth. Currently the test asserts either 200 or 409 to tolerate this."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Projects.jsx TaskRow",
+        "issue": "CRITICAL: Rollback button still rendered for tasks with rollback_status='failed'. Spec line: 'For tasks with rollback_status==failed, ... the rollback button should NOT reappear (we don't auto-retry).' Reproduced: seeded a done task with rollback_status='failed' and rollback_error set — the [data-testid=task-rollback-{id}] button was visible (count=1, expected 0). Row text correctly shows 'rollback failed' but the button is also there.",
+        "selector": "[data-testid='task-rollback-{task_id}']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aurem_rollback.py",
+    "/app/test_reports/pytest/pytest_iter4_rollback.xml"
+  ],
+  "action_items": [
+    "FIX Projects.jsx line 476: change `const canRollback = t.status === 'done' && t.commit_sha && !t.rollback_sha && !rbRunning;` to ALSO exclude failed state, e.g. `... && !rbRunning && rbStatus !== 'failed'`. This is the only change required to satisfy the 'no auto-retry' spec.",
+    "OPTIONAL backend hardening: in cto_projects.py rollback endpoint, add `if t.get('rollback_status') == 'failed' and not t.get('rollback_sha'): raise HTTPException(409, 'Previous rollback failed — manual intervention required')` so the backend matches the UI contract and the rule is enforced even when the UI is bypassed (e.g. direct API)."
+  ],
+  "critical_code_review_comments": [
+    "Projects.jsx L476: canRollback predicate is missing the rollback_status === 'failed' exclusion → root cause of the UI bug above. One-line fix.",
+    "cto_projects.py L218-225: rollback queue is set with $set only — if a previous rollback left rollback_steps/rollback_error in Mongo, those stale fields persist into the new attempt. Consider $unset on rollback_steps/rollback_error/rollback_sha when re-queueing OR (preferred) reject re-queue when status='failed' to avoid the confusion.",
+    "cto_projects.py L262-265: full-history clone uses `git clone --branch main` without --single-branch. For large repos this could be slow. Non-blocking.",
+    "Projects.jsx handleRollback: window.confirm() blocks the React event loop and is OS-modal — fine for safety but accessibility-poor. Long term consider a custom Dialog with focus-trap + REQUIRE-typed 'ROLLBACK' confirmation (matches backend body.confirm). Non-blocking for MVP.",
+    "cto_projects.py _run_rollback: clone_url contains the PAT in plaintext. Subprocess stderr could leak it if returncode!=0 and we currently surface stderr[:300] into rollback_error → potential PAT leak into Mongo. Recommend sanitizing user_token from any stderr before persisting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_aurem_rollback.py (new — 13 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 new + 22/22 regression)",
+    "frontend": "85% — confirm-dialog gating perfect, button conditional logic has one missing case (rollback_status=failed)"
+  },
+  "test_credentials": "test@aurem.dev / testpass123 (seeded)",
+  "seed_data_creation": "Created and cleaned up: TEST_RB_Project, TEST_RB_NoPAT, TEST_RB_Preview (backend tests); TEST_UI_RB project + 3 seeded cto_tasks (UI test) — all deleted at end of run.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend rollback router: /api/aurem-dev/cto/tasks/{id}/rollback. Body: {confirm:'ROLLBACK'}. Guards covered: 401(no auth), 400(wrong confirm / status!=done / no commit_sha / no PAT), 404(unknown task / no parent project), 409(already rolled back / queued / running). Happy path response: {ok:true, task_id, rollback_status:'queued'}. Worker fields written: rollback_status (queued→running→done|failed), rollback_sha, rollback_error, rollback_steps[]. UI testids: task-rollback-{id}, task-rollback-status-{id}, task-row-{id}. Live preview field testids: proj-preview-url (add), proj-edit-preview-url (edit), preview-iframe-live, preview-open-newtab.",
+  "rca of the issue": "Projects.jsx TaskRow line 476: `canRollback` predicate evaluates `t.status === 'done' && t.commit_sha && !t.rollback_sha && !rbRunning`. `rbRunning` is `rbStatus === 'queued' || rbStatus === 'running'` — it does NOT include 'failed'. So a task that's done + has commit_sha + has no rollback_sha + has rollback_status='failed' satisfies canRollback=true and the Rollback button is rendered. Fix: extend the predicate with `&& rbStatus !== 'failed'` (or `&& !rbStatus` to be even stricter — only allow when no rollback has ever been attempted). Reproduction: seed cto_task with status='done', commit_sha=set, rollback_status='failed', rollback_error=set → visit /projects → button visible. Expected per spec: button hidden; row shows only 'rollback failed' inline indicator."
+}
