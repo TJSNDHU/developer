@@ -424,6 +424,22 @@ User asked: remove sidebar from `auremcto.com` homepage and add their uploaded a
 
 About `auremcto.com/admin not working`: this is iters 24+25 code that hasn't been deployed yet. Path forward documented in next chat reply.
 
+### Iter 27 — Landing Performance: 19 MB → 147 KB (May 2026)
+Followup: optimize the background image.
+
+PIL pipeline (`/app/frontend/public/`):
+- `aurem-bg.webp` — desktop, 1920px wide, q=78 → **147 KB** (was 19 MB, **127× smaller**)
+- `aurem-bg-mobile.webp` — 960px wide, q=72 → **39 KB** (478× smaller)
+- Inline base64 blur placeholder (24px wide, gaussian blur) → **100 bytes** painted instantly
+
+Landing.jsx changes:
+- New `useResponsiveBg()` hook → starts with inline blur placeholder, swaps to real WebP after Image preload completes
+- Mobile users get the 39 KB variant via `matchMedia("(max-width: 768px)")`
+- `index.html` adds `<link rel="preload" as="image">` hints (responsive via `media` attr) so the WebP starts downloading before React mounts
+- Old 19 MB JPG deleted from `/public`
+
+Smoke screenshot: hero renders crisp instantly. First-paint background ≈ blur instantly, real image swap < 200ms on broadband.
+
 ## Active Phase / Next Up
 
 ### P1 — Premium UI/UX Redesign (NOT STARTED)

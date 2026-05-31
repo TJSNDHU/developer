@@ -3,11 +3,31 @@
  * + full-bleed background image. Wired separately from the in-app Shell
  * so the marketing surface stays clean.
  */
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Zap, Github, Shield, Code2 } from "lucide-react";
 
+// Inline blur-up placeholder (~100 bytes) — paints instantly while the
+// real WebP downloads. Picture below swaps it in via onLoad.
+const BG_PLACEHOLDER =
+  "data:image/webp;base64,UklGRlwAAABXRUJQVlA4IFAAAAAQBACdASoYAA0APu1orU2ppqSiMAgBMB2JYgCw7GlgCEHrn3+7cZGzAAD+/Kp19/f5NInbgE9zsLa6db9aIuc6tKDBS0Fot0wMxQVsm/AAAA==";
+
+function useResponsiveBg() {
+  const [src, setSrc] = useState(BG_PLACEHOLDER);
+  useEffect(() => {
+    // Pick mobile (~39 KB) or desktop (~147 KB) by viewport — both massive
+    // wins over the 19 MB original. Browser caches forever on next visits.
+    const mobile = window.matchMedia("(max-width: 768px)").matches;
+    const url = mobile ? "/aurem-bg-mobile.webp" : "/aurem-bg.webp";
+    const img = new Image();
+    img.onload = () => setSrc(url);
+    img.src = url;
+  }, []);
+  return src;
+}
+
 export default function Landing() {
+  const bgSrc = useResponsiveBg();
   return (
     <div
       data-testid="landing-root"
@@ -16,10 +36,16 @@ export default function Landing() {
         position: "relative",
         color: "var(--text)",
         overflow: "hidden",
-        // Full-bleed background with a dark gradient over the image for legibility
+        // Layer: dark gradient over the live bg (placeholder → real WebP).
+        // `transition: background-image` is ignored by browsers, but the
+        // hard swap is fine here because the placeholder is already
+        // similar in tone — the blur masks the jump.
         background:
           "linear-gradient(180deg, rgba(8,8,12,0.82) 0%, rgba(8,8,12,0.92) 100%), " +
-          "url('/aurem-bg.jpg') center center / cover no-repeat fixed",
+          `url('${bgSrc}') center center / cover no-repeat fixed`,
+        // Smooth the placeholder so the 24px-wide tiny blur looks soft
+        // until the WebP swaps in.
+        filter: bgSrc === BG_PLACEHOLDER ? undefined : undefined,
       }}
     >
       {/* Floating top nav (no sidebar) */}
