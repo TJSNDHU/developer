@@ -442,14 +442,34 @@ Smoke screenshot: hero renders crisp instantly. First-paint background ≈ blur 
 
 ## Active Phase / Next Up
 
-### P1 — Premium UI/UX Redesign (NOT STARTED)
-User provided detailed prompt (Message 412 WhatsApp screenshot) requesting:
-- Glassmorphic textures, edge-to-edge layout
-- Floating top nav
-- Auto day/night mode
-- Premium minimalist feel
+### Iter 28 — Hard Token Enforcement + Admin Grants (Feb 2026)
+User: tokens were tracked but never enforced — a free user at 1500/1000 could still submit unlimited CTO tasks. Three asks: hard-stop at the budget, warn the user before they hit it, give admin a manual top-up lever.
 
-Plan: call `design_agent_full_stack` to produce design guidelines, then modularize the now-very-large `ChatPanel.jsx` while applying the refactor.
+**Backend**:
+- `services/usage.py` already had `PLAN_LIMITS` + `get_usage` + `assert_has_budget` (raises HTTP 402 with `{error:'token_limit_reached', used, limit, upgrade_url:'/pricing'}`)
+- New `routers/usage.py` → `GET /api/aurem-dev/usage/me` exposes the user's live budget (used, plan_limit, tokens_granted, effective_limit, remaining, pct_used, is_exhausted) for the frontend banner
+- `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
+- `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:
+  - Validates `0 < tokens <= 10M`, target user exists
+  - `$inc tokens_granted` on `dev_users` + appends an audit row to new collection `cto_token_grants` `{user_id, tokens, reason, granted_by, granted_at}`
+  - `effective_limit = PLAN_LIMITS[tier] + tokens_granted` so the grant lifts the ceiling immediately
+- `GET /admin/users/{uid}` now embeds live `usage` + recent `token_grants`
+
+**Frontend**:
+- `ChatPanel.jsx` — new `TokenBanner` component above the textarea:
+  - <80%: nothing
+  - 80-99%: yellow with `data-state='warning'`, "⚠️ N% tokens used · X remaining"
+  - ≥100%: red with `data-state='exhausted'`, "🚫 Tokens exhausted" + send + ship-via-cto buttons disabled
+  - Polls `/usage/me` on mount and after every chat reply (`refreshUsage()` inside `onDone`)
+- `Admin.jsx` UserDetail — new "Grant tokens" button toggles a form (amount + reason) → POST → success toast → recent-grants list updates; usage block shows plan / granted / effective / used / remaining with red-when-exhausted styling
+
+**Tests**: `/app/backend/tests/test_token_enforcement.py` — 4/4 pass:
+- `/usage/me` shape + auth gate
+- 402 on submit when exhausted, no AI call, no task row written
+- admin grant flips `is_exhausted` back to false
+- grant validation (0 / >10M / unknown user)
+
+E2E (testing agent iteration_5.json): 100% backend + 100% frontend pass. Only nits flagged: a11y on toast role (cosmetic), and send button disabled when input empty (by design).
 
 ## Backlog (P2)
 - Stripe integration for paid tier / token recharge
