@@ -41,7 +41,9 @@ async def call_ora(
     if session_id:
         body["session_id"] = session_id[:128]
     if system_hint:
-        body["system_hint"] = system_hint[:2000]
+        # aurem.live upstream rejects system_hint > 400 chars with 422.
+        # Cap defensively at 380 to leave headroom.
+        body["system_hint"] = system_hint[:380]
     try:
         async with httpx.AsyncClient(timeout=timeout) as c:
             r = await c.post(

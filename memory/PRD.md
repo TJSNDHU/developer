@@ -756,6 +756,29 @@ Founder provided exact aurem.live API contract (URL, request/response shape, err
 
 Full regression: **153 passed, 4 skipped, 0 failed**.
 
+### Iter 39 — Conversational mode + ORA 422 fix + Ship-button gating (Feb 2026)
+
+User on production: typed "hi ora" → got two bugs in one screenshot.
+
+**Bug 1 — ORA 422 on system_hint length**:
+- `routers/chat.py::_worker` was passing the FULL `extra_sys` (repo tree + URL context, multi-KB) to ORA as `system_hint`.
+- aurem.live upstream caps `system_hint` at 400 chars → every ORA call 422'd.
+- **Fix**: ORA branch now ignores the heavy local repo context (ORA has its own context system upstream) and sends only a tiny `"User is scoped to repo {owner}/{repo}@{branch}"` hint (max 380 chars). Defensive cap also added in `ora_client.py` (`[:380]`).
+- Verified: founder POST `/chat/stream agent:"ora"` now reaches aurem.live successfully. Upstream LLM-model 404 is on aurem.live's side (out of our scope).
+
+**Bug 2 — AUREM forcing EXECUTE-mode on casual greetings**:
+- User said "hi ora" → AUREM replied with a fake plan, `aurem-handoff` fence, citation warning, AND a Ship via CTO button. No greeting, no warmth, no intent detection.
+- Root cause: `AUREM_CTO_PERSONA` had only one mode — EXECUTE-FIRST. No "conversational" branch.
+- **Fix #1 (persona)** in `services/orchestrator.py`: added **MODE DETECTION** section at the top of the persona. Two explicit modes:
+  - **(A) CONVERSATIONAL** — greetings, thanks, capability questions, opinion questions, status pings, generic explanations → 1-4 sentence reply in warm English/Hinglish, NO tools, NO `aurem-handoff` fence, NO numbered plan.
+  - **(B) EXECUTE** — concrete repo work (fix/build/add/refactor/etc.) → existing EXECUTE-FIRST workflow, ends with `aurem-handoff` brief.
+  - Default when 50/50 → CONVERSATIONAL (safe).
+- **Fix #2 (frontend gating)** in `components/ChatPanel.jsx::extractHandoffBrief`: stray/malformed handoff fences with < 40 chars of body are now rejected — the Ship via CTO button only renders when there's a real, concrete brief.
+- Verified live:
+  - "hi ora" → "Hey there! I'm AUREM CTO… here's what I can help with: 1. Audit / debug, 2. Add endpoints, 3. Optimize." No fence. No button. ✅
+  - "add a /health endpoint to backend/main.py" → still emits proper plan (no fence in this case because no repo connected; correctly explains "connect a repo first"). ✅
+  - 24/24 persona + parallel-orchestrator tests still green.
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

@@ -307,10 +307,28 @@ async def chat_stream(
                 if (body.agent or "auto").lower() == "ora":
                     from services.ora_client import call_ora
                     activity["label"] = "calling ORA on aurem.live…"
+                    # ORA is aurem.live's hosted brain — it has its own
+                    # context system. We MUST NOT dump our local repo tree
+                    # (it's huge, and upstream caps system_hint at 400 chars
+                    # → 422). Send only a tiny scope hint instead.
+                    ora_hint = None
+                    try:
+                        if body.project_id and body.project_id != "home":
+                            _proj = await get_db().cto_projects.find_one(
+                                {"project_id": body.project_id, "user_id": user_id}
+                            )
+                            if _proj:
+                                owner = _proj.get("github_owner", "")
+                                repo  = _proj.get("github_repo", "")
+                                br    = _proj.get("branch", "main")
+                                if owner and repo:
+                                    ora_hint = f"User is scoped to repo {owner}/{repo}@{br}."[:380]
+                    except Exception:
+                        ora_hint = None
                     resp = await call_ora(
                         message=body.prompt,
                         session_id=body.session_id,
-                        system_hint=(extra_sys or None),
+                        system_hint=ora_hint,
                     )
                     result = {
                         "ok":       bool(resp.get("ok", True)),

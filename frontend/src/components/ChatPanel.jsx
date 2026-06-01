@@ -72,7 +72,11 @@ function extractHandoffBrief(content) {
   const m = content.match(/```aurem-handoff\s*\n([\s\S]*?)```/);
   if (!m) return null;
   const brief = (m[1] || "").trim();
-  return brief.length > 0 ? brief : null;
+  // Guard: a real handoff must describe actual file work. Below 40 chars
+  // is almost always a stray/malformed fence on a casual reply — hide
+  // the Ship button rather than offering a meaningless action.
+  if (brief.length < 40) return null;
+  return brief;
 }
 
 function estimateTokenCount(text) {
