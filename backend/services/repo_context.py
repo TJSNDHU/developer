@@ -36,16 +36,31 @@ MAX_TOTAL_CHARS = 15000           # total budget across all inlined files
 MAX_TREE_ENTRIES = 400            # how many paths to list in the tree
 
 # Files we want to inline if present — checked in this priority order.
+# Mix of frontend (React/Vue/Next), backend (FastAPI/Flask/Django/Express),
+# and config/manifest paths so we get SOMETHING for any repo layout.
 _PRIORITY_FILES = [
     "README.md", "README.rst", "README", "readme.md",
     "package.json", "requirements.txt", "pyproject.toml",
     "Cargo.toml", "go.mod", "Gemfile", "composer.json",
     ".env.example", "env.example",
-    "main.py", "app.py", "server.py", "manage.py",
+    # FastAPI / Flask / Django entry points (root level)
+    "main.py", "app.py", "server.py", "manage.py", "wsgi.py", "asgi.py",
+    # Common nested entry points
+    "backend/main.py", "backend/server.py", "backend/app.py",
+    "backend/server/main.py", "api/main.py", "src/main.py",
+    # Routers / common backend module names (Iter 37 — TJSNDHU/Aurem style)
+    "backend/routers/__init__.py", "backend/routes/__init__.py",
+    "backend/services/__init__.py",
+    # Frontend entry points
     "index.html", "index.js", "index.ts",
     "src/index.js", "src/index.ts", "src/main.js", "src/main.ts",
     "src/main.jsx", "src/main.tsx", "src/App.jsx", "src/App.tsx",
+    "frontend/src/App.jsx", "frontend/src/App.tsx",
+    "frontend/src/main.jsx", "frontend/src/main.tsx",
+    "pages/_app.tsx", "pages/_app.js", "pages/index.tsx", "pages/index.js",
+    "app/layout.tsx", "app/layout.jsx", "app/page.tsx", "app/page.jsx",
     "src/app.py", "src/server.py",
+    # Build / tooling configs
     "next.config.js", "vite.config.js", "vite.config.ts",
     "tailwind.config.js", "tsconfig.json",
     "Dockerfile", "docker-compose.yml", "docker-compose.yaml",

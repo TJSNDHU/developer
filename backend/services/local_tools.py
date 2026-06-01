@@ -91,11 +91,23 @@ async def read_repo_file(ctx: dict, args: dict) -> dict:
 
     content = await _gh_fetch_file(owner, repo, path, branch, token)
     if content is None:
+        # Iter 37: LOUD failure with concrete next-step. Previously the AI
+        # would see this 404 and IGNORE it, plowing ahead with fabricated
+        # analysis based on the path it guessed. Now we force course-correct.
         return {
             "ok":    False,
+            "path":  path,
+            "status": 404,
             "error": (
-                f"Could not fetch `{path}` from {owner}/{repo}@{branch}. "
-                "File may not exist or PAT lacks Contents:Read permission."
+                f"❌ FILE NOT FOUND: `{path}` does not exist on "
+                f"{owner}/{repo}@{branch}. STOP guessing paths. "
+                "Your next tool call MUST be `list_repo_files` with a glob "
+                "(e.g. `**/auth*.py`, `**/*router*.py`) to DISCOVER the "
+                "real paths in this repo. Do not write a plan, do not "
+                "produce a handoff brief, do not cite any file paths — "
+                "until you have called list_repo_files and seen the "
+                "actual layout. Most repos do not follow the layout you "
+                "expect from training data."
             ),
         }
 
@@ -154,12 +166,29 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
     ok_files  = [r for r in results if r.get("ok")]
     err_files = [r for r in results if not r.get("ok")]
 
+    # Iter 37: if MORE THAN HALF the guessed paths 404'd, the AI is
+    # almost certainly guessing layouts from training data instead of
+    # this customer's actual repo. Return a LOUD warning so the AI must
+    # call list_repo_files before doing anything else.
+    failure_warning = None
+    if len(paths) >= 3 and len(err_files) >= max(2, len(paths) // 2):
+        failure_warning = (
+            f"⚠️ HALLUCINATION RISK — {len(err_files)}/{len(paths)} of the "
+            "paths you guessed do not exist in this repo. STOP. Your next "
+            "tool call MUST be `list_repo_files` with a wide glob (e.g. "
+            "`**/*.py`, `backend/**`, `**/auth*`) to see the ACTUAL layout. "
+            "Do not write a plan or handoff brief until you have seen real "
+            "paths. The repo's structure is different from what you "
+            "expected — that's normal, every codebase is unique."
+        )
+
     return {
-        "ok":     len(ok_files) > 0,
-        "branch": branch,
-        "files":  list(results),
+        "ok":      len(ok_files) > 0,
+        "branch":  branch,
+        "files":   list(results),
         "fetched": len(ok_files),
-        "errors": [f"{r['path']}: {r.get('error','?')}" for r in err_files],
+        "errors":  [f"{r['path']}: {r.get('error','?')}" for r in err_files],
+        **({"warning": failure_warning} if failure_warning else {}),
     }
 
 

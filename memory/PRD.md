@@ -694,6 +694,45 @@ User caught 4 production problems in one screenshot/transcript:
 
 **Tests**: 14 new in `test_iter36_anti_hallucination.py` (3 `_retry` happy/eventual/exhausted, 6 hallucination-scanner cases, 3 persona-contract guards, 2 retry-endpoint state checks). Full regression: **149 passed, 0 failed** (was 135, +14).
 
+## Active Phase / Next Up
+
+### Iter 37 — Hallucination root cause: 404 paths + dead-silent failures (Feb 2026)
+Production logs (`auremcto.com`) revealed the **actual** hallucination root cause that Iter 36 hadn't fully solved. From the user's deploy logs:
+
+```
+GET .../src/App.jsx        404
+GET .../src/main.jsx       404
+GET .../server.py          404
+GET .../main.py            404
+GET .../app.py             404
+GET .../pages/index.js     404
+GET .../index.html         404
+GET .../README.md          200   ← ONLY this loaded
+```
+
+For TJSNDHU/Aurem (the user's repo), 7 of 8 priority files 404'd because the hardcoded `_PRIORITY_FILES` list assumed React+FastAPI conventions (root-level `main.py`, `src/App.jsx`). TJSNDHU/Aurem actually uses `backend/main.py` + `backend/routers/`. AI saw only README → fabricated paths it remembered from training.
+
+**Compounding bug**: `read_repo_file` 404 returned a polite *"file may not exist"* error — AI ignored it and kept fabricating. `read_repo_files` (multi-file parallel) had identical silent behavior.
+
+**Iter 37 fixes**:
+
+1. **`_PRIORITY_FILES` widened** (`services/repo_context.py`): added 11 backend-style paths — `backend/main.py`, `backend/server.py`, `backend/server/main.py`, `backend/routers/__init__.py`, `backend/services/__init__.py`, `api/main.py`, `src/main.py`, `wsgi.py`, `asgi.py`, `frontend/src/App.jsx`, `frontend/src/main.jsx` — so any layout gets SOMETHING inlined.
+
+2. **Loud 404 from `read_repo_file`** (`services/local_tools.py`): error message rewritten to:
+   ```
+   ❌ FILE NOT FOUND: `<path>` does not exist on <owner>/<repo>@<branch>.
+   STOP guessing paths. Your next tool call MUST be `list_repo_files`
+   with a glob (e.g. `**/auth*.py`, `**/*router*.py`) to DISCOVER the
+   real paths in this repo. Do not write a plan, do not produce a
+   handoff brief, do not cite any file paths — until you have called
+   list_repo_files and seen the actual layout.
+   ```
+   Now also returns `status: 404` so the orchestrator can audit.
+
+3. **Batch-level hallucination warning** (`read_repo_files`): if ≥50% of guessed paths 404 (min 2 of ≥3), the result includes a top-level `warning` field: `"⚠️ HALLUCINATION RISK — N/M of the paths you guessed do not exist… STOP. Your next tool call MUST be list_repo_files…"`. Most LLM tool-call protocols surface top-level fields prominently in the result echo, forcing the AI to course-correct.
+
+**Tests**: 4 new in `test_iter37_404_hallucination_guard.py` covering: loud 404 message, ≥50% failure triggers warning, <50% failure does NOT trigger (no false alarms), and the widened priority list still covers React layouts. Full regression: **153 passed, 4 skipped, 0 failed** (was 149, +4).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
