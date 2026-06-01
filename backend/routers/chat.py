@@ -62,6 +62,11 @@ class ChatBody(BaseModel):
     max_tool_iters: int = 2
     maxx_mode: bool = False
     project_id: Optional[str] = None
+    # Iter 38: agent selector. "auto" routes via existing model-routing
+    # logic in orchestrator.py (DeepSeek/Claude). "ora" calls the founder's
+    # own aurem.live ORA endpoint. Other values currently fall through to
+    # "auto" so adding new agents later is backwards-compatible.
+    agent: Optional[str] = "auto"
 
 
 _TITLE_SYSTEM = "Generate ultra-short chat titles. 3-5 words, Title Case, no punctuation. Just the title."
@@ -222,6 +227,30 @@ async def chat_send(
     }
 
 
+
+@router.get("/agents/list")
+async def list_agents(authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 38: return the agents this user is allowed to pick from in
+    the chat selector. ORA is shown only to founder accounts."""
+    user = await current_dev(authorization)
+    from services.usage import is_founder_email
+    from services.ora_client import is_ora_available
+    is_founder = is_founder_email(user.get("email"))
+    agents = [
+        {"id": "auto",  "label": "AUREM",
+         "desc": "Auto-routes between Claude (code) and DeepSeek (chat)",
+         "default": True},
+    ]
+    if is_founder and is_ora_available():
+        agents.append({
+            "id": "ora",  "label": "ORA",
+            "desc": "Aurem.live ORA model — founder-only",
+            "founder_only": True,
+        })
+    return {"agents": agents, "default": "auto"}
+
+
+
 @router.post("/stream")
 async def chat_stream(
     body: ChatBody,
@@ -232,6 +261,14 @@ async def chat_stream(
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
+
+    # Iter 38: ORA is founder-only. The ORA API key is shared across all
+    # founders, so we gate at the surface to avoid customer quota burn.
+    if (body.agent or "").lower() == "ora":
+        from services.usage import is_founder_email
+        if not is_founder_email(user.get("email")):
+            raise HTTPException(403, "ORA agent is founder-only")
+
     repo_ctx = await get_repo_context(user_id, body.project_id or "")
     url_ctx = await build_url_context(body.prompt)
     extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
@@ -264,6 +301,30 @@ async def chat_stream(
 
         async def _worker():
             try:
+                # Iter 38: ORA branch. Founder-only — checked at the
+                # endpoint surface below. Skips orchestrator + tools
+                # entirely; calls aurem.live's hosted ORA model.
+                if (body.agent or "auto").lower() == "ora":
+                    from services.ora_client import call_ora
+                    activity["label"] = "calling ORA on aurem.live…"
+                    resp = await call_ora(
+                        message=body.prompt,
+                        session_id=body.session_id,
+                        system_hint=(extra_sys or None),
+                    )
+                    result = {
+                        "ok":       bool(resp.get("ok", True)),
+                        "content":  resp.get("reply") or "",
+                        "provider": f"ora-{resp.get('model','?')}",
+                        "fallback_chain": ["ora"],
+                        "iterations": 1,
+                        "tool_calls_run": 0,
+                        "tool_invocations": [],
+                        "mode": "ora",
+                    }
+                    await q.put({"type": "result", "result": result})
+                    return
+
                 activity["label"] = "thinking…"
                 result = await chat_with_tools(
                     prompt=body.prompt,

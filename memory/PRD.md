@@ -733,6 +733,29 @@ For TJSNDHU/Aurem (the user's repo), 7 of 8 priority files 404'd because the har
 
 **Tests**: 4 new in `test_iter37_404_hallucination_guard.py` covering: loud 404 message, ≥50% failure triggers warning, <50% failure does NOT trigger (no false alarms), and the widened priority list still covers React layouts. Full regression: **153 passed, 4 skipped, 0 failed** (was 149, +4).
 
+## Active Phase / Next Up
+
+### Iter 38 — ORA agent wired + chat agent selector (Feb 2026)
+Founder provided exact aurem.live API contract (URL, request/response shape, error codes) and a real API key `aurem_sk_live_7Mzto…` scoped to `ora_chat / cto_chat / leads_read`. No more hallucinated proposals — built strictly to spec.
+
+**Backend**:
+- `services/ora_client.py` — thin httpx wrapper. `call_ora(message, session_id?, system_hint?)` → POST `{ORA_BASE_URL}/api/v1/public/ora/chat` with `Authorization: Bearer ${ORA_API_KEY}`. Surfaces upstream `{detail}` errors verbatim (401/403/429/500). `is_ora_available()` cheap pre-flight checks env presence.
+- `.env` entries: `ORA_API_KEY` + `ORA_BASE_URL=https://aurem.live` (production needs the same vars set in Emergent dashboard).
+- `routers/chat.py::ChatBody` — new `agent: Optional[str] = "auto"` field. ORA branch in `_worker()` skips orchestrator + tools entirely and calls `call_ora()` directly. Founder-only gate at endpoint surface (`is_founder_email(user.email)` → 403 if not a founder) so the shared API key never burns customer quota.
+- New `GET /api/aurem-dev/chat/agents/list` — returns the agents this user can pick from. Founders see `["auto","ora"]`, regular users see only `["auto"]`.
+
+**Frontend**:
+- `ChatPanel.jsx` — new `agent` state persisted in `localStorage.aurem_chat_agent`, hydrated from `/chat/agents/list` on mount. Selector dropdown (`data-testid="chat-agent-select"`) renders only when `agents.length > 1` so customers don't see anything new. Sits next to Maxx/Preview toggles.
+- `lib/api.js::streamChat` — accepts + passes `agent` through to the POST body.
+
+**E2E verification** (all pass):
+- Founder agents/list → `["auto","ora"]` ✅
+- Regular user agents/list → `["auto"]` only ✅
+- Regular user POST `/chat/stream` with `agent:"ora"` → HTTP 403 "ORA agent is founder-only" ✅
+- Direct `call_ora()` from preview pod → aurem.live authenticated our Bearer token successfully (upstream LLM 500 is on aurem.live's side, doesn't count against quota per their contract)
+
+Full regression: **153 passed, 4 skipped, 0 failed**.
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

@@ -34,6 +34,7 @@ const WELCOME = {
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB (server enforces same cap)
 const TEXT_FAST_PATH_BYTES = 50 * 1024;  // <=50KB text → skip server roundtrip
 const MAXX_KEY = "aurem_maxx_mode";
+const AGENT_KEY = "aurem_chat_agent";
 const PREVIEW_KEY = "aurem_preview_open";
 
 const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
@@ -160,6 +161,22 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   );
   const [previewBlocks, setPreviewBlocks] = useState([]);
   const [usage, setUsage] = useState(null);  // {used, effective_limit, remaining, pct_used, is_exhausted}
+  // Iter 38: agent selector. Persisted in localStorage so the user keeps
+  // their pick across reloads. Default "auto" = our existing routing.
+  const [agent, setAgent] = useState(
+    () => localStorage.getItem(AGENT_KEY) || "auto"
+  );
+  const [agents, setAgents] = useState([
+    { id: "auto", label: "AUREM", desc: "Auto-routes Claude/DeepSeek" },
+  ]);
+  useEffect(() => { localStorage.setItem(AGENT_KEY, agent); }, [agent]);
+  useEffect(() => {
+    // Load the list of agents this user can choose from. Founders see
+    // ORA, regular users don't. Falls back silently on error.
+    api.get("/chat/agents/list").then((r) => {
+      if (r.data?.agents?.length) setAgents(r.data.agents);
+    }).catch(() => {});
+  }, []);
   const endRef = useRef(null);
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -369,6 +386,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       sessionId,
       maxToolIters: 2,
       maxxMode,
+      agent,                       // iter 38: selector value
       signal: ctrl.signal,
       onMeta: (m) => {
         if (m.provider) providerSeen = m.provider;
@@ -643,6 +661,32 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             active={previewOpen}
           />
           <span style={{ flex: 1 }} />
+          {/* Iter 38: agent selector — appears only when >1 agent is
+              available (i.e. founders see ORA, customers see nothing). */}
+          {agents.length > 1 && (
+            <select
+              data-testid="chat-agent-select"
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+              title="Pick which agent answers this chat"
+              style={{
+                fontSize: 11,
+                fontFamily: "'JetBrains Mono', monospace",
+                padding: "4px 8px",
+                background: "var(--bg)",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+            >
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )}
           {maxxMode && (
             <span
               data-testid="maxx-active-pill"
