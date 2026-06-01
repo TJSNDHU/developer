@@ -33,7 +33,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MAX_TOKENS = {
     "chat":    1500,
     "code":    3500,   # iter 35: raised for code tasks
-    "review":   500,
+    "review":  4096,   # iter 40: bumped for Claude Two-Agent review
     "title":     30,
     "default": 1000,
 }
@@ -50,7 +50,7 @@ TEMPERATURE = {
 _DEEPSEEK_HOSTS = ["deepseek", "streamlake", "deepinfra", "novita"]
 
 # Modes that use Claude for better code quality
-_CLAUDE_MODES = {"code"}
+_CLAUDE_MODES = {"code", "review"}
 
 
 def cap_for(mode: str) -> int:

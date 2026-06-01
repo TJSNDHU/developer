@@ -474,3 +474,22 @@ async def save_settings(
         {"_id": "global"}, {"$set": body}, upsert=True,
     )
     return {"ok": True}
+
+
+# ── Iter 40 — ORA Council (Two-Agent Maxx telemetry) ───────────────────
+@router.get("/ora/stats")
+async def ora_council_stats(authorization: Optional[str] = Header(None)):
+    """Quick summary: total logs, by-mode counts, correction rate,
+    pending-export queue, fine-tune readiness."""
+    await _require_admin(authorization)
+    from services.ora_learning_export import get_council_stats
+    return await get_council_stats()
+
+
+@router.post("/ora/export")
+async def ora_council_export(authorization: Optional[str] = Header(None)):
+    """Manually trigger yesterday's JSONL export. Daily cron also runs it."""
+    await _require_admin(authorization)
+    from services.ora_learning_export import export_daily
+    return await export_daily()
+

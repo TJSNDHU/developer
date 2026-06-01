@@ -59,6 +59,7 @@ class TaskBody(BaseModel):
     files: List[str] = []
     context: str = ""
     auto_deploy: bool = False
+    maxx_mode: bool = False     # iter 40: enable Two-Agent (DeepSeek + Claude review)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -175,10 +176,12 @@ async def submit_task(
         "files": body.files, "context": body.context,
         "status": "queued", "steps": [], "commit_sha": None,
         "result": None, "error": None,
+        "maxx_mode": bool(body.maxx_mode),
         "created_at": time.time(),
     })
     user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
-    bg.add_task(_run_task, task_id, proj, body.task, body.files, body.context, user_token)
+    bg.add_task(_run_task, task_id, proj, body.task, body.files, body.context,
+                user_token, bool(body.maxx_mode))
     return {"ok": True, "task_id": task_id}
 
 
@@ -618,19 +621,19 @@ async def _retry(coro_factory, *, what: str, task_id: str,
 
 
 
-async def _run_task(task_id, proj, task, files, context, user_token):
+async def _run_task(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
     """Dispatcher — uses git-subprocess path when git is installed, falls
     back to the pure GitHub-API path when it isn't (Iter 21)."""
     if _GIT_AVAILABLE:
         return await _run_task_with_git(
-            task_id, proj, task, files, context, user_token
+            task_id, proj, task, files, context, user_token, maxx_mode
         )
     return await _run_task_via_api(
-        task_id, proj, task, files, context, user_token
+        task_id, proj, task, files, context, user_token, maxx_mode
     )
 
 
-async def _run_task_via_api(task_id, proj, task, files, context, user_token):
+async def _run_task_via_api(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
     """API-only worker — no `git` binary needed. Reads target files from
     GitHub, asks AUREM to generate edits, then commits everything as ONE
     atomic commit via the Git Data API."""
@@ -740,6 +743,51 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
             return
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
+        # 2c) TWO-AGENT MAXX (iter 40) — Claude reviews DeepSeek's edits.
+        # Gated on per-task `maxx_mode`. On PASS we commit DeepSeek's
+        # output as-is. On FAIL we commit Claude's corrected version.
+        # Claude outage → defaults to PASS so the pipeline never blocks.
+        deepseek_draft = dict(edits)   # snapshot for the council log
+        review_result = {"pass": True, "corrected": None, "issues": []}
+        if maxx_mode:
+            try:
+                await _log(task_id, "🔍 Claude reviewing DeepSeek edits…")
+                from services.code_reviewer import review_code_with_claude
+                review_result = await review_code_with_claude(
+                    file_blocks=edits,
+                    user_intent=task,
+                    repo_ctx=f"{owner}/{repo}@{branch}",
+                )
+                if review_result["pass"]:
+                    await _log(task_id, "✅ Claude review: PASS", "success")
+                else:
+                    n_fixed = len(review_result.get("corrected") or {})
+                    await _log(task_id, f"🩹 Claude review: corrected {n_fixed} file(s)", "warning")
+                    edits = review_result["corrected"] or edits
+                    await _set_status(task_id, agent_used="deepseek+claude")
+            except Exception as _re:
+                await _log(task_id, f"⚠️ reviewer error (committing original): {_re}", "warning")
+                review_result = {"pass": True, "corrected": None, "issues": []}
+
+        # 2d) Council log — fire-and-forget; never blocks the commit.
+        try:
+            from services.ora_council_logger import log_code_task
+            await log_code_task(
+                user_message=task,
+                repo_context=f"{owner}/{repo}@{branch}",
+                deepseek_draft=deepseek_draft,
+                claude_correction=review_result.get("corrected"),
+                final_output=edits,
+                correction_applied=not review_result["pass"],
+                pass_result=bool(review_result["pass"]),
+                issues_found=review_result.get("issues"),
+                task_id=task_id,
+                user_id=proj.get("user_id"),
+                maxx_mode=maxx_mode,
+            )
+        except Exception:
+            pass
+
         # 3) Commit + push as one atomic API call
         await _set_status(task_id, status="pushing")
 
@@ -827,7 +875,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token):
                           completed_at=time.time())
 
 
-async def _run_task_with_git(task_id, proj, task, files, context, user_token):
+async def _run_task_with_git(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
     import re
     ws = WORKSPACE / task_id
     ws.mkdir(parents=True, exist_ok=True)

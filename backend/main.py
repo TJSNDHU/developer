@@ -71,6 +71,12 @@ async def lifespan(app: FastAPI):
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     import asyncio as _asyncio
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+    # Iter 40 — ORA council logs indexes (idempotent, safe to re-run)
+    try:
+        from services.ora_council_logger import ensure_indexes as _ora_idx
+        await _ora_idx()
+    except Exception as _e:
+        logger.warning(f"ora council index ensure failed: {_e}")
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()

@@ -432,6 +432,22 @@ async def chat_stream(
         await _persist_turn(user_id, body.session_id or "",
                             body.prompt, content, provider, watchdog=watchdog,
                             project_id=body.project_id)
+
+        # iter 40 — ORA council log (Mode A/B). Fire-and-forget; never blocks.
+        try:
+            from services.ora_council_logger import log_conversational
+            council_mode = "B" if "aurem-handoff" in (content or "") else "A"
+            await log_conversational(
+                mode=council_mode,
+                user_message=body.prompt or "",
+                ora_reply=content or "",
+                user_id=user_id,
+                session_id=body.session_id,
+                agent_used=("ora" if (body.agent or "").lower() == "ora" else (provider or "deepseek")),
+            )
+        except Exception:
+            pass
+
         if body.session_id:
             asyncio.create_task(
                 _maybe_set_title(user_id, body.session_id, body.prompt)

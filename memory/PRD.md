@@ -779,6 +779,29 @@ User on production: typed "hi ora" → got two bugs in one screenshot.
   - "add a /health endpoint to backend/main.py" → still emits proper plan (no fence in this case because no repo connected; correctly explains "connect a repo first"). ✅
   - 24/24 persona + parallel-orchestrator tests still green.
 
+### Iter 40 — Two-Agent Maxx + ORA Council Logging (Feb 2026)
+User vision: frontend stays as "ORActo" branding; backend silently routes DeepSeek (cheap codegen) → Claude Sonnet (quality reviewer). Every interaction (greetings, advice, code tasks) logs into `ora_council_logs` for future ORA fine-tuning, so the founder eventually replaces both paid agents with their own model.
+
+**Three new service files**:
+1. `services/code_reviewer.py` — `review_code_with_claude(file_blocks, user_intent, repo_ctx)`. Sends DeepSeek's generated edits to Claude Sonnet via `call_llm_with_meta(mode="review")`. Claude returns either `PASS` or corrected `FILE:` blocks. Any Claude outage degrades silently to PASS so the commit pipeline is never blocked. Adapted to AUREM's dict-shaped `call_llm_with_meta` response.
+2. `services/ora_council_logger.py` — `log_conversational(mode='A'|'B', ...)` for chat replies + `log_code_task(...)` for Mode C ship tasks. Fire-and-forget; logging failures never block user-facing response. `ensure_indexes()` creates `(timestamp -1, mode 1, exported_for_training 1)` indexes idempotently on startup.
+3. `services/ora_learning_export.py` — `export_daily()` reads yesterday's logs, builds JSONL training pairs `{messages:[system,user,assistant], metadata:{...}}`, writes to `/app/backend/ora_training_data/ora_training_<date>.jsonl`, marks `exported_for_training=true`. `get_council_stats()` returns total/by-mode/correction-rate/fine-tune-readiness for the admin dashboard.
+
+**Wire-ins**:
+- `services/llm.py`: `MAX_TOKENS["review"]` 500 → 4096; `_CLAUDE_MODES` now includes `"review"` so reviewer calls route to Claude Sonnet (with auto-fallback to DeepSeek if `EMERGENT_LLM_KEY` missing).
+- `routers/cto_projects.py::TaskBody` adds `maxx_mode: bool = False`. `submit_task` persists it on the task doc and passes it through `_run_task → _run_task_with_git/_run_task_via_api`. The API worker runs Claude review AFTER truncation gate and BEFORE `gh_api_commit()` when `maxx_mode=True`. Every code task ALWAYS logs to `ora_council_logs` (PASS or FAIL, with both DeepSeek draft and Claude correction stored).
+- `routers/chat.py::chat_stream` end-of-worker: `log_conversational(mode='A' if no aurem-handoff fence else 'B', agent_used='ora'|'deepseek'|...)`. Mode A = greetings/chat, Mode B = the AI emitted a real plan/handoff brief, Mode C = handled inside the CTO worker.
+- `main.py` lifespan: calls `ensure_indexes()` on startup.
+- `routers/admin.py`: new `GET /admin/ora/stats` + `POST /admin/ora/export` (founder-only) for council monitoring.
+
+**Live E2E verified**:
+- "hi ora" turn → `ora_council_logs` gets 1 row with `mode='A'`, `agent_used='deepseek'`, full user_message + final_output.
+- `GET /admin/ora/stats` returns `{total_interactions:1, by_mode:{A:1,B:0,C:0}, ready_for_finetune:false, finetune_tip:"Need 999 more interactions before fine-tuning"}`.
+- All 4 new files import cleanly; 58 persona/orchestrator/hallucination tests still green.
+- MongoDB indexes (`timestamp`, `mode`, `exported_for_training`) created on startup.
+
+**Cost note** (for founder's reference): Claude Sonnet review adds ~$0.033/code-task (6K in + 1K out at $3/$15 per Mtok). Founder-only at current scale = pennies/month. With Anthropic prompt caching on the repo context, drops ~60% to ~$0.012/task. Free-tier auto-fallback to DeepSeek-only if `EMERGENT_LLM_KEY` unset.
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)
