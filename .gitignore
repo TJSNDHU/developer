@@ -84,9 +84,9 @@ ora_training_data/
 
 # Mobile development
 android-sdk/
-.env
-.env.*
-*.env
+# NOTE: .env files MUST be committed for Emergent deployment to inject
+# production values. Do NOT re-block them. Sensitive secrets should
+# live ONLY in the deployment dashboard env config, not in committed files.
 credentials.json
 *.key
 .credentials
