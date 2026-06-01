@@ -12,7 +12,7 @@ export default function Signup() {
   usePageMeta({
     title: "Sign up · Claim 1,000 free tokens · AUREM Dev",
     description: "Create your AUREM Dev account in 30 seconds. 1,000 tokens free on signup — no credit card required. Bring your own Anthropic, DeepSeek or Gemini key.",
-    canonical: "https://auremcto.com/signup",
+    canonical: (typeof window !== "undefined" ? window.location.origin : "") + "/signup",
   });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

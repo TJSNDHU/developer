@@ -49,7 +49,7 @@ export default function usePageMeta({ title, description, canonical }) {
       setMeta("og:description", DEFAULT_DESC, "property");
       setMeta("twitter:title", DEFAULT_TITLE);
       setMeta("twitter:description", DEFAULT_DESC);
-      setCanonical("https://auremcto.com/");
+      setCanonical(window.location.origin + "/");
     };
   }, [title, description, canonical]);
 }

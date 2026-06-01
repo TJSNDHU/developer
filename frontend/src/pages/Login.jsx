@@ -12,7 +12,7 @@ export default function Login() {
   usePageMeta({
     title: "Sign in · AUREM Dev",
     description: "Sign in to your AUREM Dev account and continue shipping features to your GitHub repo with an autonomous AI engineer.",
-    canonical: "https://auremcto.com/login",
+    canonical: (typeof window !== "undefined" ? window.location.origin : "") + "/login",
   });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

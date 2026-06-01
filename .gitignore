@@ -78,6 +78,10 @@ agenthub/agents/youtube/db
 
 memory/test_credentials.md
 
+# ORA training data (large + contains user messages)
+ora_training_data/
+**/ora_training_data/
+
 # Mobile development
 android-sdk/
 .env

@@ -306,6 +306,7 @@ async def chat_stream(
                 # entirely; calls aurem.live's hosted ORA model.
                 if (body.agent or "auto").lower() == "ora":
                     from services.ora_client import call_ora
+                    from fastapi import HTTPException as _HTTPExc
                     activity["label"] = "calling ORA on aurem.live…"
                     # ORA is aurem.live's hosted brain — it has its own
                     # context system. We MUST NOT dump our local repo tree
@@ -325,23 +326,37 @@ async def chat_stream(
                                     ora_hint = f"User is scoped to repo {owner}/{repo}@{br}."[:380]
                     except Exception:
                         ora_hint = None
-                    resp = await call_ora(
-                        message=body.prompt,
-                        session_id=body.session_id,
-                        system_hint=ora_hint,
-                    )
-                    result = {
-                        "ok":       bool(resp.get("ok", True)),
-                        "content":  resp.get("reply") or "",
-                        "provider": f"ora-{resp.get('model','?')}",
-                        "fallback_chain": ["ora"],
-                        "iterations": 1,
-                        "tool_calls_run": 0,
-                        "tool_invocations": [],
-                        "mode": "ora",
-                    }
-                    await q.put({"type": "result", "result": result})
-                    return
+                    # Graceful upstream failure: if aurem.live errors (their
+                    # own LLM 500, 429, 504, etc.), DO NOT crash the SSE
+                    # stream — auto-fall back to the local AUREM orchestrator
+                    # so the user always gets a real answer. The error is
+                    # logged as INFO (not ERROR) so production logs aren't
+                    # spammed with upstream issues out of our control.
+                    try:
+                        resp = await call_ora(
+                            message=body.prompt,
+                            session_id=body.session_id,
+                            system_hint=ora_hint,
+                        )
+                        result = {
+                            "ok":       bool(resp.get("ok", True)),
+                            "content":  resp.get("reply") or "",
+                            "provider": f"ora-{resp.get('model','?')}",
+                            "fallback_chain": ["ora"],
+                            "iterations": 1,
+                            "tool_calls_run": 0,
+                            "tool_invocations": [],
+                            "mode": "ora",
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
+                    except _HTTPExc as ora_err:
+                        logger.info(
+                            "ora upstream unavailable (%s) — falling back to AUREM",
+                            getattr(ora_err, "status_code", "?"),
+                        )
+                        activity["label"] = "ORA unavailable — switching to AUREM CTO…"
+                        # Fall through to the AUREM/orchestrator path below.
 
                 activity["label"] = "thinking…"
                 result = await chat_with_tools(
