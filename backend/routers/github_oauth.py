@@ -22,7 +22,11 @@ router = APIRouter(prefix="/github/oauth", tags=["GitHub OAuth"])
 
 
 def _frontend_settings_url(query: str) -> str:
-    base = os.getenv("APP_URL") or "https://auremcto.com"
+    # APP_URL must be set in deployment env (e.g. https://auremcto.com).
+    # No hardcoded fallback so misconfiguration fails loud, not silent.
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    if not base:
+        raise HTTPException(500, "APP_URL not configured on this deployment")
     return f"{base}/settings?{query}"
 
 
