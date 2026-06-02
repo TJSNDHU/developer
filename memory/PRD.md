@@ -794,6 +794,76 @@ future copy-paste regression fails CI.
 Full backend regression: **219 passed / 5 skipped / 0 failed**.
 
 
+### Iter 57 — Repo scan + Brain memory routes (Feb 2026)
+User reported the long-standing pain: "AUREM repo me kuch nahin dekhta,
+README ke baahar ka kuch poochho toh bolta hai 'mere README me iska
+zikr nahin'. Aur commit ke baad bhi agle chat me kuch yaad nahin
+rehta." They demanded a route-level fix, not patches. Four root
+causes identified and fixed.
+
+**Root cause 1 — repo_context wording trained the model to refuse**
+`services/repo_context.py::_wrap` was telling the LLM:
+  "Answer the user's questions about this repo using ONLY this real
+   data — never tell them you can't access their repo."
+With "ONLY this real data" as the directive, when a user asked about a
+file that wasn't in the inlined slice (README, package.json, entry
+points), the model literally interpreted this as "if it's not here,
+say I don't have it" — even though `read_repo_file` was available in
+the tool catalog. Rewrote the directive to *mandate* tool use:
+
+  "MANDATORY BEHAVIOUR: If the answer is not in the inlined files BUT
+   the path exists in the file tree — call `read_repo_file` (or
+   `read_repo_files` for multiple paths) to fetch the real source
+   BEFORE replying. Never say 'it's not in the README' or 'I don't
+   have access'."
+
+Tree + inlined slice still ship as before; only the directive changed.
+
+**Root cause 2 — Brain stored commits but never showed them**
+`services/project_brain.py::update_brain_after_commit` was pushing
+`{type: commit, description, files, ...}` events into `event_log`
+correctly. But `_build_context_string()` (what gets injected into
+ORA's prompt) **never read `event_log`**. So commits accumulated in
+Mongo silently — invisible to every subsequent chat turn.
+
+Added a `Recent commits AUREM has shipped on this repo` section to
+the brain context string. Surfaces the last 6 commit events with
+their file list + Claude-correction flag. ORA now knows what it just
+shipped on the next turn.
+
+**Root cause 3 — Chat stream never even called the brain**
+`routers/chat.py::chat_stream` was calling `get_repo_context()` and
+`build_url_context()` for the system prompt, but **not**
+`get_brain_context()`. Brain memory only flowed into the CTO worker
+(via `cto_projects.py`), never into the user-facing chat. Added a
+brain pull inside the chat stream handler with project owner/repo
+lookup, exception-safe (logs and continues with empty brain if Mongo
+hiccups). Result lands in `extra_sys` between repo_ctx and url_ctx
+and gets prepended to the orchestrator's system prompt.
+
+**Root cause 4 — Git-path worker silent on brain updates**
+`cto_projects.py::_run_task_via_api` (API path) fires
+`update_brain_after_commit` after a successful commit — Iter 41.
+`_run_task_with_git` (git CLI path) was NOT. Whenever the git path
+was the active worker dispatch, every commit got dropped from the
+brain. Added the same fire-and-forget brain update on the git path so
+both workers keep parity.
+
+**Tests** — 7 new in `tests/test_iter57_repo_context_and_brain_memory.py`:
+- `_wrap` mandates tool use + smoking-gun "ONLY this real data" string
+  is GONE (regression-pin so the bad wording can't sneak back)
+- Tree + inlined still present
+- Brain surfaces recent commits with file names + Claude-correction marker
+- Brain clamps to last 6 commits
+- Brain handles empty `event_log`
+- Chat router injects `brain_ctx` into `extra_sys`
+- `cto_projects.py` has ≥2 references to `update_brain_after_commit`
+  (API path + git path parity)
+
+Full backend regression: **226 passed / 5 skipped / 0 failed**.
+
+
+
 
 
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows

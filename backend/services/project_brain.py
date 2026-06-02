@@ -77,14 +77,39 @@ def _build_context_string(brain: dict) -> str:
     if brain.get("tech_stack"):
         parts.append("Tech stack: " + ", ".join(brain["tech_stack"][:8]))
 
+    # Most recent commits ORA itself shipped — without this section, ORA
+    # had no idea what changed last time and kept telling users "I don't
+    # know" about features it had literally written 5 minutes earlier.
+    # We surface the last 6 commit events (files touched + one-line
+    # description) so the next chat turn picks up where the worker left off.
+    events = brain.get("event_log") or []
+    commits = [e for e in events if e.get("type") == "commit"]
+    if commits:
+        recent_commits = commits[-6:]
+        commit_lines = []
+        for ev in recent_commits:
+            desc = (ev.get("description") or "").strip().splitlines()[0][:120]
+            files = ev.get("files") or []
+            file_blob = ", ".join(f"`{f}`" for f in files[:5])
+            if len(files) > 5:
+                file_blob += f" (+{len(files) - 5} more)"
+            line = f"  • {desc}"
+            if file_blob:
+                line += f"\n      files: {file_blob}"
+            if ev.get("correction_applied"):
+                line += "\n      (Claude reviewer corrected this)"
+            commit_lines.append(line)
+        parts.append("Recent commits AUREM has shipped on this repo:\n"
+                     + "\n".join(commit_lines))
+
     if brain.get("decisions"):
-        recent = brain["decisions"][-5:]  # last 5 decisions only
+        recent = brain["decisions"][-5:]
         parts.append("Past decisions:\n" + "\n".join(
             f"  • {d['title']}: {d['reason']}" for d in recent
         ))
 
     if brain.get("rejected"):
-        recent = brain["rejected"][-4:]  # last 4 rejections
+        recent = brain["rejected"][-4:]
         parts.append("Already rejected (do NOT suggest):\n" + "\n".join(
             f"  • {r['idea']}: {r['why_rejected']}" for r in recent
         ))

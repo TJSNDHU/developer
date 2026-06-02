@@ -389,7 +389,34 @@ async def chat_stream(
 
     repo_ctx = await get_repo_context(user_id, body.project_id or "")
     url_ctx = await build_url_context(body.prompt)
-    extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
+    # Inject the project's persistent memory (recent commits, tech stack,
+    # past decisions, rejected ideas, recurring bugs) so a fresh chat
+    # turn knows what AUREM has already shipped on this repo. Previously
+    # only the CTO worker used the brain — chat never read it, which is
+    # why users kept getting "I don't know about that feature" replies
+    # for things AUREM itself had committed minutes earlier.
+    brain_ctx = ""
+    if body.project_id and body.project_id != "home":
+        try:
+            _proj = await get_db().cto_projects.find_one(
+                {"project_id": body.project_id, "user_id": user_id},
+                {"_id": 0, "github_owner": 1, "github_repo": 1},
+            )
+            owner = (_proj or {}).get("github_owner") or ""
+            repo = (_proj or {}).get("github_repo") or ""
+            repo_full = f"{owner}/{repo}" if owner and repo else body.project_id
+            from services.project_brain import get_brain_context
+            brain_ctx = await get_brain_context(
+                get_db(), body.project_id, repo_full,
+            )
+            if brain_ctx:
+                brain_ctx = "[PROJECT MEMORY]\n" + brain_ctx
+        except Exception:
+            logger.exception("chat: brain context fetch failed (continuing)")
+            brain_ctx = ""
+    extra_sys = "\n\n".join(
+        s for s in (repo_ctx, brain_ctx, url_ctx) if s
+    )
 
     async def gen():
         import time as _t

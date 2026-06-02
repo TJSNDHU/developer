@@ -1365,6 +1365,22 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
                 {"project_id": proj["project_id"]},
                 {"$inc": {"tasks_done": 1}, "$set": {"last_task": time.time()}},
             )
+            # Brain update on git path too — without this, chat memory
+            # only refreshes when the API-path worker is used. API + git
+            # workers MUST keep parity, otherwise toggling between them
+            # silently loses commit history from the brain.
+            try:
+                from services.project_brain import update_brain_after_commit
+                asyncio.create_task(update_brain_after_commit(
+                    db=db,
+                    project_id=proj.get("project_id", ""),
+                    task_description=task,
+                    files_changed=list(edits.keys()),
+                    was_correction_applied=False,
+                    issues_found=[],
+                ))
+            except Exception:
+                pass
     except Exception as e:
         logger.exception(f"[cto-task {task_id}] failed")
         # BUG 1 fix — scrub the PAT from the public error string. The API

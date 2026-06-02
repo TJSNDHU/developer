@@ -236,10 +236,29 @@ def _wrap(owner: str, repo: str, branch: str,
     parts = [
         "=== CONNECTED REPO CONTEXT ===",
         f"You are scoped to: {owner}/{repo}@{branch}",
+        # NOTE: previous wording said "Answer using ONLY this real data"
+        # which trained the model to refuse repo questions whenever the
+        # answer wasn't in the inlined snippet (the "README mein nahin
+        # hai" bug). Reworded to make tool-use mandatory whenever the
+        # inlined slice isn't enough.
         "You DO have read access to this user's repo via GitHub's API. "
-        "Below is the actual file tree and the contents of key files. "
-        "Answer the user's questions about this repo using ONLY this real "
-        "data — never tell them you can't access their repo.",
+        "Below is the current file tree and the contents of a few key "
+        "files (README, package.json, entry points, etc.) inlined for "
+        "speed.",
+        "",
+        "MANDATORY BEHAVIOUR when the user asks about ANY file, "
+        "function, route, or behaviour of this repo:",
+        "  1. If the answer is in the inlined files above — answer from "
+        "them and cite the path.",
+        "  2. If the answer is NOT in the inlined files BUT the path "
+        "exists in the file tree — call the `read_repo_file` tool (or "
+        "`read_repo_files` for multiple paths) to fetch the real source "
+        "BEFORE replying. Never say \"it's not in the README\" or \"I "
+        "don't have access\" — you do have access, use the tool.",
+        "  3. If the file tree shows the path but the user asked about "
+        "a directory — call `list_repo_files` with a glob first.",
+        "  4. Only after you have read the actual source, write the "
+        "answer. Never guess. Never extrapolate from filename alone.",
         "",
     ]
     if note:
@@ -250,7 +269,7 @@ def _wrap(owner: str, repo: str, branch: str,
         parts.append(tree_text)
         parts.append("")
     if inlined_text:
-        parts.append("--- key file contents ---")
+        parts.append("--- key file contents (inlined) ---")
         parts.append(inlined_text)
     parts.append("=== END REPO CONTEXT ===")
     return "\n".join(parts)
