@@ -78,6 +78,39 @@ async def _user_gh_token(user_id: str) -> Optional[str]:
     return ((u or {}).get("github") or {}).get("access_token")
 
 
+# ── Iter 43 — PAT encryption helpers ──────────────────────────────────
+# Tokens stored in cto_projects.github_token are encrypted at rest via
+# services.vault (per-customer HKDF-Fernet, v1:-prefixed ciphertext).
+# Legacy rows persisted before this migration may still hold plaintext
+# tokens — the decrypt helper transparently passes those through so the
+# pipeline keeps working until migrations/002_encrypt_pats.py is run.
+
+async def _encrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
+    if not token:
+        return token
+    if token.startswith("v1:"):
+        return token   # already encrypted
+    try:
+        from services.vault import encrypt, is_vault_available
+        if not is_vault_available():
+            return token
+        return await encrypt(user_id, token, kind="github_token")
+    except Exception:
+        return token   # fail-open: never block project creation on crypto
+
+
+async def _decrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
+    if not token:
+        return token
+    if not token.startswith("v1:"):
+        return token   # legacy plaintext — pass through
+    try:
+        from services.vault import decrypt
+        return await decrypt(user_id, token, kind="github_token")
+    except Exception:
+        return None    # tamper / wrong user → treat as missing token
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────
 @router.post("/projects/add")
 async def add_project(body: AddProject, authorization: str = Header(None)) -> dict:
@@ -85,11 +118,12 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
     db = require_db()
     owner, repo = _parse_repo(body.github_url)
     proj_id = f"p_{uuid.uuid4().hex[:10]}"
+    encrypted_token = await _encrypt_pat(me["user_id"], body.github_token)
     doc = {
         "project_id": proj_id, "user_id": me["user_id"],
         "name": body.name, "github_url": body.github_url,
         "github_owner": owner, "github_repo": repo,
-        "github_token": body.github_token,
+        "github_token": encrypted_token,
         "branch": body.branch, "tech_stack": body.tech_stack or "auto",
         "preview_url": (body.preview_url or "").strip() or None,
         "status": "connected", "tasks_done": 0,
@@ -179,7 +213,8 @@ async def submit_task(
         "maxx_mode": bool(body.maxx_mode),
         "created_at": time.time(),
     })
-    user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
+    user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
+        or await _user_gh_token(me["user_id"])
     bg.add_task(_run_task, task_id, proj, body.task, body.files, body.context,
                 user_token, bool(body.maxx_mode))
     return {"ok": True, "task_id": task_id}
@@ -235,7 +270,8 @@ async def rollback_task(
     if not proj:
         raise HTTPException(404, "Parent project not found")
 
-    user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
+    user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
+        or await _user_gh_token(me["user_id"])
     if not user_token:
         raise HTTPException(
             400,
@@ -449,7 +485,8 @@ async def retry_task(
         "steps":        [{"step": f"🔁 retry of {task_id}", "status": "info",
                           "ts": time.time()}],
     })
-    user_token = proj.get("github_token") or await _user_gh_token(me["user_id"])
+    user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
+        or await _user_gh_token(me["user_id"])
     bg.add_task(
         _run_task,
         new_task_id, proj, old.get("task", ""),
@@ -732,26 +769,70 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             f"Tech: {proj.get('tech_stack','auto')}\n\n"
             f"{repo_block or ''}{extra_context_block}\n\n{files_blob}"
         )
-        reply = await _retry(
-            lambda: call_llm(
-                messages=[{"role": "user", "content": user_msg}],
-                system=_AI_SYS, max_tokens=3500, temperature=0.0,
-            ),
-            what="AI codegen", task_id=task_id,
-        )
-        # Coarse token estimate (chars/4) so P&L has real numbers
-        approx_in = (len(_AI_SYS) + len(user_msg)) // 4
-        approx_out = len(reply or "") // 4
-        await _set_status(
-            task_id,
-            tokens_used=approx_in + approx_out,
-            agent_used="deepseek",
-        )
-        summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
-        summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
+
+        # iter 43 — Parallel multi-agent codegen for big tasks.
+        # `should_parallelize()` decides automatically based on task scope
+        # AND file tree. Single-file or small tasks fall through to the
+        # existing single-call path below (which keeps SUMMARY parsing).
         edits: dict[str, str] = {}
-        for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL):
-            edits[m.group(1).strip()] = m.group(2)
+        summary = "AI changes"
+        parallelized = False
+        agents_count = 1
+        try:
+            from services.parallel_agents import should_parallelize, run_parallel_agents
+            file_tree_hint = list(contents.keys()) + (files or [])
+            if should_parallelize(task, file_tree_hint):
+                await _log(task_id, "⚡ Task is multi-domain — splitting into parallel agents")
+                gen_result = await run_parallel_agents(
+                    task_description=user_msg,
+                    repo_ctx=f"{owner}/{repo}@{branch}",
+                    file_tree=file_tree_hint,
+                )
+                edits = gen_result.get("file_blocks", {}) or {}
+                parallelized = bool(gen_result.get("parallelized"))
+                agents_count = int(gen_result.get("agents_used", 1))
+                if parallelized and edits:
+                    summary = f"Parallel codegen ({agents_count} agents) — {task[:120]}"
+                    await _log(task_id,
+                               f"✅ {agents_count} agents merged {len(edits)} file edits",
+                               "success")
+        except Exception as _pe:
+            await _log(task_id, f"parallel codegen fell back to single agent: {_pe}", "warning")
+            edits = {}
+            parallelized = False
+            agents_count = 1
+
+        if not edits:
+            # Single-agent legacy path — unchanged behaviour for small tasks
+            # and as fallback when parallel returned empty.
+            reply = await _retry(
+                lambda: call_llm(
+                    messages=[{"role": "user", "content": user_msg}],
+                    system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                ),
+                what="AI codegen", task_id=task_id,
+            )
+            # Coarse token estimate (chars/4) so P&L has real numbers
+            approx_in = (len(_AI_SYS) + len(user_msg)) // 4
+            approx_out = len(reply or "") // 4
+            await _set_status(
+                task_id,
+                tokens_used=approx_in + approx_out,
+                agent_used="deepseek",
+            )
+            summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
+            summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
+            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL):
+                edits[m.group(1).strip()] = m.group(2)
+        else:
+            # Parallel path produced edits — record token-equivalent + agent name
+            await _set_status(
+                task_id,
+                tokens_used=(len(_AI_SYS) + len(user_msg)) // 4
+                            + sum(len(c) for c in edits.values()) // 4,
+                agent_used=f"deepseek-parallel-x{agents_count}",
+            )
+
         if not edits:
             await _log(task_id, "⚠️ AI returned no file edits", "warning")
             await _set_status(task_id, status="done", result=summary,
@@ -860,6 +941,8 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                     claude_correction=str(review_result.get("corrected") or "") or None,
                     lint_blocked=False,
                     lint_issues=lint_result.get("issues", []),
+                    parallelized=parallelized,
+                    agents_used_count=agents_count,
                     task_id=task_id,
                     user_id=proj.get("user_id"),
                     project_id=proj.get("project_id"),

@@ -893,6 +893,51 @@ User vision: ORA classifies every message into one of 5 modes (A/B/C/D/E) — no
 
 All 5 modes wired E2E. No mocks. Backend lint clean. Frontend lint clean.
 
+### Iter 43 — PAT Encryption + Parallel Agents Wired + Iter 42 E2E Suite (Feb 2026)
+
+User-supplied master prompt: 12 tasks. We shipped the high-impact slice now (P0 security + P1 perf + the test harness that proves everything). Remaining UI-polish tasks (Maxx toggle, lint badge, brain delete, undo button) are tee'd up for the next iter.
+
+**P0 — GitHub PAT encryption at rest** (CRITICAL beta-blocker):
+- Generated `AUREM_MASTER_KEY` (44-char Fernet base64) → added to `backend/.env`.
+- `routers/cto_projects.py`:
+  - New `_encrypt_pat(user_id, token)` / `_decrypt_pat(user_id, token)` helpers using `services.vault.encrypt/decrypt` (per-user HKDF-Fernet, `v1:`-prefixed ciphertext).
+  - `add_project` now stores `github_token` encrypted at write time.
+  - All 3 read sites (`re_run_task`, `submit_task`, `unpause_task`) call `_decrypt_pat()` transparently.
+  - Legacy plaintext PATs flow through `_decrypt_pat` untouched (passes through if no `v1:` prefix) → zero-downtime upgrade.
+- `migrations/002_encrypt_pats.py`: idempotent migration. Scans `cto_projects.github_token`, skips already-encrypted (`v1:` prefix), encrypts plaintext rows, marks `pat_encrypted: true`. **Ran live: 1 row migrated, 1 already-encrypted skipped.**
+- `backend/.env.example` created so production deploys remember the master key.
+- **Security proven E2E**:
+  - Created project with PAT `ghp_secret_iter43_test_xyz` → MongoDB shows `v1:gAAAAABqHivZ...` (123-char Fernet ciphertext), plaintext gone.
+  - `decrypt(user_alpha, ct)` returns original plaintext.
+  - `decrypt(user_beta, ct)` raises `InvalidToken` → cross-user decrypt blocked by HKDF derivation. **Per-customer key isolation works.**
+
+**P1 — Parallel Agents wired into `_run_task_via_api`**:
+- Fixed `services/parallel_agents.py` to handle our dict-return `call_llm_with_meta` (was treating it as a string → silent empty output).
+- New flow: before falling back to the single `call_llm` path, the worker calls `should_parallelize(task, file_tree)`. If multi-domain (backend + frontend + tests, or task verbs imply scope), `run_parallel_agents()` fires N agents via `asyncio.gather`, merges their `FILE:` blocks, logs `⚡ Task is multi-domain — splitting into parallel agents` + `✅ {N} agents merged {M} file edits`.
+- Council log now receives `parallelized=True/False` and `agents_used_count={1..N}` so the admin panel's "Parallel tasks run" counter actually moves.
+- Single-agent path is untouched — same SUMMARY parsing, same token estimates. **Zero regression risk for the common case.**
+
+**P1 — Iter 42 E2E pytest suite** (`tests/test_e2e_iter42.py`):
+- **25 tests, 25 passing.** Pure unit + integration, zero HTTP mocks, every assertion on real code paths.
+- Covers:
+  - Mode classifier across 12 cases (A/B/C/D/E + F12 payload forces D)
+  - Linter blocks hardcoded secrets + auto-fixes safe issues
+  - Parallel agents decision logic (multi-domain → split; tiny task → single)
+  - Vault round-trip + cross-user rejection (uses real `AUREM_MASTER_KEY`)
+  - Mode D fast-path catches CORS/500 with no LLM call
+  - Mode E static scan catches `eval()`, quick-wins finds missing README
+  - Council log writes to Mongo + stats returns all 5 mode counters + `lint_blocks_caught`/`parallel_tasks_run` fields
+  - Project brain empty → graceful empty string (no crash)
+- Full regression: **66/66 tests pass** (persona + orchestrator + truncation + iter42).
+
+**Still pending** (next iter — UI heavy, deferred to keep this ship clean):
+- Maxx mode toggle in Ship dialog
+- Lint badge next to Ship button
+- Daily JSONL cron in `services/daily_digest.py`
+- Brain inline editor (delete decisions/preferences)
+- Rollback "Undo last commit" button in chat
+- Real Mode C trigger on Mode D fix confirmation (currently emits a friendly reply with the queued task; needs to actually POST `submit_task` so the worker enqueues without user clicking Ship).
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

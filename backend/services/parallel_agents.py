@@ -113,13 +113,17 @@ Relevant files: {', '.join(config_files[:8])}""",
 async def _run_single_agent(agent: dict, user_message: str) -> dict:
     """Runs one DeepSeek agent. Returns {role, output, error}."""
     try:
-        output = await call_llm_with_meta(
+        resp = await call_llm_with_meta(
             system=agent["system"],
             user=user_message,
             mode="code",
             max_tokens=3000,
         )
-        return {"role": agent["role"], "output": output, "error": None}
+        # call_llm_with_meta returns a dict (ok/content/provider/...)
+        output_text = (resp or {}).get("content", "") if isinstance(resp, dict) else str(resp or "")
+        if isinstance(resp, dict) and resp.get("ok") is False:
+            return {"role": agent["role"], "output": "", "error": resp.get("error", "llm not ok")}
+        return {"role": agent["role"], "output": output_text, "error": None}
     except Exception as e:
         return {"role": agent["role"], "output": "", "error": str(e)}
 
@@ -143,12 +147,13 @@ async def run_parallel_agents(
     # Decide: parallel or single?
     if not should_parallelize(task_description, file_tree):
         # Single agent — same as before
-        output = await call_llm_with_meta(
+        resp = await call_llm_with_meta(
             system=f"Task: {task_description}\nRepo: {repo_ctx}\nOutput FILE blocks only.",
             user=task_description,
             mode="code",
             max_tokens=4000,
         )
+        output = (resp or {}).get("content", "") if isinstance(resp, dict) else str(resp or "")
         return {
             "file_blocks": parse_file_blocks(output),
             "agent_results": [{"role": "general", "output": output}],
