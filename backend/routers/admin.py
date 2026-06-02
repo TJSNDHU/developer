@@ -92,6 +92,37 @@ async def dashboard(authorization: Optional[str] = Header(None)):
     }
 
 
+@router.get("/council/stats")
+async def council_stats(authorization: Optional[str] = Header(None)):
+    """Lightweight aggregate for AdminOverview — total council rows +
+    last-30-days slice + Claude correction rate. No PII."""
+    await _require_admin(authorization)
+    db = require_db()
+    now = time.time()
+    cutoff = now - (30 * 86400)
+
+    total = await db.ora_council_logs.count_documents({})
+    last_30d = await db.ora_council_logs.count_documents(
+        {"timestamp": {"$gte": cutoff}}
+    )
+    code_rows = await db.ora_council_logs.count_documents({"mode": "C"})
+    corrected = await db.ora_council_logs.count_documents(
+        {"mode": "C", "claude_corrected": True}
+    )
+    correction_rate = (
+        round((corrected / code_rows) * 100, 1) if code_rows else 0.0
+    )
+    return {
+        "total": total,
+        "last_30d": last_30d,
+        "code_rows": code_rows,
+        "corrected": corrected,
+        "correction_rate": correction_rate,
+        "ready_for_finetune": total >= 1000,
+    }
+
+
+
 # ── Users ──────────────────────────────────────────────────────────
 @router.get("/users")
 async def list_users(

@@ -638,6 +638,61 @@ Full backend regression after this iter: **194 passed / 5 skipped /
 
 **Backend**:
 - `services/usage.py` already had `PLAN_LIMITS` + `get_usage` + `assert_has_budget` (raises HTTP 402 with `{error:'token_limit_reached', used, limit, upgrade_url:'/pricing'}`)
+
+### Iter 54 — Ship Wall + ORA Wrapped + Admin Overview (Feb 2026)
+Three growth-loop features shipped together from user-provided spec
+files (`files (5).zip`).
+
+**1. Ship Wall** — public proof-of-work feed.
+- `routers/shipwall.py` mounted at `/api/aurem-dev/wall/*`. Endpoints:
+  `/feed` (latest 50 opt-in ships, public), `/user/{handle}`,
+  `/card/{task_id}` (single share card), `/badge/{user_id}` (SVG for
+  READMEs — `Content-Type: image/svg+xml`), `/stats` (3-number teaser),
+  `/opt-out` + `/opt-in` (authed toggles).
+- `_public_ship()` strips `github_token`, `session_id`, and any other
+  sensitive field before returning to anonymous callers.
+- Public page `/wall` (no auth) — sticky nav header, 3 hero stats,
+  card grid with "Share on X" button (Twitter intent URL pre-fills
+  `Just shipped <task> with @AUREMcto`).
+- `Landing.jsx` got a new "Ship Wall" nav link so anonymous visitors
+  see the social proof on first visit.
+
+**2. ORA Wrapped** — Spotify-Wrapped-style personal stats card.
+- `routers/wrapped.py` mounted at `/api/aurem-dev/wrapped/*`.
+  `GET /wrapped/me?period=this_month|last_month|all_time` returns
+  `{tasks_shipped, tasks_failed, repos_touched, hours_saved (8 min/task
+  assumption), maxx_tasks, claude_corrections, top_mode, ship_streak_
+  days, period_label, developer_name, share_text}`.
+- `_share_text()` generates a ready-to-tweet block with
+  `#AUREM #ShipWithAI #BuildInPublic` hashtags.
+- Component `components/OraWrapped.jsx` rendered on the Analytics page
+  with period toggle (`This month | Last month | All time`), 4 hero
+  stats, secondary stats row, and `Post on X` / `Copy text` buttons.
+
+**3. Admin Overview** — first tab in the admin panel.
+- `pages/AdminOverview.jsx` shows: 6 system health chips (Mongo /
+  FastAPI / Public stats / Ship Wall / Council logger / Uptime),
+  5 user-metric cards, and a **22-row feature checklist** with
+  status colour codes (`live` green, `needs-key` amber, `pending`
+  grey). Auto-refresh every 60 s.
+- New `/api/aurem-dev/admin/council/stats` endpoint in `admin.py`
+  returns aggregate council-log counts + 30-day slice + Claude
+  correction rate, no PII.
+- `pages/Admin.jsx` got a new `Overview` nav item promoted to the
+  FIRST position. Default landing tab changed from `dash` → `overview`.
+- Health check uses direct fetch to `${REACT_APP_BACKEND_URL}/api/health`
+  (the health endpoint lives at the app root, not under
+  `/api/aurem-dev`, so the standard `api` lib would 404 on it).
+
+**Tests** — 10 new in `tests/test_iter54_shipwall_wrapped_overview.py`
+(routers registered, main.py includes, `_public_ship` strips PAT,
+`_share_text` format, App.jsx route, Admin.jsx default tab + nav order,
+Analytics has OraWrapped, Landing has wall link). All pass.
+
+Full backend regression after this iter: **204 passed / 5 skipped /
+0 failed** in the non-env-dependent suite.
+
+
 - New `routers/usage.py` → `GET /api/aurem-dev/usage/me` exposes the user's live budget (used, plan_limit, tokens_granted, effective_limit, remaining, pct_used, is_exhausted) for the frontend banner
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
 - `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:

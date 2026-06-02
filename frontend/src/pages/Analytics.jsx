@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { BarChart3, Activity, Rocket } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
+import OraWrapped from "../components/OraWrapped";
 import { api } from "../lib/api";
 
 export default function Analytics() {
@@ -30,6 +31,11 @@ export default function Analytics() {
         <Stat icon={BarChart3} label="status"
               value={uptime?.ok ? "healthy" : "degraded"} testid="analytics-status"
               color={uptime?.ok ? "var(--ok)" : "var(--danger)"} />
+      </div>
+
+      {/* ORA Wrapped — personal monthly recap card with share button */}
+      <div style={{ marginTop: 32, maxWidth: 820 }}>
+        <OraWrapped />
       </div>
     </Shell>
   );

@@ -8,11 +8,12 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
   Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
-  LogOut, ExternalLink, ArrowLeft, Loader2, Brain,
+  LogOut, ExternalLink, ArrowLeft, Loader2, Brain, Eye,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import AuremAdminPanel from "../components/AuremAdminPanel";
+import AdminOverview from "./AdminOverview";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -856,6 +857,7 @@ function SettingsPage() {
 
 // ── Shell ──────────────────────────────────────────────────────────────
 const NAV = [
+  { id: "overview", label: "Overview", Icon: Eye },
   { id: "dash", label: "Dashboard", Icon: LayoutDashboard },
   { id: "users", label: "Users", Icon: Users },
   { id: "projects", label: "Projects", Icon: Folder },
@@ -870,7 +872,7 @@ const NAV = [
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [page, setPage] = useState("dash");
+  const [page, setPage] = useState("overview");
   const [selectedUser, setSelectedUser] = useState(null);
   const [me, setMe] = useState(null);
 
@@ -930,6 +932,7 @@ export default function Admin() {
       return <UserDetail user={selectedUser} onBack={() => setSelectedUser(null)} />;
     }
     switch (page) {
+      case "overview": return <AdminOverview />;
       case "dash": return <Dashboard />;
       case "users": return <UsersList onSelect={setSelectedUser} />;
       case "projects": return <ProjectsPage />;

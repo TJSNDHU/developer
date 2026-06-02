@@ -68,7 +68,10 @@ export default function Landing() {
         }}>
           AUREM DEV
         </Link>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Link to="/wall" data-testid="nav-wall" className="btn-ghost">
+            Ship Wall
+          </Link>
           <Link to="/login" data-testid="nav-login" className="btn-ghost">
             Sign in
           </Link>
