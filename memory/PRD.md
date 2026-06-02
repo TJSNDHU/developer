@@ -1009,6 +1009,86 @@ Full backend regression: **242 passed / 5 skipped / 0 failed**.
 
 
 
+### Iter 60 — Hosted Deploy + Mode F (Engage / Market) (Feb 2026)
+After reverse-engineering Rocket AI (the user shared a video showing
+"hosted deploy" and "Engage" as their key differentiators not present
+in AUREM), shipped both gaps in one pass — but with token-efficient,
+defensible implementations rather than competitor parity.
+
+**Hosted Deploy — Vercel / Netlify deploy hooks**
+- New router `routers/hosted_deploy.py` mounted at
+  `/api/aurem-dev/hosted-deploy/*`. Endpoints: `/connect`, `/status/
+  {project_id}`, `/ship`, `/disconnect/{project_id}`.
+- Hook URL is **strictly regex-validated** at connect-time (separate
+  patterns for `api.vercel.com/v1/integrations/deploy/.../...` and
+  `api.netlify.com/build_hooks/...`) so a typo or wrong-provider URL
+  fails immediately with a clear error pointing the user to where to
+  generate the hook on the provider.
+- Stored as `deploy_hook_enc` on the project doc, encrypted via
+  `cto_services.crypto.encrypt` (same HKDF-Fernet vault used for
+  GitHub PATs) so a DB dump never leaks deploy access.
+- `/ship` decrypts the hook and `POST {hook_url}` via httpx (15s
+  timeout). Provider non-2xx → 502 with the provider's body snippet
+  so the user can debug. Provider unreachable → 502 + persisted error
+  on the project doc.
+- Every ship updates `last_deploy_at` / `last_deploy_status` so the
+  status endpoint can render "Last deploy: 2026-06-02 18:31 · queued".
+- Frontend: new `DeployWidget` component in `Projects.jsx` rendered
+  above task history on the project detail view. Shows connect state,
+  provider badge, last-deploy timestamp + status, "Ship to Live" /
+  "Disconnect" buttons. Configure flow: provider radio (Vercel /
+  Netlify) + hook URL input + helpful "where to find this" copy per
+  provider.
+- Why hook-based (not API-based): zero credentials to over-share,
+  zero OAuth flow to maintain, identical UX on both providers.
+  Token cost: literally zero — we're not running an LLM here.
+
+**Mode F — Engage / Market**
+- New `services/mode_f_engage.py`. `is_engage_request(msg)` is a pure
+  regex classifier (10 patterns covering competitor / positioning /
+  GTM / copy / pricing / persona / "X vs Y") so we don't burn an LLM
+  call to decide whether to *route* to the LLM.
+- `run_engage(prompt, repo_ctx, brain_ctx)` is a single ~600-token
+  DeepSeek call with a strict system prompt: "MARKET mode, founder-
+  friend tone, 120-220 words, structure as **Take** / **Why** /
+  **Do this**, write copy in a fenced block when asked, ground in
+  the user's actual repo when context is present".
+- Classifier hook in `routers/chat.py::classify_intent` returns `F`
+  for engage prompts, slotted **after** D (debug) and E (audit)
+  but **before** B/C (code) so a "write me a launch tweet" doesn't
+  fall through to the full codegen orchestrator.
+- Chat stream dispatches `_mode == "F"` to `run_engage` and emits
+  the result as a regular SSE assistant turn with `provider:
+  "mode-f-engage"` — bypasses the whole tool-iteration budget.
+- Verified end-to-end live: prompt "how should I position my app vs
+  Cursor" → SSE returns `mode: F`, provider `mode-f-engage`, tokens
+  start with `**Take:**` matching the system prompt structure.
+
+**Why this beats Rocket AI's `Engage`:**
+- Rocket's Engage is a generic Q&A bucket. AUREM's Mode F sees the
+  user's actual repo (`repo_ctx`) + project brain (`brain_ctx`,
+  recent commits + tech stack + past decisions) so the advice is
+  **grounded** in what the user is shipping, not generic SaaS
+  playbook.
+- 600-token cap = ~$0.0001 per call. Same prompt through the full
+  orchestrator would burn 4-6× that on tool iterations the question
+  doesn't need.
+
+**Tests** — 11 new in `tests/test_iter60_hosted_deploy_and_engage.py`:
+- Hosted deploy router registered + all 4 endpoints present
+- main.py includes the router
+- Vercel + Netlify regex strict accept/reject pairs
+- Hook stored encrypted (NOT plaintext) — source-level pin
+- Engage classifier positive cases (8) + negative cases (5)
+- `classify_intent` returns F for engage prompts AND not-F for code
+- `run_engage` async + correct signature
+- Chat router dispatches Mode F with the right provider tag
+
+Full backend regression after this iter: **253 passed / 5 skipped /
+0 failed**. Backend boots clean (HTTP 200). Live SSE Mode F verified.
+
+
+
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
 - `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:
   - Validates `0 < tokens <= 10M`, target user exists

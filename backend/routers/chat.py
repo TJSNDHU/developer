@@ -131,9 +131,10 @@ def _f12_has_real_signal(payload: dict) -> bool:
 
 
 def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
-    """Returns one of: 'A','B','C','D','E'. Order matters."""
+    """Returns one of: 'A','B','C','D','E','F'. Order matters."""
     from services.mode_d_debugger import is_debug_request
     from services.mode_e_auditor  import is_audit_request
+    from services.mode_f_engage   import is_engage_request
 
     # Iter 50 — greeting wins over stale F12 noise. We still SHOW the
     # captured errors to the user via the F12 badge; we just don't
@@ -148,6 +149,12 @@ def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
         return "D"
     if is_audit_request(message):
         return "E"
+    # Iter 60 — Engage mode catches market / positioning / GTM /
+    # competitor / copy questions BEFORE the C/B coding classifiers
+    # so a "write me a launch tweet about X" doesn't burn the full
+    # codegen orchestrator.
+    if is_engage_request(message):
+        return "F"
 
     c_patterns = [
         r"\b(add|create|build|implement|write|generate|make|ship|deploy|fix|update|refactor)\b.*\b(to|in|for)\b.*\b(my|the)\b.*\b(repo|project|app|code|file)\b",
@@ -689,6 +696,37 @@ async def chat_stream(
                         "critical_count": e_result.get("critical_count", 0),
                         "high_count":     e_result.get("high_count", 0),
                         "fixable_tasks":  e_result.get("fixable_tasks", []),
+                    }
+                    await q.put({"type": "result", "result": result})
+                    return
+
+                # Iter 60 — Mode F (Engage / Market). Token-cheap single
+                # LLM call routed through mode_f_engage. We pass the
+                # already-built repo + brain context so the LLM can
+                # ground market advice in what the user is actually
+                # shipping. No tool loop, no max-iters budget burn.
+                if _mode == "F":
+                    activity["label"] = "thinking about positioning…"
+                    from services.mode_f_engage import run_engage
+                    try:
+                        engage_content = await run_engage(
+                            prompt=body.prompt or "",
+                            repo_ctx=repo_ctx or "",
+                            brain_ctx=brain_ctx or "",
+                        )
+                    except Exception as _fe:
+                        logger.exception("mode F engage failed")
+                        engage_content = (
+                            f"_(Engage mode failed: {_fe}. Try again, or "
+                            "ask the question more directly.)_"
+                        )
+                    result = {
+                        "ok": True,
+                        "content":  engage_content,
+                        "provider": "mode-f-engage",
+                        "fallback_chain": ["mode_f"],
+                        "iterations": 1, "tool_calls_run": 0,
+                        "tool_invocations": [], "mode": "F",
                     }
                     await q.put({"type": "result", "result": result})
                     return

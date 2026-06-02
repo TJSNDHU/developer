@@ -40,6 +40,7 @@ from routers.usage import router as usage_router
 from routers.lint_preview import router as lint_preview_router
 from routers.shipwall import router as shipwall_router
 from routers.wrapped import router as wrapped_router
+from routers.hosted_deploy import router as hosted_deploy_router
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -303,4 +304,5 @@ app.include_router(usage_router,         prefix="/api/aurem-dev")
 app.include_router(lint_preview_router,  prefix="/api/aurem-dev")
 app.include_router(shipwall_router,      prefix="/api/aurem-dev")
 app.include_router(wrapped_router,       prefix="/api/aurem-dev")
+app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
