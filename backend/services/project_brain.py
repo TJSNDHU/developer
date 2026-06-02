@@ -1,21 +1,15 @@
 """
 services/project_brain.py
-==========================
-AUREM Project Brain — persistent memory per repo.
+Persistent per-repo memory: architectural decisions, rejected approaches,
+past bugs fixed, tech-stack context, and team preferences.
 
-Stores: architectural decisions, rejected approaches, past bugs fixed,
-tech stack context, team preferences. ORA reads this before every reply
-so it never asks twice and never suggests something already rejected.
+The compressed `summary` string is what ORA reads before each reply so it
+never asks the same question twice and never re-suggests something the
+team has already rejected. The full event log is kept in MongoDB for
+audit / admin display but never sent to the LLM.
 
-TOKEN OPTIMIZATION:
-- Brain summary is capped at 800 tokens (fits in every ORA call)
-- Full history stored in MongoDB but only compressed summary sent to LLM
-- Uses incremental updates — rewrites only the changed section, not full doc
-
-Wire-in:
-  1. orchestrator.py::run() — inject get_brain_context() into system prompt
-  2. cto_projects.py::_run_task_via_api() — call update_brain_after_commit()
-  3. chat.py SSE handler — call update_brain_after_chat() on Mode B answers
+Reads run zero LLM calls (pure projection + string build). Writes are
+incremental — only the changed bucket is rewritten, not the whole doc.
 """
 
 from __future__ import annotations

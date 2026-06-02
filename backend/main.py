@@ -163,24 +163,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AUREM Dev", version="1.0.0", lifespan=lifespan)
 
-# Iter 50 — CORS lockdown. allow_origins=["*"] meant ANY website could
-# hit the API. Now we read FRONTEND_URL from env (settable in
-# production), plus always allow auremcto.com and a handful of localhost
-# dev ports. Credentialed requests still off (we use Authorization
-# headers, not cookies) — when that flips, the wildcard MUST go.
-_origins = list(filter(None, [
-    os.getenv("FRONTEND_URL", "").strip(),
-    "https://auremcto.com",
-    "https://www.auremcto.com",
-    "http://localhost:3000",
-    "http://localhost:5173",
-]))
+# CORS lockdown. allow_origins=["*"] meant ANY website could hit the API.
+# Now we read ALLOWED_ORIGINS from env (comma-separated, settable in
+# production), with auremcto.com as a safe default. Localhost dev ports
+# are still allowed for tooling. Wildcard subdomain for the preview pod
+# stays in place via allow_origin_regex.
+_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "https://auremcto.com,https://www.auremcto.com,"
+        "http://localhost:3000,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
+# Honour the legacy FRONTEND_URL env if set — keeps existing deploys working.
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url and _frontend_url not in _ALLOWED_ORIGINS:
+    _ALLOWED_ORIGINS.append(_frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=_ALLOWED_ORIGINS,
     allow_origin_regex=r"^https://.*\.preview\.emergentagent\.com$",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )

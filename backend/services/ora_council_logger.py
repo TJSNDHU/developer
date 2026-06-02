@@ -1,26 +1,18 @@
 """
 services/ora_council_logger.py
-================================
-ORA Council Logger — logs every interaction for future fine-tuning.
-
-Every chat, advice session, and code task gets logged.
-This is how ORA gets smarter over time and replaces paid agents.
-
-TOKEN OPTIMIZATION:
-  Zero LLM calls. Pure MongoDB writes.
-  Async fire-and-forget — never blocks main response.
-
-Wire-in:
-  chat.py       — log_conversational() after every ORA reply
-  cto_projects  — log_code_task() after every commit
-  admin.py      — get_council_stats() for dashboard
+Logs every chat, advice session, and code task to `ora_council_logs`
+for future fine-tuning. Inserts are fire-and-forget — never block the
+user-facing response.
 """
 
 from __future__ import annotations
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional, Literal
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +59,7 @@ async def _insert(db: AsyncIOMotorDatabase, doc: dict) -> None:
     try:
         await db["ora_council_logs"].insert_one(doc)
     except Exception as e:
-        print(f"[Council Logger] Insert failed: {e}")
+        logger.warning("council_logger insert failed: %r", e)
 
 
 async def log_conversational(
@@ -205,9 +197,9 @@ async def ensure_indexes():
             )
         except Exception:
             pass  # index might already exist with different options
-        print("[ora_council] indexes ensured")
+        logger.info("ora_council indexes ensured")
     except Exception as e:
-        print(f"[ora_council] ensure_indexes failed: {e}")
+        logger.warning("ora_council ensure_indexes failed: %r", e)
 
 
 ORA_SYSTEM_PROMPT = (

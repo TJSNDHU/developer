@@ -1,16 +1,12 @@
 """
-services/code_reviewer.py — ORA Two-Agent Maxx quality gate.
+services/code_reviewer.py
+Two-agent quality gate: DeepSeek generates code, Claude reviews it
+before commit. Any Claude failure short-circuits to PASS so the commit
+pipeline is never blocked by an upstream reviewer outage.
 
-DeepSeek generates code (fast/cheap) → Claude reviews it (precision).
-The frontend stays on the ORActo brand; this is invisible plumbing.
-
-Wire-in: routers/cto_projects.py::_run_task_via_api
-  - Call AFTER DeepSeek codegen, BEFORE gh_api_commit()
-  - Safe fallback: any Claude failure returns {pass:True} so the
-    commit pipeline is NEVER blocked by a reviewer outage.
-
-NOTE: adapted to AUREM's call_llm_with_meta() which returns a dict
-(ok/content/provider/...) rather than a bare string.
+Called from `routers/cto_projects.py::_run_task_via_api` after codegen
+and before `gh_api_commit()`. AUREM's `call_llm_with_meta` returns a
+dict (ok/content/provider/...), not a bare string — handled below.
 """
 from __future__ import annotations
 import logging

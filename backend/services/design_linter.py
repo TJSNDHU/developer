@@ -1,25 +1,20 @@
 """
 services/design_linter.py
-==========================
-AUREM Design Linter — rejects bad CSS/HTML patterns before GitHub push.
+Pre-commit lint pass that rejects common CSS / HTML / React anti-patterns
+before files get pushed to GitHub.
 
-Catches what Cursor misses:
-  • transition: all  (causes janky animations on everything)
-  • Emoji icons in code  (should use icon library)
-  • Inline style dumps  (style= with >3 properties)
-  • !important abuse  (>2 per file)
-  • Hardcoded colors  (#hex or rgb()) without CSS variable
-  • console.log left in production code
-  • TODO/FIXME left in shipped code
-  • Missing key= props in React lists
+Rules cover:
+  - transition: all (forces every property to animate)
+  - Emoji icons in source strings
+  - Long inline style dumps
+  - !important abuse (>2 per file)
+  - Hardcoded colors without a CSS variable
+  - console.log / TODO / FIXME / HACK left in shipped code
+  - Missing key= props in React .map() lists
 
-TOKEN OPTIMIZATION:
-  Runs entirely in Python — zero LLM calls. Pure regex.
-  Fast, free, and deterministic.
-
-Wire-in:
-  cto_projects.py — call lint_file_blocks(file_blocks) BEFORE Claude review.
-  If lint_result["blocked"] is True → return lint errors to user, skip commit.
+Pure regex, runs in Python with no LLM calls. Call
+`lint_file_blocks(file_blocks)` before pushing; if `blocked` is True the
+commit is aborted and `block_reasons` is returned to the caller.
 """
 
 from __future__ import annotations

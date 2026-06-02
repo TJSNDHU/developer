@@ -196,6 +196,10 @@ async def update_project(
     updates = {k: v for k, v in body.model_dump().items() if v is not None and v != ""}
     if not updates:
         raise HTTPException(400, "Nothing to update")
+    # BUG 2 fix — encrypt PAT at rest on update too (add_project already did
+    # this; the PATCH path was storing it plaintext).
+    if "github_token" in updates and updates["github_token"]:
+        updates["github_token"] = await _encrypt_pat(me["user_id"], updates["github_token"])
     r = await db.cto_projects.update_one(
         {"project_id": project_id, "user_id": me["user_id"]},
         {"$set": updates},
@@ -310,6 +314,11 @@ async def submit_task(
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
         used_30d = await require_db().cto_tasks.count_documents({
             "user_id": me["user_id"], "created_at": {"$gte": cutoff},
+            # BUG 3 fix — don't count failed tasks against the free-tier
+            # monthly cap. A user with a stale PAT was burning their 10
+            # task quota on auth errors before the AI ran.
+            "status": {"$in": ["done", "running", "pulling", "reading",
+                               "fixing", "pushing", "queued"]},
         })
         FREE_TIER_MONTHLY_CAP = int(os.getenv("FREE_TIER_MONTHLY_CAP", "10"))
         if used_30d >= FREE_TIER_MONTHLY_CAP:
@@ -594,6 +603,7 @@ async def retry_task(
         raise HTTPException(404, "Parent project not found")
 
     new_task_id = "t_" + uuid.uuid4().hex[:12]
+    _maxx = bool(old.get("maxx_mode", False))
     await db.cto_tasks.insert_one({
         "task_id":      new_task_id,
         "user_id":      me["user_id"],
@@ -602,6 +612,7 @@ async def retry_task(
         "files":        old.get("files", []),
         "context":      old.get("context", ""),
         "status":       "queued",
+        "maxx_mode":    _maxx,
         "created_at":   time.time(),
         "retry_of":     task_id,
         "steps":        [{"step": f"🔁 retry of {task_id}", "status": "info",
@@ -609,10 +620,12 @@ async def retry_task(
     })
     user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
         or await _user_gh_token(me["user_id"])
+    # BUG 4 fix — propagate maxx_mode from the original task so the retry
+    # also runs through Claude review (was always falling back to non-Maxx).
     bg.add_task(
         _run_task,
         new_task_id, proj, old.get("task", ""),
-        old.get("files", []), old.get("context", ""), user_token,
+        old.get("files", []), old.get("context", ""), user_token, _maxx,
     )
     return {"ok": True, "task_id": new_task_id, "retry_of": task_id}
 
@@ -1199,6 +1212,15 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
 async def _run_task_with_git(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
     import re
+
+    def _scrub(s: str) -> str:
+        # Defence-in-depth: clone URLs, stderr, and Python tracebacks can
+        # all leak the PAT. Scrub every error string before it lands in
+        # Mongo or the user's task feed.
+        if not s:
+            return s
+        return s.replace(user_token or "", "***PAT***") if user_token else s
+
     ws = WORKSPACE / task_id
     ws.mkdir(parents=True, exist_ok=True)
     repo_path = ws / "repo"
@@ -1213,7 +1235,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         r = _sh(["git", "clone", "--depth=1", "--branch", branch, clone_url, str(repo_path)],
                 cwd=ws, timeout=120)
         if r.returncode != 0:
-            raise RuntimeError(f"git clone failed: {r.stderr[:300]}")
+            raise RuntimeError(f"git clone failed: {_scrub(r.stderr)[:300]}")
         await _log(task_id, "✅ Cloned", "success")
 
         # 2) read target files
@@ -1236,14 +1258,59 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
 
         # 3) ai fix
         await _set_status(task_id, status="fixing")
+
+        # LOGIC FIX — mirror the API path: inject Project Brain, GitHub
+        # Issues, and Vanguard security skills here too. Without this, if
+        # `git` ever becomes available in production, Iter 41/42/44
+        # features silently vanish on every code task.
+        brain_ctx = ""
+        issues_ctx = ""
+        try:
+            from services.project_brain import get_brain_context
+            _db = get_db()
+            if _db is not None:
+                brain_ctx = await get_brain_context(
+                    _db, proj.get("project_id", ""), f"{owner}/{repo}",
+                )
+        except Exception:
+            brain_ctx = ""
+        try:
+            from services.github_issues_context import get_relevant_issues_context
+            _db = get_db()
+            if _db is not None and user_token:
+                issues_ctx = await get_relevant_issues_context(
+                    db=_db, repo_owner=owner, repo_name=repo,
+                    github_pat=user_token, task_description=task,
+                )
+        except Exception:
+            issues_ctx = ""
+        if brain_ctx:
+            await _log(task_id, "🧠 injected project memory")
+        if issues_ctx:
+            await _log(task_id, "📋 injected relevant GitHub issues")
+
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
         )
+        extra_context_block = ""
+        if brain_ctx:
+            extra_context_block += f"\n\n[PROJECT MEMORY]\n{brain_ctx}"
+        if issues_ctx:
+            extra_context_block += f"\n\n[OPEN ISSUES]\n{issues_ctx}"
+        try:
+            from services.skill_context_injector import build_skill_context
+            sk_ctx = build_skill_context(task)
+            if sk_ctx:
+                extra_context_block += f"\n\n{sk_ctx}"
+                await _log(task_id, "🛡️ injected Vanguard security skills")
+        except Exception:
+            pass
         user_msg = (
             f"TASK: {task}\n"
             f"{('CONTEXT: ' + context) if context else ''}\n\n"
-            f"Tech: {proj.get('tech_stack','auto')}\n\n{files_blob}"
+            f"Tech: {proj.get('tech_stack','auto')}\n\n"
+            f"{extra_context_block}\n\n{files_blob}"
         )
         reply = await _retry(
             lambda: call_llm(
@@ -1284,7 +1351,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
             return
         push = _sh(["git", "push", "origin", branch], repo_path, timeout=90)
         if push.returncode != 0:
-            raise RuntimeError(f"git push failed: {push.stderr[:300]}")
+            raise RuntimeError(f"git push failed: {_scrub(push.stderr)[:300]}")
         sha = _sh(["git", "rev-parse", "--short", "HEAD"], repo_path).stdout.strip()
         await _log(task_id, f"🚀 pushed — {sha}", "success")
         await _set_status(task_id, status="done", result=summary,
@@ -1297,10 +1364,14 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
             )
     except Exception as e:
         logger.exception(f"[cto-task {task_id}] failed")
-        await _log(task_id, f"❌ {e}", "error")
-        await _set_status(task_id, status="failed", error=str(e),
+        # BUG 1 fix — scrub the PAT from the public error string. The API
+        # path already does this; the git path was leaking the token
+        # through traceback strings into the task feed AND into Mongo.
+        safe = _scrub(str(e))
+        await _log(task_id, f"❌ {safe}", "error")
+        await _set_status(task_id, status="failed", error=safe[:2000],
                           completed_at=time.time())
-        # Iter 48 — Sentry capture for git-path worker crashes too.
+        # Sentry capture for git-path worker crashes too.
         try:
             import sentry_sdk
             with sentry_sdk.push_scope() as scope:

@@ -25,12 +25,28 @@ _ENABLED = os.getenv("RATE_LIMIT_DISABLED", "0") != "1"
 _buckets: dict[str, Deque[float]] = defaultdict(deque)
 _WINDOW_SEC = 60.0
 
+# BUG 7 fix — cap the in-memory bucket map so attackers can't OOM the
+# process by rotating Bearer-token Authorization headers (or IP-spoofed
+# X-Forwarded-For values) on every request. 10K active keys per minute
+# is comfortably above any honest traffic pattern.
+_MAX_BUCKETS = int(os.getenv("RATE_LIMIT_MAX_BUCKETS", "10000"))
+
 
 def check_rate_limit(key: str, limit_per_minute: int) -> bool:
     """Returns True if this request is allowed under the per-minute limit."""
     if not _ENABLED:
         return True
     now = time.time()
+    # Eject the oldest entry when we're about to add a new one over the cap.
+    # Using `next(iter(...))` on a dict gives us the insertion-oldest key
+    # in CPython, which is the closest we get to an LRU without an extra
+    # data structure. The window check below cleans expired entries anyway.
+    if key not in _buckets and len(_buckets) >= _MAX_BUCKETS:
+        try:
+            oldest = next(iter(_buckets))
+            del _buckets[oldest]
+        except StopIteration:
+            pass
     bucket = _buckets[key]
     # Drop timestamps older than the window
     while bucket and (now - bucket[0]) > _WINDOW_SEC:

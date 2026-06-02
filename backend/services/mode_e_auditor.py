@@ -1,30 +1,20 @@
 """
 services/mode_e_auditor.py
-============================
-AUREM Mode E — Audit / Review
-
-Full repo scan → structured priority report.
-NO code written. Output is a report only.
-User can then trigger Mode C for any fix they want.
+Mode E — full-repo audit. Generates a structured priority report without
+writing any code. The user can pick any item and trigger a Mode C task
+to fix it.
 
 Scans for:
   1. Security holes (hardcoded secrets, exposed keys, SQL injection risk)
   2. Critical bugs (unhandled exceptions, missing error handling)
   3. Tech debt (duplicate code patterns, long functions, TODO/FIXME)
-  4. Performance issues (N+1 query patterns, missing indexes, large imports)
-  5. Quick wins (missing .env example, no README, no requirements.txt)
+  4. Performance issues (N+1 query patterns, missing indexes, wildcard
+     imports)
+  5. Quick wins (missing .env.example, no README, no requirements.txt)
 
-TOKEN OPTIMIZATION:
-  - Reads only file summaries (first 200 lines), not full content
-  - Groups files by type before scanning — backend files scanned together
-  - Single LLM call for whole repo (not per-file)
-  - Pure Python passes (regex) run first, LLM only for logic-level issues
-  - Report capped at 1200 tokens output
-
-Wire-in:
-  routers/chat.py — detect Mode E intent, call run_audit()
-  Stream report sections to user as they generate.
-  No ship button. Report only.
+Static regex passes run first (zero LLM cost). A single LLM call then
+catches logic-level issues. Per-file content is capped at the first 200
+lines to keep the prompt small; final report is capped at ~1200 tokens.
 """
 
 from __future__ import annotations

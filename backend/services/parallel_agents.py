@@ -1,25 +1,16 @@
 """
 services/parallel_agents.py
-============================
-AUREM Parallel Sub-Agents — splits one big task into concurrent workers.
+Splits one big code task across 3 concurrent DeepSeek workers:
 
-One user request → decompose → 3 agents run simultaneously:
-  Agent 1: Backend changes  (FastAPI routes, services, models)
-  Agent 2: Frontend changes (React components, CSS, hooks)
-  Agent 3: Tests + config   (pytest, env vars, README updates)
+  • Backend agent  — FastAPI routes / services / models
+  • Frontend agent — React components / hooks / CSS
+  • Config agent   — tests, env, README
 
-All three DeepSeek calls fire at once via asyncio.gather().
+All three DeepSeek calls fire simultaneously via `asyncio.gather()`.
 Claude reviews the merged output once (not three times — saves tokens).
-
-TOKEN OPTIMIZATION:
-- Each agent gets ONLY its relevant files from repo context (not full tree)
-- System prompts are short and role-specific (~200 tokens each)
-- Claude review runs once on merged output, not per-agent
-- Trivial tasks (< 3 files, single domain) skip parallelization entirely
-
-Wire-in:
-  cto_projects.py::_run_task_via_api() — replace single DeepSeek call
-  with: result = await run_parallel_agents(task, repo_ctx, file_tree)
+Trivial tasks (< 3 files, single domain) skip parallelisation entirely.
+Each agent gets only its slice of the file tree and a short, role-
+specific system prompt (~200 tokens).
 """
 
 from __future__ import annotations

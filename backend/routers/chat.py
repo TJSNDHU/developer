@@ -836,33 +836,40 @@ async def chat_stream(
                             project_id=body.project_id,
                             shipped_task_id=handoff_task_id)
 
-        # iter 41 — ORA council log (Mode A/B) + project brain update.
+        # ORA council log (Mode A/B only) + project brain update.
         # Fire-and-forget; never blocks user reply.
-        try:
-            from services.ora_council_logger import log_conversational
-            from services.project_brain import update_brain_from_conversation
-            council_mode = "B" if "aurem-handoff" in (content or "") else "A"
-            _db = get_db()
-            if _db is not None:
-                await log_conversational(
-                    db=_db,
-                    mode=council_mode,
-                    user_message=body.prompt or "",
-                    ora_reply=content or "",
-                    user_id=user_id,
-                    project_id=body.project_id,
-                )
-                # Lightweight conversation → brain update (rejections, decisions, stack)
-                if body.project_id and body.project_id != "home":
-                    asyncio.create_task(update_brain_from_conversation(
+        # BUG 5 fix — Mode D (debug) and E (audit) replies were getting
+        # logged as A or B which poisons the training data. Only
+        # conversational modes (A/B) belong in ora_council_logs from this
+        # path; Mode C uses log_code_task, Mode D/E aren't part of the
+        # fine-tuning corpus.
+        _classified_mode = result.get("mode") if isinstance(result, dict) else None
+        if _classified_mode in (None, "A", "B"):
+            try:
+                from services.ora_council_logger import log_conversational
+                from services.project_brain import update_brain_from_conversation
+                council_mode = "B" if "aurem-handoff" in (content or "") else "A"
+                _db = get_db()
+                if _db is not None:
+                    await log_conversational(
                         db=_db,
-                        project_id=body.project_id,
+                        mode=council_mode,
                         user_message=body.prompt or "",
                         ora_reply=content or "",
-                        mode=council_mode,
-                    ))
-        except Exception:
-            pass
+                        user_id=user_id,
+                        project_id=body.project_id,
+                    )
+                    # Lightweight conversation → brain update (rejections, decisions, stack)
+                    if body.project_id and body.project_id != "home":
+                        asyncio.create_task(update_brain_from_conversation(
+                            db=_db,
+                            project_id=body.project_id,
+                            user_message=body.prompt or "",
+                            ora_reply=content or "",
+                            mode=council_mode,
+                        ))
+            except Exception:
+                pass
 
         if body.session_id:
             asyncio.create_task(

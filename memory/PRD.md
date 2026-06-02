@@ -501,6 +501,74 @@ tests pass; 7 pre-existing unrelated failures (founder env / vault
 master-key) are not introduced by this iter.
 
 
+
+### Iter 52 — Production deep-audit bug sweep (Feb 2026)
+Eight bugs + a major logic fix + code-quality cleanup, all in one pass.
+User caught these in a production audit and shipped the exact spec.
+
+**Bug fixes**
+1. **PAT leak in git path** — `_run_task_with_git`'s terminal except
+   handler was logging `str(e)` raw, which can contain the GitHub PAT
+   from `clone_url` / stderr. The API path already had a local `_scrub()`
+   helper; ported the same to the git path so error strings persisted
+   in Mongo and shown in the task feed never contain the secret.
+2. **Plaintext PAT on PATCH** — `update_project()` was writing
+   `body.github_token` directly to Mongo. `add_project()` already runs
+   it through `_encrypt_pat`. Added the same call on the PATCH path so
+   PAT rotation respects the at-rest encryption contract from Iter 43.
+3. **Failed tasks burning free quota** — `submit_task()`'s 30-day
+   `count_documents` filter had no status restriction, so a user with a
+   stale PAT burned through 10 task attempts on auth errors before the
+   AI ever ran. Whitelist now: `done | running | pulling | reading |
+   fixing | pushing | queued` (failed excluded).
+4. **Retry dropping Maxx mode** — `retry_task()` was queueing the new
+   task without forwarding `maxx_mode`, so retries always ran without
+   the Claude reviewer. Old `maxx_mode` is now copied to the new task
+   doc + passed as the last positional arg to `bg.add_task(_run_task,
+   ..., _maxx)`.
+5. **Council logger polluting training data** — chat.py was logging
+   Mode D (debug) and Mode E (audit) replies as `A` or `B`, which
+   poisons the fine-tuning corpus. Wrapped the council-log block in
+   `if _classified_mode in (None, "A", "B")` so Mode C goes through
+   `log_code_task` (already correct) and Mode D/E are skipped entirely.
+6. **Print side-channels** — `ora_council_logger.py` and
+   `github_issues_context.py` were using `print()` for error reporting.
+   Replaced with `logger.warning("…: %r", e)` so production log
+   aggregation actually sees them.
+7. **Rate-limiter memory leak** — `_buckets: defaultdict(deque)` grew
+   forever on each unique key, letting an attacker rotate `Authorization`
+   tokens or `X-Forwarded-For` headers to OOM the pod. Added
+   `_MAX_BUCKETS` (default 10K, env-overridable) with oldest-key
+   eviction before the new-key insert.
+8. **CORS lockdown** — `main.py` now reads `ALLOWED_ORIGINS` from env
+   (comma-separated, default `https://auremcto.com,https://www.auremcto.com,
+   http://localhost:3000,http://localhost:5173`), with `allow_credentials=
+   True`. The preview-pod wildcard regex stays in place. Production env
+   var to set: `ALLOWED_ORIGINS=https://auremcto.com,…`.
+
+**Logic fix — git-path feature parity**
+`_run_task_with_git` was missing Project Brain (Iter 41), GitHub Issues
+context (Iter 42), and Vanguard skill injection (Iter 44). If the git
+binary ever becomes available in production (e.g. a base-image change),
+those features silently vanish on every code task. Mirrored the API
+path's brain_ctx / issues_ctx / sk_ctx block into the git path so feature
+parity is preserved across both worker dispatches.
+
+**Code-quality cleanup**
+Removed the AI-tell prose blocks (`TOKEN OPTIMIZATION:`, `Wire-in:`,
+`Catches what Cursor misses`, "AUREM `<thing>` —" branding lines,
+giant ─ divider lines) from the public docstrings of 8 service files:
+`project_brain.py`, `ora_council_logger.py`, `mode_e_auditor.py`,
+`code_reviewer.py`, `mode_d_debugger.py`, `parallel_agents.py`,
+`design_linter.py`, `github_issues_context.py`. Replaced with plain
+English module purposes. Behaviour unchanged.
+
+**Tests** — 11 new in `tests/test_iter52_production_bug_fixes.py`,
+all pass. Full backend regression: **196 passed / 5 skipped / 1 env-
+dependent failure** (the same MONGO_URL/AUREM_MASTER_KEY skips that
+pre-date this iter — none introduced by the changes).
+
+
 ## Active Phase / Next Up
 
 ### Iter 28 — Hard Token Enforcement + Admin Grants (Feb 2026)

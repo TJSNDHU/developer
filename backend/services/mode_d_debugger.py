@@ -1,29 +1,16 @@
 """
 services/mode_d_debugger.py
-============================
-AUREM Mode D — Debug / Investigate
+Mode D — debug / investigate flow: READ → DIAGNOSE → CONFIRM → FIX.
 
-Flow: READ → DIAGNOSE → CONFIRM → FIX (via Mode C)
+Unlike Mode C which writes code on the first turn, Mode D reads the
+repo and the error context first, presents a diagnosis + plan, then
+waits for explicit user confirmation before handing off to Mode C.
 
-Unlike Mode C which jumps straight to writing code,
-Mode D first reads the repo + error context, diagnoses
-the root cause, shows the plan, waits for user confirm,
-THEN triggers a Mode C commit.
-
-F12 INTEGRATION:
-  Browser console errors, network 4xx/5xx, stack traces
-  are captured by the frontend snippet and sent here as
-  structured payloads. ORA maps them to exact file + line.
-
-TOKEN OPTIMIZATION:
-  - Only reads files mentioned in the stack trace (not full tree)
-  - Diagnosis prompt is strict: max 500 tokens output
-  - No LLM call if error is a known pattern (regex fast-path)
-
-Wire-in:
-  routers/chat.py::chat_stream — detect Mode D intent,
-  call run_debug_session(). Stream diagnosis back to user.
-  On user confirmation ("yes fix it" / "ship it") → trigger Mode C.
+Browser console errors, network 4xx/5xx, and stack traces captured by
+the frontend F12 snippet arrive as structured `f12_payload` dicts and
+get mapped to exact file + line. Known error patterns (CORS, 422,
+ECONNREFUSED, etc.) take a regex fast-path with zero LLM cost; unknown
+errors fall through to a strict 500-token DeepSeek diagnosis.
 """
 
 from __future__ import annotations

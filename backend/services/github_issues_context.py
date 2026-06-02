@@ -1,35 +1,27 @@
 """
 services/github_issues_context.py
-====================================
-AUREM GitHub Issues Context — ORA reads tickets before every code task.
+Auto-reads the open GitHub issues for the connected repo, picks the
+most relevant 3 for the current task (simple keyword overlap, no LLM),
+and returns a compact context string ready to inject into the system
+prompt. Cache TTL is 15 minutes (`issues_cache` collection).
 
-When user says "fix the auth bug" — ORA already knows which issue it is,
-what the error message was, who reported it, what branch it's on.
-
-No copy-paste from user needed. ORA reads the repo's open issues,
-finds the most relevant ones for the current task, and injects them
-into the system context.
-
-TOKEN OPTIMIZATION:
-  • Only fetches open issues (not closed — saves API calls)
-  • Injects at most 3 most-relevant issues per task (~300 tokens)
-  • Relevance = simple keyword overlap between task description + issue title/body
-  • Caches issues in MongoDB for 15 minutes to avoid repeated GitHub API calls
-  • Uses same GitHub PAT that github_api_writer.py already uses
-
-Wire-in:
-  orchestrator.py OR cto_projects.py — call get_relevant_issues_context()
-  and append to system prompt before DeepSeek call.
+The user never has to copy-paste an issue body in chat — ORA already
+has the title, body excerpt, and labels by the time it starts writing.
+Reuses the project's stored GitHub PAT (same one used by
+`github_api_writer.py`).
 """
 
 from __future__ import annotations
 import re
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+logger = logging.getLogger(__name__)
 
 
 CACHE_TTL_MINUTES = 15
@@ -100,7 +92,7 @@ async def get_issues_cached(
     try:
         issues = await _fetch_open_issues(repo_owner, repo_name, github_pat)
     except Exception as e:
-        print(f"[Issues Context] Failed to fetch issues: {e}")
+        logger.warning("issues_context fetch failed: %r", e)
         return []
 
     await db["issues_cache"].update_one(
@@ -189,7 +181,7 @@ async def get_relevant_issues_context(
         relevant   = find_relevant_issues(task_description, all_issues)
         return build_issues_context(relevant)
     except Exception as e:
-        print(f"[Issues Context] Error: {e}")
+        logger.warning("issues_context build failed: %r", e)
         return ""
 
 
