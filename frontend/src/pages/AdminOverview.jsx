@@ -82,27 +82,37 @@ export default function AdminOverview() {
       <Section title="Features — live status">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
           <FeatureRow name="Two-Agent Maxx"         status="live"    note="DeepSeek + Claude review" />
-          <FeatureRow name="Project Brain"           status="live"    note="Per-repo memory" />
+          <FeatureRow name="Project Brain"          status="live"    note="Per-repo memory + commit log surfacing (Iter 57)" />
           <FeatureRow name="Design Linter + 007"    status="live"    note="25 secret patterns" />
           <FeatureRow name="GitHub Issues context"  status="live"    note="1hr TTL cache" />
           <FeatureRow name="Parallel agents"        status="live"    note="asyncio.gather" />
-          <FeatureRow name="Mode A/B/C/D/E"         status="live"    note="All 5 intent modes" />
+          <FeatureRow name="Mode A/B/C/D/E/F"       status="live"    note="6 intent modes (F = Engage)" />
           <FeatureRow name="F12 error capture"      status="live"    note="Browser → ORA" />
           <FeatureRow name="Mode D→C real handoff"  status="live"    note="Real cto_tasks row" />
           <FeatureRow name="PAT encryption"         status="live"    note="HKDF-Fernet v1:" />
-          <FeatureRow name="Vanguard skill injection" status="live"  note="7 skills, 3 max/task" />
-          <FeatureRow name="Rate limiting"          status="live"    note="30/min chat, 10/min tasks" />
-          <FeatureRow name="Free tier cap"          status="live"    note="10 tasks/30 days" />
+          <FeatureRow name="Vanguard skill injection" status="live"  note="9 skills (PCI + Privacy), 3 max/task" />
+          <FeatureRow name="Rate limiting + bucket cap" status="live" note="30/min chat, OOM-proof (Iter 52)" />
+          <FeatureRow name="Free tier cap"          status="live"    note="10 tasks/30d (failed excluded)" />
           <FeatureRow name="SSE task streamer"      status="live"    note="task_handoff frame" />
-          <FeatureRow name="ORA council logger"     status="live"    note="All 5 modes logged" />
+          <FeatureRow name="ORA council logger"     status="live"    note="A/B only (no D/E pollution)" />
           <FeatureRow name="Daily JSONL export"     status="live"    note="ORA training data" />
           <FeatureRow name="Sentry monitoring"      status="needs-dsn" note="SDK wired, set SENTRY_DSN" />
           <FeatureRow name="GitHub OAuth"           status="needs-key" note="Set GITHUB_OAUTH_CLIENT_ID" />
           <FeatureRow name="Public stats strip"     status="live"    note="Landing page" />
           <FeatureRow name="Ship Wall"              status="live"    note="auremcto.com/wall" />
-          <FeatureRow name="ORA Wrapped"            status="live"    note="/wrapped/me" />
+          <FeatureRow name="ORA Wrapped"            status="live"    note="/wrapped/me + share-to-X" />
+          <FeatureRow name="Post-commit wrap-up"    status="live"    note="Auto follow-up (Iter 53)" />
+          <FeatureRow name="Tool-call leak fix"     status="live"    note="Synth summary + loop guard (Iter 55)" />
+          <FeatureRow name="90s timeout streamer"   status="live"    note="Graceful summary not red error" />
+          <FeatureRow name="OAuth runtime origin"   status="live"    note="window.location.origin (Iter 56)" />
+          <FeatureRow name="Mandatory tool-use"     status="live"    note="ORA must read_repo_file (Iter 57)" />
+          <FeatureRow name="Truncated tree rescue"  status="live"    note="Contents-API walk fallback (Iter 58)" />
+          <FeatureRow name="Upload vision OCR"      status="live"    note="Gemini 2.5 + visible pills (Iter 59)" />
+          <FeatureRow name="Hosted deploy"          status="live"    note="Vercel/Netlify hooks (Iter 60)" />
+          <FeatureRow name="Mode F — Engage"        status="live"    note="Grounded market/copy advice (Iter 60)" />
           <FeatureRow name="VS Code extension"      status="pending" note="Build + publish" />
           <FeatureRow name="SWE-bench score"        status="pending" note="Run benchmark" />
+          <FeatureRow name="Per-step task_progress" status="pending" note="Real-time worker tape (replace 2s polling)" />
         </div>
       </Section>
 
@@ -116,6 +126,7 @@ export default function AdminOverview() {
             <MetricCard label="Mode C tasks"  value={council.mode_c       ?? "—"} />
             <MetricCard label="Mode D debug"  value={council.mode_d       ?? "—"} />
             <MetricCard label="Mode E audits" value={council.mode_e       ?? "—"} />
+            <MetricCard label="Mode F engage" value={council.mode_f       ?? "—"} />
             <MetricCard label="Corrections"   value={council.corrections  ?? "—"} />
             <MetricCard label="Lint blocks"   value={council.lint_blocked ?? "—"} />
           </div>
@@ -136,8 +147,13 @@ export default function AdminOverview() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <ActionRow
             urgent
-            title="Set SENTRY_DSN in production"
-            detail="sentry.io → free → FastAPI project → copy DSN → Emergent dashboard env vars"
+            title="Redeploy production"
+            detail="Iter 53–60 saari changes preview pe live hain — production redeploy karke 8 iterations of fixes + features push karo (post-commit wrap-up, Ship Wall, Wrapped, Admin Overview, tool_call leak fix, OAuth origin, repo scan + brain memory, tree-truncation rescue, upload vision OCR, hosted deploy, Mode F Engage)."
+          />
+          <ActionRow
+            urgent
+            title="Set production env vars"
+            detail="Emergent dashboard → env vars: SENTRY_DSN, GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, ALLOWED_ORIGINS=https://auremcto.com,https://www.auremcto.com"
           />
           <ActionRow
             urgent
@@ -145,8 +161,12 @@ export default function AdminOverview() {
             detail="github.com/settings/developers → OAuth Apps → callback: auremcto.com/api/aurem-dev/github/oauth/callback"
           />
           <ActionRow
+            title="Connect a deploy hook to your demo project"
+            detail="Vercel → Project → Settings → Git → Deploy Hooks → Create → paste URL into AUREM project's 'Connect deploy'. Now 'Ship to Live' works end-to-end."
+          />
+          <ActionRow
             title="Record 60-second demo video"
-            detail="Real repo, type a task, watch ORA ship it. Post on X. This is your biggest marketing lever."
+            detail="Type a task → AUREM ships → click 'Ship to Live' → URL goes live. One bubble, prompt to production. Post on X."
           />
           <ActionRow
             title="Find 5 beta developers"
@@ -155,6 +175,10 @@ export default function AdminOverview() {
           <ActionRow
             title="Publish VS Code extension"
             detail="marketplace.visualstudio.com — code is done, needs publisher account + vsce publish"
+          />
+          <ActionRow
+            title="Per-step SSE task_progress frames"
+            detail="Replace 2s polling with real-time worker tape — chat bubble updates instantly on each tool call."
           />
         </div>
       </Section>

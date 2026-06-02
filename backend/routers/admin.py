@@ -95,7 +95,8 @@ async def dashboard(authorization: Optional[str] = Header(None)):
 @router.get("/council/stats")
 async def council_stats(authorization: Optional[str] = Header(None)):
     """Lightweight aggregate for AdminOverview — total council rows +
-    last-30-days slice + Claude correction rate. No PII."""
+    last-30-days slice + Claude correction rate + per-mode breakdown.
+    No PII."""
     await _require_admin(authorization)
     db = require_db()
     now = time.time()
@@ -105,18 +106,36 @@ async def council_stats(authorization: Optional[str] = Header(None)):
     last_30d = await db.ora_council_logs.count_documents(
         {"timestamp": {"$gte": cutoff}}
     )
-    code_rows = await db.ora_council_logs.count_documents({"mode": "C"})
+    # Per-mode breakdown (used by AdminOverview metric grid).
+    mode_a = await db.ora_council_logs.count_documents({"mode": "A"})
+    mode_b = await db.ora_council_logs.count_documents({"mode": "B"})
+    mode_c = await db.ora_council_logs.count_documents({"mode": "C"})
+    mode_d = await db.ora_council_logs.count_documents({"mode": "D"})
+    mode_e = await db.ora_council_logs.count_documents({"mode": "E"})
+    mode_f = await db.ora_council_logs.count_documents({"mode": "F"})
+    lint_blocked = await db.ora_council_logs.count_documents(
+        {"lint_blocked": True}
+    )
     corrected = await db.ora_council_logs.count_documents(
         {"mode": "C", "claude_corrected": True}
     )
     correction_rate = (
-        round((corrected / code_rows) * 100, 1) if code_rows else 0.0
+        round((corrected / mode_c) * 100, 1) if mode_c else 0.0
     )
     return {
-        "total": total,
-        "last_30d": last_30d,
-        "code_rows": code_rows,
-        "corrected": corrected,
+        "total":           total,
+        "total_logs":      total,        # AdminOverview reads this key too
+        "last_30d":        last_30d,
+        "mode_a":          mode_a,
+        "mode_b":          mode_b,
+        "mode_c":          mode_c,
+        "mode_d":          mode_d,
+        "mode_e":          mode_e,
+        "mode_f":          mode_f,
+        "code_rows":       mode_c,
+        "corrections":     corrected,
+        "corrected":       corrected,
+        "lint_blocked":    lint_blocked,
         "correction_rate": correction_rate,
         "ready_for_finetune": total >= 1000,
     }
