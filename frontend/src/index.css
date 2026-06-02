@@ -178,12 +178,9 @@ a:hover { color: var(--accent); }
    ───────────────────────────────────────────────────────────────── */
 body.aurem-glass {
   background:
-    /* Very light dark wash — just enough so amber text stays legible
-       on the highlight bands of the mesh image. The grey image itself
-       provides the dominant tone. */
-    linear-gradient(180deg, rgba(7, 8, 13, 0.18) 0%, rgba(7, 8, 13, 0.28) 100%),
-    /* The optimised network-mesh image */
-    url('/chatbackground.jpg') center / cover no-repeat fixed,
+    /* Soft amber wash so the glass tint stays warm without the mesh image */
+    radial-gradient(900px 700px at 80% -10%, rgba(255, 138, 42, 0.10), transparent 60%),
+    radial-gradient(700px 600px at -10% 60%, rgba(255, 197, 96, 0.06), transparent 60%),
     var(--bg);
   background-attachment: fixed, fixed, scroll;
 }
