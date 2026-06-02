@@ -97,14 +97,24 @@
     try {
       response = await _origFetch(input, init);
     } catch (err) {
-      // Network failure (no response at all)
-      store.network_errors.push({
-        url:           url.slice(0, 200),
-        method:        method.toUpperCase(),
-        status:        0,
-        response_body: `Network error: ${err.message}`.slice(0, MAX_BODY_LEN),
-        timestamp:     new Date().toISOString(),
-      });
+      // Iter 50 — DON'T capture aborted requests. AbortController is
+      // legit React cleanup, not a bug, and shows up as TypeError /
+      // DOMException with .name === 'AbortError'. Capturing these
+      // triggered hallucination-prone Mode D diagnoses on simple
+      // component-unmount scenarios.
+      const isAbort = err && (
+        err.name === "AbortError" ||
+        /aborted|abort/i.test(err.message || "")
+      );
+      if (!isAbort) {
+        store.network_errors.push({
+          url:           url.slice(0, 200),
+          method:        method.toUpperCase(),
+          status:        0,
+          response_body: `Network error: ${err.message}`.slice(0, MAX_BODY_LEN),
+          timestamp:     new Date().toISOString(),
+        });
+      }
       throw err;
     }
 

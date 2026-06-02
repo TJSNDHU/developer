@@ -129,11 +129,32 @@ def static_scan_file(filepath: str, content: str) -> list[dict]:
 
 
 def static_scan_all(file_blocks: dict) -> list[dict]:
-    """Scans all files. Returns all findings sorted by severity."""
+    """Scans all files. Returns all findings sorted by severity.
+    Iter 50: merges Vanguard 007 findings (AWS/GitHub/Stripe/OpenAI/PEM/etc.)
+    on top of our local regex pack so Mode E catches the same secrets
+    the design linter blocks on Mode C."""
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     all_findings = []
     for filepath, content in file_blocks.items():
         all_findings.extend(static_scan_file(filepath, content))
+
+    # Iter 50 — pull in Vanguard 007 catalog. Map its severity ladder
+    # (CRITICAL/HIGH/MEDIUM) onto Mode E's lowercase one.
+    try:
+        from services.vanguard_scanner import scan_file_blocks as _vg_scan
+        sev_map = {"CRITICAL": "critical", "HIGH": "high", "MEDIUM": "medium"}
+        for f in _vg_scan(file_blocks):
+            all_findings.append({
+                "filepath": f.get("filepath", ""),
+                "line":     f.get("line", 0),
+                "severity": sev_map.get(f.get("severity", "HIGH"), "high"),
+                "message":  f"Vanguard 007 — {f.get('name', 'unknown')}",
+                "snippet":  f.get("snippet", "")[:160],
+                "source":   "vanguard_007",
+            })
+    except Exception:
+        pass
+
     all_findings.sort(key=lambda x: severity_order.get(x["severity"], 4))
     return all_findings
 

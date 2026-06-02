@@ -90,22 +90,59 @@ _FIX_CONFIRM = _re_mode.compile(
     _re_mode.IGNORECASE,
 )
 
+# Iter 50 — short greetings should NEVER be classified as debug just
+# because stale F12 errors are still in the browser's capture buffer.
+_GREETING = _re_mode.compile(
+    r"^\s*(hi|hello|hey|yo|sup|hola|namaste|good\s+(morning|afternoon|evening)|"
+    r"thanks|thank\s+you|ok|okay|got\s+it|cool|nice|awesome)"
+    r"(\s+\w{0,12}){0,3}\s*[!.?]?\s*$",
+    _re_mode.IGNORECASE,
+)
+
 
 def is_fix_confirmation(message: str) -> bool:
     return bool(_FIX_CONFIRM.search(message or ""))
 
 
+def _f12_has_real_signal(payload: dict) -> bool:
+    """Iter 50 — guards against fishing-expedition Mode D triggers when the
+    F12 buffer holds only noise (aborted/200 network entries, no stack
+    traces, no real console.error messages).
+
+    Returns True only when the payload contains something a debugger
+    can actually use:
+      * A console error with a non-trivial message (>5 chars)
+      * A network error with HTTP status in 400-599 AND a real URL
+      * Any stack trace
+    """
+    if not isinstance(payload, dict):
+        return False
+    for ce in (payload.get("console_errors") or []):
+        msg = (ce.get("message") or ce.get("msg") or "").strip()
+        if len(msg) > 5 and "aborted" not in msg.lower():
+            return True
+    for ne in (payload.get("network_errors") or []):
+        st = ne.get("status", 0)
+        if isinstance(st, int) and 400 <= st < 600 and ne.get("url"):
+            return True
+    if payload.get("stack_traces"):
+        return True
+    return False
+
+
 def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
     """Returns one of: 'A','B','C','D','E'. Order matters."""
-    # Lazy imports keep startup light & avoid circular refs
     from services.mode_d_debugger import is_debug_request
     from services.mode_e_auditor  import is_audit_request
 
-    if f12_payload and (
-        f12_payload.get("console_errors")
-        or f12_payload.get("network_errors")
-        or f12_payload.get("stack_traces")
-    ):
+    # Iter 50 — greeting wins over stale F12 noise. We still SHOW the
+    # captured errors to the user via the F12 badge; we just don't
+    # fire a hallucination-prone Mode D LLM call on a casual hello.
+    msg = (message or "").strip()
+    if _GREETING.match(msg):
+        return "A"
+
+    if f12_payload and _f12_has_real_signal(f12_payload):
         return "D"
     if is_debug_request(message):
         return "D"

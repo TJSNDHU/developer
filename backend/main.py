@@ -163,12 +163,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AUREM Dev", version="1.0.0", lifespan=lifespan)
 
+# Iter 50 — CORS lockdown. allow_origins=["*"] meant ANY website could
+# hit the API. Now we read FRONTEND_URL from env (settable in
+# production), plus always allow auremcto.com and a handful of localhost
+# dev ports. Credentialed requests still off (we use Authorization
+# headers, not cookies) — when that flips, the wildcard MUST go.
+_origins = list(filter(None, [
+    os.getenv("FRONTEND_URL", "").strip(),
+    "https://auremcto.com",
+    "https://www.auremcto.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+]))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
+    allow_origin_regex=r"^https://.*\.preview\.emergentagent\.com$",
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 

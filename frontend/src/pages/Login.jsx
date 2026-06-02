@@ -3,7 +3,7 @@
  */
 import React, { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LogIn } from "lucide-react";
+import { LogIn, Github } from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
@@ -68,6 +68,41 @@ export default function Login() {
           backdropFilter: "blur(10px)",
           border: "1px solid rgba(255,255,255,0.06)",
         }}>
+          {/* Iter 50 — GitHub OAuth-first CTA (signup-killer removed) */}
+          <button
+            type="button"
+            data-testid="login-github-oauth"
+            onClick={() => {
+              const base = process.env.REACT_APP_BACKEND_URL || "";
+              // OAuth connect is JWT-gated normally; signed-out users
+              // need a different entry — backend reads the redirect
+              // param when no auth header is present and post-callback
+              // it issues a session JWT then redirects back to /dashboard.
+              window.location.href = `${base}/api/aurem-dev/github/oauth/connect?signup=1`;
+            }}
+            style={{
+              padding: "12px 14px", marginBottom: 16,
+              borderRadius: 4, cursor: "pointer",
+              background: "#0d1117", color: "#fff",
+              border: "1px solid #30363d",
+              fontWeight: 600, fontSize: 13,
+              display: "flex", alignItems: "center", gap: 8,
+              justifyContent: "center", width: "100%",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <Github size={14} /> Continue with GitHub
+          </button>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            margin: "0 0 16px 0", color: "var(--text-faint)",
+            fontSize: 10, letterSpacing: "0.1em",
+          }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+            <span>OR EMAIL</span>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+          </div>
           <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
             <label>
               <span className="label-mini">Email</span>

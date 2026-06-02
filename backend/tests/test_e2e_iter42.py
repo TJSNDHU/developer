@@ -34,8 +34,8 @@ import pytest
     ("audit my codebase and find bugs",            None, "E"),
     ("security review on my repo",                 None, "E"),
     # F12 payload always forces Mode D
-    ("check this", {"console_errors": [{"message": "TypeError"}]}, "D"),
-    ("check this", {"network_errors": [{"status": 500}]}, "D"),
+    ("check this", {"console_errors": [{"message": "TypeError: cannot read"}]}, "D"),
+    ("check this", {"network_errors": [{"status": 500, "url": "/api/x"}]}, "D"),
 ])
 def test_classify_intent(message, f12, expected):
     from routers.chat import classify_intent
