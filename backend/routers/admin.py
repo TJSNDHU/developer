@@ -569,5 +569,34 @@ async def admin_brain_delete_preference(
 ):
     await _require_admin(authorization)
     from services.project_brain import delete_preference
+
+
+# ── Iter 48 — Sentry test endpoint ────────────────────────────────────
+# Founder-only. Hit this once after adding SENTRY_DSN to prod env to
+# confirm the integration works end-to-end. Look at sentry.io's Issues
+# tab — you should see the test event within seconds.
+@router.post("/sentry/test")
+async def sentry_test(authorization: Optional[str] = Header(None)):
+    await _require_admin(authorization)
+    import os as _os
+    if not _os.environ.get("SENTRY_DSN", "").strip():
+        return {"ok": False, "active": False,
+                "message": "SENTRY_DSN not set — add it to backend env and restart."}
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_message(
+            "AUREM Sentry test — if you see this, monitoring is live ✓",
+            level="info",
+        )
+        # Also fire a captured exception
+        try:
+            raise RuntimeError("AUREM Sentry test exception (intentional)")
+        except RuntimeError as _re:
+            sentry_sdk.capture_exception(_re)
+        return {"ok": True, "active": True,
+                "message": "Sent test event + exception to Sentry. Check the Issues tab."}
+    except Exception as e:
+        return {"ok": False, "active": False, "error": str(e)}
+
     n = await delete_preference(require_db(), project_id, preference)
     return {"ok": True, "removed": n}

@@ -1154,6 +1154,18 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _log(task_id, f"❌ {safe}", "error")
         await _set_status(task_id, status="failed", error=safe,
                           completed_at=time.time())
+        # Iter 48 — background-task crash goes to Sentry (bypasses HTTP
+        # middleware so explicit capture needed).
+        try:
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("kind", "cto_task_crash")
+                scope.set_tag("task_id", task_id)
+                scope.set_tag("project_id", proj.get("project_id", ""))
+                scope.set_extra("repo", f"{proj.get('github_owner')}/{proj.get('github_repo')}")
+                sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
 
 
 async def _run_task_with_git(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
@@ -1259,5 +1271,16 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         await _log(task_id, f"❌ {e}", "error")
         await _set_status(task_id, status="failed", error=str(e),
                           completed_at=time.time())
+        # Iter 48 — Sentry capture for git-path worker crashes too.
+        try:
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("kind", "cto_task_crash")
+                scope.set_tag("task_id", task_id)
+                scope.set_tag("path", "git")
+                scope.set_tag("project_id", proj.get("project_id", ""))
+                sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
     finally:
         shutil.rmtree(ws, ignore_errors=True)

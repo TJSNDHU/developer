@@ -43,20 +43,75 @@ from services.daily_digest import schedule_daily_digest
 
 load_dotenv()
 
-# Iter 45 — Sentry (production error monitoring). Opt-in via SENTRY_DSN.
+# Iter 45 + 48 — Sentry (full-coverage error monitoring). Opt-in via SENTRY_DSN.
 # In dev/preview without DSN it stays inert — zero perf cost.
+#
+# Iter 48 — bumped to full coverage per the friendly-reply-no-real-action
+# class of bugs: every unhandled exception, FastAPI request span, slow
+# requests (> 5s), MongoDB calls, and background task crashes are now
+# captured. Set SENTRY_DSN in production env to activate.
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+SENTRY_ACTIVE = False
 if _SENTRY_DSN:
     try:
         import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+        from sentry_sdk.integrations.asyncio import AsyncioIntegration
+        from sentry_sdk.integrations.pymongo import PyMongoIntegration
+
         sentry_sdk.init(
             dsn=_SENTRY_DSN,
-            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             environment=os.getenv("SENTRY_ENV", "production"),
+            release=os.getenv("SENTRY_RELEASE", "aurem-dev@1.0.0"),
+            # Performance — 10% sampling by default keeps quota tight
+            # but every error is still captured at 100%.
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             send_default_pii=False,
+            attach_stacktrace=True,
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                StarletteIntegration(transaction_style="endpoint"),
+                AsyncioIntegration(),
+                PyMongoIntegration(),
+            ],
+            # Drop low-value events client-side
+            ignore_errors=[
+                # Auth failures aren't bugs — they're user errors.
+                "HTTPException",
+                # Rate-limit 429s are expected
+                "RateLimitExceeded",
+            ],
+            before_send=_sentry_filter,
+        )
+        SENTRY_ACTIVE = True
+        logging.getLogger(__name__).info(
+            "Sentry active — env=%s, traces=%.0f%%",
+            os.getenv("SENTRY_ENV", "production"),
+            float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")) * 100,
         )
     except Exception as _se:
         logging.getLogger(__name__).warning("Sentry init failed: %r", _se)
+
+
+def _sentry_filter(event, hint):
+    """Drop noisy events before sending to Sentry.
+    - 4xx HTTPExceptions are not bugs.
+    - Connection-reset on SSE streams are client-side.
+    """
+    exc_info = hint.get("exc_info") if hint else None
+    if exc_info:
+        exc_type = exc_info[0].__name__ if exc_info[0] else ""
+        exc_msg  = str(exc_info[1] or "")
+        # Skip 4xx HTTPException (we already return clean 4xx JSON)
+        if exc_type == "HTTPException":
+            status = getattr(exc_info[1], "status_code", 500)
+            if 400 <= status < 500:
+                return None
+        if "Connection lost" in exc_msg or "ClientDisconnect" in exc_msg:
+            return None
+    return event
 
 # Iter 45 — slowapi rate limiting (per-IP). Hand-rolled to avoid
 # decorator/dep-injection collision.
@@ -121,13 +176,36 @@ app.add_middleware(
 # Drop these on every response. Cheap, zero functional impact.
 @app.middleware("http")
 async def _security_headers(request, call_next):
+    # Iter 48 — slow-request capture. Anything > SLOW_API_MS (default 5s)
+    # gets a Sentry warning event with the path + duration. Cheap because
+    # Sentry only fires when slow.
+    import time as _t
+    _start = _t.perf_counter()
     response = await call_next(request)
+    _dur_ms = (_t.perf_counter() - _start) * 1000.0
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["X-Response-Time-Ms"] = f"{_dur_ms:.0f}"
+    if SENTRY_ACTIVE:
+        _slow_thresh = float(os.getenv("SLOW_API_MS", "5000"))
+        # Skip SSE streams (they're long by design)
+        if _dur_ms > _slow_thresh and "/chat/stream" not in str(request.url.path):
+            try:
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("kind", "slow_api")
+                    scope.set_tag("path", request.url.path)
+                    scope.set_extra("duration_ms", round(_dur_ms, 1))
+                    sentry_sdk.capture_message(
+                        f"Slow API: {request.method} {request.url.path} took {_dur_ms:.0f}ms",
+                        level="warning",
+                    )
+            except Exception:
+                pass
     return response
 
 
@@ -151,6 +229,19 @@ async def _global_exc_handler(request: _FastReq, exc: Exception):
         "unhandled exception on %s %s",
         request.method, request.url.path, exc_info=True,
     )
+    # Iter 48 — defensive Sentry capture (FastApiIntegration usually
+    # catches this automatically, but the global handler may intercept
+    # before the integration sees it).
+    if SENTRY_ACTIVE:
+        try:
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("kind", "unhandled_500")
+                scope.set_tag("path", request.url.path)
+                scope.set_tag("method", request.method)
+                sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
     return _JsonResp(
         status_code=500,
         content={"detail": "An internal error occurred. Please try again."},

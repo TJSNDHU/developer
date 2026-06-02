@@ -407,6 +407,29 @@ async def chat_stream(
                                 bg=None,
                                 maxx_mode=body.maxx_mode,
                             )
+                            # Iter 48 — Sentry: this is the exact code path
+                            # that silently failed in production (friendly
+                            # reply, no real task). Capture every outcome.
+                            try:
+                                import sentry_sdk
+                                sentry_sdk.add_breadcrumb(
+                                    category="mode_handoff",
+                                    message="Mode D → C handoff fired",
+                                    level="info",
+                                    data={
+                                        "ok": enq.get("ok"),
+                                        "reason": enq.get("reason"),
+                                        "task_id": enq.get("task_id"),
+                                        "project_id": enq.get("project_id"),
+                                    },
+                                )
+                                if not enq.get("ok"):
+                                    sentry_sdk.capture_message(
+                                        f"Mode D→C handoff failed: {enq.get('reason', 'unknown')}",
+                                        level="error",
+                                    )
+                            except Exception:
+                                pass
                             if enq.get("ok"):
                                 reply = (
                                     "On it — Mode C task **queued** and the "
