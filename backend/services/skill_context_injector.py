@@ -36,8 +36,15 @@ _INJECTION_RULES: list[tuple[list[str], str, int]] = [
     ),
     (
         ["stripe", "payment", "billing", "checkout", "invoice",
-         "subscription", "webhook"],
-        "api-security.md", 2000,   # api-security covers webhooks too
+         "subscription", "webhook", "razorpay", "paypal", "card",
+         "credit card", "debit card", "pan", "cvv", "pci"],
+        "pci-compliance.md", 2200,
+    ),
+    (
+        ["gdpr", "ccpa", "dpdp", "privacy", "personal data", "pii",
+         "user data", "data export", "right to be forgotten",
+         "data deletion", "consent", "cookie banner", "data retention"],
+        "privacy-by-design.md", 2200,
     ),
     (
         ["react", "component", "jsx", "tsx", "frontend", "ui", "form",
@@ -51,8 +58,10 @@ _INJECTION_RULES: list[tuple[list[str], str, int]] = [
     ),
 ]
 
-# Maximum 2 skills per task — keeps the prompt under ~5K extra chars.
-_MAX_SKILLS_PER_TASK = 2
+# Maximum 3 skills per task — Iter 51 raised from 2 to make room for the
+# new PCI + Privacy skills landing alongside auth/api in payment+user
+# flows. Total budget stays under ~7K chars (well within context window).
+_MAX_SKILLS_PER_TASK = 3
 
 # Iter 44 — Always-inject security checklist for Mode C (any code task).
 # Cap small (1000 chars) since it's the most generic.

@@ -105,9 +105,11 @@ class TestSkillInjector:
         assert "auth-implementation.md" in names
 
     def test_payments_task_injects_api_security(self):
+        # Iter 51 — Stripe / checkout now routes to the dedicated
+        # PCI-compliance skill (stricter than generic api-security).
         from services.skill_context_injector import select_skills
         names = [n for n, _ in select_skills("integrate Stripe checkout for billing")]
-        assert "api-security.md" in names
+        assert "pci-compliance.md" in names
 
     def test_react_task_injects_frontend_security(self):
         from services.skill_context_injector import select_skills

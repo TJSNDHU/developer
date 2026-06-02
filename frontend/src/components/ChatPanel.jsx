@@ -409,6 +409,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
       onMode: (m) => setServerMode(m),  // server-classified mode (A/B/C/D/E)
+      // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
+      // handoff) emits this BEFORE content streams. Pin the task_id on
+      // the streaming assistant bubble so the ShipStatusCard renders
+      // inline and polls live progress — user never has to leave chat.
+      onTaskHandoff: (p) => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant") {
+            copy[copy.length - 1] = {
+              ...last,
+              shipped_task_id: p.task_id,
+              auto_handoff_project_id: p.project_id || null,
+              auto_handoff_source: p.source || "auto",
+            };
+          }
+          return copy;
+        });
+      },
       onMeta: (m) => {
         if (m.provider) providerSeen = m.provider;
         if (typeof m.temperature === "number" || m.mode) {
@@ -1071,6 +1090,18 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
   // Live task progress (polled while shipped task is in-flight)
   const [taskInfo, setTaskInfo] = useState(null);
 
+  // Iter 51 — when the server emits `task_handoff` mid-stream the parent
+  // patches m.shipped_task_id but shipState was frozen at mount. Sync
+  // when m.shipped_task_id changes so the poll loop actually fires.
+  useEffect(() => {
+    if (m.shipped_task_id && m.shipped_task_id !== shipState.taskId) {
+      setShipState((s) => ({
+        ...s, status: "shipped", taskId: m.shipped_task_id, error: null,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.shipped_task_id]);
+
   // Poll the CTO task while it's in progress, until done/failed
   useEffect(() => {
     const tid = shipState.taskId;
@@ -1403,6 +1434,26 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
                 {shipState.error}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Iter 51 — Auto-handoff (Mode D→C, etc.) progress card.
+            When the server fires `task_handoff` with no aurem-handoff
+            fence, render ShipStatusCard inline so the user sees live
+            worker progress in the same chat bubble. */}
+        {m.role === "assistant"
+          && m.shipped_task_id
+          && !handoffBrief
+          && !m.streaming && (
+          <div data-testid={`auto-handoff-row-${idx}`} style={{
+            marginTop: 10, paddingLeft: 4,
+          }}>
+            <ShipStatusCard
+              taskId={shipState.taskId || m.shipped_task_id}
+              task={taskInfo}
+              project={activeProject}
+              onRollback={rollbackShipped}
+            />
           </div>
         )}
 

@@ -440,6 +440,67 @@ Landing.jsx changes:
 
 Smoke screenshot: hero renders crisp instantly. First-paint background ≈ blur instantly, real image swap < 200ms on broadband.
 
+
+### Iter 51 — SSE Task Progress Streamer + Vanguard PCI / Privacy skills (Feb 2026)
+Two P0/P1 items the previous agent left behind: (1) the Mode D→C
+auto-handoff was firing a real Mode C task but the user never saw any
+progress in the chat bubble — they had to open the Projects tab to know
+anything was happening, (2) the Vanguard skill injector was missing two
+critical skills (PCI for payments + Privacy-by-Design for GDPR/CCPA).
+
+**1. SSE Task Progress Streamer**
+- **Backend** (`routers/chat.py`):
+  - SSE generator now emits a `task_handoff` frame immediately after the
+    orchestrator result lands and BEFORE any meta/content tokens stream.
+    Shape: `{"type": "task_handoff", "task_id": "...", "project_id": "...", "source": "..."}`.
+  - Fires whenever `result.task_id` is present — covers the existing
+    Mode D→C handoff path and any future auto-enqueue flow.
+  - `_persist_turn` now accepts and stores `shipped_task_id` on the
+    assistant turn doc — so a page refresh keeps the live
+    `ShipStatusCard` rendered (parity with the Ship via CTO button
+    contract introduced in Iter 23).
+- **Frontend** (`lib/api.js` + `components/ChatPanel.jsx`):
+  - `streamChat` adds an `onTaskHandoff(payload)` callback that routes
+    `payload.type === "task_handoff"` frames.
+  - `ChatPanel.send` patches the streaming assistant message with
+    `m.shipped_task_id`. A new `useEffect` in `MessageBubble` syncs
+    `shipState.taskId` whenever `m.shipped_task_id` changes mid-stream,
+    so the existing 2s polling loop (`GET /cto/tasks/{id}`) kicks off
+    immediately.
+  - A new render branch shows `ShipStatusCard` inline whenever
+    `m.shipped_task_id` exists AND there's no ```aurem-handoff``` fence
+    (i.e. auto-handoff, not the manual Ship button flow).
+  - Test ID `auto-handoff-row-<idx>` for E2E coverage.
+
+**2. Vanguard skills — PCI + Privacy**
+- **New files** under `/app/backend/vanguard_skills/`:
+  - `pci-compliance.md` (~3.5 KB) — Stripe/PayPal/Razorpay rules, never
+    log PAN/CVV, webhook signature verification, idempotency, server-
+    side amount validation, anti-pattern table.
+  - `privacy-by-design.md` (~4 KB) — GDPR Art. 15-22 rights (export /
+    delete / rectify / portability), PII categorisation table, consent
+    UX rules, encryption-at-rest for sensitive fields, retention
+    policy template, anti-pattern table.
+- **Injector** (`services/skill_context_injector.py`):
+  - Stripe / payment / billing / razorpay / paypal / cvv / pci →
+    routes to `pci-compliance.md` (stricter than generic api-security
+    which used to handle it).
+  - gdpr / ccpa / dpdp / privacy / pii / user data / right to be
+    forgotten / consent → routes to `privacy-by-design.md`.
+  - `_MAX_SKILLS_PER_TASK` bumped 2 → 3 so a "stripe + gdpr" task gets
+    PCI + Privacy + the always-on security-review checklist together
+    (still under ~7K char total budget).
+
+**Tests** — 14 new in `tests/test_iter51_sse_handoff_and_vanguard_skills.py`,
+all green (file existence, trigger-keyword coverage, combine behaviour,
+no false positives on greetings, max-cap, SSE frame contract in both
+`chat.py` and `api.js`, auto-handoff-row block in `ChatPanel.jsx`).
+Updated 1 pre-existing test in `test_iter44_vanguard.py` to match the
+new (stricter) stripe → PCI routing. Full regression: 30/30 in-scope
+tests pass; 7 pre-existing unrelated failures (founder env / vault
+master-key) are not introduced by this iter.
+
+
 ## Active Phase / Next Up
 
 ### Iter 28 — Hard Token Enforcement + Admin Grants (Feb 2026)

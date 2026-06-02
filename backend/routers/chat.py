@@ -232,9 +232,13 @@ async def _maybe_set_title(user_id: str, session_id: str,
 async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
                         assistant_reply: str, provider: str,
                         watchdog: Optional[dict] = None,
-                        project_id: Optional[str] = None) -> None:
+                        project_id: Optional[str] = None,
+                        shipped_task_id: Optional[str] = None) -> None:
     """Append user+assistant turns to db.chat_sessions, capped at 40 turns.
-    Tags the session with the project it belongs to (None == Home/global)."""
+    Tags the session with the project it belongs to (None == Home/global).
+    Iter 51 — when `shipped_task_id` is set (e.g. Mode D→C auto-handoff),
+    it's pinned on the assistant turn so a refresh keeps the live progress
+    card rendered (same contract as /chat/turn/shipped)."""
     db = get_db()
     if db is None or not session_id:
         return
@@ -246,6 +250,8 @@ async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
     }
     if watchdog:
         assistant_turn["watchdog"] = watchdog
+    if shipped_task_id:
+        assistant_turn["shipped_task_id"] = shipped_task_id
     set_on_insert = {
         "session_id": session_id,
         "user_id": user_id,
@@ -779,6 +785,24 @@ async def chat_stream(
                 result = ev["result"]
                 break
 
+        # Iter 51 — SSE Task Progress Streamer.
+        # When the worker auto-enqueued a Mode C task (Mode D→C handoff,
+        # or any future flow that lands a `task_id` on the result), surface
+        # it to the frontend BEFORE meta/content streaming so the chat
+        # bubble can pin the live ShipStatusCard without waiting for the
+        # full text reply.
+        handoff_task_id = result.get("task_id") if isinstance(result, dict) else None
+        handoff_project_id = result.get("project_id") if isinstance(result, dict) else None
+        if handoff_task_id:
+            yield (
+                "data: " + json.dumps({
+                    "type": "task_handoff",
+                    "task_id": handoff_task_id,
+                    "project_id": handoff_project_id,
+                    "source": result.get("provider") or "auto_handoff",
+                }) + "\n\n"
+            )
+
         content = result.get("content", "") or ""
         provider = result.get("provider", "") or ""
         mode = _detect_mode(body.prompt)
@@ -809,7 +833,8 @@ async def chat_stream(
 
         await _persist_turn(user_id, body.session_id or "",
                             body.prompt, content, provider, watchdog=watchdog,
-                            project_id=body.project_id)
+                            project_id=body.project_id,
+                            shipped_task_id=handoff_task_id)
 
         # iter 41 — ORA council log (Mode A/B) + project brain update.
         # Fire-and-forget; never blocks user reply.
