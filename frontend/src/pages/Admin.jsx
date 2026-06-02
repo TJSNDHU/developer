@@ -902,9 +902,17 @@ export default function Admin() {
       });
   }, [navigate]);
 
+  // Toggle the network-mesh glass bg on body while the admin page is
+  // mounted (Admin.jsx renders its own layout — it doesn't wrap in
+  // Shell — so we need to opt-in to the same body class Shell uses).
+  useEffect(() => {
+    document.body.classList.add("aurem-glass");
+    return () => { document.body.classList.remove("aurem-glass"); };
+  }, []);
+
   if (!me) return (
     <div style={{ minHeight: "100vh", display: "grid", placeItems: "center",
-                   background: "var(--bg)", color: "var(--text-faint)" }}>
+                   background: "transparent", color: "var(--text-faint)" }}>
       <Loader2 size={18} className="spin" />
     </div>
   );
@@ -938,11 +946,14 @@ export default function Admin() {
 
   return (
     <div style={{ minHeight: "100vh", display: "grid",
-                   gridTemplateColumns: "220px 1fr", background: "var(--bg)" }}>
-      <aside style={{ borderRight: "1px solid var(--border)",
-                       background: "var(--panel-2)",
-                       padding: "20px 12px",
-                       display: "flex", flexDirection: "column" }}>
+                   gridTemplateColumns: "220px 1fr", background: "transparent" }}>
+      <aside
+        className="glass-sidebar"
+        style={{
+          padding: "20px 12px",
+          display: "flex", flexDirection: "column",
+        }}
+      >
         <div style={{ padding: "0 8px 16px",
                        borderBottom: "1px solid var(--border)", marginBottom: 12 }}>
           <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>

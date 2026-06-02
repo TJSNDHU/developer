@@ -178,35 +178,43 @@ a:hover { color: var(--accent); }
    ───────────────────────────────────────────────────────────────── */
 body.aurem-glass {
   background:
-    /* Soft amber wash so the glass tint stays warm */
-    radial-gradient(900px 700px at 80% -10%, rgba(255, 138, 42, 0.08), transparent 60%),
-    radial-gradient(700px 600px at -10% 60%, rgba(255, 197, 96, 0.05), transparent 60%),
-    /* Dark overlay for readability on top of the mesh image */
-    linear-gradient(180deg, rgba(7, 8, 13, 0.62) 0%, rgba(7, 8, 13, 0.78) 100%),
+    /* Very light dark wash — just enough so amber text stays legible
+       on the highlight bands of the mesh image. The grey image itself
+       provides the dominant tone. */
+    linear-gradient(180deg, rgba(7, 8, 13, 0.18) 0%, rgba(7, 8, 13, 0.28) 100%),
     /* The optimised network-mesh image */
     url('/chatbackground.jpg') center / cover no-repeat fixed,
     var(--bg);
-  background-attachment: fixed, fixed, fixed, fixed, scroll;
+  background-attachment: fixed, fixed, scroll;
 }
 
-/* Glass panes — used by chat panel, admin panel, project cards */
+/* When the glass theme is on, #root must be transparent — the
+   `html, body, #root { background: var(--bg) }` rule above sets a
+   solid bg on #root that otherwise blocks the body mesh from showing
+   through every authenticated page. */
+body.aurem-glass #root {
+  background: transparent !important;
+}
+
+/* Glass panes — used by chat panel, admin panel, project cards.
+   Very low alpha so the underlying grey mesh dominates the screen. */
 .glass-pane {
-  background: rgba(17, 20, 29, 0.42) !important;
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: rgba(17, 20, 29, 0.18) !important;
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
   border: 1px solid rgba(255, 200, 120, 0.10);
 }
 
-/* Sidebar — slightly darker for legibility but still see-through */
+/* Sidebar — slightly more opaque for nav legibility but mesh still
+   visible through it. */
 .glass-sidebar {
-  background: rgba(13, 16, 24, 0.55) !important;
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  background: rgba(13, 16, 24, 0.30) !important;
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
   border-right: 1px solid rgba(255, 200, 120, 0.10);
 }
 
-/* Inbox / session row hover — keep the existing accent feel,
-   but transparent base */
+/* Inbox / session row hover */
 .glass-row {
   background: rgba(255, 255, 255, 0.02);
   transition: background 140ms ease, border-color 140ms ease;
@@ -219,8 +227,8 @@ body.aurem-glass {
   border-left: 2px solid var(--accent-2);
 }
 
-/* Chat bubbles — the shimmer is a faint diagonal sheen that
-   slowly drifts so the glass doesn't feel static. */
+/* Chat bubbles — diagonal shimmer drifts slowly so the glass never
+   feels static. Backgrounds are very light so the mesh shows through. */
 @keyframes glass-shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -229,10 +237,11 @@ body.aurem-glass {
 .glass-bubble {
   position: relative;
   border-radius: 14px;
-  border: 1px solid rgba(255, 200, 120, 0.10);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   overflow: hidden;
+  box-shadow: 0 4px 24px -10px rgba(0, 0, 0, 0.35);
 }
 .glass-bubble::before {
   content: "";
@@ -242,26 +251,26 @@ body.aurem-glass {
   background: linear-gradient(
     120deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.10) 50%,
     transparent 70%
   );
   background-size: 220% 100%;
   animation: glass-shimmer 9s linear infinite;
-  opacity: 0.7;
+  opacity: 0.8;
   mix-blend-mode: screen;
 }
 .glass-bubble-user {
-  background: rgba(255, 138, 42, 0.12);
-  border-color: rgba(255, 138, 42, 0.22);
+  background: rgba(255, 138, 42, 0.18);
+  border-color: rgba(255, 138, 42, 0.32);
 }
 .glass-bubble-assistant {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.08);
 }
 
-/* Composer / input bar over the glass background */
+/* Composer bar over the glass background */
 .glass-composer {
-  background: rgba(13, 16, 24, 0.60) !important;
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: rgba(13, 16, 24, 0.32) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   border-top: 1px solid rgba(255, 200, 120, 0.10);
 }

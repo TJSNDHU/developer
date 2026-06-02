@@ -71,7 +71,7 @@ export default function TabBar() {
       style={{
         display: "flex", alignItems: "center", gap: 2,
         padding: "8px 12px 0",
-        background: "var(--bg)",
+        background: "transparent",
         borderBottom: "1px solid var(--border)",
         overflowX: "auto", minHeight: 42,
       }}
