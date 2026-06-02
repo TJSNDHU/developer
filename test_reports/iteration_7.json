@@ -1,0 +1,43 @@
+{
+  "summary": "Iter 62 (ChatPanel.jsx split into MessageBubble/ShipDialog/TaskProgressCard + Signup GitHub OAuth button + orange theme completion) tested end-to-end. Frontend Playwright: all critical flows GREEN — signup page renders the new 'Continue with GitHub' button (data-testid=signup-github-oauth) and clicking it correctly redirects to /api/aurem-dev/github/oauth/connect?signup=1; login page parity confirmed; email/password login succeeds → /dashboard; chat send produces both user (chat-msg-user-1) and assistant (chat-msg-assistant-2) bubbles with the streaming indicator (chat-thinking) visible mid-flight — validates the MessageBubble.jsx extraction; hover on assistant bubble reveals msg-actions-2 action row and clicking thumbs-up-2 fires the expected toast 'Thanks — noted 👍' — validates ActionBtn from MessageBubble. Theme check: zero purple (#7F77DD/#a59ff0/#a855f7) computed colors found on /wall, and a repo-wide grep found 0 purple hex codes across /app/frontend/src — orange swap is complete. Backend: 300/303 pytest pass; 1 refactor-related test that hardcoded ChatPanel.jsx was updated by tester to point at MessageBubble.jsx (data-testid moved during split), passes now; 2 unrelated token-enforcement failures are pre-existing env-state issues (test user shows plan_limit=1_000_000_000 in this preview env — likely env override), NOT caused by the Iter 62 refactor. Live API sanity: GET /api/health → 200, GET /api/aurem-dev/wall/feed → 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_token_enforcement.py", "issue": "test_usage_me_shape & test_submit_402_when_exhausted_and_recovers_after_grant fail because in this preview env the default test user's plan_limit is 1_000_000_000 instead of the expected 1000 (free tier). Pre-existing, unrelated to Iter 62 refactor."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard sidebar (test user)", "issues": ["Token counter shows '-4177 tokens remaining' (negative). Cosmetic — token enforcement is currently bypassed in this env so chat still works, but the negative number is user-visible. Not introduced by this iter."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_sse_handoff_and_vanguard_skills.py",
+    "/app/test_reports/pytest/pytest_iter7.xml"
+  ],
+  "action_items": [
+    "Accept the 1-test fix to test_iter51_sse_handoff_and_vanguard_skills.py::test_chatpanel_renders_auto_handoff_progress_card — assertion was pointed at ChatPanel.jsx but the auto-handoff-row-<idx> block + TaskProgressCard render now lives in MessageBubble.jsx after the P1 split. Updated to read both files.",
+    "Optional: investigate why test@aurem.dev shows plan_limit=1_000_000_000 in the preview env so test_token_enforcement passes consistently (likely a stale ADMIN_EMAIL / FOUNDER_EMAILS env on the preview pod or a leftover dev_users row from a prior founder-promotion test)."
+  ],
+  "critical_code_review_comments": [
+    "MessageBubble.jsx (~520 lines) cleanly owns avatar + bubble + actions + ship dialog wiring + watchdog panel. Single useEffect drives task polling off shipState.taskId — and the sibling useEffect syncs shipState when m.shipped_task_id changes mid-stream (Iter 51 fix preserved). Looks correct.",
+    "TaskProgressCard.jsx is the renamed ShipStatusCard. The note in the request says a conditional-hook bug was fixed by extracting FailedCard into its own component — please double-check no useEffect/useState is still called below an early-return inside TaskProgressCard.",
+    "ShipDialog.jsx is purely presentational and receives shipState/taskInfo/callbacks from MessageBubble — good prop boundary, no hidden coupling.",
+    "Backend test file test_iter51_sse_handoff_and_vanguard_skills.py was hardcoded to ChatPanel.jsx — after this refactor it would have silently kept passing if data-testid had been left behind. Consider adding a tiny lint rule or simply asserting on both files in future refactor-sensitive tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter51_sse_handoff_and_vanguard_skills.py"
+  ],
+  "success_rate": {
+    "backend": "99% (300/303 pytest; 1 refactor regression fixed by tester; 2 pre-existing env-state failures unrelated to this iter)",
+    "frontend": "100% (signup OAuth btn + redirect, login OAuth btn + email login, chat send → streaming → user/assistant bubbles → hover action row → thumbs-up toast, /wall purple-free)"
+  },
+  "test_credentials": "test@aurem.dev / testpass123 worked. teji.ss1986@gmail.com / FounderOwn123! login timed-out on /dashboard wait in this run (account may have been cleaned up by prior iter teardown) — fallback to test user covered the chat flow.",
+  "seed_data_creation": "None. One UI chat turn created on test@aurem.dev session (cosmetic, not seeded data).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 62 P1 refactor is verified green end-to-end. MessageBubble.jsx is the new home for: chat-msg-user/assistant-<idx>, msg-actions-<idx>, thumbs-up/down-<idx>, copy-<idx>, copy-user-<idx>, watchdog-<idx>, watchdog-pending-<idx>, watchdog-error-<idx>, auto-handoff-row-<idx>, inline-html-<idx>, chat-thinking, chat-cursor. ChatPanel.jsx still owns: chat-root, chat-panel, chat-messages, chat-input, chat-send, chat-attach-btn, chat-github-btn, chat-maxx-btn, chat-preview-btn, chat-agent-select, chat-file-input. Backend file-grep tests must read MessageBubble.jsx (not ChatPanel.jsx) when asserting bubble-level testids. The 2 token_enforcement failures persist in this env — agents should not block on them unless reproducing on a fresh user.",
+  "rca_of_the_issue": "N/A — this iter is feature + refactor, no bug brief. One backend test (test_chatpanel_renders_auto_handoff_progress_card) regressed because the auto-handoff-row-<idx> block was moved from ChatPanel.jsx → MessageBubble.jsx during the P1 split; the test still grep'd ChatPanel.jsx. Fix: read both component source files in the assertion (auto-handoff-row + TaskProgressCard must live in MessageBubble.jsx; onTaskHandoff callback must still live in ChatPanel.jsx)."
+}

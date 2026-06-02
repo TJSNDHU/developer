@@ -164,17 +164,21 @@ def test_frontend_api_js_dispatches_task_handoff():
 
 
 def test_chatpanel_renders_auto_handoff_progress_card():
-    """The auto-handoff branch in ChatPanel.jsx must render
-    ShipStatusCard when `m.shipped_task_id` is present without a fence."""
-    src_path = os.path.join(
+    """The auto-handoff branch must render TaskProgressCard when
+    `m.shipped_task_id` is present without a fence. After the Iter 62
+    P1 refactor, the block lives in MessageBubble.jsx (and the wiring
+    callback is still in ChatPanel.jsx)."""
+    base = os.path.join(
         os.path.dirname(__file__),
-        "..", "..", "frontend", "src", "components", "ChatPanel.jsx",
+        "..", "..", "frontend", "src", "components",
     )
-    with open(src_path, encoding="utf-8") as fh:
-        src = fh.read()
+    with open(os.path.join(base, "MessageBubble.jsx"), encoding="utf-8") as fh:
+        bubble_src = fh.read()
+    with open(os.path.join(base, "ChatPanel.jsx"), encoding="utf-8") as fh:
+        panel_src = fh.read()
     # auto-handoff testid is the unique identifier of the new block.
-    assert re.search(r"auto-handoff-row-", src), "auto-handoff block missing"
-    # ShipStatusCard must be the renderer.
-    assert "ShipStatusCard" in src
-    # onTaskHandoff callback wired in send().
-    assert "onTaskHandoff" in src
+    assert re.search(r"auto-handoff-row-", bubble_src), "auto-handoff block missing"
+    # TaskProgressCard (renamed from ShipStatusCard) must be the renderer.
+    assert "TaskProgressCard" in bubble_src
+    # onTaskHandoff callback wired in send() — still in ChatPanel.jsx.
+    assert "onTaskHandoff" in panel_src
