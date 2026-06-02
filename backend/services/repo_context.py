@@ -77,8 +77,15 @@ def _gh_headers(token: Optional[str]) -> dict:
 
 
 async def _fetch_tree(owner: str, repo: str, branch: str,
-                       token: Optional[str]) -> list[dict]:
-    """Return the flat recursive tree (list of {path, type, size, sha})."""
+                       token: Optional[str]) -> tuple[list[dict], bool]:
+    """Return (tree, gh_truncated).
+
+    `gh_truncated` mirrors GitHub's own `truncated` flag on the
+    recursive Trees API response. When True, parts of the tree are
+    missing from this single call and `_build_file_tree` needs to
+    rescue the missing top-level folders via a Contents-API walk so
+    deep dirs like `backend/pillars/` aren't silently invisible.
+    """
     url = (
         f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
         f"{branch}?recursive=1"
@@ -87,7 +94,7 @@ async def _fetch_tree(owner: str, repo: str, branch: str,
         r = await client.get(url, headers=_gh_headers(token))
         r.raise_for_status()
         data = r.json()
-        return data.get("tree") or []
+        return (data.get("tree") or []), bool(data.get("truncated"))
 
 
 async def _fetch_file(owner: str, repo: str, path: str, branch: str,
@@ -183,7 +190,7 @@ async def _build_blob(project: dict) -> str:
     token = project.get("github_token") or None
 
     try:
-        tree = await _fetch_tree(owner, repo, branch, token)
+        tree, gh_truncated = await _fetch_tree(owner, repo, branch, token)
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status == 404:
@@ -206,6 +213,43 @@ async def _build_blob(project: dict) -> str:
         return _wrap(owner, repo, branch, "", "",
                      "(repo tree unavailable — proceed with limited context.)")
 
+    # Rescue truncated trees. GitHub silently drops deep folders for
+    # repos > ~7MB or > 100K entries (the `truncated: true` flag on the
+    # response). Without this rescue, ORA was telling users "there's no
+    # backend/pillars/ folder" when the folder existed but had been
+    # dropped by GitHub's API. We walk every top-level dir we DID see
+    # via the Contents API and merge anything missing from deeper
+    # subtrees so `_format_tree` shows them.
+    truncation_note = ""
+    if gh_truncated:
+        existing_paths = {n.get("path") for n in tree if n.get("path")}
+        top_level_dirs = sorted({
+            (n.get("path") or "").split("/", 1)[0]
+            for n in tree
+            if n.get("type") == "tree" and "/" not in (n.get("path") or "")
+        })
+        rescued: list[dict] = []
+        for top in top_level_dirs:
+            if not top:
+                continue
+            try:
+                sub_paths = await _fetch_subtree_contents(
+                    owner, repo, branch, token, top, max_depth=4,
+                )
+            except Exception:
+                sub_paths = []
+            for sp in sub_paths:
+                if sp and sp not in existing_paths:
+                    rescued.append({"path": sp, "type": "blob"})
+                    existing_paths.add(sp)
+        if rescued:
+            tree = tree + rescued
+            truncation_note = (
+                f"(GitHub truncated the recursive tree — auto-rescued "
+                f"{len(rescued)} additional file paths via per-folder "
+                f"walk so deep folders are visible.)"
+            )
+
     tree_text = _format_tree(tree)
 
     # Inline a few high-signal files
@@ -227,7 +271,48 @@ async def _build_blob(project: dict) -> str:
         f"--- {p} ---\n{b}" for p, b in inlined
     ) if inlined else "(no priority files inlined)"
 
-    return _wrap(owner, repo, branch, tree_text, inlined_text, "")
+    return _wrap(owner, repo, branch, tree_text, inlined_text, truncation_note)
+
+
+async def _fetch_subtree_contents(owner: str, repo: str, branch: str,
+                                  token: Optional[str], path: str,
+                                  max_depth: int = 4) -> list[str]:
+    """BFS-walk a subtree via GitHub's Contents API.
+
+    Mirrors `local_tools._fetch_subtree_contents` so the initial repo
+    context can rescue folders dropped by a truncated Trees response.
+    Kept local (not imported from local_tools) to avoid a circular
+    import — local_tools imports `_fetch_file` from this module.
+    """
+    headers = _gh_headers(token)
+    out: list[str] = []
+    queue: list[tuple[str, int]] = [(path.strip("/"), 0)]
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        while queue:
+            current, depth = queue.pop(0)
+            if depth > max_depth or len(out) >= 1000:
+                continue
+            url = (
+                f"https://api.github.com/repos/{owner}/{repo}/"
+                f"contents/{current}?ref={branch}"
+            )
+            try:
+                r = await client.get(url, headers=headers)
+                if r.status_code != 200:
+                    continue
+                items = r.json()
+            except Exception:
+                continue
+            if isinstance(items, dict):
+                items = [items]
+            for it in items or []:
+                ipath = it.get("path") or ""
+                itype = it.get("type")
+                if itype == "file":
+                    out.append(ipath)
+                elif itype == "dir":
+                    queue.append((ipath, depth + 1))
+    return out
 
 
 def _wrap(owner: str, repo: str, branch: str,

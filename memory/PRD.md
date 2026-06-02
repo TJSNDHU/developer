@@ -856,6 +856,87 @@ both workers keep parity.
 - Brain surfaces recent commits with file names + Claude-correction marker
 - Brain clamps to last 6 commits
 - Brain handles empty `event_log`
+
+### Iter 58 — Route fix: GitHub truncated-tree rescue (Feb 2026)
+**User complaint (production):** "Mere repo me 4 pillars hain, pillar
+4 mapping me red/broken dikh raha hai. AUREM scan karke bolta hai
+`backend/pillars/` exist hi nahi karta. Production pe Iter 57
+already live hai aur tool fire ho raha hai (ORA writes 'Based on
+the latest tool results') — phir bhi galat result aata hai." This
+is a **different bug** from Iter 57 (which fixed the model
+refusing to use tools). Iter 58 fixes the tools themselves.
+
+**Root cause:** GitHub's `git/trees/{sha}?recursive=1` endpoint
+silently truncates for any repo > ~7MB or > 100K entries — sets
+`"truncated": true` in the response and returns a PARTIAL tree.
+Three places in AUREM were reading the partial tree and never
+checking the flag:
+
+  1. `services/local_tools.py::list_repo_files` — the
+     `mcp_glob_files`-equivalent tool the LLM calls when scanning
+     the repo.
+  2. `services/local_tools.py::search_repo` — the grep-equivalent
+     tool. With a `path` arg pointing at a folder GitHub dropped
+     from the truncated tree, it returned zero hits.
+  3. `services/repo_context.py::_build_blob` — the initial
+     system-prompt briefing that gives ORA the file tree at the
+     start of every chat turn. Half the repo was already invisible
+     before the first tool call.
+
+So the user's `backend/pillars/` (which lives 2 levels deep in a
+multi-megabyte repo) was simply absent from the data ORA ever saw.
+The model wasn't lying — it was reporting on a partial dataset.
+
+**Fix:** New `_fetch_subtree_contents(owner, repo, branch, token,
+path)` BFS helper using GitHub's Contents API (which only returns
+immediate children but never truncates). Wired into all three call
+sites with carefully scoped triggers:
+
+- `_fetch_tree` now returns `(tree, gh_truncated)`. The caller
+  surfaces the flag instead of swallowing it.
+- `list_repo_files`: when `gh_truncated and not filtered` (i.e.,
+  the user asked for a specific path but the truncated tree had
+  zero matches), falls back to the Contents-API walk on that
+  subtree. Sets `source: "contents_walk_fallback"` in the response
+  so ORA can tell the tree was reconstructed. When no subtree path
+  is given but the tree IS truncated, adds an explicit warning to
+  the `note` field telling the LLM to "re-call with
+  `path=\"backend/pillars\"`" — turning the silent truncation into
+  actionable advice ORA can act on.
+- `search_repo`: same rescue when `path` + `gh_truncated` + zero
+  matches. A `pattern=...` lookup inside a deep folder on a large
+  repo now actually returns hits.
+- `_build_blob`: when GitHub truncates the initial repo briefing,
+  iterates every top-level dir we DID see and walks them via
+  Contents API, merging any new file paths into the tree before
+  `_format_tree` runs. Surfaces an "auto-rescued N file paths"
+  note in the wrap so ORA tells the user. Small repos
+  (`truncated: false`) skip the rescue branch entirely — no
+  unnecessary GitHub calls.
+
+The mirror helper in `repo_context.py` is intentionally a duplicate
+(not an import) to avoid a circular dependency:
+`local_tools._fetch_file` already imports from `repo_context`.
+
+**Tests** — 8 new in `tests/test_iter58_truncated_tree_rescue.py`,
+all pin the smoking-gun strings at source:
+- Both `_fetch_subtree_contents` helpers exist and are async
+- `_fetch_tree` returns `(tree, gh_truncated)` tuple (pinned at
+  source so a refactor back to plain `list` fails CI)
+- `list_repo_files` rescue branch (`gh_truncated and not filtered`)
+- `search_repo` references the helper too — count check ensures
+  the rescue is wired in **all three** call sites (helper def +
+  list_repo_files + search_repo)
+- `_build_blob` rescue uses `gh_truncated` guard + iterates +
+  surfaces "auto-rescued" note
+- Small repos still skip the rescue (`if gh_truncated:` guard
+  pinned)
+- Truncation warning string ("re-call with `path=`") present in
+  the LLM-visible response
+
+Full backend regression: **234 passed / 5 skipped / 0 failed**.
+
+
 - Chat router injects `brain_ctx` into `extra_sys`
 - `cto_projects.py` has ≥2 references to `update_brain_after_commit`
   (API path + git path parity)

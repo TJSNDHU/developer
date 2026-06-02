@@ -194,6 +194,58 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
 
 # ── TOOL 3: list_repo_files (repo tree / glob) ───────────────────────────────
 
+async def _fetch_subtree_contents(owner: str, repo: str, branch: str,
+                                  token: Optional[str], path: str,
+                                  max_depth: int = 4) -> list[str]:
+    """Walk a specific subtree using GitHub's Contents API.
+
+    Used as a fallback when the recursive Trees API returns
+    `truncated: true` and the path the user is asking about isn't in
+    the (partial) recursive response. The Contents API only returns
+    immediate children, so we BFS up to `max_depth` levels deep.
+
+    This is the fix for: "AUREM apna repo properly scan kyon nahi karta
+    — backend/pillars/ exists but tree shows nothing." GitHub truncates
+    the recursive tree for any repo > ~7MB; deep folders silently vanish.
+    """
+    import httpx
+
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    out: list[str] = []
+    queue: list[tuple[str, int]] = [(path.strip("/"), 0)]
+
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        while queue:
+            current, depth = queue.pop(0)
+            if depth > max_depth or len(out) >= 1000:
+                continue
+            url = (
+                f"https://api.github.com/repos/{owner}/{repo}/"
+                f"contents/{current}?ref={branch}"
+            )
+            try:
+                r = await c.get(url, headers=headers)
+                if r.status_code != 200:
+                    continue
+                items = r.json()
+            except Exception:
+                continue
+            if isinstance(items, dict):
+                # GitHub returns a single object for a file path, list for dir
+                items = [items]
+            for it in items:
+                ipath = it.get("path") or ""
+                itype = it.get("type")
+                if itype == "file":
+                    out.append(ipath)
+                elif itype == "dir":
+                    queue.append((ipath, depth + 1))
+    return out
+
+
 async def list_repo_files(ctx: dict, args: dict) -> dict:
     """List files in the connected repo tree — equivalent of mcp_glob_files.
 
@@ -202,13 +254,16 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
       pattern?   str   — glob pattern e.g. "*.py", "routers/*.py", "**/*.jsx"
       max?       int   — max results (default 150, cap 500)
 
-    Returns {ok, tree: [str], total, truncated}
+    Returns {ok, tree: [str], total, truncated, source}
+
+    Behaviour:
+    - Tries GitHub's recursive Trees API first (fast, one call).
+    - If GitHub reports the tree is truncated AND the caller asked for
+      a specific `path`, falls back to the Contents API to walk that
+      subtree directly. This is what unblocks deep / large repos where
+      the recursive tree silently drops folders.
     """
-    # iter 33: read_repo_files & search_repo use plain `import` at module top
     import httpx
-    import base64
-    import json as _json
-    import re as _re
 
     user_id    = ctx.get("user_id")
     project_id = ctx.get("project_id")
@@ -232,7 +287,9 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
     if token:
         headers["Authorization"] = f"token {token}"
 
-    # GitHub Trees API — recursive=1 gets the ENTIRE tree in one call
+    # GitHub Trees API — recursive=1 fetches the whole tree in one call,
+    # but for repos > ~7MB or > 100K entries it returns "truncated": true
+    # and a PARTIAL list. We surface that flag and fall back below.
     url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
     try:
         async with httpx.AsyncClient(timeout=20.0) as c:
@@ -242,28 +299,66 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
     except Exception as e:
         return {"ok": False, "error": f"GitHub tree fetch failed: {e}"}
 
+    gh_truncated = bool(data.get("truncated"))
     tree_items = [
         item["path"] for item in data.get("tree", [])
         if item.get("type") == "blob"
     ]
+    source = "trees_recursive"
 
-    # Filter by sub_path
+    # Subtree filter
     if sub_path:
-        sub_path = sub_path.strip("/")
-        tree_items = [p for p in tree_items if p.startswith(sub_path + "/") or p == sub_path]
+        sub_path_clean = sub_path.strip("/")
+        filtered = [
+            p for p in tree_items
+            if p.startswith(sub_path_clean + "/") or p == sub_path_clean
+        ]
+        # If the recursive tree was truncated AND nothing matched the
+        # requested subtree, fall back to per-folder Contents API for
+        # that subtree. This rescues deep folders the recursive call
+        # dropped (the exact bug the user reported: backend/pillars/
+        # invisible in a multi-megabyte repo).
+        if gh_truncated and not filtered:
+            filtered = await _fetch_subtree_contents(
+                owner, repo, branch, token, sub_path_clean,
+            )
+            source = "contents_walk_fallback"
+        tree_items = filtered
 
     # Filter by glob pattern
     if pattern:
         # Support both simple *.py and routers/*.py patterns
-        tree_items = [p for p in tree_items if fnmatch.fnmatch(p, pattern) or fnmatch.fnmatch(p.split("/")[-1], pattern)]
+        tree_items = [
+            p for p in tree_items
+            if fnmatch.fnmatch(p, pattern)
+            or fnmatch.fnmatch(p.split("/")[-1], pattern)
+        ]
 
-    truncated = len(tree_items) > max_items
+    over_max = len(tree_items) > max_items
+    note_bits = [
+        f"Showing {min(len(tree_items), max_items)} of {len(tree_items)} files"
+    ]
+    if over_max:
+        note_bits.append(". Use `path` or `pattern` to narrow.")
+    if gh_truncated and source != "contents_walk_fallback":
+        # Tell ORA explicitly so it knows to retry with a `path` arg
+        # instead of concluding "the folder doesn't exist".
+        note_bits.append(
+            " ⚠️ GitHub truncated this recursive tree response — some "
+            "deep folders may be missing. To inspect a specific path "
+            "reliably, re-call with `path=\"backend/pillars\"` (or "
+            "whichever subtree you need) — the tool will then fall "
+            "back to a per-folder walk that does not truncate."
+        )
+
     return {
-        "ok":       True,
-        "tree":     tree_items[:max_items],
-        "total":    len(tree_items),
-        "truncated": truncated,
-        "note":     f"Showing {min(len(tree_items), max_items)} of {len(tree_items)} files" + (". Use `path` or `pattern` to narrow." if truncated else "."),
+        "ok":        True,
+        "tree":      tree_items[:max_items],
+        "total":     len(tree_items),
+        "truncated": over_max,
+        "gh_truncated": gh_truncated,
+        "source":    source,
+        "note":      "".join(note_bits),
     }
 
 
@@ -317,6 +412,7 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     except Exception as e:
         return {"ok": False, "error": f"GitHub tree fetch failed: {e}"}
 
+    gh_truncated = bool(data.get("truncated"))
     all_files = [
         item["path"] for item in data.get("tree", [])
         if item.get("type") == "blob"
@@ -324,7 +420,17 @@ async def search_repo(ctx: dict, args: dict) -> dict:
 
     # Filter
     if sub_path:
-        all_files = [f for f in all_files if f.startswith(sub_path.strip("/") + "/")]
+        sub_path_clean = sub_path.strip("/")
+        filtered = [f for f in all_files if f.startswith(sub_path_clean + "/")]
+        # Same rescue path as list_repo_files: when the recursive tree
+        # is truncated and the requested subtree has zero matches, walk
+        # that subtree with the Contents API so deep folders aren't
+        # silently dropped on large repos.
+        if gh_truncated and not filtered:
+            filtered = await _fetch_subtree_contents(
+                owner, repo, branch, token, sub_path_clean,
+            )
+        all_files = filtered
     if ext:
         ext = ext if ext.startswith(".") else "." + ext
         all_files = [f for f in all_files if f.endswith(ext)]
