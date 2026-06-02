@@ -61,7 +61,7 @@ class ChatBody(BaseModel):
     # downstream cap_for() context windows.
     prompt: str = Field(..., min_length=1, max_length=20000)
     session_id: Optional[str] = Field(None, max_length=128)
-    max_tool_iters: int = Field(2, ge=0, le=10)
+    max_tool_iters: int = Field(8, ge=0, le=12)
     maxx_mode: bool = False
     project_id: Optional[str] = Field(None, max_length=128)
     # Iter 38: agent selector. "auto" routes via existing model-routing
@@ -395,11 +395,48 @@ async def chat_stream(
                                 {"$unset": {"pending_fix_task": ""}},
                             )
                             await q.put({"type": "mode", "mode": "C"})
-                            reply = (
-                                f"On it. Queuing a Mode C task to ship the fix:\n\n"
-                                f"_{_pending}_\n\n"
-                                f"Open the connected project's task list to track progress."
+                            # Iter 46 — actually enqueue a real Mode C task
+                            # (previously this only emitted a friendly reply
+                            # with the task description; no real cto_tasks
+                            # row was created).
+                            from routers.cto_projects import _enqueue_cto_task
+                            enq = await _enqueue_cto_task(
+                                user_id=user_id,
+                                project_id=body.project_id,
+                                task_text=_pending,
+                                bg=None,
+                                maxx_mode=body.maxx_mode,
                             )
+                            if enq.get("ok"):
+                                reply = (
+                                    "On it — Mode C task **queued** and the "
+                                    f"agent is starting now.\n\n"
+                                    f"_Task:_ {_pending}\n"
+                                    f"_Project:_ `{enq.get('project_id')}`  "
+                                    f"_Task ID:_ `{enq.get('task_id')}`\n\n"
+                                    "I'll commit the fix automatically. "
+                                    "Open the task list to watch progress."
+                                )
+                            elif enq.get("reason") == "no_project":
+                                reply = (
+                                    "I diagnosed the issue, but you don't "
+                                    "have a connected GitHub project yet. "
+                                    "Add one from the dashboard and I'll "
+                                    "ship the fix immediately."
+                                )
+                            elif enq.get("reason") == "no_pat":
+                                reply = (
+                                    "The diagnosis is ready, but I don't "
+                                    "have a working GitHub token for this "
+                                    "project. Reconnect it from the "
+                                    "dashboard and re-run."
+                                )
+                            else:
+                                reply = (
+                                    "Couldn't enqueue the fix right now "
+                                    f"({enq.get('reason', 'unknown')}). "
+                                    "Try again in a moment."
+                                )
                             result = {
                                 "ok": True, "content": reply,
                                 "provider": "mode-d-handoff",
@@ -407,8 +444,10 @@ async def chat_stream(
                                 "iterations": 1, "tool_calls_run": 0,
                                 "tool_invocations": [],
                                 "mode": "C",
-                                "pending_fix_handed_off": True,
+                                "pending_fix_handed_off": enq.get("ok", False),
                                 "fix_task": _pending,
+                                "task_id": enq.get("task_id"),
+                                "project_id": enq.get("project_id"),
                             }
                             await q.put({"type": "result", "result": result})
                             return
@@ -621,7 +660,7 @@ async def chat_stream(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
                     system=(extra_sys + "\n\n" if extra_sys else None),
-                    max_iters=min(body.max_tool_iters, 6),
+                    max_iters=min(max(body.max_tool_iters, 8), 12),
                     session_id=body.session_id,
                     mongo_client=None,
                     user_id=user_id,

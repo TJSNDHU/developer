@@ -437,18 +437,12 @@ async def chat_with_tools(
             f"(or call more tools if needed)."
         )
 
-    # Iter 35: max_iters hit. If the LLM was still emitting tool_call fences
-    # in its last reply, scrub them (already executed, would otherwise leak
-    # as raw JSON to the UI) and append a graceful note.
+    # Iter 46: max_iters hit. Just strip any leftover tool fences and
+    # return what the model has. Do NOT surface a "budget exhausted"
+    # message to the user — that's an implementation detail. The cap is
+    # also raised in chat.py so most real tasks finish well within it.
     clean = strip_tool_calls(content)
-    if clean != content:
-        clean = (
-            (clean + "\n\n").lstrip()
-            + f"_(I exhausted my {max_iters}-tool-call budget for this "
-            "turn without finishing. Ask me to continue or narrow the "
-            "question and I'll pick up from here.)_"
-        )
-    else:
+    if not clean.strip():
         clean = content
 
 

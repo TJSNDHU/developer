@@ -186,6 +186,78 @@ async def update_project(
     return {"ok": True, "updated_fields": list(updates.keys())}
 
 
+async def _enqueue_cto_task(
+    user_id: str,
+    project_id: Optional[str],
+    task_text: str,
+    bg: Optional[BackgroundTasks] = None,
+    maxx_mode: bool = False,
+) -> dict:
+    """Iter 46 — programmatic Mode C trigger.
+
+    Used by both /tasks/submit (HTTP) AND the chat-router Mode D→C handoff
+    (so "yes fix it" actually queues a real ship task, not a friendly reply).
+
+    Returns:
+        {"ok": True, "task_id": "...", "project_id": "..."} on success
+        {"ok": False, "reason": "no_project"|"no_pat"|"out_of_budget"} otherwise
+    """
+    import asyncio as _asyncio
+    db = get_db()
+    if db is None:
+        return {"ok": False, "reason": "no_db"}
+
+    proj = None
+    if project_id and project_id != "home":
+        proj = await db.cto_projects.find_one(
+            {"project_id": project_id, "user_id": user_id}
+        )
+    if not proj:
+        # Fall back to the user's most recently used project.
+        proj = await db.cto_projects.find_one(
+            {"user_id": user_id},
+            sort=[("last_task", -1), ("created_at", -1)],
+        )
+    if not proj:
+        return {"ok": False, "reason": "no_project"}
+
+    task_id = f"t_{uuid.uuid4().hex[:12]}"
+    await db.cto_tasks.insert_one({
+        "task_id": task_id,
+        "project_id": proj["project_id"],
+        "user_id": user_id,
+        "task": task_text,
+        "files": [], "context": "",
+        "status": "queued", "steps": [], "commit_sha": None,
+        "result": None, "error": None,
+        "maxx_mode": bool(maxx_mode),
+        "source": "chat_handoff",
+        "created_at": time.time(),
+    })
+    user_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    if not user_token:
+        await db.cto_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "failed",
+                      "error": "No GitHub token configured.",
+                      "completed_at": time.time()}},
+        )
+        return {"ok": False, "reason": "no_pat",
+                "task_id": task_id, "project_id": proj["project_id"]}
+
+    if bg is not None:
+        bg.add_task(_run_task, task_id, proj, task_text, [], "",
+                    user_token, bool(maxx_mode))
+    else:
+        # No BackgroundTasks in this caller — fire-and-forget asyncio task.
+        _asyncio.create_task(_run_task(
+            task_id, proj, task_text, [], "",
+            user_token, bool(maxx_mode),
+        ))
+    return {"ok": True, "task_id": task_id, "project_id": proj["project_id"]}
+
+
 @router.post("/tasks/submit")
 async def submit_task(
     request: Request,
