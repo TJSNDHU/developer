@@ -364,11 +364,13 @@ async def chat_stream(
     body: ChatBody,
     authorization: Optional[str] = Header(None),
 ):
-    """SSE token-streaming chat. Iter 45: rate-limited to 30 req/min per IP."""
-    from services.rate_limiter import check_rate_limit, client_ip_from_request
-    if not check_rate_limit(f"chat:{client_ip_from_request(request)}", 30):
-        raise HTTPException(429, "Rate limit exceeded: 30 chats/min/IP")
+    """SSE token-streaming chat. Iter 45: rate-limited to 30 req/min per IP.
+    Iter 50.1: founders / unlimited accounts bypass the rate-limit."""
     user = await current_dev(authorization)
+    if not (bool(user.get("is_unlimited")) or user.get("tier") == "founder"):
+        from services.rate_limiter import check_rate_limit, client_ip_from_request
+        if not check_rate_limit(f"chat:{client_ip_from_request(request)}", 30):
+            raise HTTPException(429, "Rate limit exceeded: 30 chats/min/IP")
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 

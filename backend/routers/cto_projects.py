@@ -290,18 +290,22 @@ async def submit_task(
     bg: BackgroundTasks,
     authorization: str = Header(None),
 ) -> dict:
-    # Iter 45 — per-IP rate limit: 10 code tasks per minute.
-    from services.rate_limiter import check_rate_limit, client_ip_from_request
-    if not check_rate_limit(f"submit:{client_ip_from_request(request)}", 10):
-        raise HTTPException(429, "Rate limit exceeded: 10 code tasks/min/IP")
     me = await current_dev(authorization)
+    # Iter 50.1 — Founders skip per-IP rate-limit. They run audits, ship
+    # tests, retry tasks in bursts — locking them out at 10/min defeats
+    # the whole "founder = full access" rule.
+    _is_unlimited = bool(me.get("is_unlimited")) or me.get("tier") == "founder"
+    if not _is_unlimited:
+        from services.rate_limiter import check_rate_limit, client_ip_from_request
+        if not check_rate_limit(f"submit:{client_ip_from_request(request)}", 10):
+            raise HTTPException(429, "Rate limit exceeded: 10 code tasks/min/IP")
     # THING 1 — hard-stop token enforcement. Raises HTTP 402 if the user has
     # spent their plan_limit + any admin-granted bonus. The AI is NEVER
     # called and no row is written to `cto_tasks`.
     await assert_has_budget(me["user_id"])
 
     # Iter 45 — free-tier monthly task cap. Founders/paid unaffected.
-    if (me.get("tier") in (None, "free")) and not me.get("is_unlimited"):
+    if (me.get("tier") in (None, "free")) and not _is_unlimited:
         from datetime import datetime, timezone, timedelta
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
         used_30d = await require_db().cto_tasks.count_documents({
