@@ -947,6 +947,68 @@ Full backend regression: **226 passed / 5 skipped / 0 failed**.
 
 
 
+### Iter 59 — Upload feature: vision-OCR + visible attachment UX
+**User complaint (production):** "Chat me file attach karne ke baad
+upload ho jaata hai but system padhta nahi, blank dikhata hai." Full
+flow ko fix kiya — backend + frontend dono routes me.
+
+**Root cause #1 (backend) — Images going through MarkItDown**
+`routers/upload.py` har file ko MarkItDown ke through bhejta tha.
+MarkItDown ko bina OCR setup ke images se kuch text nahi milta → 415
+raise → frontend toast error → textarea blank. User PNG/JPG/screenshots
+upload karte hain (most common ask) → 100% failure rate.
+
+**Fix:** Image MIME / extension detect karke MarkItDown bypass karte
+hain aur direct OpenRouter vision LLM (`google/gemini-2.5-flash-lite`)
+ko base64 data URL ke saath call karte hain. Vision LLM returns
+structured Markdown with 3 sections: **Visual description**,
+**Extracted text** (verbatim OCR), **Likely intent**. Verified live —
+test PNG with "ERROR: TypeError" ka actual OCR mil raha hai.
+
+**Root cause #2 (backend) — Doc failures also raised 415**
+Same blank-screen bug for any document MarkItDown couldn't parse.
+Replaced with a placeholder markdown ("user uploaded X but server
+couldn't extract text — ask them what they wanted") so the chat
+NEVER silently drops an attachment.
+
+**Root cause #3 (frontend) — Markdown dumped into textarea**
+Old code appended 60KB of converted markdown into the textarea. For
+images that failed, the textarea stayed empty (the "blank" the user
+saw). Now `attachments` is a separate state array, rendered as
+visible pills above the input bar with `name`, `size`, status icon
+(uploading/ready/error), and a `×` remove button. The chat bubble
+shows a compact `📎 1 attachment: foo.png` summary (not the raw 60KB
+markdown blob) — the full markdown body is what's actually sent to
+the LLM.
+
+**Root cause #4 (frontend) — Image-only sends silently blocked**
+The send guard was `if (!text || busy)` — image-only chats with no
+typed text returned without firing. Now: `if ((!text &&
+!readyAttachments.length) || busy)` so an image-only chat is a valid
+send.
+
+**Bonus UX upgrades:**
+- **Drag-and-drop on the composer** — dashed amber outline on drag-
+  over, drop handler calls `handleFiles(e.dataTransfer.files)`.
+- **Paste-to-attach** — `onPaste` on the textarea reads
+  `clipboardData.items` for File items. Cmd-V on a screenshot
+  attaches it instantly instead of pasting binary garbage.
+- **Errored pills stay visible** — failed parses don't disappear;
+  user sees them with red border + error tooltip and can manually
+  remove, plus a stub markdown still flows to the LLM so the chat
+  never silently drops an upload attempt.
+
+**Tests** — 8 new in `tests/test_iter59_upload_image_vision.py`:
+image branch runs before MarkItDown, vision helper signature, data
+URL format, image branch never raises HTTPException, doc branch
+no longer raises 415 on empty text, frontend pill row + templated
+testids + remove button, send accepts attachment-only, drop +
+paste wired correctly.
+
+Full backend regression: **242 passed / 5 skipped / 0 failed**.
+
+
+
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
 - `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:
   - Validates `0 < tokens <= 10M`, target user exists

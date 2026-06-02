@@ -236,6 +236,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const fileInputRef = useRef(null);
   const taRef = useRef(null);
 
+  // Attached files (separate from textarea content). Each:
+  // {id, name, size, kind: "image"|"doc", status: "uploading"|"ready"|"error",
+  //  markdown: string, error?: string}
+  const [attachments, setAttachments] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+
   // Load token usage on mount + every time a turn is saved (so the banner
   // reflects fresh consumption right after a chat reply / CTO task).
   const refreshUsage = useCallback(async () => {
@@ -355,7 +361,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       "sql", "vue", "svelte", "lua", "php",
     ]);
 
-    const chunks = [];
+    // Track each attachment so the user sees a visible pill (with
+    // remove "×" + size) and the body is sent only on submit. Previous
+    // version dumped raw markdown into the textarea — for images that
+    // failed conversion the textarea stayed blank and the user thought
+    // "upload broken". Now every attachment gets a pill regardless of
+    // whether parsing succeeded; failed parses still send the file
+    // metadata so the LLM knows something was attached.
+    const newAttachments = [];
     for (const f of files) {
       if (f.size > MAX_FILE_BYTES) {
         toast({
@@ -367,19 +380,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
       const ext = (f.name.split(".").pop() || "").toLowerCase();
       const isSmallText = TEXT_EXTS.has(ext) && f.size <= TEXT_FAST_PATH_BYTES;
+      const isImage = f.type?.startsWith("image/")
+        || ["png","jpg","jpeg","webp","gif","bmp"].includes(ext);
+
+      // Optimistic pill so the user sees the file immediately
+      const pillId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      setAttachments((arr) => [...arr, {
+        id: pillId,
+        name: f.name,
+        size: f.size,
+        kind: isImage ? "image" : "doc",
+        status: "uploading",
+        markdown: "",
+      }]);
 
       try {
+        let mdBody;
         if (isSmallText) {
-          // Fast path — read in browser
           const text = await f.text();
-          chunks.push(`[File: ${f.name}]\n\`\`\`${ext}\n${text}\n\`\`\``);
+          mdBody = `[File: ${f.name}]\n\`\`\`${ext}\n${text}\n\`\`\``;
         } else {
-          // Server path — push file through MarkItDown
-          toast({
-            message: `Converting ${f.name} via MarkItDown…`,
-            kind: "info",
-            duration: 1500,
-          });
           const form = new FormData();
           form.append("file", f);
           const r = await api.post("/upload/convert", form, {
@@ -390,25 +410,41 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           const truncNote = d.truncated
             ? " *(server truncated — large file)*"
             : "";
-          chunks.push(
-            `[File: ${d.filename || f.name}` +
+          const kindLabel = d.kind === "image" ? "🖼️" : "📄";
+          mdBody =
+            `[${kindLabel} ${d.filename || f.name}` +
             ` · ${(d.original_size / 1024).toFixed(1)} KB` +
-            ` → ${(d.md_size / 1024).toFixed(1)} KB markdown${truncNote}]\n\n` +
-            d.markdown
-          );
+            ` → ${(d.md_size / 1024).toFixed(1)} KB${truncNote}]\n\n` +
+            d.markdown;
         }
+        // Patch the existing pill in place — status → ready, body filled.
+        setAttachments((arr) => arr.map((a) =>
+          a.id === pillId
+            ? { ...a, status: "ready", markdown: mdBody }
+            : a
+        ));
+        newAttachments.push({ name: f.name, ok: true });
       } catch (e) {
         const msg =
           e?.response?.data?.detail ||
           e?.message ||
           "Couldn't read file.";
+        // Don't strip the pill — keep it visible so the user can
+        // remove it manually and knows something went wrong. Also
+        // send a tiny stub to the LLM so it knows an attachment was
+        // attempted (this is the "fix from routes" — never silent).
+        const stub = `[Attached but not parsable: ${f.name} — ${msg}]`;
+        setAttachments((arr) => arr.map((a) =>
+          a.id === pillId
+            ? { ...a, status: "error", error: msg, markdown: stub }
+            : a
+        ));
         toast({ message: `${f.name}: ${msg}`, kind: "error" });
       }
     }
-    if (chunks.length) {
-      setInput((prev) => (prev ? prev + "\n\n" : "") + chunks.join("\n\n"));
+    if (newAttachments.filter((a) => a.ok).length) {
       toast({
-        message: `Attached ${chunks.length} file(s).`,
+        message: `Attached ${newAttachments.filter((a) => a.ok).length} file(s).`,
         kind: "success",
       });
     }
@@ -417,15 +453,45 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   async function send(e) {
     e?.preventDefault();
     const text = input.trim();
-    if (!text || busy || !sessionId) return;
+    // Pull ready attachments (uploading ones get skipped silently —
+    // user can re-send if they were too slow). Also keep errored ones
+    // (their stub markdown tells the LLM something was attempted).
+    const readyAttachments = attachments.filter(
+      (a) => a.status === "ready" || a.status === "error"
+    );
+    // Allow send when EITHER text OR attachments exist — previous gate
+    // demanded text, which is why an image-only chat silently refused.
+    if ((!text && !readyAttachments.length) || busy || !sessionId) return;
     setInput("");
+    // Clear all attachments on send (uploading ones go too — UX rule:
+    // hit Send → bubble shipped; what didn't make it can be re-attached).
+    setAttachments([]);
+
+    // Build the prompt: attachments first (so the LLM has context
+    // before reading the user's question), then the user's text.
+    const attachmentBlock = readyAttachments
+      .map((a) => a.markdown)
+      .filter(Boolean)
+      .join("\n\n");
+    const userBody = text || "(see attached files)";
+    const bodyParts = [];
+    if (attachmentBlock) bodyParts.push(attachmentBlock);
+    bodyParts.push(userBody);
+    const finalText = bodyParts.join("\n\n");
     // Auto-augment prompt with active project context so the LLM stays scoped.
     const finalPrompt = activeProject
-      ? `[Working on project: ${activeProject.name} — repo ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}]\n\n${text}`
+      ? `[Working on project: ${activeProject.name} — repo ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}]\n\n${finalText}`
+      : finalText;
+    // Show what the user actually typed PLUS a small attachment summary
+    // so the bubble doesn't dump 60KB of markdown on screen.
+    const displayContent = readyAttachments.length
+      ? `${text || ""}${text ? "\n\n" : ""}_📎 ${readyAttachments.length} attachment${
+          readyAttachments.length > 1 ? "s" : ""}: ${
+          readyAttachments.map((a) => a.name).join(", ")}_`
       : text;
     setMessages((m) => [
       ...m,
-      { role: "user", content: text },
+      { role: "user", content: displayContent },
       { role: "assistant", content: "", streaming: true, maxxMode },
     ]);
     setBusy(true);
@@ -662,12 +728,87 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       <form
         onSubmit={send}
         className="glass-composer"
+        // Iter 59 — drag-and-drop attachment support directly on the
+        // composer. dragOver state drives the visual cue.
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
+        }}
         style={{
           padding: 14,
           display: "flex", flexDirection: "column", gap: 8,
+          outline: dragOver ? "2px dashed var(--accent-2)" : "none",
+          outlineOffset: -8,
+          transition: "outline 120ms ease",
         }}
       >
         <TokenBanner usage={usage} />
+
+        {/* Iter 59 — Attachment pills. Always visible while files are
+            either uploading, ready, or errored. User can remove any pill
+            with the × button. Failed pills stay visible (status="error")
+            so the user knows what was attempted; their stub markdown is
+            still sent to the LLM so the chat never silently drops the
+            attempt. */}
+        {attachments.length > 0 && (
+          <div
+            data-testid="chat-attachments-row"
+            style={{
+              display: "flex", flexWrap: "wrap", gap: 6,
+              maxHeight: 120, overflowY: "auto",
+            }}
+          >
+            {attachments.map((a) => {
+              const colour =
+                a.status === "uploading" ? "var(--text-faint)"
+                : a.status === "error"   ? "var(--danger)"
+                : "var(--accent-2)";
+              const icon = a.kind === "image" ? "🖼️" : "📎";
+              return (
+                <span
+                  key={a.id}
+                  data-testid={`chat-attach-pill-${a.status}`}
+                  title={a.error || `${a.name} · ${(a.size/1024).toFixed(1)} KB`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "4px 8px 4px 10px", fontSize: 11,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: colour,
+                    background: "rgba(255,255,255,0.04)",
+                    border: `1px solid ${colour}55`,
+                    borderRadius: 999,
+                    maxWidth: 240,
+                  }}
+                >
+                  <span>{icon}</span>
+                  <span style={{
+                    overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap", maxWidth: 160,
+                  }}>{a.name}</span>
+                  {a.status === "uploading"
+                    ? <Loader2 size={11} className="spin" style={{ opacity: 0.6 }} />
+                    : (
+                      <button
+                        type="button"
+                        data-testid={`chat-attach-remove-${a.id}`}
+                        onClick={() => setAttachments((arr) => arr.filter((x) => x.id !== a.id))}
+                        style={{
+                          background: "none", border: "none",
+                          color: colour, cursor: "pointer",
+                          padding: 0, lineHeight: 1, fontSize: 14,
+                        }}
+                        aria-label={`Remove ${a.name}`}
+                      >×</button>
+                    )}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {/* Iter 42 — Mode pill + F12 error badge above the input */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
@@ -700,7 +841,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             setDetectedMode(detectMode(e.target.value));
           }}
           onKeyDown={onKeyDown}
-          placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
+          onPaste={(e) => {
+            // Iter 59 — paste-to-attach. If the clipboard contains any
+            // image (Cmd-V from a screenshot tool), capture them as
+            // attachments instead of letting them stringify into text.
+            const items = e.clipboardData?.items || [];
+            const files = [];
+            for (const it of items) {
+              if (it.kind === "file") {
+                const f = it.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length) {
+              e.preventDefault();
+              handleFiles(files);
+            }
+          }}
+          placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline. Drop / paste files anytime.)"
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}
