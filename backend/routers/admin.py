@@ -546,3 +546,28 @@ async def admin_brain_add_preference(
     await add_preference(require_db(), project_id, body.preference)
     return {"ok": True}
 
+
+
+# ── Iter 47 — Brain inline-delete endpoints ──
+@router.delete("/project-brain/{project_id}/decision")
+async def admin_brain_delete_decision(
+    project_id: str,
+    title: str,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.project_brain import delete_decision
+    n = await delete_decision(require_db(), project_id, title)
+    return {"ok": True, "removed": n}
+
+
+@router.delete("/project-brain/{project_id}/preference")
+async def admin_brain_delete_preference(
+    project_id: str,
+    preference: str,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.project_brain import delete_preference
+    n = await delete_preference(require_db(), project_id, preference)
+    return {"ok": True, "removed": n}

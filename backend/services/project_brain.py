@@ -287,3 +287,36 @@ async def get_brain_full(
     if brain:
         brain["_id"] = str(brain["_id"])
     return brain
+
+
+async def delete_decision(
+    db: AsyncIOMotorDatabase,
+    project_id: str,
+    title: str,
+) -> int:
+    """Remove a decision by its title. Returns number of decisions removed."""
+    r = await db["project_brains"].update_one(
+        {"project_id": project_id},
+        {
+            "$pull": {"decisions": {"title": title}},
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+        },
+    )
+    return r.modified_count
+
+
+async def delete_preference(
+    db: AsyncIOMotorDatabase,
+    project_id: str,
+    preference: str,
+) -> int:
+    """Remove a team preference string. Returns modified_count."""
+    r = await db["project_brains"].update_one(
+        {"project_id": project_id},
+        {
+            "$pull": {"team_preferences": preference},
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+        },
+    )
+    return r.modified_count
+

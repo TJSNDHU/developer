@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Zap, Github, Shield, Code2 } from "lucide-react";
+import PublicStatsStrip from "../components/PublicStatsStrip";
 
 // Inline blur-up placeholder (~100 bytes) — paints instantly while the
 // real WebP downloads. Picture below swaps it in via onLoad.
@@ -154,6 +155,9 @@ export default function Landing() {
             ))}
           </div>
         </section>
+
+        {/* Iter 47 — live trust strip */}
+        <PublicStatsStrip />
 
         <section data-testid="cost-strip" style={{
           marginTop: 60, padding: "20px 0",

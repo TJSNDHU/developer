@@ -150,6 +150,20 @@ async def _run_once() -> None:
                 "To enable email delivery, add RESEND_API_KEY to backend env."
             )
 
+    # Iter 47 — daily ORA training JSONL export. Idempotent; safe to crash.
+    try:
+        from cto_services.db import get_db
+        from services.ora_council_logger import export_daily_jsonl
+        _db = get_db()
+        if _db is not None:
+            result = await export_daily_jsonl(_db)
+            logger.info(
+                f"📚 ORA daily export: {result.get('exported', 0)} pairs → "
+                f"{result.get('file', '(none)')}"
+            )
+    except Exception as e:
+        logger.warning(f"ORA daily export failed: {e!r}")
+
 
 async def schedule_daily_digest() -> None:
     """Background loop — sleeps until target UTC hour, fires once, repeats."""

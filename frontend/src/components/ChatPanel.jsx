@@ -24,6 +24,7 @@ import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
+import ShipLintBadge from "./ShipLintBadge";
 
 const WELCOME = {
   role: "assistant",
@@ -1161,6 +1162,7 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
         task: handoffBrief,
         files: [],
         context: `from chat session ${sessionId}, turn ${idx}`,
+        maxx_mode: !!m.maxxMode,   // iter 47: per-message Maxx flag flows to backend
       });
       const taskId = r.data?.task_id || null;
       setShipState({ status: "shipped", taskId, error: null });
@@ -1350,6 +1352,7 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
                 onRollback={rollbackShipped}
               />
             ) : (
+              <>
               <button
                 data-testid={`ship-cto-btn-${idx}`}
                 onClick={shipViaCTO}
@@ -1376,6 +1379,24 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
                   ? (<><Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> shipping…</>)
                   : (<>🚀 Ship via CTO</>)}
               </button>
+              {/* Iter 47 — Maxx mode chip + brief lint preview */}
+              {m.maxxMode && (
+                <span
+                  data-testid={`ship-maxx-chip-${idx}`}
+                  title="Maxx mode ON — Claude reviews DeepSeek output before commit"
+                  style={{
+                    padding: "3px 8px", borderRadius: 4,
+                    fontSize: 10, fontWeight: 700,
+                    letterSpacing: "0.05em",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    background: "rgba(168, 85, 247, 0.15)",
+                    color: "#a855f7",
+                    border: "1px solid rgba(168, 85, 247, 0.35)",
+                  }}
+                >MAXX</span>
+              )}
+              <ShipLintBadge brief={handoffBrief} testidSuffix={idx} />
+              </>
             )}
             {shipState.status === "error" && (
               <span style={{ fontSize: 11, color: "var(--danger)" }}>
