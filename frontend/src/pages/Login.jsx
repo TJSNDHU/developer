@@ -73,11 +73,12 @@ export default function Login() {
             type="button"
             data-testid="login-github-oauth"
             onClick={() => {
-              const base = process.env.REACT_APP_BACKEND_URL || "";
-              // OAuth connect is JWT-gated normally; signed-out users
-              // need a different entry — backend reads the redirect
-              // param when no auth header is present and post-callback
-              // it issues a session JWT then redirects back to /dashboard.
+              // Use the live origin so the OAuth callback returns to
+              // whichever domain the user actually loaded the app from
+              // (preview pod, auremcto.com, custom domain). Reading
+              // REACT_APP_BACKEND_URL here would lock us to the build-
+              // time value and break across environments.
+              const base = window.location.origin;
               window.location.href = `${base}/api/aurem-dev/github/oauth/connect?signup=1`;
             }}
             style={{

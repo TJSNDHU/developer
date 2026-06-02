@@ -254,7 +254,10 @@ function AddDialog({ onClose, onAdded }) {
     // Read JWT from localStorage and pass via ?auth= so the redirect
     // works even when the browser strips Authorization headers.
     const token = localStorage.getItem("aurem_token") || localStorage.getItem("token") || "";
-    const base = process.env.REACT_APP_BACKEND_URL || "";
+    // Use window.location.origin so the OAuth callback comes back to
+    // whichever domain the user is actually on (preview, auremcto.com,
+    // custom domain) rather than the build-time backend URL.
+    const base = window.location.origin;
     window.location.href = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
   }
 

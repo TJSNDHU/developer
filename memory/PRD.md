@@ -761,6 +761,40 @@ brings any of these back fails CI.
 
 Full backend regression: **216 passed / 5 skipped / 0 failed**.
 
+### Iter 56 — Deployment fix: GitHub OAuth redirect must use live origin
+Deployment agent flagged the production deploy as failing on a single
+blocker.
+
+**Root cause:** `frontend/src/pages/Login.jsx:76` and
+`pages/Projects.jsx:257` were constructing the GitHub OAuth `start`
+URL from `process.env.REACT_APP_BACKEND_URL`. That env var is baked
+in at **build time** — so the same bundle, when served on
+`auremcto.com` or any other domain, kept redirecting through the
+preview backend URL. The OAuth callback then came back to the wrong
+origin → token-exchange mismatch → silent auth failure.
+
+**Fix:** Both call sites now use `window.location.origin` so the
+OAuth flow always returns to whichever domain the user is on
+(preview pod, `auremcto.com`, custom domain). The env var is left
+intact for all other API calls (those are server-relative + proxied
+correctly).
+
+**Note on `aurem.live` 500 logs in the deployment output** — those
+are RUNTIME `INFO`-level traces from the optional ORA upstream
+(`services/ora_client.py`) and are already wrapped by the chat
+router's graceful fallback to the local AUREM orchestrator (Iter 47).
+They never block startup, never crash the SSE stream, and never reach
+the user. Deployment agent's `compilation_passed: true` confirmed.
+
+**Tests** — 3 new in `tests/test_iter56_oauth_redirect_origin.py` —
+both call sites source-pinned to `window.location.origin`, plus a
+sweep guard across Login / Signup / Projects / AuremAdminPanel so a
+future copy-paste regression fails CI.
+
+Full backend regression: **219 passed / 5 skipped / 0 failed**.
+
+
+
 
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
 - `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:
