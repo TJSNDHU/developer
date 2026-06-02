@@ -179,53 +179,190 @@ function PatHelpTooltip() {
 }
 
 function AddDialog({ onClose, onAdded }) {
-  const [f, setF] = useState({ name: "", github_url: "", github_token: "", branch: "main", tech_stack: "" });
+  const [f, setF] = useState({ name: "", github_url: "", github_token: "", branch: "main", tech_stack: "", preview_url: "" });
   const [busy, setBusy] = useState(false);
+  // Iter 49 — OAuth-first picker
+  const [ghStatus, setGhStatus] = useState({ loading: true, connected: false, login: null });
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [showManualPAT, setShowManualPAT] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.get("/github/oauth/status");
+        if (!alive) return;
+        setGhStatus({ loading: false, connected: !!r.data?.connected, login: r.data?.login || null });
+        if (r.data?.connected) {
+          setReposLoading(true);
+          try {
+            const rr = await api.get("/github/oauth/repos");
+            if (alive) setRepos(rr.data?.repos || []);
+          } catch { /* silent */ }
+          finally { if (alive) setReposLoading(false); }
+        }
+      } catch {
+        if (alive) setGhStatus({ loading: false, connected: false, login: null });
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
-  const canSubmit = f.name.trim() && f.github_url.trim() && f.github_token.trim();
+
+  function pickRepo(repo) {
+    setF((p) => ({
+      ...p,
+      name: p.name || repo.name,
+      github_url: repo.url,
+      branch: repo.default_branch || "main",
+    }));
+  }
+
+  // OAuth path: PAT not required. Manual path: PAT required.
+  const canSubmit = f.name.trim() && f.github_url.trim() &&
+    (ghStatus.connected || f.github_token.trim());
+
   async function submit(e) {
     e.preventDefault();
     if (!canSubmit) {
-      toast({ message: "Personal Access Token (PAT) is required to push code.", kind: "error" });
+      toast({
+        message: ghStatus.connected
+          ? "Pick a repo first."
+          : "Connect GitHub or paste a PAT to continue.",
+        kind: "error",
+      });
       return;
     }
     setBusy(true);
     try {
-      await api.post("/cto/projects/add", f);
+      // Don't send github_token at all on OAuth path — backend falls back.
+      const payload = ghStatus.connected && !f.github_token.trim()
+        ? { name: f.name, github_url: f.github_url, branch: f.branch,
+            tech_stack: f.tech_stack, preview_url: f.preview_url }
+        : f;
+      await api.post("/cto/projects/add", payload);
       toast({ message: `Connected ${f.name}`, kind: "success" });
       onAdded();
     } catch (e) {
       toast({ message: e?.response?.data?.detail || "Connect failed", kind: "error" });
     } finally { setBusy(false); }
   }
+
+  function startOAuth() {
+    // Read JWT from localStorage and pass via ?auth= so the redirect
+    // works even when the browser strips Authorization headers.
+    const token = localStorage.getItem("aurem_token") || localStorage.getItem("token") || "";
+    const base = process.env.REACT_APP_BACKEND_URL || "";
+    window.location.href = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+  }
+
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.65)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
     }}>
       <form onSubmit={submit} onClick={(e) => e.stopPropagation()} data-testid="proj-add-dialog"
-            style={{ maxWidth: 500, width: "100%", padding: 24,
+            style={{ maxWidth: 540, width: "100%", padding: 24,
                      background: "var(--panel)", border: "1px solid var(--border-strong)",
                      borderRadius: 6, display: "grid", gap: 12 }}>
-        <h3 className="serif" style={{ margin: 0, fontSize: 18 }}>Connect client repo</h3>
+        <h3 className="serif" style={{ margin: 0, fontSize: 18 }}>Connect a repo</h3>
+
+        {/* Iter 49 — OAuth-first row */}
+        {ghStatus.loading ? null : ghStatus.connected ? (
+          <div data-testid="oauth-connected-banner" style={{
+            padding: 10, borderRadius: 4, fontSize: 12,
+            background: "rgba(34, 197, 94, 0.08)",
+            border: "1px solid rgba(34, 197, 94, 0.3)",
+            color: "var(--text)",
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <Github size={14} />
+            <span>Connected as <strong>@{ghStatus.login}</strong> — pick a repo below.</span>
+          </div>
+        ) : (
+          <button type="button" data-testid="oauth-connect-cta"
+            onClick={startOAuth} style={{
+              padding: "12px 14px", borderRadius: 4,
+              background: "var(--accent-2)", color: "var(--bg)",
+              border: "1px solid var(--accent-2)", fontWeight: 600, fontSize: 13,
+              cursor: "pointer", display: "flex", alignItems: "center",
+              gap: 8, justifyContent: "center",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+            }}>
+            <Github size={14} /> Continue with GitHub
+          </button>
+        )}
+
         <label><span className="label-mini">Project name</span>
-          <input data-testid="proj-name" className="input" required value={f.name} onChange={(e) => up("name", e.target.value)} placeholder="Salon Website" /></label>
-        <label><span className="label-mini">GitHub URL</span>
-          <input data-testid="proj-url" className="input" required value={f.github_url} onChange={(e) => up("github_url", e.target.value)} placeholder="https://github.com/owner/repo" /></label>
-        <label>
-          <span className="label-mini" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            Personal Access Token (PAT) <span style={{ color: "var(--danger)" }}>*required</span>
-            <PatHelpTooltip />
-          </span>
-          <input data-testid="proj-pat" className="input" required value={f.github_token}
-                 onChange={(e) => up("github_token", e.target.value)}
-                 placeholder="github_pat_xxx or ghp_xxx" type="password" />
-        </label>
+          <input data-testid="proj-name" className="input" required value={f.name}
+                 onChange={(e) => up("name", e.target.value)} placeholder="My App" /></label>
+
+        {ghStatus.connected && repos.length > 0 ? (
+          <label><span className="label-mini">Pick repo</span>
+            <select
+              data-testid="proj-repo-picker"
+              className="input"
+              value={f.github_url}
+              onChange={(e) => {
+                const r = repos.find((x) => x.url === e.target.value);
+                if (r) pickRepo(r);
+              }}
+            >
+              <option value="">— select —</option>
+              {repos.map((r) => (
+                <option key={r.full_name} value={r.url}>
+                  {r.full_name} {r.private ? "🔒" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <label><span className="label-mini">GitHub URL</span>
+            <input data-testid="proj-url" className="input" required value={f.github_url}
+                   onChange={(e) => up("github_url", e.target.value)}
+                   placeholder="https://github.com/owner/repo" /></label>
+        )}
+
+        {ghStatus.connected && reposLoading && (
+          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Loading your repos…</div>
+        )}
+
+        {/* Manual PAT only shown when not connected, or explicitly toggled */}
+        {(!ghStatus.connected || showManualPAT) && (
+          <label>
+            <span className="label-mini" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              Personal Access Token (PAT)
+              {!ghStatus.connected && <span style={{ color: "var(--danger)" }}>*required</span>}
+              <PatHelpTooltip />
+            </span>
+            <input data-testid="proj-pat" className="input" value={f.github_token}
+                   onChange={(e) => up("github_token", e.target.value)}
+                   required={!ghStatus.connected}
+                   placeholder="github_pat_xxx or ghp_xxx" type="password" />
+          </label>
+        )}
+        {ghStatus.connected && !showManualPAT && (
+          <button type="button" onClick={() => setShowManualPAT(true)} style={{
+            background: "transparent", border: "none",
+            color: "var(--text-faint)", textAlign: "left",
+            cursor: "pointer", fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            Use a Personal Access Token instead →
+          </button>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
           <label><span className="label-mini">Branch</span>
-            <input data-testid="proj-branch" className="input" value={f.branch} onChange={(e) => up("branch", e.target.value)} /></label>
+            <input data-testid="proj-branch" className="input" value={f.branch}
+                   onChange={(e) => up("branch", e.target.value)} /></label>
           <label><span className="label-mini">Tech (optional)</span>
-            <input data-testid="proj-tech" className="input" value={f.tech_stack} onChange={(e) => up("tech_stack", e.target.value)} placeholder="WordPress, Next.js, FastAPI…" /></label>
+            <input data-testid="proj-tech" className="input" value={f.tech_stack}
+                   onChange={(e) => up("tech_stack", e.target.value)}
+                   placeholder="WordPress, Next.js, FastAPI…" /></label>
         </div>
         <label>
           <span className="label-mini">Live preview URL (optional)</span>

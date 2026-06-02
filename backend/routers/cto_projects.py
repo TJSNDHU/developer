@@ -117,20 +117,45 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
     me = await current_dev(authorization)
     db = require_db()
     owner, repo = _parse_repo(body.github_url)
+
+    # Iter 49 — OAuth-first connect. If no manual PAT was provided, fall
+    # back to the user's stored GitHub OAuth token. Eliminates the
+    # signup-killer "paste a PAT" step for anyone who already clicked
+    # "Connect GitHub" on the Settings page.
+    pat = (body.github_token or "").strip() or None
+    used_oauth = False
+    if not pat:
+        u = await db.dev_users.find_one(
+            {"user_id": me["user_id"]}, {"_id": 0, "github": 1}
+        )
+        oauth_tok = ((u or {}).get("github") or {}).get("access_token")
+        if oauth_tok:
+            pat = oauth_tok
+            used_oauth = True
+        else:
+            raise HTTPException(
+                400,
+                "GitHub not connected. Either click 'Connect GitHub' on the "
+                "Settings page, or paste a Personal Access Token.",
+            )
+
     proj_id = f"p_{uuid.uuid4().hex[:10]}"
-    encrypted_token = await _encrypt_pat(me["user_id"], body.github_token)
+    encrypted_token = await _encrypt_pat(me["user_id"], pat)
     doc = {
         "project_id": proj_id, "user_id": me["user_id"],
         "name": body.name, "github_url": body.github_url,
         "github_owner": owner, "github_repo": repo,
         "github_token": encrypted_token,
+        "auth_method": "oauth" if used_oauth else "pat",
         "branch": body.branch, "tech_stack": body.tech_stack or "auto",
         "preview_url": (body.preview_url or "").strip() or None,
         "status": "connected", "tasks_done": 0,
         "created_at": time.time(),
     }
     await db.cto_projects.insert_one(doc)
-    return {"ok": True, "project_id": proj_id, "owner": owner, "repo": repo}
+    return {"ok": True, "project_id": proj_id,
+            "owner": owner, "repo": repo,
+            "auth_method": doc["auth_method"]}
 
 
 @router.get("/projects/list")
