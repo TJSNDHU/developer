@@ -802,6 +802,43 @@ User vision: frontend stays as "ORActo" branding; backend silently routes DeepSe
 
 **Cost note** (for founder's reference): Claude Sonnet review adds ~$0.033/code-task (6K in + 1K out at $3/$15 per Mtok). Founder-only at current scale = pennies/month. With Anthropic prompt caching on the repo context, drops ~60% to ~$0.012/task. Free-tier auto-fallback to DeepSeek-only if `EMERGENT_LLM_KEY` unset.
 
+### Iter 41 — 5 Tier-1 Upgrades: Brain + Linter + Issues + Parallel + Council v2 (Feb 2026)
+
+Massive parallel upgrade dropping 5 production-grade features in one ship, all wired into the existing CTO worker without breaking changes.
+
+**New service modules** (`/app/backend/services/`):
+1. `project_brain.py` — per-repo persistent memory. Stores tech stack, past decisions, rejected ideas, recurring bugs, file move history in `project_brains` collection. `get_brain_context(db, project_id, repo_full_name)` returns ~800-token compressed context injected into every code task. `update_brain_after_commit()` fires post-ship (asyncio.create_task) so ORA learns what was changed. `update_brain_from_conversation()` runs after every chat turn — extracts rejections ("don't use X"), decisions, stack mentions via regex. Zero LLM cost.
+2. `design_linter.py` — pure Python regex linter. 10 rules: `console.log` (block), `transition: all` (warn + auto-fix), hardcoded secrets (block, **case-insensitive** after Iter 41 fix), missing React keys (warn), emoji icons (warn), `dangerouslySetInnerHTML` (warn). `auto_fix_blocks()` runs first (safe rules only — strips console.log, fixes `transition: all → transition: transform, opacity, color`), then `lint_file_blocks()` produces blocking/warning lists. Cursor doesn't ship this; we do.
+3. `github_issues_context.py` — auto-fetches open issues from the connected repo via GitHub API, keyword-matches against the task description, returns the top-3 most relevant as context. 1-hour TTL cache (`issues_cache` collection with MongoDB TTL index) so we never hit GitHub rate limits.
+4. `parallel_agents.py` — splits big multi-domain tasks (backend + frontend + tests) into 3 parallel agents that run via `asyncio.gather()`. Trivial single-file tasks (< 3 files) skip parallelization. **NOT wired into the main worker yet** — sits as a library for future use. `should_parallelize()` heuristic and `run_parallel_agents()` ready.
+5. **Replaced** `ora_council_logger.py` (Iter 40 → v2): richer fields (`project_id`, `lint_blocked`, `lint_issues`, `parallelized`, `agents_used_count`), new signature `log_conversational(db, mode, ...)` and `log_code_task(db, ...)` with `db` as first arg, `get_council_stats(db)` returns 5 new counters including `lint_blocks_caught` and `parallel_tasks_run`. `export_daily_jsonl(db)` produces fine-tune-ready pairs. Bumped to `ora_version=2.0`.
+
+**Wire-ins**:
+- `routers/cto_projects.py::_run_task_via_api` now:
+  1. Calls `get_brain_context()` + `get_relevant_issues_context()` BEFORE building the user_msg → injected as `[PROJECT MEMORY]` and `[OPEN ISSUES]` blocks
+  2. After truncation gate: runs `auto_fix_blocks()` (logs `🛠️ Auto-fixed N safe lint issue(s)…`), then `lint_file_blocks()`. If `blocked=True` → sets task `failed`, logs `⛔ Linter blocked the commit`, calls `log_code_task(..., lint_blocked=True)` and returns. No commit happens.
+  3. After commit success: fires `update_brain_after_commit()` as a background task — never blocks user response.
+- `routers/chat.py::chat_stream` now also fires `update_brain_from_conversation()` after `log_conversational()` so casual mentions like "I prefer FastAPI" persist to brain.
+- `routers/admin.py` — new endpoints:
+  - `GET /admin/ora-stats` (alias for `/ora/stats`, v2 fields)
+  - `GET /admin/project-brain/{project_id}` — full brain doc inspector
+  - `POST /admin/project-brain/{project_id}/decision` — manual decision injection
+  - `POST /admin/project-brain/{project_id}/preference` — manual preference injection
+- `migrations/001_aurem_upgrade_indexes.py` — one-shot migration script. Creates 11 indexes across `project_brains`, `ora_council_logs`, `issues_cache` (with 1-hour TTL), `cto_review_logs`. Uses our `MONGO_URL` / `DB_NAME` env (with `MONGODB_URI` / `MONGODB_DB` fallback). **Ran successfully** during deploy.
+- `services/ora_council_logger.py::ensure_indexes()` retained for `main.py` lifespan startup hook so indexes auto-exist on fresh deploys.
+
+**New admin UI**:
+- `frontend/src/components/AuremAdminPanel.jsx` — 3-tab dashboard (Overview / Project Brain / ORA Council). Fixed import from `import.meta.env.VITE_BACKEND_URL` → `process.env.REACT_APP_BACKEND_URL` to match our CRA setup. Fixed admin API paths from `/api/admin/...` → `/api/aurem-dev/admin/...`. Polls stats every 30s.
+- `pages/Admin.jsx` — new "ORA Council" tab in the sidebar (Brain icon, `data-testid="admin-nav-ora"`), renders the panel.
+
+**Live E2E verified**:
+- `GET /admin/ora-stats` → `{total_interactions:3, lint_blocks_caught:0, parallel_tasks_run:0, ready_for_finetune:false, finetune_tip:"Collect 997 more interactions…"}`
+- Manual decision injection: `POST /admin/project-brain/test_pid/decision {title, reason}` → `{ok:true}`
+- Chat turn → `total_interactions` incremented from 3 → 4 with `mode='A'`
+- Design linter on synthetic edits: `API_KEY = "sk-..."` now blocks (case-insensitive after Iter 41 fix); `console.log` + `transition: all` auto-fixed
+- Frontend lint clean on all touched files
+- Migration ran cleanly: `✓ project_brains ✓ ora_council_logs ✓ issues_cache + TTL ✓ cto_review_logs`
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

@@ -690,15 +690,47 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 await _log(task_id, "🗂️ injected cached repo index")
         except Exception as _e:
             repo_block = None
+        # iter 41 — Brain + Issues context (zero LLM cost, ~350 tokens)
+        brain_ctx = ""
+        issues_ctx = ""
+        try:
+            from services.project_brain import get_brain_context
+            _db = get_db()
+            if _db is not None:
+                brain_ctx = await get_brain_context(
+                    _db, proj.get("project_id", ""), f"{owner}/{repo}",
+                )
+        except Exception as _e:
+            brain_ctx = ""
+        try:
+            from services.github_issues_context import get_relevant_issues_context
+            _db = get_db()
+            if _db is not None and user_token:
+                issues_ctx = await get_relevant_issues_context(
+                    db=_db, repo_owner=owner, repo_name=repo,
+                    github_pat=user_token, task_description=task,
+                )
+        except Exception:
+            issues_ctx = ""
+        if brain_ctx:
+            await _log(task_id, "🧠 injected project memory")
+        if issues_ctx:
+            await _log(task_id, "📋 injected relevant GitHub issues")
+
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
         )
+        extra_context_block = ""
+        if brain_ctx:
+            extra_context_block += f"\n\n[PROJECT MEMORY]\n{brain_ctx}"
+        if issues_ctx:
+            extra_context_block += f"\n\n[OPEN ISSUES]\n{issues_ctx}"
         user_msg = (
             f"TASK: {task}\n"
             f"{('CONTEXT: ' + context) if context else ''}\n\n"
             f"Tech: {proj.get('tech_stack','auto')}\n\n"
-            f"{repo_block or ''}\n\n{files_blob}"
+            f"{repo_block or ''}{extra_context_block}\n\n{files_blob}"
         )
         reply = await _retry(
             lambda: call_llm(
@@ -743,6 +775,49 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             return
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
+        # iter 41 — Design Linter (zero LLM cost, pure regex).
+        # Auto-fixes safe issues first (console.log, transition: all), then
+        # rejects commits with any "block" severity findings (hardcoded
+        # secrets, leftover console.log, etc.).
+        try:
+            from services.design_linter import lint_file_blocks, auto_fix_blocks
+            edits, fix_log = auto_fix_blocks(edits)
+            if fix_log:
+                total_fixes = sum(len(v) for v in fix_log.values())
+                await _log(task_id, f"🛠️ Auto-fixed {total_fixes} safe lint issue(s) across {len(fix_log)} file(s)", "info")
+            lint_result = lint_file_blocks(edits)
+        except Exception as _le:
+            lint_result = {"blocked": False, "issues": [], "warnings": [], "summary": ""}
+        if lint_result.get("blocked"):
+            await _log(task_id, f"⛔ Linter blocked the commit: {len(lint_result['issues'])} critical issue(s)", "error")
+            for reason in lint_result.get("block_reasons", [])[:5]:
+                await _log(task_id, f"  • {reason}", "error")
+            await _set_status(task_id, status="failed",
+                              error=("Design linter blocked commit:\n" + lint_result.get("summary", ""))[:2000],
+                              completed_at=time.time())
+            # Council log the blocked attempt
+            try:
+                from services.ora_council_logger import log_code_task as _log_code
+                _db = get_db()
+                if _db is not None:
+                    await _log_code(
+                        db=_db, user_message=task,
+                        repo_context=f"{owner}/{repo}@{branch}",
+                        deepseek_draft=str(edits)[:2000],
+                        final_output="[BLOCKED BY LINTER]",
+                        correction_applied=False, pass_result=False,
+                        lint_blocked=True,
+                        lint_issues=lint_result.get("issues", []),
+                        task_id=task_id, user_id=proj.get("user_id"),
+                        project_id=proj.get("project_id"),
+                        maxx_mode=maxx_mode,
+                    )
+            except Exception:
+                pass
+            return
+        if lint_result.get("warnings"):
+            await _log(task_id, f"⚠️ Linter: {len(lint_result['warnings'])} non-blocking warning(s)", "warning")
+
         # 2c) TWO-AGENT MAXX (iter 40) — Claude reviews DeepSeek's edits.
         # Gated on per-task `maxx_mode`. On PASS we commit DeepSeek's
         # output as-is. On FAIL we commit Claude's corrected version.
@@ -772,19 +847,24 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         # 2d) Council log — fire-and-forget; never blocks the commit.
         try:
             from services.ora_council_logger import log_code_task
-            await log_code_task(
-                user_message=task,
-                repo_context=f"{owner}/{repo}@{branch}",
-                deepseek_draft=deepseek_draft,
-                claude_correction=review_result.get("corrected"),
-                final_output=edits,
-                correction_applied=not review_result["pass"],
-                pass_result=bool(review_result["pass"]),
-                issues_found=review_result.get("issues"),
-                task_id=task_id,
-                user_id=proj.get("user_id"),
-                maxx_mode=maxx_mode,
-            )
+            _db = get_db()
+            if _db is not None:
+                await log_code_task(
+                    db=_db,
+                    user_message=task,
+                    repo_context=f"{owner}/{repo}@{branch}",
+                    deepseek_draft=str(deepseek_draft)[:4000],
+                    final_output=str(edits)[:4000],
+                    correction_applied=not review_result["pass"],
+                    pass_result=bool(review_result["pass"]),
+                    claude_correction=str(review_result.get("corrected") or "") or None,
+                    lint_blocked=False,
+                    lint_issues=lint_result.get("issues", []),
+                    task_id=task_id,
+                    user_id=proj.get("user_id"),
+                    project_id=proj.get("project_id"),
+                    maxx_mode=maxx_mode,
+                )
         except Exception:
             pass
 
@@ -867,6 +947,20 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 {"project_id": proj["project_id"]},
                 {"$inc": {"tasks_done": 1}, "$set": {"last_task": time.time()}},
             )
+            # iter 41 — fire-and-forget brain update so ORA remembers what
+            # was shipped, what files moved, and any recurring corrections.
+            try:
+                from services.project_brain import update_brain_after_commit
+                asyncio.create_task(update_brain_after_commit(
+                    db=db,
+                    project_id=proj.get("project_id", ""),
+                    task_description=task,
+                    files_changed=list(edits.keys()),
+                    was_correction_applied=not review_result["pass"],
+                    issues_found=review_result.get("issues", []),
+                ))
+            except Exception:
+                pass
     except Exception as e:
         logger.exception(f"[cto-task-api {task_id}] failed")
         safe = str(e).replace(user_token or "", "***PAT***")

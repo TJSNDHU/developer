@@ -482,14 +482,67 @@ async def ora_council_stats(authorization: Optional[str] = Header(None)):
     """Quick summary: total logs, by-mode counts, correction rate,
     pending-export queue, fine-tune readiness."""
     await _require_admin(authorization)
-    from services.ora_learning_export import get_council_stats
-    return await get_council_stats()
+    from services.ora_council_logger import get_council_stats
+    return await get_council_stats(require_db())
+
+
+@router.get("/ora-stats")
+async def ora_council_stats_v2(authorization: Optional[str] = Header(None)):
+    """Alias for AuremAdminPanel (uses /admin/ora-stats path)."""
+    await _require_admin(authorization)
+    from services.ora_council_logger import get_council_stats
+    return await get_council_stats(require_db())
 
 
 @router.post("/ora/export")
 async def ora_council_export(authorization: Optional[str] = Header(None)):
     """Manually trigger yesterday's JSONL export. Daily cron also runs it."""
     await _require_admin(authorization)
-    from services.ora_learning_export import export_daily
-    return await export_daily()
+    from services.ora_council_logger import export_daily_jsonl
+    return await export_daily_jsonl(require_db())
+
+
+# ── Iter 41 — Project Brain (per-repo persistent memory) ───────────────
+@router.get("/project-brain/{project_id}")
+async def admin_project_brain(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.project_brain import get_brain_full
+    brain = await get_brain_full(require_db(), project_id)
+    return brain or {"project_id": project_id, "empty": True}
+
+
+class BrainDecisionBody(BaseModel):
+    title: str
+    reason: str
+
+
+@router.post("/project-brain/{project_id}/decision")
+async def admin_brain_add_decision(
+    project_id: str,
+    body: BrainDecisionBody,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.project_brain import add_decision
+    await add_decision(require_db(), project_id, body.title, body.reason)
+    return {"ok": True}
+
+
+class BrainPreferenceBody(BaseModel):
+    preference: str
+
+
+@router.post("/project-brain/{project_id}/preference")
+async def admin_brain_add_preference(
+    project_id: str,
+    body: BrainPreferenceBody,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.project_brain import add_preference
+    await add_preference(require_db(), project_id, body.preference)
+    return {"ok": True}
 

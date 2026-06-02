@@ -8,10 +8,11 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
   Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
-  LogOut, ExternalLink, ArrowLeft, Loader2,
+  LogOut, ExternalLink, ArrowLeft, Loader2, Brain,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
+import AuremAdminPanel from "../components/AuremAdminPanel";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -863,6 +864,7 @@ const NAV = [
   { id: "payments", label: "Payments", Icon: CreditCard },
   { id: "support", label: "Support", Icon: MessageCircle },
   { id: "arch", label: "Architecture", Icon: SitemapIcon },
+  { id: "ora", label: "ORA Council", Icon: Brain },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -928,6 +930,7 @@ export default function Admin() {
       case "payments": return <PaymentsPage />;
       case "support": return <SupportPage />;
       case "arch": return <Architecture />;
+      case "ora": return <AuremAdminPanel />;
       case "settings": return <SettingsPage />;
       default: return <Dashboard />;
     }
