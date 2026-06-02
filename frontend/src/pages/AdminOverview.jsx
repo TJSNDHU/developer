@@ -67,6 +67,9 @@ export default function AdminOverview() {
         </div>
       </Section>
 
+      {/* ── Cache & refresh (Iter 63) ───────────────────────── */}
+      <CachePurgePanel />
+
       {/* ── User metrics ────────────────────────────────────── */}
       <Section title="Users & ships">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
@@ -285,6 +288,185 @@ function ActionRow({ title, detail, urgent }) {
         {urgent ? "⚡ " : ""}{title}
       </div>
       <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>{detail}</div>
+    </div>
+  );
+}
+
+
+// ── Iter 63 — Cache & refresh panel ──────────────────────────────────
+//
+// Real, fully-wired cache buster. Click "Purge & hard-refresh" and:
+//   1. Backend purges Cloudflare edge cache (if creds set), drops Mongo
+//      TTL caches, clears in-process lru_caches. Returns a structured
+//      report we render below.
+//   2. Frontend unregisters any service workers, blows away every
+//      CacheStorage entry (`caches.delete()`), then forces a true
+//      cache-bypass reload via `location.replace(?_=ts)`.
+function CachePurgePanel() {
+  const [busy,   setBusy]   = useState(false);
+  const [report, setReport] = useState(null);
+  const [error,  setError]  = useState(null);
+
+  async function purgeEverything() {
+    if (busy) return;
+    const ok = window.confirm(
+      "Purge ALL caches?\n\n" +
+      "• Cloudflare edge cache (if CLOUDFLARE_API_TOKEN set)\n" +
+      "• Mongo repo/issues/index caches\n" +
+      "• In-process LRU caches\n" +
+      "• This browser: service workers + CacheStorage + hard reload\n\n" +
+      "Every user worldwide will hit the origin once on next request.\n" +
+      "Proceed?"
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    setReport(null);
+    try {
+      // 1. Backend purge
+      const h = { Authorization: `Bearer ${getToken()}` };
+      const r = await api.post("/admin/cache/purge", {}, { headers: h });
+      setReport(r.data?.report || null);
+
+      // 2. Client-side blast
+      try {
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((reg) => reg.unregister()));
+        }
+      } catch { /* non-fatal */ }
+      try {
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+      } catch { /* non-fatal */ }
+
+      // 3. Give the user 1.5s to read the report, then hard-reload with a
+      //    cache-bust query so the browser can't serve a stale doc.
+      setTimeout(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("_purge", Date.now().toString(36));
+        window.location.replace(url.toString());
+      }, 1500);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Purge failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Cache & refresh (Iter 63)">
+      <div style={{
+        background: "rgba(255,138,42,0.04)",
+        border: "1px solid rgba(255,138,42,0.18)",
+        borderRadius: 8, padding: "14px 16px",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center",
+          justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+        }}>
+          <div style={{ flex: "1 1 320px", minWidth: 260 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)", marginBottom: 4 }}>
+              Force fresh build for everyone
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.55 }}>
+              Cloudflare edge + Mongo TTL caches + in-process LRU +
+              THIS browser&apos;s service workers & CacheStorage. Then a
+              true cache-bypass reload. Use this when a deploy looks stale.
+            </div>
+          </div>
+          <button
+            data-testid="admin-cache-purge-btn"
+            onClick={purgeEverything}
+            disabled={busy}
+            className="btn-primary"
+            style={{
+              padding: "10px 18px", fontSize: 12, fontWeight: 600,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.05em", whiteSpace: "nowrap",
+              opacity: busy ? 0.6 : 1,
+              cursor: busy ? "wait" : "pointer",
+            }}
+          >
+            {busy ? "Purging…" : "🧹 Purge & hard-refresh"}
+          </button>
+        </div>
+
+        {error && (
+          <div data-testid="admin-cache-purge-error" style={{
+            marginTop: 12, padding: "8px 10px",
+            background: "rgba(226,75,74,0.1)",
+            border: "1px solid rgba(226,75,74,0.3)",
+            borderRadius: 6, fontSize: 11, color: "#E24B4A",
+          }}>
+            {error}
+          </div>
+        )}
+
+        {report && (
+          <div data-testid="admin-cache-purge-report" style={{
+            marginTop: 14, fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "var(--text-dim)",
+          }}>
+            <ReportLine
+              label="Cloudflare edge"
+              status={report.cloudflare?.status}
+              detail={report.cloudflare?.detail}
+            />
+            <ReportLine
+              label="In-process LRU"
+              status={report.lru_cache?.status}
+              detail={report.lru_cache?.detail}
+            />
+            {report.mongo_caches && typeof report.mongo_caches === "object" &&
+              Object.entries(report.mongo_caches).map(([coll, info]) => (
+                info && typeof info === "object" ? (
+                  <ReportLine
+                    key={coll}
+                    label={`Mongo · ${coll}`}
+                    status={info.status}
+                    detail={info.deleted != null
+                      ? `${info.deleted} docs deleted`
+                      : (info.detail || "")}
+                  />
+                ) : null
+              ))
+            }
+            <div style={{
+              marginTop: 8, color: "var(--accent-2)",
+              fontStyle: "italic", fontSize: 10,
+            }}>
+              ↻ Reloading this tab in 1.5s with cache bypass…
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function ReportLine({ label, status, detail }) {
+  const colorMap = {
+    ok:      "#1D9E75",
+    error:   "#E24B4A",
+    skipped: "var(--text-faint)",
+  };
+  const symbol = { ok: "✓", error: "✗", skipped: "·" }[status] || "·";
+  return (
+    <div style={{
+      display: "flex", gap: 8, padding: "3px 0",
+      alignItems: "baseline",
+    }}>
+      <span style={{ color: colorMap[status] || "var(--text-faint)", width: 12 }}>
+        {symbol}
+      </span>
+      <span style={{ color: "var(--text)", minWidth: 160 }}>{label}</span>
+      <span style={{ color: "var(--text-faint)", flex: 1 }}>
+        {detail || status}
+      </span>
     </div>
   );
 }

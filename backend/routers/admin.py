@@ -648,5 +648,92 @@ async def sentry_test(authorization: Optional[str] = Header(None)):
     except Exception as e:
         return {"ok": False, "active": False, "error": str(e)}
 
-    n = await delete_preference(require_db(), project_id, preference)
-    return {"ok": True, "removed": n}
+
+# ── Iter 63 — Cache purge & frontend refresh ────────────────────────────
+@router.post("/cache/purge")
+async def purge_caches(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Real, fully-wired cache purge — admin-only.
+
+    Clears:
+      1. Cloudflare edge cache  (if CLOUDFLARE_API_TOKEN + ZONE_ID set)
+      2. In-memory `lru_cache` of skill_context_injector
+      3. MongoDB TTL caches: repo_context_cache, github_issues_cache,
+         codebase_index_cache (collections used as caches; safe to drop
+         rows — they self-rebuild on next read).
+
+    Returns a structured report so the UI can show exactly what landed.
+    The frontend then performs its own client-side step (unregister SWs,
+    `caches.delete()`, hard reload).
+    """
+    import os
+    import httpx
+    await _require_admin(authorization)
+
+    report = {
+        "cloudflare": {"status": "skipped", "detail": "CLOUDFLARE_API_TOKEN / ZONE_ID not set"},
+        "lru_cache": {"status": "skipped", "detail": ""},
+        "mongo_caches": {},
+    }
+
+    # 1. Cloudflare edge purge — only if env configured
+    cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    cf_zone = os.environ.get("CLOUDFLARE_ZONE_ID")
+    if cf_token and cf_zone:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"https://api.cloudflare.com/client/v4/zones/{cf_zone}/purge_cache",
+                    headers={
+                        "Authorization": f"Bearer {cf_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"purge_everything": True},
+                )
+                cf_body = resp.json()
+                if resp.status_code == 200 and cf_body.get("success"):
+                    report["cloudflare"] = {
+                        "status": "ok",
+                        "detail": "Purge_everything fired — edge cache will refill on next request.",
+                    }
+                else:
+                    report["cloudflare"] = {
+                        "status": "error",
+                        "detail": str(cf_body.get("errors") or cf_body)[:300],
+                    }
+        except Exception as e:
+            report["cloudflare"] = {"status": "error", "detail": str(e)[:300]}
+
+    # 2. In-memory lru_cache on skill injector
+    try:
+        from services.skill_context_injector import _load_skill
+        _load_skill.cache_clear()
+        report["lru_cache"] = {
+            "status": "ok",
+            "detail": "skill_context_injector._load_skill lru_cache cleared",
+        }
+    except Exception as e:
+        report["lru_cache"] = {"status": "error", "detail": str(e)[:300]}
+
+    # 3. Mongo TTL caches — drop docs so the next read repopulates
+    db = get_db()
+    if db is not None:
+        for coll_name in (
+            "repo_context_cache",
+            "github_issues_cache",
+            "codebase_index_cache",
+        ):
+            try:
+                r = await db[coll_name].delete_many({})
+                report["mongo_caches"][coll_name] = {
+                    "status": "ok", "deleted": r.deleted_count,
+                }
+            except Exception as e:
+                report["mongo_caches"][coll_name] = {
+                    "status": "error", "detail": str(e)[:200],
+                }
+    else:
+        report["mongo_caches"] = {"status": "skipped", "detail": "no DB"}
+
+    return {"ok": True, "report": report}

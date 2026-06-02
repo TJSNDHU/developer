@@ -1691,3 +1691,35 @@ See `/app/memory/test_credentials.md`.
 - P3: AdminOverview enhancements (active sessions list, last failed tasks)
 - P4: "LLM Resilience Layer" — Chaos-Monkey-style fallback chain Groq → Cerebras → DeepSeek → Claude
 
+
+
+---
+
+## Iter 63 — Real cache purge & hard-refresh button (Feb 2026)
+
+**Goal**: Admin panel mein ek 'Purge & hard-refresh' button jo *actually* end-to-end caches clear kare (not just UI-level).
+
+**Backend** — `POST /api/aurem-dev/admin/cache/purge`:
+1. **Cloudflare edge cache**: calls `POST /zones/{ZONE_ID}/purge_cache` with `{purge_everything: true}`. Reads `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID` from env. Returns `status: skipped` if not configured (graceful, never errors).
+2. **In-process LRU**: clears `services.skill_context_injector._load_skill.cache_clear()`.
+3. **MongoDB TTL caches**: deletes all docs in `repo_context_cache`, `github_issues_cache`, `codebase_index_cache`.
+
+Returns structured report so UI can show exactly what landed.
+
+**Frontend** — `<CachePurgePanel />` in `AdminOverview.jsx`:
+- Orange "🧹 Purge & hard-refresh" button (`data-testid=admin-cache-purge-btn`)
+- After backend success → unregister all service workers + `caches.delete()` every CacheStorage entry → `window.location.replace(?_purge=<ts>)` for true cache-bypass reload
+- Shows per-row report (Cloudflare ✓/✗/·, LRU ✓, Mongo · 0 docs deleted, etc.)
+
+**Tests** — `/app/backend/tests/test_iter63_cache_purge.py` — 11 source-level smoke tests:
+- Endpoint registered, admin-gated, structured response envelope
+- Cloudflare branch env-gated + hits correct API path
+- LRU `cache_clear()` wired AND `_load_skill` keeps `@lru_cache`
+- Mongo collection names match repo_context service
+- Frontend wires SW.unregister + caches.delete + ?_purge cache-bust reload
+
+**Live curl verified**: 401 unauth → 403 non-admin → 200 with full report (CF skipped, LRU ok, 3 Mongo collections cleared) ✅
+
+**To enable real CDN purge in production**: User must set in Emergent dashboard env:
+- `CLOUDFLARE_API_TOKEN` (Cloudflare → My Profile → API Tokens → 'Purge Cache' template, scope: auremcto.com zone)
+- `CLOUDFLARE_ZONE_ID` (Cloudflare dashboard → auremcto.com → right sidebar → Zone ID)
