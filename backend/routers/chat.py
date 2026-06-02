@@ -724,6 +724,13 @@ async def chat_stream(
                         # Fall through to the AUREM/orchestrator path below.
 
                 activity["label"] = "thinking…"
+                # Hook to publish tool invocations live so the timeout
+                # guard can summarise what we managed to inspect.
+                _published: list[dict] = []
+                activity["invocations"] = _published
+                _orig_activity_hook = activity.__setitem__
+                def _activity(label: str):
+                    activity["label"] = label
                 result = await chat_with_tools(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
@@ -733,8 +740,12 @@ async def chat_stream(
                     mongo_client=None,
                     user_id=user_id,
                     project_id=body.project_id,
-                    activity_hook=lambda s: activity.__setitem__("label", s),
+                    activity_hook=_activity,
+                    live_invocations_ref=_published,
                 )
+                # Snapshot final invocations so a late timeout still has data.
+                if isinstance(result, dict):
+                    _published[:] = result.get("tool_invocations") or []
                 await q.put({"type": "result", "result": result})
             except Exception as e:
                 logger.exception("chat_stream orchestrator failed")
@@ -753,16 +764,57 @@ async def chat_stream(
                     q.get(), timeout=max(0.1, deadline_at - _t.monotonic()),
                 )
             except asyncio.TimeoutError:
-                # Wall-clock blown. Cancel everything, tell the user.
+                # Wall-clock blown. Cancel everything but emit a USEFUL
+                # message instead of just an "error" payload — the
+                # frontend used to render that red and the user saw
+                # nothing actionable. We pull whatever tool history the
+                # worker managed to record and stream a real summary.
                 worker_t.cancel()
                 ticker_t.cancel()
+                partial_invocations = list(activity.get("invocations") or [])
+                from services.orchestrator import _synthesise_max_iters_summary
+                summary = _synthesise_max_iters_summary(
+                    body.prompt, partial_invocations,
+                )
+                # Prepend a one-line timeout banner so the user knows
+                # this was a graceful cut-off, not a model answer.
+                content = (
+                    f"⏱️ I cut myself off at {int(HARD_TIMEOUT_S)}s to avoid "
+                    f"a runaway tool-loop.\n\n{summary}"
+                )
+                # Stream as a normal assistant turn (meta → tokens → done)
+                # so the bubble renders properly instead of going red.
+                meta_payload = {
+                    "meta": True,
+                    "session_id": body.session_id,
+                    "provider": "aurem-timeout-guard",
+                    "mode": "A",
+                    "temperature": 0.2,
+                    "thinking_s": round(_t.monotonic() - t_start, 1),
+                    "tool_calls_run": len(partial_invocations),
+                    "timed_out": True,
+                }
+                yield f"data: {json.dumps(meta_payload)}\n\n"
+                CHUNK = 16
+                for i in range(0, len(content), CHUNK):
+                    yield f"data: {json.dumps({'token': content[i:i+CHUNK]})}\n\n"
+                    await asyncio.sleep(0.005)
+                # Persist the turn so refresh keeps it visible.
+                try:
+                    await _persist_turn(
+                        user_id, body.session_id or "",
+                        body.prompt, content, "aurem-timeout-guard",
+                        project_id=body.project_id,
+                    )
+                except Exception:
+                    logger.exception("timeout persist_turn failed")
                 yield (
                     "data: " + json.dumps({
-                        "error": (
-                            f"AUREM timed out after {int(HARD_TIMEOUT_S)}s. "
-                            "Reload and try a smaller question, or ask me "
-                            "to narrow scope (e.g. 'just check file X')."
-                        ),
+                        "done": True,
+                        "provider": "aurem-timeout-guard",
+                        "session_id": body.session_id,
+                        "tokens_remaining": None,
+                        "timed_out": True,
                     }) + "\n\n"
                 )
                 return

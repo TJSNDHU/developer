@@ -23,6 +23,77 @@ from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
 
 logger = logging.getLogger(__name__)
 
+
+def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
+    """Build a human-readable closing message when we hit `max_iters`.
+
+    We never leak the LLM's last raw tool_call fence (the bug that
+    produced "```tool_call {...}```" rendering verbatim in the chat
+    bubble). Instead we inventory what the model *did* manage to
+    inspect this turn and ask the user to narrow scope.
+
+    Kept dependency-free so it can't itself crash the response path.
+    """
+    seen_paths: list[str] = []
+    seen_tools: list[str] = []
+    for inv in invocations or []:
+        name = inv.get("tool") or ""
+        if name and name not in seen_tools:
+            seen_tools.append(name)
+        args = inv.get("args") or {}
+        if name == "read_repo_file" and args.get("path"):
+            seen_paths.append(args["path"])
+        elif name == "read_repo_files":
+            for p in args.get("paths") or []:
+                if p and p not in seen_paths:
+                    seen_paths.append(p)
+
+    lines = ["I hit my reasoning-step budget on this task before "
+             "converging to a final answer."]
+    if seen_paths:
+        sample = ", ".join(f"`{p}`" for p in seen_paths[:6])
+        more = f" (+{len(seen_paths) - 6} more)" if len(seen_paths) > 6 else ""
+        lines.append(
+            f"**What I looked at:** {sample}{more}."
+        )
+    if seen_tools:
+        lines.append(
+            f"**Tools used:** {', '.join(seen_tools)} "
+            f"({len(invocations)} calls)."
+        )
+    # Be honest about why and give the user a concrete next move.
+    lines.append(
+        "**Why this happened:** the scope of your question is broader "
+        "than a single chat turn can finish. The cleanest next step "
+        "is to ask me about one file or one pillar at a time — I'll "
+        "return a focused answer in seconds."
+    )
+    lines.append(
+        "**Try:** _\"check the sales pillar worker — is the scheduler "
+        "actually picking up jobs?\"_ instead of a 4-pillar sweep."
+    )
+    return "\n\n".join(lines)
+
+
+def _is_same_tool_call(a: dict, b: dict) -> bool:
+    """Two tool invocations are 'the same' if name + sorted-args match.
+
+    Used by the tool-loop guard below: if the LLM calls the exact same
+    tool with the exact same args twice in a row, more iterations won't
+    help — we synthesise a summary and break out cleanly.
+    """
+    if not a or not b:
+        return False
+    if a.get("tool") != b.get("tool"):
+        return False
+    try:
+        return json.dumps(a.get("args") or {}, sort_keys=True) == \
+               json.dumps(b.get("args") or {}, sort_keys=True)
+    except Exception:
+        return False
+
+
+
 # Build the tool-call fence syntax without typing literal triple-backticks
 # in this file's source (avoids accidental docstring termination when LLMs
 # regenerate this file).  iter 322ex teaching note: ORA designs that embed
@@ -238,6 +309,7 @@ async def chat_with_tools(
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
     activity_hook=None,                 # iter 36: optional callback(label)
+    live_invocations_ref: Optional[list] = None,  # see _worker timeout guard
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -309,7 +381,7 @@ async def chat_with_tools(
         )
     else:
         transcript = prompt
-    invocations: list[dict] = []
+    invocations: list[dict] = live_invocations_ref if live_invocations_ref is not None else []
     final_provider = "?"
     iters = 0
     fallback_chain: list[str] = []
@@ -342,6 +414,36 @@ async def chat_with_tools(
                 fallback_chain.append(p)
 
         calls = extract_tool_calls(content)
+
+        # Tool-loop guard. If the model is asking for the same tool
+        # with the same args it already ran this turn, it's stuck —
+        # more iterations won't unstick it. Break out and synthesise.
+        # This prevents the 90s wall-clock timeout that fires when the
+        # LLM keeps re-requesting `read_repo_files` with overlapping
+        # paths instead of producing a final answer.
+        if calls and invocations:
+            recent = invocations[-len(calls):] if len(invocations) >= len(calls) else invocations
+            if all(
+                any(_is_same_tool_call(c, prior) for prior in recent)
+                for c in calls
+            ):
+                logger.info(
+                    "tool-loop guard tripped at iter %d/%d — synthesising summary",
+                    iters, max_iters,
+                )
+                clean = _synthesise_max_iters_summary(prompt, invocations)
+                return {
+                    "ok": True,
+                    "content": clean,
+                    "provider": final_provider,
+                    "fallback_chain": fallback_chain,
+                    "iterations": iters,
+                    "tool_calls_run": len(invocations),
+                    "tool_invocations": invocations,
+                    "mode": llm_mode,
+                    "tool_loop_break": True,
+                }
+
         if not calls:
             # Iter 35: scrub any trailing/orphan tool fences the LLM may
             # have included alongside its final answer — they were already
@@ -437,13 +539,22 @@ async def chat_with_tools(
             f"(or call more tools if needed)."
         )
 
-    # Iter 46: max_iters hit. Just strip any leftover tool fences and
-    # return what the model has. Do NOT surface a "budget exhausted"
-    # message to the user — that's an implementation detail. The cap is
-    # also raised in chat.py so most real tasks finish well within it.
+    # Hit max_iters. Two pathologies to handle at the ROOT here:
+    #
+    # (1) Raw tool_call leakage. If the LLM's final output is *just* a
+    #     tool_call fence (no surrounding prose), `strip_tool_calls()`
+    #     returns empty and the previous version fell back to the raw
+    #     content, leaking ```tool_call ...``` JSON straight into the
+    #     chat bubble. Now we synthesise a closing summary from the
+    #     tool history instead so the user always gets a real reply.
+    #
+    # (2) Tool-loop deadends. If the model is stuck calling the same
+    #     tool repeatedly, we don't have any more iterations to spend.
+    #     Same fallback path produces a "here is what I found before
+    #     I ran out of iterations" answer.
     clean = strip_tool_calls(content)
     if not clean.strip():
-        clean = content
+        clean = _synthesise_max_iters_summary(prompt, invocations)
 
 
     return {

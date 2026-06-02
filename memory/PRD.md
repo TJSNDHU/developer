@@ -694,6 +694,74 @@ Full backend regression after this iter: **204 passed / 5 skipped /
 
 
 - New `routers/usage.py` → `GET /api/aurem-dev/usage/me` exposes the user's live budget (used, plan_limit, tokens_granted, effective_limit, remaining, pct_used, is_exhausted) for the frontend banner
+
+### Iter 55 — Root fix for `tool_call` leak + 90s timeout dead-end (Feb 2026)
+User saw the recurring bug (raw ` ```tool_call ``` ` JSON streamed into
+the chat bubble + 90s red-error banner) and called out — rightfully —
+that previous patches were band-aids that kept regressing. This iter
+fixes both at the source.
+
+**Root cause #1 — `tool_call` JSON leak**
+`services/orchestrator.py` `max_iters` fallback was literally:
+```python
+clean = strip_tool_calls(content)
+if not clean.strip():
+    clean = content     # ← leaks raw fence when stripped result is empty
+```
+When the LLM hit iter 12 and emitted **only** a tool fence with no
+surrounding prose, `strip_tool_calls()` returned empty → the fallback
+sent the raw `\`\`\`tool_call {...}\`\`\`` string straight to the user.
+This had been shipped as "Iter 46 fix" once before — same line was the
+bug, twice.
+
+Replaced with `_synthesise_max_iters_summary(prompt, invocations)`
+which inventories what the model **did** inspect (file paths, tool
+names, call count) and returns a structured fallback message with a
+concrete "ask me about one file at a time" next step. The function is
+dependency-free so it can't itself crash the response path.
+
+**Root cause #2 — tool-loop dead-end**
+The LLM was getting stuck re-asking for the same tool with the same
+args across iterations, burning the 12-iter budget without convergence.
+Added `_is_same_tool_call(a, b)` helper (compares tool name + sorted
+args JSON) and a guard at the top of each loop iteration: if every call
+in the current batch matches a recent prior invocation, we break out
+immediately with the same synthesised summary. No more wasted iters,
+no more 90s wall-clock blow-up on stuck loops.
+
+**Root cause #3 — 90s timeout dead-end**
+The `HARD_TIMEOUT_S = 90.0` branch in `routers/chat.py` was emitting
+just `{"error": "AUREM timed out after 90s..."}` which the frontend
+renders red. User got zero insight into what AUREM actually inspected.
+
+Rewrote the timeout handler to:
+- Mid-flight, the chat router passes a `live_invocations_ref` list
+  into `chat_with_tools(…)`. New kwarg on the orchestrator that
+  aliases the internal `invocations` list to the caller's ref so
+  the timeout guard has read access to tool history even though the
+  worker task is still running.
+- On timeout, build a graceful summary with
+  `_synthesise_max_iters_summary(prompt, partial_invocations)`,
+  prepend a one-line ⏱️ banner, then **stream it as a proper assistant
+  turn** — `meta` frame → `token` chunks → `done` frame — so the chat
+  bubble renders normally instead of going red. Persists to
+  `chat_sessions` so refresh keeps it visible.
+- Provider tag is `aurem-timeout-guard` so the UI / analytics can
+  distinguish graceful cut-offs from real model replies.
+
+**Tests** — 12 new in `tests/test_iter55_tool_call_leak_and_timeout.py`:
+summary builder never returns a tool fence, handles empty invocations,
+clamps long path lists; `_is_same_tool_call` matches identical / order-
+independent / rejects different args + tools / handles None;
+**source-level pins** assert the smoking-gun line
+`if not clean.strip(): clean = content` is gone, the new call site is
+in place, the old red-error banner literal is removed, the
+`live_invocations_ref` kwarg is wired both ways. Future refactor that
+brings any of these back fails CI.
+
+Full backend regression: **216 passed / 5 skipped / 0 failed**.
+
+
 - `routers/cto_projects.py::submit_task` now calls `assert_has_budget(user_id)` BEFORE writing the `cto_tasks` row → the AI is **never** called when exhausted, no orphan task rows
 - `routers/admin.py` — new `POST /admin/users/{uid}/grant-tokens` body `{tokens, reason}`:
   - Validates `0 < tokens <= 10M`, target user exists
