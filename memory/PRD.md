@@ -1723,3 +1723,53 @@ Returns structured report so UI can show exactly what landed.
 **To enable real CDN purge in production**: User must set in Emergent dashboard env:
 - `CLOUDFLARE_API_TOKEN` (Cloudflare → My Profile → API Tokens → 'Purge Cache' template, scope: auremcto.com zone)
 - `CLOUDFLARE_ZONE_ID` (Cloudflare dashboard → auremcto.com → right sidebar → Zone ID)
+
+
+---
+
+## Iter 64 — Responsive sweep + Architecture refresh + recurring-issues memory (Feb 2026)
+
+**Goal**: No page ever overflows the viewport on any device. Admin Architecture window updated. Recurring CTO-worker pain patterns hard-saved so they stop recurring.
+
+### Global responsive safety net (`/app/frontend/src/index.css`)
+- `html, body { overflow-x: hidden; max-width: 100vw }` — never horizontal-scrolls the page
+- `img/video/iframe/svg { max-width: 100% }` — media never breaks out
+- `overflow-wrap: anywhere` on bubbles/prose — long URLs wrap
+- `.aurem-table-wrap` helper for any wide table
+- `pre/code` scroll inside, never outside
+- New `.aurem-app-shell` grid template — desktop 260/64px sidebar, mobile (<=900px) becomes off-canvas drawer with backdrop
+- `.aurem-main-padded` — 40/56 desktop → 56/16 mobile (top extra room for menu button)
+- `<h1>` shrinks at 600px
+
+### Shell.jsx mobile drawer (`/app/frontend/src/components/Shell.jsx`)
+- New `drawerOpen` + `isMobile` state via `matchMedia("(max-width: 900px)")`
+- Hamburger button (`data-testid=mobile-menu-btn`) bottom-left of viewport, toggles drawer
+- Backdrop click (`data-testid=mobile-backdrop`) closes drawer
+- Auto-closes on route change
+- Old hardcoded `gridTemplateColumns: ${collapsed ? 64 : 260}px 1fr` removed from JSX — CSS owns it now via `.aurem-app-shell`
+
+### Admin panel updates (`/app/frontend/src/pages/Admin.jsx`)
+- `<Table>` wrapped in `.aurem-table-wrap` div with `minWidth: 560` on inner table — horizontal scroll inside the card, never on the page
+- Dashboard metric grid: `repeat(4,1fr)` → `repeat(auto-fit, minmax(150px, 1fr))`
+- **Architecture** component:
+  - Services grid: `repeat(3,1fr)` → `repeat(auto-fit, minmax(180px, 1fr))`
+  - Sorted by status (live → degraded → unreachable)
+  - Shows per-service note + warn-colour for degraded
+  - Renders new `d.note` summary ("X/Y integrations configured, Missing: …")
+
+### Backend `/admin/architecture` expanded (`backend/routers/admin.py`)
+- Probes 8 external services (was 3): MongoDB, GitHub, OpenRouter, **Cloudflare**, **Vercel**, **Anthropic**, **Sentry**, **Stripe**
+- Tracks 11 integrations (was 5): + anthropic, cloudflare_purge, vercel_deploy_hook, sentry_dsn, github_oauth_secret, resend
+- Returns human-readable `note` summarising configured/missing integrations
+
+### Hard-saved recurring issues (`/app/memory/RECURRING_ISSUES.md`)
+6 patterns documented with root cause + fix locations + standing rules:
+1. **Empty file body rejection loop** — Vanguard rejects empty bodies, ORA loops with same prompt. Fix: feed rejection reason into retry prompt.
+2. **90s timeout mis-reporting** — wall-clock 90s consumed by slow API, message reads as if ORA looped. Fix: split TTFB vs reasoning budget + truthful wrap-up message.
+3. **Mode D returns boilerplate** when natural-language symptoms are present without stack traces. Fix: lower signal threshold + fall back to Mode A.
+4. **Wrong-mode classification for repo-info queries** — "how many files" routed to Mode D debug. Fix: explicit repo-metrics intent + Hinglish tolerance.
+5. **Multi-file scaffolds shipping 1-of-N** — hard 2-file budget. Fix: raise budget for explicit-scaffold prompts.
+6. **Stale browser cache** — mitigated by Iter 63 purge button + standing TODO to surface build hash on admin overview.
+
+### Tests
+`/app/backend/tests/test_iter64_responsive_sweep.py` — 9 source-level smoke tests. Combined Iter63+64: 20/20 PASS.

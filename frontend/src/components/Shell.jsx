@@ -12,7 +12,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Rocket, Database, Globe, Settings as Cog,
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
-  ChevronsLeft, ChevronsRight, FolderGit2,
+  ChevronsLeft, ChevronsRight, FolderGit2, Menu, X,
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
 import TokenBell from "./TokenBell";
@@ -92,6 +92,27 @@ export default function Shell({ children, requireAuth }) {
       return next;
     });
   }, []);
+
+  // ── Iter 64 — Mobile drawer state ──────────────────────────────────
+  // On <=900px viewports the sidebar becomes an off-canvas drawer. The
+  // grid template + transform are owned by CSS in index.css; we just
+  // toggle the `data-drawer-open` attribute and render the menu button.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined"
+      && window.matchMedia("(max-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setDrawerOpen(false);   // back to desktop, close drawer
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  // Close drawer whenever route changes (mobile UX expectation)
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   // ── Token wallet polling ───────────────────────────────────────────
   const [tokensRemaining, setTokensRemaining] = useState(
@@ -203,13 +224,34 @@ export default function Shell({ children, requireAuth }) {
       tokensRemaining, setTokensRemaining, refreshTokens,
     }}>
       <div
+        className="aurem-app-shell"
+        data-collapsed={collapsed ? "true" : "false"}
+        data-drawer-open={drawerOpen ? "true" : "false"}
         style={{
           minHeight: "100vh",
           display: "grid",
-          gridTemplateColumns: `${collapsed ? 64 : 260}px 1fr`,
           transition: "grid-template-columns 240ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       >
+        {/* Mobile hamburger — visible only <=900px via CSS */}
+        <button
+          type="button"
+          className="aurem-mobile-menu-btn"
+          data-testid="mobile-menu-btn"
+          aria-label={drawerOpen ? "Close menu" : "Open menu"}
+          onClick={() => setDrawerOpen((v) => !v)}
+        >
+          {drawerOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
+
+        {/* Backdrop — only when drawer is open on mobile */}
+        {isMobile && drawerOpen && (
+          <div
+            className="aurem-mobile-backdrop"
+            data-testid="mobile-backdrop"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
         <aside
           data-testid="app-sidebar"
           data-collapsed={collapsed ? "true" : "false"}
@@ -694,9 +736,13 @@ export default function Shell({ children, requireAuth }) {
 
         <main
           data-testid="app-main"
+          className={
+            "aurem-main-padded" +
+            (location.pathname === "/dashboard" ? " is-chat" : "")
+          }
           style={{
-            padding: location.pathname === "/dashboard" ? 0 : "40px 56px",
             minWidth: 0,
+            // padding owned by .aurem-main-padded so mobile can override
           }}
         >
           {children}

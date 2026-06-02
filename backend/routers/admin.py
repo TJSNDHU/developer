@@ -472,30 +472,66 @@ async def get_architecture(authorization: Optional[str] = Header(None)):
         "status": "live" if db is not None else "down",
         "latency_ms": 0,
     }}
-    for name, url in [
-        ("GitHub API", "https://api.github.com"),
-        ("OpenRouter", "https://openrouter.ai/api/v1/models"),
-    ]:
+    # Iter 64 — expand probed services to match the real surface area.
+    # Probes are best-effort; any 5xx / network error → unreachable.
+    probe_targets = [
+        ("GitHub API",        "https://api.github.com"),
+        ("OpenRouter",        "https://openrouter.ai/api/v1/models"),
+        ("Cloudflare API",    "https://api.cloudflare.com/client/v4/user/tokens/verify"),
+        ("Vercel API",        "https://api.vercel.com/v2/user"),
+        ("Anthropic API",     "https://api.anthropic.com/v1/messages"),
+        ("Sentry ingest",     "https://sentry.io/api/0/"),
+        ("Stripe API",        "https://api.stripe.com/v1/"),
+    ]
+    for name, url in probe_targets:
         try:
             t0 = time.time()
             async with httpx.AsyncClient(timeout=4.0) as c:
-                r = await c.get(url)
+                # HEAD/GET unauth ping — we only care if the host is reachable
+                r = await c.get(url, headers={"User-Agent": "AUREM-arch-probe/1.0"})
+            # 2xx/3xx/4xx all mean "host alive" — 5xx is degraded.
+            if r.status_code < 500:
+                services[name] = {
+                    "status": "live",
+                    "latency_ms": round((time.time() - t0) * 1000),
+                }
+            else:
+                services[name] = {
+                    "status": "degraded",
+                    "latency_ms": round((time.time() - t0) * 1000),
+                    "note": f"HTTP {r.status_code}",
+                }
+        except Exception as e:
             services[name] = {
-                "status": "live" if r.status_code < 500 else "degraded",
-                "latency_ms": round((time.time() - t0) * 1000),
+                "status": "unreachable", "latency_ms": 0,
+                "note": str(e)[:80],
             }
-        except Exception:
-            services[name] = {"status": "unreachable", "latency_ms": 0}
 
+    integrations = {
+        "openrouter (deepseek)":    bool(os.getenv("OPENROUTER_API_KEY")),
+        "emergent_llm (maxx)":      bool(os.getenv("EMERGENT_LLM_KEY")),
+        "anthropic (claude maxx)":  bool(os.getenv("ANTHROPIC_API_KEY")),
+        "github_oauth":             bool(os.getenv("GITHUB_OAUTH_CLIENT_ID")),
+        "github_oauth_secret":      bool(os.getenv("GITHUB_OAUTH_CLIENT_SECRET")),
+        "cloudflare_purge":         bool(os.getenv("CLOUDFLARE_API_TOKEN") and
+                                         os.getenv("CLOUDFLARE_ZONE_ID")),
+        "vercel_deploy_hook":       bool(os.getenv("VERCEL_API_TOKEN")),
+        "sentry_dsn":               bool(os.getenv("SENTRY_DSN")),
+        "stripe":                   bool(os.getenv("STRIPE_SECRET_KEY")),
+        "mongodb":                  db is not None,
+        "resend (email)":           bool(os.getenv("RESEND_API_KEY")),
+    }
+
+    missing = [k for k, v in integrations.items() if not v]
+    note = (
+        f"{sum(integrations.values())}/{len(integrations)} integrations configured."
+        + (f" Missing: {', '.join(missing[:6])}{'…' if len(missing) > 6 else ''}."
+           if missing else " All systems wired.")
+    )
     return {
         "services": services,
-        "integrations": {
-            "openrouter (deepseek)": bool(os.getenv("OPENROUTER_API_KEY")),
-            "emergent_llm (maxx)": bool(os.getenv("EMERGENT_LLM_KEY")),
-            "github_oauth": bool(os.getenv("GITHUB_OAUTH_CLIENT_ID")),
-            "mongodb": db is not None,
-            "stripe": bool(os.getenv("STRIPE_SECRET_KEY")),
-        },
+        "integrations": integrations,
+        "note": note,
     }
 
 

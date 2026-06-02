@@ -88,7 +88,8 @@ function Table({ cols, rows, onRowClick }) {
     </div>;
   }
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+    <div className="aurem-table-wrap">
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 560 }}>
       <thead>
         <tr>{cols.map((c, i) => (
           <th key={i} style={{
@@ -117,6 +118,7 @@ function Table({ cols, rows, onRowClick }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -130,7 +132,7 @@ function Dashboard() {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
         <MCard label="Users" value={data.total_users} sub={`${data.total_projects} projects`} />
         <MCard label="Tasks today" value={data.tasks_today} sub={`${data.success_rate}% success`} />
         <MCard label="Done / Failed" value={`${data.done_tasks}/${data.failed_tasks}`} accent="var(--ok)" />
@@ -711,22 +713,37 @@ function Architecture() {
     api.get("/admin/architecture").then((r) => setD(r.data)).catch(() => {});
   }, []);
   if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  // Iter 64 — sort: live → degraded → unreachable so green stays on top
+  const order = { live: 0, degraded: 1, unreachable: 2, down: 3 };
+  const services = Object.entries(d.services).sort(
+    ([, a], [, b]) => (order[a.status] ?? 9) - (order[b.status] ?? 9)
+  );
   return (
     <div style={{ padding: 24 }}>
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>External services</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
-        {Object.entries(d.services).map(([name, info]) => (
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 12, marginBottom: 18,
+      }}>
+        {services.map(([name, info]) => (
           <Card key={name} style={{ padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <b style={{ fontSize: 13 }}>{name}</b>
-              <Badge color={info.status === "live" ? "var(--ok)" : "var(--danger)"}>
+            <div style={{ display: "flex", justifyContent: "space-between",
+                          alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <b style={{ fontSize: 13, overflowWrap: "anywhere" }}>{name}</b>
+              <Badge color={
+                info.status === "live" ? "var(--ok)" :
+                info.status === "degraded" ? "var(--warn, #ffc560)" :
+                "var(--danger)"
+              }>
                 {info.status}
               </Badge>
             </div>
             <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6,
                            fontFamily: "'JetBrains Mono', monospace" }}>
-              {info.latency_ms}ms
+              {info.latency_ms != null ? `${info.latency_ms}ms` : "—"}
+              {info.note ? ` · ${info.note}` : ""}
             </div>
           </Card>
         ))}
@@ -741,6 +758,11 @@ function Architecture() {
             </Badge>
           ))}
         </div>
+        {d.note && (
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.6 }}>
+            {d.note}
+          </div>
+        )}
       </Card>
     </div>
   );
