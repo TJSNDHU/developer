@@ -1168,6 +1168,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
         await _set_status(task_id, status="done", result=summary,
                           commit_sha=sha,
+                          files_changed=list(edits.keys()),
                           verified=True,
                           completed_at=time.time())
         db = get_db()
@@ -1355,7 +1356,9 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         sha = _sh(["git", "rev-parse", "--short", "HEAD"], repo_path).stdout.strip()
         await _log(task_id, f"🚀 pushed — {sha}", "success")
         await _set_status(task_id, status="done", result=summary,
-                          commit_sha=sha, completed_at=time.time())
+                          commit_sha=sha,
+                          files_changed=list(edits.keys()),
+                          completed_at=time.time())
         db = get_db()
         if db is not None:
             await db.cto_projects.update_one(

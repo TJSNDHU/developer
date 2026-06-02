@@ -1053,3 +1053,170 @@ async def chat_session_delete(
         {"session_id": session_id, "user_id": user["user_id"]}
     )
     return {"ok": True, "deleted": r.deleted_count}
+
+
+# ─── Iter 53 — Post-commit wrap-up message ─────────────────────────────
+# When a Mode C task finishes (status=done) the chat used to fall silent.
+# The user only saw "✅ Pushed <sha>" on the status card and had to ask
+# "is it fixed?" — which then timed out because we re-classified that as
+# a new task with no codebase context. This endpoint produces the
+# explicit closing message ORA owes the user: what was changed, whether
+# the original ask is likely resolved, and one concrete verification
+# step. Idempotent — only fires once per task.
+
+class TaskFollowupBody(BaseModel):
+    session_id: str
+    task_id: str
+
+
+@router.post("/task-followup")
+async def chat_task_followup(
+    body: TaskFollowupBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Generate a closing assistant message for a completed Mode C task,
+    persist it to the chat session, and return it so the frontend can
+    append it inline. Idempotent — second call returns the cached text."""
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+
+    task = await db.cto_tasks.find_one(
+        {"task_id": body.task_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.get("status") not in ("done", "failed"):
+        raise HTTPException(
+            409,
+            f"Task not yet complete (status={task.get('status')})",
+        )
+
+    # Idempotency — return cached if we generated one already.
+    cached = task.get("followup_message")
+    if cached:
+        return {"ok": True, "message": cached, "cached": True}
+
+    files = task.get("files_changed") or task.get("files") or []
+    summary = (task.get("result") or "").strip()
+    original = (task.get("task") or "").strip()
+    sha = task.get("commit_sha")
+    err = (task.get("error") or "").strip()
+
+    if task.get("status") == "failed":
+        message = _build_failed_followup(original, err, files)
+    else:
+        try:
+            message = await _generate_done_followup(
+                original=original, summary=summary, files=files, sha=sha,
+            )
+        except Exception:
+            logger.exception("task-followup LLM generation failed; "
+                             "falling back to deterministic template")
+            message = _build_done_fallback(original, summary, files, sha)
+
+    # Persist on the task doc for idempotency.
+    await db.cto_tasks.update_one(
+        {"task_id": body.task_id},
+        {"$set": {"followup_message": message,
+                  "followup_at": time.time()}},
+    )
+
+    # Append to the chat session so a refresh keeps it visible.
+    sess = await db.chat_sessions.find_one(
+        {"session_id": body.session_id, "user_id": user["user_id"]},
+        {"_id": 0, "turns": 1},
+    )
+    if sess is not None:
+        new_turn = {
+            "role": "assistant",
+            "content": message,
+            "ts": time.time(),
+            "provider": "ora",
+            "kind": "task_followup",
+            "task_id": body.task_id,
+        }
+        await db.chat_sessions.update_one(
+            {"session_id": body.session_id, "user_id": user["user_id"]},
+            {"$push": {"turns": {"$each": [new_turn], "$slice": -40}},
+             "$set": {"updated_at": time.time(),
+                      "preview": message[:120]}},
+        )
+
+    return {"ok": True, "message": message, "cached": False}
+
+
+def _build_failed_followup(original: str, err: str, files: list[str]) -> str:
+    """Deterministic — no LLM. Fail-fast, fail-honest."""
+    bits = ["❌ Task failed — nothing was committed.\n"]
+    if err:
+        snippet = err[:400] + ("…" if len(err) > 400 else "")
+        bits.append(f"**Error:** `{snippet}`\n")
+    if files:
+        bits.append("**Files I tried to touch:** "
+                    + ", ".join(f"`{f}`" for f in files[:6]) + "\n")
+    bits.append(
+        "Want me to retry with a smaller scope? Or paste the exact "
+        "error / steps to reproduce and I'll diagnose it in Mode D first."
+    )
+    return "".join(bits)
+
+
+def _build_done_fallback(original: str, summary: str,
+                         files: list[str], sha: Optional[str]) -> str:
+    """Used when the follow-up LLM call itself fails — never block the UX."""
+    file_list = ", ".join(f"`{f}`" for f in files[:8]) or "_no files reported_"
+    return (
+        f"✅ **Done — `{sha or 'commit'}` pushed.**\n\n"
+        f"**Changed:** {file_list}\n\n"
+        f"**Summary:** {summary or 'See diff for details.'}\n\n"
+        "**Verify it:** pull the latest, restart, and re-trigger the "
+        "original flow. Reply here if anything's still off — I'll "
+        "diagnose without burning another quota."
+    )
+
+
+_FOLLOWUP_SYS = (
+    "You are ORA, an AI engineering lead. A code task just completed. "
+    "Write a SHORT closing message (max 6 short lines) to the user with "
+    "EXACTLY this structure:\n\n"
+    "Line 1: ✅ one-line summary of what was actually changed.\n"
+    "Line 2: **Files:** `path1`, `path2` (max 5, real names only).\n"
+    "Line 3: **Likely resolves original ask?** Yes / Partially / No "
+    "— with a one-clause reason. Be honest. If the commit feels off-"
+    "scope or generic vs. the user's ask, say 'Partially' or 'No'.\n"
+    "Line 4: **Verify it:** one concrete step the user can take in "
+    "<30 seconds to confirm (a curl, a button to click, a page to open, "
+    "etc.). Be specific.\n"
+    "Line 5 (optional): **Next:** one specific follow-up if needed.\n\n"
+    "Rules: no fluff, no 'great question', no emoji except the leading "
+    "✅. Plain English. No markdown headers. No code fences. Keep total "
+    "under 90 words."
+)
+
+
+async def _generate_done_followup(original: str, summary: str,
+                                  files: list[str],
+                                  sha: Optional[str]) -> str:
+    """Single ~320-token DeepSeek call. Strict format, low temperature.
+    The system prompt does the heavy lifting — keep the user message
+    tight so the model can't wander."""
+    file_list = ", ".join(files[:8]) if files else "(none reported)"
+    user_msg = (
+        f"ORIGINAL USER ASK:\n{original or '(missing)'}\n\n"
+        f"COMMIT SHA: {sha or '(none)'}\n"
+        f"FILES CHANGED: {file_list}\n"
+        f"COMMIT SUMMARY: {summary or '(none)'}\n\n"
+        "Write the closing message now, following the structure exactly."
+    )
+    res = await call_llm_with_meta(
+        system=_FOLLOWUP_SYS,
+        user=user_msg,
+        max_tokens=320,
+        mode="chat",
+    )
+    text = (res.get("content") or "").strip()
+    if not text:
+        return _build_done_fallback(original, summary, files, sha)
+    return text

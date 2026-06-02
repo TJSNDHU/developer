@@ -574,6 +574,68 @@ pre-date this iter — none introduced by the changes).
 ### Iter 28 — Hard Token Enforcement + Admin Grants (Feb 2026)
 User: tokens were tracked but never enforced — a free user at 1500/1000 could still submit unlimited CTO tasks. Three asks: hard-stop at the budget, warn the user before they hit it, give admin a manual top-up lever.
 
+
+### Iter 53 — Post-commit wrap-up message (Feb 2026)
+**The bug user reported:** after a Mode C task pushes a commit, the
+chat falls silent. UI shows "✅ Pushed <sha>" on the status card and
+nothing else. User asked "is it fixed? show me proofs" and the system
+re-classified that as a brand new chat turn — no codebase context — so
+it took the full 90s budget and timed out. The fix is for ORA to
+proactively explain what just shipped, whether it likely solved the
+original ask, and how to verify, immediately after the commit lands.
+
+**Backend** (`routers/chat.py`):
+- New `POST /api/aurem-dev/chat/task-followup` endpoint.
+- Body: `{session_id, task_id}`. Authorisation header required.
+- Reads the task from `cto_tasks`, refuses to run if status not
+  terminal (returns 409 with current status), idempotent via cached
+  `followup_message` field on the task doc.
+- Successful tasks: single ~320-token DeepSeek call with a strict
+  system prompt that mandates the structure: ✅ summary → Files →
+  Likely resolves? Yes/Partially/No → Verify it → Next. Honesty
+  clause baked into the prompt — model is told to say "Partially"
+  or "No" if the commit looks off-scope vs. the user's ask.
+- Failed tasks: deterministic template, no LLM call — shows the
+  scrubbed error + files attempted + retry-or-Mode-D nudge.
+- LLM-call failures fall back to a deterministic done-template so a
+  reviewer outage never blocks the wrap-up.
+- New turn is `$push`-appended to `chat_sessions.turns` with
+  `kind: "task_followup"` and `task_id` so the message survives
+  refresh and can be deduped client-side.
+
+**Backend** (`routers/cto_projects.py`):
+- Both worker paths (API + git) now persist `files_changed=list(edits
+  .keys())` on the final `_set_status(status="done", ...)`. The
+  follow-up generator uses this to list real filenames; without it the
+  wrap-up degraded to "files: (none reported)".
+
+**Frontend** (`components/ChatPanel.jsx`):
+- New `triggerTaskFollowup(taskId)` in `ChatPanel` — POSTs to the
+  endpoint, appends the returned text as an assistant message tagged
+  with `kind: "task_followup", task_id`. Deduped via
+  `followupFiredRef: useRef(new Set())` plus the in-message check
+  (history reload doesn't double-append).
+- `MessageBubble` receives `onTaskCompleted` prop; the existing 2s
+  task-status polling effect calls it when status flips to terminal
+  (done | failed).
+- The endpoint is idempotent server-side AND client-side dedupes — a
+  flaky network retry never bills the LLM twice.
+
+**Why this matters** — closes the most painful UX gap reported by the
+user. Replaces a 90s timeout dead-end ("is it fixed?") with an instant,
+structured "here's what I changed, here's how to check it" message
+that comes for free with every successful task. Cost: ~320 tokens of
+DeepSeek per shipped task (negligible).
+
+**Tests** — 11 new in `tests/test_iter53_task_followup.py`, all green
+(endpoint wiring, body shape, idempotency, failed-task template,
+done-fallback when LLM fails, system-prompt structure assertions,
+worker persists files_changed, frontend wiring + dedup ref).
+
+Full backend regression after this iter: **194 passed / 5 skipped /
+0 failed** in the non-env-dependent suite.
+
+
 **Backend**:
 - `services/usage.py` already had `PLAN_LIMITS` + `get_usage` + `assert_has_budget` (raises HTTP 402 with `{error:'token_limit_reached', used, limit, upgrade_url:'/pricing'}`)
 - New `routers/usage.py` → `GET /api/aurem-dev/usage/me` exposes the user's live budget (used, plan_limit, tokens_granted, effective_limit, remaining, pct_used, is_exhausted) for the frontend banner

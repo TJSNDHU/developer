@@ -176,6 +176,48 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     { id: "auto", label: "AUREM", desc: "Auto-routes Claude/DeepSeek" },
   ]);
   useEffect(() => { localStorage.setItem(AGENT_KEY, agent); }, [agent]);
+
+  // Iter 53 — post-commit wrap-up. When a Mode C task hits a terminal
+  // status (done|failed), ask the backend to generate the closing
+  // message ("what changed, did it resolve, how to verify") and append
+  // it as a normal assistant message. The endpoint is idempotent, but
+  // we also dedupe client-side via `followupFiredRef` so a rapid
+  // re-poll never double-appends.
+  const followupFiredRef = useRef(new Set());
+  const triggerTaskFollowup = useCallback(async (taskId) => {
+    if (!taskId || !sessionId) return;
+    if (followupFiredRef.current.has(taskId)) return;
+    followupFiredRef.current.add(taskId);
+    try {
+      const res = await api.post("/chat/task-followup", {
+        session_id: sessionId, task_id: taskId,
+      });
+      const text = res?.data?.message;
+      if (!text) return;
+      setMessages((msgs) => {
+        // Don't double-append if the same wrap-up is already in view
+        // (e.g. user reloaded mid-task and history already has it).
+        if (msgs.some((mm) => mm.kind === "task_followup"
+                              && mm.task_id === taskId)) {
+          return msgs;
+        }
+        return [
+          ...msgs,
+          {
+            role: "assistant",
+            content: text,
+            provider: "ora",
+            kind: "task_followup",
+            task_id: taskId,
+          },
+        ];
+      });
+    } catch {
+      // Silent failure — the ShipStatusCard already shows the user
+      // commit details; the wrap-up is a bonus, not load-bearing.
+      followupFiredRef.current.delete(taskId);
+    }
+  }, [sessionId]);
   useEffect(() => {
     // Load the list of agents this user can choose from. Founders see
     // ORA, regular users don't. Falls back silently on error.
@@ -610,6 +652,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               sessionId={sessionId}
               activeProject={activeProject}
               exhausted={exhausted}
+              onTaskCompleted={triggerTaskFollowup}
             />
           );
         })}
@@ -1078,7 +1121,7 @@ function ShipStatusCard({ taskId, task, project, onRollback }) {
 }
 
 
-function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activeProject, exhausted }) {
+function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activeProject, exhausted, onTaskCompleted }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
   const [hover, setHover] = useState(false);
@@ -1116,6 +1159,11 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
         setTaskInfo(t);
         if (!TERMINAL.has(t.status)) {
           setTimeout(tick, 2000);
+        } else {
+          // Iter 53 — fire the post-commit wrap-up once. Parent dedupes
+          // via a ref + the backend endpoint is itself idempotent, so a
+          // second fire is harmless if the effect re-runs.
+          if (onTaskCompleted) onTaskCompleted(tid);
         }
       } catch {
         /* keep last known state */
@@ -1123,7 +1171,7 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
     }
     tick();
     return () => { cancelled = true; };
-  }, [shipState.taskId]);
+  }, [shipState.taskId, onTaskCompleted]);
 
   async function rollbackShipped() {
     const tid = shipState.taskId;
