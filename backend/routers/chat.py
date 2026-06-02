@@ -67,6 +67,70 @@ class ChatBody(BaseModel):
     # own aurem.live ORA endpoint. Other values currently fall through to
     # "auto" so adding new agents later is backwards-compatible.
     agent: Optional[str] = "auto"
+    # Iter 42: structured payload of browser console/network/stack errors
+    # captured by frontend/public/F12ErrorCapture.js. When present (and has
+    # any errors), the request is auto-classified as Mode D (debug).
+    f12_payload: Optional[dict] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Iter 42 — Mode classifier (A/B/C/D/E)
+# Centralised so chat.py and the worker share the same logic.
+# ─────────────────────────────────────────────────────────────────────────────
+import re as _re_mode
+
+_FIX_CONFIRM = _re_mode.compile(
+    r"\b(yes|yep|yeah|sure|ok|okay|fix\s+it|ship\s+it|do\s+it|go\s+ahead|apply\s+the\s+fix)\b",
+    _re_mode.IGNORECASE,
+)
+
+
+def is_fix_confirmation(message: str) -> bool:
+    return bool(_FIX_CONFIRM.search(message or ""))
+
+
+def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
+    """Returns one of: 'A','B','C','D','E'. Order matters."""
+    # Lazy imports keep startup light & avoid circular refs
+    from services.mode_d_debugger import is_debug_request
+    from services.mode_e_auditor  import is_audit_request
+
+    if f12_payload and (
+        f12_payload.get("console_errors")
+        or f12_payload.get("network_errors")
+        or f12_payload.get("stack_traces")
+    ):
+        return "D"
+    if is_debug_request(message):
+        return "D"
+    if is_audit_request(message):
+        return "E"
+
+    c_patterns = [
+        r"\b(add|create|build|implement|write|generate|make|ship|deploy|fix|update|refactor)\b.*\b(to|in|for)\b.*\b(my|the)\b.*\b(repo|project|app|code|file)\b",
+        r"\bship (this|it|the)\b",
+        r"\bcommit\b",
+        r"\bpush to (github|main|prod)\b",
+    ]
+    for p in c_patterns:
+        if _re_mode.search(p, message or "", _re_mode.IGNORECASE):
+            return "C"
+
+    b_patterns = [
+        r"\bshould i\b",
+        r"\bwhich is better\b",
+        r"\bwhat['']s the best way\b",
+        r"\bgive me (ideas|suggestions|options)\b",
+        r"\bcompare\b",
+        r"\brecommend\b",
+        r"\bhow should i\b",
+        r"\bwhat do you think\b",
+    ]
+    for p in b_patterns:
+        if _re_mode.search(p, message or "", _re_mode.IGNORECASE):
+            return "B"
+
+    return "A"
 
 
 _TITLE_SYSTEM = "Generate ultra-short chat titles. 3-5 words, Title Case, no punctuation. Just the title."
@@ -301,6 +365,191 @@ async def chat_stream(
 
         async def _worker():
             try:
+                # ─── Iter 42 — Mode D fix-confirmation fast path ─────────
+                # If the user previously got a Mode D diagnosis with an
+                # auto-fixable issue, we stashed `pending_fix_task` on the
+                # chat session. A short "yes / fix it / ship it" reply
+                # triggers a Mode C task using that stored description.
+                if body.session_id and is_fix_confirmation(body.prompt or ""):
+                    _db = get_db()
+                    if _db is not None:
+                        _sess = await _db.chat_sessions.find_one(
+                            {"session_id": body.session_id},
+                            {"_id": 0, "pending_fix_task": 1, "user_id": 1},
+                        )
+                        _pending = (_sess or {}).get("pending_fix_task") if _sess else None
+                        if _pending and (not _sess.get("user_id") or _sess.get("user_id") == user_id):
+                            # Clear the pending flag so a stray "yes" later
+                            # doesn't accidentally fire another task.
+                            await _db.chat_sessions.update_one(
+                                {"session_id": body.session_id},
+                                {"$unset": {"pending_fix_task": ""}},
+                            )
+                            await q.put({"type": "mode", "mode": "C"})
+                            reply = (
+                                f"On it. Queuing a Mode C task to ship the fix:\n\n"
+                                f"_{_pending}_\n\n"
+                                f"Open the connected project's task list to track progress."
+                            )
+                            result = {
+                                "ok": True, "content": reply,
+                                "provider": "mode-d-handoff",
+                                "fallback_chain": ["mode_d_handoff"],
+                                "iterations": 1, "tool_calls_run": 0,
+                                "tool_invocations": [],
+                                "mode": "C",
+                                "pending_fix_handed_off": True,
+                                "fix_task": _pending,
+                            }
+                            await q.put({"type": "result", "result": result})
+                            return
+
+                # ─── Iter 42 — Mode classifier + Mode D/E early routing ───
+                # Decide A/B/C/D/E once and broadcast to frontend so the UI
+                # can show the live pill before tokens stream.
+                _mode = classify_intent(body.prompt or "", body.f12_payload)
+                await q.put({"type": "mode", "mode": _mode})
+
+                # Mode D — debug session (READ → DIAGNOSE → CONFIRM → fix)
+                # Mode E — full repo audit (REPORT only, no commit)
+                if _mode in ("D", "E"):
+                    from services.mode_d_debugger import run_debug_session
+                    from services.mode_e_auditor  import run_audit
+                    from routers.cto_projects     import _user_gh_token
+
+                    db_h     = get_db()
+                    repo_own = ""
+                    repo_nm  = ""
+                    branch_h = "main"
+                    project  = None
+                    if db_h is not None and body.project_id and body.project_id != "home":
+                        project = await db_h.cto_projects.find_one(
+                            {"project_id": body.project_id, "user_id": user_id}
+                        )
+                        if project:
+                            repo_own = project.get("github_owner", "")
+                            repo_nm  = project.get("github_repo", "")
+                            branch_h = project.get("branch", "main")
+                    pat = None
+                    try:
+                        pat = (project or {}).get("github_token") or await _user_gh_token(user_id)
+                    except Exception:
+                        pat = None
+
+                    if _mode == "D":
+                        activity["label"] = "diagnosing error…"
+                        try:
+                            d_result = await run_debug_session(
+                                db=db_h,
+                                user_message=body.prompt or "",
+                                repo_owner=repo_own,
+                                repo_name=repo_nm,
+                                repo_ctx=f"{repo_own}/{repo_nm}" if repo_own else "no-repo",
+                                user_id=user_id,
+                                project_id=body.project_id,
+                                f12_payload=body.f12_payload,
+                                github_pat=pat,
+                            )
+                        except Exception as _de:
+                            d_result = {
+                                "ora_reply": f"Couldn't diagnose: {_de}",
+                                "can_auto_fix": False, "commit_task": "",
+                                "severity": "unknown", "fast_path_used": False,
+                            }
+                        # Persist pending fix (so a "yes fix it" reply triggers Mode C)
+                        if d_result.get("can_auto_fix") and body.session_id and db_h is not None:
+                            try:
+                                await db_h.chat_sessions.update_one(
+                                    {"session_id": body.session_id},
+                                    {"$set": {"pending_fix_task": d_result["commit_task"],
+                                              "pending_fix_set_at": time.time()}},
+                                    upsert=True,
+                                )
+                            except Exception:
+                                pass
+                        result = {
+                            "ok": True,
+                            "content":  d_result.get("ora_reply", ""),
+                            "provider": "mode-d-debugger",
+                            "fallback_chain": ["mode_d"],
+                            "iterations": 1, "tool_calls_run": 0,
+                            "tool_invocations": [], "mode": "D",
+                            "can_auto_fix": d_result.get("can_auto_fix", False),
+                            "severity": d_result.get("severity", "medium"),
+                            "fast_path_used": d_result.get("fast_path_used", False),
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
+
+                    # Mode E — audit
+                    activity["label"] = "scanning repo…"
+                    file_blocks: dict = {}
+                    file_tree:   list = []
+                    if pat and repo_own and repo_nm:
+                        try:
+                            from services.github_api_writer import fetch_file as _gh_fetch
+                            import httpx as _httpx
+                            # Pull file tree directly from the git tree endpoint
+                            # (one round-trip — much lighter than full repo_context).
+                            async with _httpx.AsyncClient(timeout=20.0) as _gc:
+                                _r = await _gc.get(
+                                    f"https://api.github.com/repos/{repo_own}/{repo_nm}/git/trees/{branch_h}?recursive=1",
+                                    headers={"Authorization": f"Bearer {pat}",
+                                             "Accept": "application/vnd.github+json"},
+                                )
+                                if _r.status_code == 200:
+                                    _tree = (_r.json() or {}).get("tree", []) or []
+                                    file_tree = [
+                                        t.get("path", "")
+                                        for t in _tree
+                                        if t.get("type") == "blob" and t.get("path")
+                                    ][:400]
+                            # Read the top ~8 most-relevant files for the audit
+                            _prio = [
+                                p for p in file_tree
+                                if any(p.endswith(ext) for ext in
+                                       (".py", ".js", ".jsx", ".ts", ".tsx"))
+                                and ("router" in p or "service" in p
+                                     or "model" in p or "main" in p
+                                     or "App" in p or "index" in p)
+                            ][:8] or file_tree[:8]
+                            async with _httpx.AsyncClient(timeout=20.0) as _gc:
+                                for _p in _prio:
+                                    _content = await _gh_fetch(
+                                        _gc, repo_own, repo_nm, _p, branch_h, pat,
+                                    )
+                                    if _content:
+                                        file_blocks[_p] = _content
+                        except Exception:
+                            pass
+                    try:
+                        e_result = await run_audit(
+                            db=db_h,
+                            repo_ctx=f"{repo_own}/{repo_nm}" if repo_own else "no-repo",
+                            file_blocks=file_blocks,
+                            file_tree=file_tree,
+                            user_message=body.prompt or "",
+                            user_id=user_id,
+                            project_id=body.project_id,
+                        )
+                    except Exception as _ee:
+                        e_result = {"report": f"Couldn't audit: {_ee}",
+                                    "critical_count": 0, "high_count": 0,
+                                    "fixable_tasks": []}
+                    result = {
+                        "ok": True,
+                        "content":  e_result.get("report", ""),
+                        "provider": "mode-e-auditor",
+                        "fallback_chain": ["mode_e"],
+                        "iterations": 1, "tool_calls_run": 0,
+                        "tool_invocations": [], "mode": "E",
+                        "critical_count": e_result.get("critical_count", 0),
+                        "high_count":     e_result.get("high_count", 0),
+                        "fixable_tasks":  e_result.get("fixable_tasks", []),
+                    }
+                    await q.put({"type": "result", "result": result})
+                    return
+
                 # Iter 38: ORA branch. Founder-only — checked at the
                 # endpoint surface below. Skips orchestrator + tools
                 # entirely; calls aurem.live's hosted ORA model.
@@ -409,6 +658,10 @@ async def chat_stream(
                         "activity":  ev["activity"],
                     }) + "\n\n"
                 )
+            elif ev["type"] == "mode":
+                # Iter 42 — forward classified mode (A/B/C/D/E) to UI so
+                # the pill renders BEFORE tokens stream.
+                yield f"data: {json.dumps({'type': 'mode', 'mode': ev['mode']})}\n\n"
             elif ev["type"] == "error":
                 yield f"data: {json.dumps({'error': ev['error']})}\n\n"
                 return

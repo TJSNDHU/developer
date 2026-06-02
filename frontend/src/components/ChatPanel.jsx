@@ -23,6 +23,7 @@ import { toast } from "./Toast";
 import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
 import TemperatureBadge from "./TemperatureBadge";
+import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 
 const WELCOME = {
   role: "assistant",
@@ -181,6 +182,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       if (r.data?.agents?.length) setAgents(r.data.agents);
     }).catch(() => {});
   }, []);
+
+  // Iter 42 — F12 error capture + mode classifier
+  const f12 = useF12Errors();
+  const [detectedMode, setDetectedMode] = useState(null);
+  const [serverMode,   setServerMode]   = useState(null);
+  const lastF12PayloadRef = useRef(null);
   const endRef = useRef(null);
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -384,6 +391,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     abortRef.current = ctrl;
     let providerSeen = "";
 
+    // Iter 42 — drain captured F12 errors at send time. The store self-clears
+    // after flush() so we don't double-report old errors on subsequent sends.
+    const f12Payload = (typeof window !== "undefined" && window.__auremF12)
+      ? window.__auremF12.flush()
+      : null;
+    lastF12PayloadRef.current = f12Payload;
+
     await streamChat({
       prompt: finalPrompt,
       projectId: activeProject?.project_id || null,
@@ -391,7 +405,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       maxToolIters: 2,
       maxxMode,
       agent,                       // iter 38: selector value
+      f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
+      onMode: (m) => setServerMode(m),  // server-classified mode (A/B/C/D/E)
       onMeta: (m) => {
         if (m.provider) providerSeen = m.provider;
         if (typeof m.temperature === "number" || m.mode) {
@@ -589,13 +605,37 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         }}
       >
         <TokenBanner usage={usage} />
+        {/* Iter 42 — Mode pill + F12 error badge above the input */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
+          <F12Badge
+            errorCount={f12.errorCount}
+            hasErrors={f12.hasErrors}
+            onSendToORA={() => {
+              const payload = f12.flush();
+              const cc = payload?.console_errors?.length || 0;
+              const nc = payload?.network_errors?.length || 0;
+              const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+              setInput(msg);
+              lastF12PayloadRef.current = payload;
+              // Trigger send on next tick
+              setTimeout(() => {
+                const form = taRef.current && taRef.current.form;
+                if (form) form.requestSubmit();
+              }, 50);
+            }}
+          />
+        </div>
         {/* Input on top */}
         <textarea
           ref={taRef}
           data-testid="chat-input"
           className="input"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setDetectedMode(detectMode(e.target.value));
+          }}
           onKeyDown={onKeyDown}
           placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline)"
           rows={Math.min(6, Math.max(2, input.split("\n").length))}

@@ -72,13 +72,13 @@ async def _insert(db: AsyncIOMotorDatabase, doc: dict) -> None:
 
 async def log_conversational(
     db: AsyncIOMotorDatabase,
-    mode: Literal["A", "B"],
+    mode: str,   # "A" | "B" | "D" | "E"
     user_message: str,
     ora_reply: str,
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
 ):
-    """Log Mode A (chat) or Mode B (advice). Call before sending response."""
+    """Log Mode A (chat) / B (advice) / D (debug) / E (audit)."""
     doc = _build_log(
         mode=mode,
         user_message=user_message,
@@ -142,6 +142,8 @@ async def get_council_stats(db: AsyncIOMotorDatabase) -> dict:
     mode_a      = await db["ora_council_logs"].count_documents({"mode": "A"})
     mode_b      = await db["ora_council_logs"].count_documents({"mode": "B"})
     mode_c      = await db["ora_council_logs"].count_documents({"mode": "C"})
+    mode_d      = await db["ora_council_logs"].count_documents({"mode": "D"})
+    mode_e      = await db["ora_council_logs"].count_documents({"mode": "E"})
     corrections = await db["ora_council_logs"].count_documents({"correction_applied": True})
     lint_blocks = await db["ora_council_logs"].count_documents({"lint_blocked": True})
     parallel    = await db["ora_council_logs"].count_documents({"parallelized": True})
@@ -149,7 +151,13 @@ async def get_council_stats(db: AsyncIOMotorDatabase) -> dict:
 
     return {
         "total_interactions":    total,
-        "by_mode":               {"A_chat": mode_a, "B_advice": mode_b, "C_code": mode_c},
+        "by_mode": {
+            "A_chat":   mode_a,
+            "B_advice": mode_b,
+            "C_code":   mode_c,
+            "D_debug":  mode_d,
+            "E_audit":  mode_e,
+        },
         "corrections_applied":   corrections,
         "correction_rate_pct":   round(corrections / max(mode_c, 1) * 100, 1),
         "lint_blocks_caught":    lint_blocks,

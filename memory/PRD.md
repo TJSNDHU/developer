@@ -839,6 +839,60 @@ Massive parallel upgrade dropping 5 production-grade features in one ship, all w
 - Frontend lint clean on all touched files
 - Migration ran cleanly: `✓ project_brains ✓ ora_council_logs ✓ issues_cache + TTL ✓ cto_review_logs`
 
+### Iter 42 — Mode D (Debug) + Mode E (Audit) + F12 Error Capture (Feb 2026)
+
+User vision: ORA classifies every message into one of 5 modes (A/B/C/D/E) — no more lumping debug requests into Mode C. Browser F12 errors (console.error / fetch failures / stack traces) flow into the chat as a structured payload so ORA can diagnose without copy-paste. After a Mode D diagnosis with a fixable issue, a simple "yes fix it" reply auto-converts the pending fix into a Mode C task.
+
+**New service modules**:
+1. `services/mode_d_debugger.py` — debug session runner. **Fast-path** (zero-LLM) regex matches 7 common errors (CORS, 422, 401, 500, ECONNREFUSED, Cannot read prop, Module not found) → instant diagnosis. Otherwise reads files referenced in the stack trace via GitHub API (`fetch_file`), then calls DeepSeek with a strict diagnosis prompt (`ROOT CAUSE` / `SEVERITY` / `FIX` / `NEEDS COMMIT` / `COMMIT TASK`). Adapted to our dict-return `call_llm_with_meta`.
+2. `services/mode_e_auditor.py` — full repo audit. Three parallel passes via `asyncio.gather`: (a) static regex scan (security/quality/perf patterns), (b) LLM deep audit on the top-8 most-relevant files, (c) quick-wins checker (missing README/.gitignore/requirements.txt). Returns a markdown report with severity breakdown. **NO commit** — pure report. Fixed `asyncio.coroutine` removal in Python 3.11 by wrapping sync helpers in proper async coroutines.
+
+**Wired into `routers/chat.py`**:
+- New `classify_intent(message, f12_payload)` returns `"A"|"B"|"C"|"D"|"E"`. F12 payload with errors → always Mode D. Otherwise tested in order: D-signals → E-signals → C-patterns → B-patterns → A.
+- `ChatBody` model bumped with `f12_payload: Optional[dict]`.
+- `_worker` emits `{"type":"mode","mode":X}` SSE frame BEFORE tokens stream, so the UI pill renders instantly.
+- Mode D path calls `run_debug_session()`, stashes `pending_fix_task` on the chat session if `can_auto_fix=True`, returns the human-readable reply.
+- Mode E path pulls file tree via GitHub `git/trees?recursive=1`, fetches the top-8 relevant files (router/service/model/main/App/index), calls `run_audit()`, returns the markdown report.
+- New `is_fix_confirmation()` helper + fast-path at the top of `_worker`: if the user replies with "yes / fix it / ship it / etc." AND the session has a pending fix, emit Mode C event + reply with handoff message + clear the pending flag.
+- SSE handler in `chat_stream` now forwards `{type:'mode'}` events through to the wire.
+
+**Wired into `routers/admin.py`**:
+- `get_council_stats` now returns `by_mode.D_debug` and `by_mode.E_audit` counts.
+
+**Frontend wire-ins**:
+- `frontend/public/F12ErrorCapture.js` — IIFE that hooks `console.error`, `window.onerror`, `unhandledrejection`, `fetch()`, and `XMLHttpRequest`. Exposes `window.__auremF12 = { flush, hasErrors, errorCount, clear }`. Auto-enabled (disable by setting `window.__AUREM_DISABLE_F12 = true` before script load).
+- `frontend/index.html` — adds `<script src="/F12ErrorCapture.js"></script>` before the React bundle.
+- `frontend/src/components/ChatPanelF12.jsx` — exports `useF12Errors()` hook (polls every 1s), `detectMode()` mirror of backend classifier, `<ModePill>` and `<F12Badge>` components.
+- `frontend/src/components/ChatPanel.jsx` — imports the helpers, wires `f12Payload` into `streamChat` call, renders ModePill + F12Badge above the textarea, handles `onMode` SSE event, syncs `detectedMode` on every keystroke. Clicking the F12 badge auto-fills the input with an error summary and submits.
+- `frontend/src/lib/api.js::streamChat` — adds `f12Payload` param + `onMode` callback. Forwards `{type:'mode'}` payloads.
+- `frontend/src/components/AuremAdminPanel.jsx` — adds 2 new stat cards (Debug sessions D, Audit reports E) + 2 new progress bars in the detailed Mode breakdown.
+
+**E2E PROOFS (real `/chat/stream` SSE responses)**:
+| Test | Prompt | Server-classified mode | Status |
+|---|---|---|---|
+| Mode A | `"hello"` | `A` | ✅ |
+| Mode B | `"should I use postgres or mongo"` | `B` | ✅ |
+| Mode C | `"add a /health endpoint to my repo"` | `C` | ✅ |
+| Mode D (text)  | `"why am I getting CORS errors"` | `D` | ✅ fast-path: real fix returned |
+| Mode E | `"audit my codebase"` | `E` | ✅ real report with quick-wins |
+| Mode D (F12)   | `"check this" + console_errors[]` | `D` | ✅ LLM diagnosis returned |
+| Fix handoff    | `"yes fix it"` (after Mode D + pending_fix) | `C` mode-d-handoff | ✅ reply contains stored fix task; `pending_fix_task` cleared from session |
+
+**Admin stats live**:
+```
+{
+  "by_mode": {"A_chat": 11, "B_advice": 1, "C_code": 0, "D_debug": 3, "E_audit": 1}
+}
+```
+
+**F12 capture verified live in real browser via Playwright**:
+- `typeof window.__auremF12 !== 'undefined'` → **true**
+- `Object.keys(window.__auremF12)` → `['flush', 'hasErrors', 'errorCount', 'clear']`
+- Triggered `console.error("synthetic")` → `errorCount() === 1` (capture working)
+- `/F12ErrorCapture.js` served HTTP 200, script tag present in index.html.
+
+All 5 modes wired E2E. No mocks. Backend lint clean. Frontend lint clean.
+
 ### Backlog (P2)
 - Stripe integration for paid tier / token recharge
 - Per-project deploy buttons (Vercel/Netlify)

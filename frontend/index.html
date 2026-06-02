@@ -270,6 +270,10 @@
       </main>
     </noscript>
     <div id="root"></div>
+    <!-- Iter 42 — F12 error capture. Hooks console.error / fetch / XHR so
+         the chat panel can attach captured errors as `f12_payload` to the
+         next chat request. Pure client-side; no auto-upload. -->
+    <script src="/F12ErrorCapture.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

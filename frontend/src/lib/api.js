@@ -71,8 +71,8 @@ export function newSessionId() {
 /** SSE-style stream over fetch (we POST JSON, so EventSource won't work). */
 export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     maxxMode = false, projectId = null,
-                                    agent = "auto",
-                                    onMeta, onToken, onWatchdog, onWatchdogPending,
+                                    agent = "auto", f12Payload = null,
+                                    onMeta, onMode, onToken, onWatchdog, onWatchdogPending,
                                     onThinking, onDone, onError, signal }) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
@@ -88,6 +88,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       maxx_mode: maxxMode,
       agent,
       project_id: projectId,
+      f12_payload: f12Payload,
     }),
     signal,
   });
@@ -111,6 +112,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       try {
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.meta) onMeta?.(payload);
+        else if (payload.type === "mode") onMode?.(payload.mode);
         else if (payload.token) onToken?.(payload.token);
         else if (payload.thinking) onThinking?.(payload.elapsed_s || 0, payload.activity);
         else if (payload.watchdog_pending) onWatchdogPending?.();

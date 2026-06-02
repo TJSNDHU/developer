@@ -279,6 +279,8 @@ export default function AuremAdminPanel() {
               <StatCard label="Chat logs (A)"      value={stats.by_mode?.A_chat ?? 0}   icon="💬" color="#06b6d4" />
               <StatCard label="Advice logs (B)"    value={stats.by_mode?.B_advice ?? 0} icon="💡" color="#f59e0b" />
               <StatCard label="Code tasks (C)"     value={stats.by_mode?.C_code ?? 0}   icon="⚡" color="#10b981" />
+              <StatCard label="Debug sessions (D)" value={stats.by_mode?.D_debug ?? 0}  icon="🐞" color="#f97316" />
+              <StatCard label="Audit reports (E)"  value={stats.by_mode?.E_audit ?? 0}  icon="🔬" color="#8b5cf6" />
             </div>
             <ProgressBar
               value={stats.total_interactions}
@@ -348,6 +350,8 @@ export default function AuremAdminPanel() {
                 { label: "Mode A (casual chat)", value: stats.by_mode?.A_chat ?? 0,   color: "#06b6d4" },
                 { label: "Mode B (advice/suggestions)", value: stats.by_mode?.B_advice ?? 0, color: "#f59e0b" },
                 { label: "Mode C (code tasks)", value: stats.by_mode?.C_code ?? 0,    color: "#10b981" },
+                { label: "Mode D (debug sessions)", value: stats.by_mode?.D_debug ?? 0, color: "#f97316" },
+                { label: "Mode E (audit reports)",  value: stats.by_mode?.E_audit ?? 0, color: "#8b5cf6" },
               ].map(({ label, value, color }) => (
                 <ProgressBar
                   key={label}
