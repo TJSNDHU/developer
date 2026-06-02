@@ -602,12 +602,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     >
       <div
         data-testid="chat-panel"
+        className="glass-pane"
         style={{
           display: "flex", flexDirection: "column",
           flex: previewOpen ? "0 0 50%" : "1 1 auto",
           minWidth: 0,
           height: "100%",
-          background: "var(--panel)",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
           transition: "flex 240ms cubic-bezier(0.4,0,0.2,1)",
@@ -661,9 +661,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
       <form
         onSubmit={send}
+        className="glass-composer"
         style={{
-          borderTop: "1px solid var(--border)",
-          padding: 14, background: "var(--bg-elev)",
+          padding: 14,
           display: "flex", flexDirection: "column", gap: 8,
         }}
       >
@@ -1290,17 +1290,18 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
         {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
       </div>
       <div style={{ maxWidth: "80%", position: "relative" }}>
-        <div style={{
-          padding: "12px 16px",
-          borderRadius: 4,
-          background: m.role === "user" ? "rgba(255, 138, 42, 0.06)" : "var(--panel-2)",
-          border: m.role === "user"
-            ? "1px solid rgba(255,138,42,0.2)"
-            : "1px solid var(--border)",
-          fontSize: 14, lineHeight: 1.6,
-          color: m.error ? "var(--danger)" : "var(--text)",
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-        }}>
+        <div
+          className={
+            "glass-bubble " +
+            (m.role === "user" ? "glass-bubble-user" : "glass-bubble-assistant")
+          }
+          style={{
+            padding: "12px 16px",
+            fontSize: 14, lineHeight: 1.6,
+            color: m.error ? "var(--danger)" : "var(--text)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}
+        >
           {/* Floating copy button for USER bubbles — appears on hover only */}
           {showUserCopy && (
             <button

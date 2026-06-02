@@ -37,7 +37,9 @@ async function apiFetch(path, opts = {}) {
 function StatCard({ label, value, sub, color = "#6366f1", icon }) {
   return (
     <div style={{
-      background: "var(--bg-card, #1a1a2e)",
+      background: "rgba(255, 255, 255, 0.04)",
+      backdropFilter: "blur(12px) saturate(140%)",
+      WebkitBackdropFilter: "blur(12px) saturate(140%)",
       border: `1px solid ${color}33`,
       borderRadius: 12,
       padding: "18px 22px",
@@ -195,15 +197,16 @@ export default function AuremAdminPanel() {
   const tabs = ["overview", "brain", "council"];
 
   return (
-    <div style={{
-      background: "#0f0f1a",
-      color: "#e2e8f0",
-      borderRadius: 16,
-      padding: 28,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      border: "1px solid #ffffff0f",
-      maxWidth: 900,
-    }}>
+    <div
+      className="glass-pane"
+      style={{
+        color: "#e2e8f0",
+        borderRadius: 16,
+        padding: 28,
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+        maxWidth: 900,
+      }}
+    >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>

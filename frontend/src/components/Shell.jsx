@@ -189,6 +189,14 @@ export default function Shell({ children, requireAuth }) {
     [sessionId, setSessionId, refreshSessions]
   );
 
+  // Toggle the network-mesh glass background on body for authenticated
+  // shell pages. Login / Landing render outside of Shell so they keep
+  // the original solid amber gradient.
+  useEffect(() => {
+    document.body.classList.add("aurem-glass");
+    return () => { document.body.classList.remove("aurem-glass"); };
+  }, []);
+
   return (
     <SessionCtx.Provider value={{
       sessionId, setSessionId, refreshSessions,
@@ -205,8 +213,8 @@ export default function Shell({ children, requireAuth }) {
         <aside
           data-testid="app-sidebar"
           data-collapsed={collapsed ? "true" : "false"}
+          className="glass-sidebar"
           style={{
-            background: "var(--bg-elev)",
             borderRight: "1px solid var(--border)",
             padding: collapsed ? "28px 10px" : "28px 16px",
             display: "flex",
