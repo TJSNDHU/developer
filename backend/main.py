@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 
@@ -39,10 +40,29 @@ from routers.usage import router as usage_router
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
+load_dotenv()
+
+# Iter 45 — Sentry (production error monitoring). Opt-in via SENTRY_DSN.
+# In dev/preview without DSN it stays inert — zero perf cost.
+_SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            environment=os.getenv("SENTRY_ENV", "production"),
+            send_default_pii=False,
+        )
+    except Exception as _se:
+        logging.getLogger(__name__).warning("Sentry init failed: %r", _se)
+
+# Iter 45 — slowapi rate limiting (per-IP). Hand-rolled to avoid
+# decorator/dep-injection collision.
+from services.rate_limiter import check_rate_limit, client_ip_from_request
+
 # Services
 from cto_services.db import set_db
-
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 
@@ -323,11 +323,14 @@ async def list_agents(authorization: Optional[str] = Header(None)) -> dict:
 
 @router.post("/stream")
 async def chat_stream(
+    request: Request,
     body: ChatBody,
     authorization: Optional[str] = Header(None),
 ):
-    """SSE token-streaming chat. Emits meta → token(×N) → done frames.
-    Persists final turn and triggers background title generation."""
+    """SSE token-streaming chat. Iter 45: rate-limited to 30 req/min per IP."""
+    from services.rate_limiter import check_rate_limit, client_ip_from_request
+    if not check_rate_limit(f"chat:{client_ip_from_request(request)}", 30):
+        raise HTTPException(429, "Rate limit exceeded: 30 chats/min/IP")
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")

@@ -32,3 +32,36 @@ async def my_usage(authorization: Optional[str] = Header(None)):
     """
     me = await current_dev(authorization)
     return await get_usage(me["user_id"])
+
+
+
+# ── Iter 45 — Public stats (no auth) ──
+# Exposes correction_rate + total tasks shipped so auremcto.com landing
+# page can render a live "Claude caught X% of mistakes" trust badge.
+# NO PII — only aggregate counters from ora_council_logs.
+@router.get("/public/stats")
+async def public_stats():
+    from cto_services.db import get_db
+    db = get_db()
+    if db is None:
+        return {"available": False}
+    try:
+        total = await db.ora_council_logs.count_documents({})
+        code = await db.ora_council_logs.count_documents({"mode": "C"})
+        corrections = await db.ora_council_logs.count_documents({"correction_applied": True})
+        lint_blocks = await db.ora_council_logs.count_documents({"lint_blocked": True})
+        tasks = await db.cto_tasks.count_documents({"status": "done"})
+        users = await db.dev_users.count_documents({})
+        return {
+            "available": True,
+            "users": users,
+            "tasks_shipped": tasks,
+            "interactions": total,
+            "code_tasks": code,
+            "claude_corrections": corrections,
+            "correction_rate_pct": round((corrections / max(code, 1)) * 100, 1) if code else 0.0,
+            "lint_blocks_caught": lint_blocks,
+        }
+    except Exception as e:
+        logger.warning("public stats failed: %r", e)
+        return {"available": False}

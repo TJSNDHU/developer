@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from cto_services.auth import current_dev
@@ -188,15 +188,36 @@ async def update_project(
 
 @router.post("/tasks/submit")
 async def submit_task(
+    request: Request,
     body: TaskBody,
     bg: BackgroundTasks,
     authorization: str = Header(None),
 ) -> dict:
+    # Iter 45 — per-IP rate limit: 10 code tasks per minute.
+    from services.rate_limiter import check_rate_limit, client_ip_from_request
+    if not check_rate_limit(f"submit:{client_ip_from_request(request)}", 10):
+        raise HTTPException(429, "Rate limit exceeded: 10 code tasks/min/IP")
     me = await current_dev(authorization)
     # THING 1 — hard-stop token enforcement. Raises HTTP 402 if the user has
     # spent their plan_limit + any admin-granted bonus. The AI is NEVER
     # called and no row is written to `cto_tasks`.
     await assert_has_budget(me["user_id"])
+
+    # Iter 45 — free-tier monthly task cap. Founders/paid unaffected.
+    if (me.get("tier") in (None, "free")) and not me.get("is_unlimited"):
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+        used_30d = await require_db().cto_tasks.count_documents({
+            "user_id": me["user_id"], "created_at": {"$gte": cutoff},
+        })
+        FREE_TIER_MONTHLY_CAP = int(os.getenv("FREE_TIER_MONTHLY_CAP", "10"))
+        if used_30d >= FREE_TIER_MONTHLY_CAP:
+            raise HTTPException(
+                429,
+                f"Free tier limit reached: {FREE_TIER_MONTHLY_CAP} tasks per 30 days. "
+                f"Upgrade to ship unlimited.",
+            )
+
     db = require_db()
     proj = await db.cto_projects.find_one(
         {"project_id": body.project_id, "user_id": me["user_id"]}
