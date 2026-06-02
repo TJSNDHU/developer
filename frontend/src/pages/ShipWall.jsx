@@ -134,7 +134,7 @@ function ShipCard({ ship, sharing, onShare }) {
             {ship.maxx_mode && (
               <span style={{
                 fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 10,
-                background: "rgba(127,119,221,0.18)", color: "#a59ff0",
+                background: "var(--accent-soft)", color: "var(--accent-2)",
               }}>Maxx</span>
             )}
             <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: "auto" }}>{timeAgo}</span>
@@ -158,7 +158,7 @@ function ShipCard({ ship, sharing, onShare }) {
         </span>
         {ship.commit_sha && (
           <a href={ship.commit_url} target="_blank" rel="noopener noreferrer"
-            style={{ fontSize: 11, color: "#7F77DD", fontFamily: "monospace", textDecoration: "none" }}>
+            style={{ fontSize: 11, color: "var(--accent-2)", fontFamily: "monospace", textDecoration: "none" }}>
             {ship.commit_sha}
           </a>
         )}
@@ -199,7 +199,7 @@ function ShipCard({ ship, sharing, onShare }) {
             <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 4 }}>Add to your README:</div>
             <code style={{
               display: "block", fontSize: 10, wordBreak: "break-all",
-              background: "rgba(0,0,0,0.3)", padding: "6px 8px", borderRadius: 5, color: "#a59ff0",
+              background: "rgba(0,0,0,0.3)", padding: "6px 8px", borderRadius: 5, color: "var(--accent-2)",
             }}>
               {`[![Built with AUREM](${APP_URL}/api/aurem-dev/wall/badge/${dev.handle})](${ship.share_url})`}
             </code>
@@ -216,7 +216,7 @@ function Avatar({ name, avatar }) {
   return (
     <div style={{
       width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-      background: "rgba(127,119,221,0.2)", color: "#a59ff0",
+      background: "var(--accent-soft)", color: "var(--accent-2)",
       fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
       {initials}

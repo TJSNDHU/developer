@@ -56,9 +56,9 @@ export default function OraWrapped({ defaultPeriod = "this_month" }) {
               onClick={() => setPeriod(p)}
               style={{
                 fontSize: 10, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
-                background: period === p ? "rgba(127,119,221,0.25)" : "rgba(255,255,255,0.05)",
-                border: `1px solid ${period === p ? "rgba(127,119,221,0.5)" : "rgba(255,255,255,0.1)"}`,
-                color: period === p ? "#a59ff0" : "var(--text-dim)",
+                background: period === p ? "var(--accent-soft)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${period === p ? "var(--border-strong)" : "var(--border)"}`,
+                color: period === p ? "var(--accent-2)" : "var(--text-dim)",
               }}
             >
               {p === "this_month" ? "This month" : p === "last_month" ? "Last month" : "All time"}
@@ -84,8 +84,8 @@ export default function OraWrapped({ defaultPeriod = "this_month" }) {
             <WrappedStat
               value={stats.tasks_shipped}
               label="tasks shipped"
-              accent="#7F77DD"
-              glow="rgba(127,119,221,0.15)"
+              accent="#ff8a2a"
+              glow="rgba(255,138,42,0.15)"
             />
             <WrappedStat
               value={`~${stats.hours_saved}h`}

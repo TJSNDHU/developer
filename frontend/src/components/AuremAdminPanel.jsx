@@ -34,7 +34,7 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ─── stat card ───────────────────────────────────────────────────
-function StatCard({ label, value, sub, color = "#6366f1", icon }) {
+function StatCard({ label, value, sub, color = "#ff8a2a", icon }) {
   return (
     <div style={{
       background: "rgba(255, 255, 255, 0.04)",
@@ -55,7 +55,7 @@ function StatCard({ label, value, sub, color = "#6366f1", icon }) {
 }
 
 // ─── section wrapper ─────────────────────────────────────────────
-function Section({ title, badge, children, color = "#6366f1" }) {
+function Section({ title, badge, children, color = "#ff8a2a" }) {
   return (
     <div style={{ marginBottom: 32 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -78,7 +78,7 @@ function Section({ title, badge, children, color = "#6366f1" }) {
 }
 
 // ─── progress bar ────────────────────────────────────────────────
-function ProgressBar({ value, max, color = "#6366f1", label }) {
+function ProgressBar({ value, max, color = "#ff8a2a", label }) {
   const pct = Math.min(100, Math.round((value / Math.max(max, 1)) * 100));
   return (
     <div style={{ marginBottom: 10 }}>
@@ -105,7 +105,7 @@ function BrainMemory({ brain }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       {[
         { label: "Tech stack", items: brain.tech_stack || [], color: "#06b6d4" },
-        { label: "Team preferences", items: brain.team_preferences || [], color: "#8b5cf6" },
+        { label: "Team preferences", items: brain.team_preferences || [], color: "#ff8a2a" },
       ].map(({ label, items, color }) => (
         <div key={label} style={{ background: "#ffffff08", borderRadius: 8, padding: 12 }}>
           <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{label} ({items.length})</div>
@@ -132,7 +132,7 @@ function BrainMemory({ brain }) {
           Recent decisions ({(brain.decisions || []).length})
         </div>
         {(brain.decisions || []).slice(-3).reverse().map((d, i) => (
-          <div key={i} style={{ fontSize: 12, color: "#94a3b8", marginBottom: 6, paddingLeft: 10, borderLeft: "2px solid #6366f133" }}>
+          <div key={i} style={{ fontSize: 12, color: "#94a3b8", marginBottom: 6, paddingLeft: 10, borderLeft: "2px solid rgba(255,138,42,0.2)" }}>
             <strong style={{ color: "#e2e8f0" }}>{d.title}</strong>
             <span style={{ color: "#475569" }}> — {d.reason}</span>
             <span style={{ color: "#334155", marginLeft: 6, fontSize: 10 }}>{d.date}</span>
@@ -210,7 +210,7 @@ export default function AuremAdminPanel() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#c084fc" }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#ffc560" }}>
             AUREM Intelligence Dashboard
           </h2>
           <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
@@ -220,10 +220,10 @@ export default function AuremAdminPanel() {
         <button
           onClick={fetchStats}
           style={{
-            background: "#6366f122",
-            border: "1px solid #6366f144",
+            background: "rgba(255,138,42,0.13)",
+            border: "1px solid rgba(255,138,42,0.27)",
             borderRadius: 8,
-            color: "#818cf8",
+            color: "#ffc560",
             padding: "6px 14px",
             fontSize: 12,
             cursor: "pointer",
@@ -240,10 +240,10 @@ export default function AuremAdminPanel() {
             key={t}
             onClick={() => setTab(t)}
             style={{
-              background: tab === t ? "#6366f122" : "transparent",
-              border: tab === t ? "1px solid #6366f144" : "1px solid transparent",
+              background: tab === t ? "rgba(255,138,42,0.13)" : "transparent",
+              border: tab === t ? "1px solid rgba(255,138,42,0.27)" : "1px solid transparent",
               borderRadius: 8,
-              color: tab === t ? "#818cf8" : "#475569",
+              color: tab === t ? "#ffc560" : "#475569",
               padding: "6px 16px",
               fontSize: 12,
               cursor: "pointer",
@@ -276,19 +276,19 @@ export default function AuremAdminPanel() {
       {/* OVERVIEW TAB */}
       {tab === "overview" && stats && (
         <>
-          <Section title="ORA Council — Learning Progress" badge={stats.ready_for_finetune ? "Ready to fine-tune" : "Collecting data"} color="#c084fc">
+          <Section title="ORA Council — Learning Progress" badge={stats.ready_for_finetune ? "Ready to fine-tune" : "Collecting data"} color="#ffc560">
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-              <StatCard label="Total interactions" value={stats.total_interactions}      icon="🧠" color="#c084fc" />
+              <StatCard label="Total interactions" value={stats.total_interactions}      icon="🧠" color="#ffc560" />
               <StatCard label="Chat logs (A)"      value={stats.by_mode?.A_chat ?? 0}   icon="💬" color="#06b6d4" />
               <StatCard label="Advice logs (B)"    value={stats.by_mode?.B_advice ?? 0} icon="💡" color="#f59e0b" />
               <StatCard label="Code tasks (C)"     value={stats.by_mode?.C_code ?? 0}   icon="⚡" color="#10b981" />
               <StatCard label="Debug sessions (D)" value={stats.by_mode?.D_debug ?? 0}  icon="🐞" color="#f97316" />
-              <StatCard label="Audit reports (E)"  value={stats.by_mode?.E_audit ?? 0}  icon="🔬" color="#8b5cf6" />
+              <StatCard label="Audit reports (E)"  value={stats.by_mode?.E_audit ?? 0}  icon="🔬" color="#ff8a2a" />
             </div>
             <ProgressBar
               value={stats.total_interactions}
               max={1000}
-              color="#c084fc"
+              color="#ffc560"
               label={`Fine-tune threshold: ${stats.finetune_tip}`}
             />
           </Section>
@@ -298,7 +298,7 @@ export default function AuremAdminPanel() {
               <StatCard label="Claude corrections"  value={stats.corrections_applied ?? 0} icon="🔍" color="#10b981" sub={`${stats.correction_rate_pct ?? 0}% of code tasks`} />
               <StatCard label="Lint blocks caught"  value={stats.lint_blocks_caught ?? 0}  icon="🛡️" color="#f59e0b" sub="Bad code stopped before push" />
               <StatCard label="Parallel tasks run"  value={stats.parallel_tasks_run ?? 0}  icon="⚡" color="#06b6d4" sub="Multi-agent executions" />
-              <StatCard label="Exported for training" value={stats.exported_for_training ?? 0} icon="📤" color="#8b5cf6" sub={`${stats.pending_export ?? 0} pending`} />
+              <StatCard label="Exported for training" value={stats.exported_for_training ?? 0} icon="📤" color="#ff8a2a" sub={`${stats.pending_export ?? 0} pending`} />
             </div>
           </Section>
         </>
@@ -347,14 +347,14 @@ export default function AuremAdminPanel() {
       {/* COUNCIL TAB */}
       {tab === "council" && stats && (
         <>
-          <Section title="ORA Learning — Detailed Breakdown" color="#8b5cf6">
+          <Section title="ORA Learning — Detailed Breakdown" color="#ff8a2a">
             <div style={{ background: "#ffffff05", borderRadius: 10, padding: 18 }}>
               {[
                 { label: "Mode A (casual chat)", value: stats.by_mode?.A_chat ?? 0,   color: "#06b6d4" },
                 { label: "Mode B (advice/suggestions)", value: stats.by_mode?.B_advice ?? 0, color: "#f59e0b" },
                 { label: "Mode C (code tasks)", value: stats.by_mode?.C_code ?? 0,    color: "#10b981" },
                 { label: "Mode D (debug sessions)", value: stats.by_mode?.D_debug ?? 0, color: "#f97316" },
-                { label: "Mode E (audit reports)",  value: stats.by_mode?.E_audit ?? 0, color: "#8b5cf6" },
+                { label: "Mode E (audit reports)",  value: stats.by_mode?.E_audit ?? 0, color: "#ff8a2a" },
               ].map(({ label, value, color }) => (
                 <ProgressBar
                   key={label}

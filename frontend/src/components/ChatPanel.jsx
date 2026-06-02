@@ -1627,9 +1627,9 @@ function MessageBubble({ idx, dbTurnIndex, m, onRegenerate, sessionId, activePro
                     fontSize: 10, fontWeight: 700,
                     letterSpacing: "0.05em",
                     fontFamily: "'JetBrains Mono', monospace",
-                    background: "rgba(168, 85, 247, 0.15)",
-                    color: "#a855f7",
-                    border: "1px solid rgba(168, 85, 247, 0.35)",
+                    background: "var(--accent-soft)",
+                    color: "var(--accent-2)",
+                    border: "1px solid var(--border-strong)",
                   }}
                 >MAXX</span>
               )}
