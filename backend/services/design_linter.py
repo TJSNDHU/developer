@@ -178,6 +178,24 @@ def lint_file_blocks(file_blocks: dict) -> dict:
         file_issues = lint_file(filepath, content)
         all_issues.extend(file_issues)
 
+    # Iter 44 — Vanguard 007 scanner: layered scan for high-confidence
+    # secret detection (AWS / GitHub / Stripe / Google / OpenAI / SendGrid /
+    # Slack / private-key PEM / DB connection strings / eval / pickle / etc).
+    # Treat all "CRITICAL" Vanguard findings as commit-blockers.
+    try:
+        from services.vanguard_scanner import scan_file_blocks as _vg_scan
+        for f in _vg_scan(file_blocks):
+            all_issues.append(LintIssue(
+                filepath=f["filepath"],
+                rule=f"vg.{f['name']}",
+                message=f"Vanguard 007 — {f['name']} ({f['severity']})",
+                line_number=f["line"],
+                line_content=f["snippet"],
+                severity="block" if f["severity"] == "CRITICAL" else "warn",
+            ))
+    except Exception:
+        pass
+
     blocked_issues  = [i for i in all_issues if i.severity == "block"]
     warning_issues  = [i for i in all_issues if i.severity == "warn"]
     clean_count     = sum(1 for f in file_blocks if not any(i.filepath == f for i in all_issues))

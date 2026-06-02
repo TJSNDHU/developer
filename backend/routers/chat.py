@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 
 from cto_services.auth import current_dev
 from cto_services.db import get_db
@@ -57,20 +57,26 @@ async def _deduct_tokens(user_id: str, reply: str) -> int:
 
 
 class ChatBody(BaseModel):
-    prompt: str
-    session_id: Optional[str] = None
-    max_tool_iters: int = 2
+    # Iter 44 — bounded length to prevent prompt-bomb DoS + match
+    # downstream cap_for() context windows.
+    prompt: str = Field(..., min_length=1, max_length=20000)
+    session_id: Optional[str] = Field(None, max_length=128)
+    max_tool_iters: int = Field(2, ge=0, le=10)
     maxx_mode: bool = False
-    project_id: Optional[str] = None
+    project_id: Optional[str] = Field(None, max_length=128)
     # Iter 38: agent selector. "auto" routes via existing model-routing
     # logic in orchestrator.py (DeepSeek/Claude). "ora" calls the founder's
     # own aurem.live ORA endpoint. Other values currently fall through to
     # "auto" so adding new agents later is backwards-compatible.
-    agent: Optional[str] = "auto"
+    agent: Optional[str] = Field("auto", max_length=32)
     # Iter 42: structured payload of browser console/network/stack errors
     # captured by frontend/public/F12ErrorCapture.js. When present (and has
     # any errors), the request is auto-classified as Mode D (debug).
     f12_payload: Optional[dict] = None
+
+    @validator("prompt")
+    def _strip_prompt(cls, v: str) -> str:
+        return (v or "").strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

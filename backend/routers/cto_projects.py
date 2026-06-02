@@ -763,6 +763,17 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             extra_context_block += f"\n\n[PROJECT MEMORY]\n{brain_ctx}"
         if issues_ctx:
             extra_context_block += f"\n\n[OPEN ISSUES]\n{issues_ctx}"
+        # iter 44 — Vanguard skill injection. Pre-warms the AI with
+        # battle-tested security patterns matching the task type
+        # (auth/api/payments/react/backend). Zero LLM cost.
+        try:
+            from services.skill_context_injector import build_skill_context
+            sk_ctx = build_skill_context(task)
+            if sk_ctx:
+                extra_context_block += f"\n\n{sk_ctx}"
+                await _log(task_id, "🛡️ injected Vanguard security skills")
+        except Exception:
+            pass
         user_msg = (
             f"TASK: {task}\n"
             f"{('CONTEXT: ' + context) if context else ''}\n\n"

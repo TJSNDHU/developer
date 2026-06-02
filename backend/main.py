@@ -95,6 +95,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Iter 44 — Security headers (Vanguard hardening) ──
+# Drop these on every response. Cheap, zero functional impact.
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    return response
+
+
+# ── Iter 44 — Global exception handler ──
+# Never leak stack traces. Log full error internally, return a stable
+# 500 envelope to the caller.
+from fastapi import Request as _FastReq
+from fastapi.responses import JSONResponse as _JsonResp
+from fastapi.exceptions import HTTPException as _HExc
+
+
+@app.exception_handler(Exception)
+async def _global_exc_handler(request: _FastReq, exc: Exception):
+    # Re-raise HTTPExceptions — those have intentional messages.
+    if isinstance(exc, _HExc):
+        return _JsonResp(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+    logger.error(
+        "unhandled exception on %s %s",
+        request.method, request.url.path, exc_info=True,
+    )
+    return _JsonResp(
+        status_code=500,
+        content={"detail": "An internal error occurred. Please try again."},
+    )
+
 # ── Health ──
 @app.get("/api/health")
 async def health():
