@@ -1647,3 +1647,47 @@ See `/app/memory/test_credentials.md`.
 - `/app/backend/tests/test_aurem_p0_bugs.py` — iter6 (PAT, edit PATCH, feedback API, persistence with project_id, project filter, etc.)
 - `/app/backend/tests/test_llm_provider.py` — iter4 (privacy assertions, deepseek-only)
 - Reports: `/app/test_reports/iteration_{1,2,3}.json`
+
+---
+
+## Iter 61 — Theme polish (Feb 2026)
+
+**Goal**: Remove residual purple/violet leaks introduced before the Iter 53 orange theme switch.
+
+**Files swapped to CSS vars (`var(--accent)` #ff8a2a, `var(--accent-2)` #ffc560, `var(--accent-soft)`):**
+- `components/ChatPanel.jsx` — purple MAXX badge inside ShipStatusCard chip
+- `components/OraWrapped.jsx` — period filter chips + "tasks shipped" stat ring
+- `pages/ShipWall.jsx` — Maxx badge, commit-sha link, README code snippet, avatar fallback
+- `components/AuremAdminPanel.jsx` — bulk replace `#6366f1`, `#818cf8`, `#c084fc`, `#8b5cf6` → orange family
+
+**Intentionally NOT swapped** (functional differentiation, not theme leak):
+- ChatPanelF12 per-mode badge colors (A=gray, B=green, C=blue, D=amber, E=purple, F=…) — semantic
+- Login.jsx GitHub button (`#0d1117`/`#30363d`) — GitHub brand
+- OraWrapped 3 non-purple stat ring colors (green/amber/pink)
+
+**Deploy fix**: `.gitignore` was re-blocking `.env` files at lines 93-95 (contradicting the comment above). Removed so Emergent deploy can ingest `frontend/.env` + `backend/.env` for production builds. User must re-commit + redeploy.
+
+---
+
+## Iter 62 — ChatPanel.jsx P1 split + Signup OAuth (Feb 2026)
+
+**Goal**: Split the 1770-line `ChatPanel.jsx` into focused components + add GitHub OAuth button to Signup.jsx (Login already had it from Iter 50).
+
+**New files**:
+- `components/MessageBubble.jsx` (~530 lines) — owns chat bubble (user/assistant), streaming cursor/elapsed, inline HTML iframe preview, hover action row (copy/👍/👎), ship-via-CTO wiring, watchdog panel. Internally defines `ActionBtn`, `WatchdogPanel`, helpers `extractInlineHTML` + `extractHandoffBrief`.
+- `components/TaskProgressCard.jsx` (~200 lines) — renamed from `ShipStatusCard`. 3 states: running (animated stage), failed (own `FailedCard` subcomponent fixes the original's conditional-hook bug), success (commit SHA link, files changed, View diff + Rollback).
+- `components/ShipDialog.jsx` (~110 lines) — pure presentational inline "🚀 Ship via CTO" action row; renders TaskProgressCard once `shipState.status === "shipped"`.
+
+**ChatPanel.jsx now 1029 lines** (-741, ~42% smaller). Owns shell layout, send pipeline, SSE streaming state, F12 capture, preview panel, attachments, top-bar pills, agent select.
+
+**Signup.jsx**: added GitHub OAuth-first CTA (`data-testid=signup-github-oauth`) above the email form, with "OR EMAIL" divider. Matches Login.jsx pattern exactly. Live `window.location.origin` keeps callback aligned with whichever host (preview / auremcto.com / custom) loaded the app.
+
+**Conditional-hook fix in TaskProgressCard**: original `ShipStatusCard` called `useState(retrying)` inside the `if (status === "failed")` branch — technically a Rules-of-Hooks violation. Extracted that branch into its own `FailedCard` component so the hook lives at the top of a stable component.
+
+**Testing**: iter7 test report — 100% frontend (signup OAuth → redirect; login parity; chat send → user/assistant bubbles → hover actions → 👍 toast; /wall purple-free), 300/303 backend pytest pass (1 test auto-updated by tester to read both `ChatPanel.jsx` + `MessageBubble.jsx` for testid grep, 2 pre-existing unrelated env-state failures).
+
+**Backlog after Iter 62**:
+- P2: VS Code Extension build + publish (code exists in earlier zip, needs build pipeline)
+- P3: AdminOverview enhancements (active sessions list, last failed tasks)
+- P4: "LLM Resilience Layer" — Chaos-Monkey-style fallback chain Groq → Cerebras → DeepSeek → Claude
+
