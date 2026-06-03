@@ -413,8 +413,19 @@ async def chat_stream(
             repo = (_proj or {}).get("github_repo") or ""
             repo_full = f"{owner}/{repo}" if owner and repo else body.project_id
             from services.project_brain import get_brain_context
+            # Best-effort: surface the GitHub PAT so the brain can pull
+            # the last 5 commits from the remote — covers commits made
+            # outside AUREM (direct CLI pushes / other contributors).
+            _pat = None
+            try:
+                from routers.cto_projects import _decrypt_pat, _user_gh_token
+                _pat = await _decrypt_pat(user_id, (_proj or {}).get("github_token")) \
+                    or await _user_gh_token(user_id)
+            except Exception:
+                _pat = None
             brain_ctx = await get_brain_context(
                 get_db(), body.project_id, repo_full,
+                github_token=_pat,
             )
             if brain_ctx:
                 brain_ctx = "[PROJECT MEMORY]\n" + brain_ctx

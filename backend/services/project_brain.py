@@ -52,22 +52,79 @@ async def get_brain_context(
     db: AsyncIOMotorDatabase,
     project_id: str,
     repo_full_name: str,
+    github_token: str | None = None,
 ) -> str:
     """
     Returns a compact brain summary string to inject into ORA system prompt.
     Max ~800 tokens. Returns empty string if no brain exists yet.
 
+    If `github_token` is provided, the last 5 GitHub commit messages are
+    appended (covers commits made OUTSIDE of AUREM — other contributors,
+    direct CLI pushes, force-pushes). Network failures are swallowed.
+
     Usage in orchestrator.py:
-        brain = await get_brain_context(db, project_id, repo_full_name)
+        brain = await get_brain_context(db, project_id, repo_full_name, gh_pat)
         system_prompt += f"\\n\\n[PROJECT MEMORY]\\n{brain}" if brain else ""
     """
     brain = await db["project_brains"].find_one({"project_id": project_id})
     if not brain:
         # First time — create empty brain
         await db["project_brains"].insert_one(_default_brain(project_id, repo_full_name))
-        return ""
+        return await _maybe_append_github_commits(db, project_id, "", github_token)
 
-    return _build_context_string(brain)
+    return await _maybe_append_github_commits(
+        db, project_id, _build_context_string(brain), github_token,
+    )
+
+
+async def _maybe_append_github_commits(
+    db: AsyncIOMotorDatabase,
+    project_id: str,
+    existing_context: str,
+    github_token: str | None,
+) -> str:
+    """Best-effort: fetch last 5 GitHub commits and append to context.
+    All errors (no token, bad token, rate limit, timeout, missing repo)
+    are silently swallowed — brain must work without commit history.
+    """
+    if not github_token:
+        return existing_context
+    try:
+        proj = await db["cto_projects"].find_one({"project_id": project_id})
+        if not proj:
+            return existing_context
+        owner = proj.get("github_owner")
+        repo = proj.get("github_repo")
+        if not (owner and repo):
+            return existing_context
+        import httpx
+        async with httpx.AsyncClient(timeout=4) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/commits?per_page=5",
+                headers={
+                    "Authorization": f"Bearer {github_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+            )
+        if resp.status_code != 200:
+            return existing_context
+        msgs = []
+        for c in resp.json()[:5]:
+            first_line = c.get("commit", {}).get("message", "").split("\n")[0][:80]
+            sha = (c.get("sha") or "")[:7]
+            author = c.get("commit", {}).get("author", {}).get("name", "")
+            if first_line:
+                msgs.append(f"  • [{sha}] {first_line}"
+                            + (f" — {author}" if author else ""))
+        if not msgs:
+            return existing_context
+        commits_block = ("Recent GitHub commits on this repo "
+                         "(may include work done outside AUREM):\n"
+                         + "\n".join(msgs))
+        return (existing_context + "\n\n" + commits_block).strip() \
+            if existing_context else commits_block
+    except Exception:
+        return existing_context
 
 
 def _build_context_string(brain: dict) -> str:

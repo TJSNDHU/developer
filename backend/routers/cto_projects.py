@@ -896,6 +896,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             if _db is not None:
                 brain_ctx = await get_brain_context(
                     _db, proj.get("project_id", ""), f"{owner}/{repo}",
+                    github_token=user_token,
                 )
         except Exception as _e:
             brain_ctx = ""
@@ -1297,6 +1298,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
             if _db is not None:
                 brain_ctx = await get_brain_context(
                     _db, proj.get("project_id", ""), f"{owner}/{repo}",
+                    github_token=user_token,
                 )
         except Exception:
             brain_ctx = ""

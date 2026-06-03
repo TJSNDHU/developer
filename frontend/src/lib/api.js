@@ -112,7 +112,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       try {
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.meta) onMeta?.(payload);
-        else if (payload.type === "mode") onMode?.(payload.mode);
+        else if (payload.type === "mode") onMode?.(payload);
         else if (payload.type === "task_handoff") onTaskHandoff?.(payload);
         else if (payload.token) onToken?.(payload.token);
         else if (payload.thinking) onThinking?.(payload.elapsed_s || 0, payload.activity);

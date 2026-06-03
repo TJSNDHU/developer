@@ -202,6 +202,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const f12 = useF12Errors();
   const [detectedMode, setDetectedMode] = useState(null);
   const [serverMode,   setServerMode]   = useState(null);
+  // Pattern #4 follow-through — when the classifier returns
+  // needs_confirm=true, we DON'T pause the stream (would require
+  // round-trip protocol changes); instead we surface a non-blocking
+  // banner so the user can rephrase next time if ORA picked the wrong
+  // mode. Cleared automatically when a new prompt is sent.
+  const [modeAmbiguous, setModeAmbiguous] = useState(null);
   const lastF12PayloadRef = useRef(null);
   const endRef = useRef(null);
   const abortRef = useRef(null);
@@ -435,6 +441,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // demanded text, which is why an image-only chat silently refused.
     if ((!text && !readyAttachments.length) || busy || !sessionId) return;
     setInput("");
+    // Clear any leftover ambiguous-mode banner from the previous turn —
+    // a new prompt = new classification.
+    setModeAmbiguous(null);
     // Clear all attachments on send (uploading ones go too — UX rule:
     // hit Send → bubble shipped; what didn't make it can be re-attached).
     setAttachments([]);
@@ -488,7 +497,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       agent,                       // iter 38: selector value
       f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
-      onMode: (m) => setServerMode(m),  // server-classified mode (A/B/C/D/E)
+      onMode: (m) => {
+        // Backend now sends a full payload: {type:"mode", mode, confidence,
+        // scores, needs_confirm}. Older flows still pass a bare string.
+        if (typeof m === "string") {
+          setServerMode(m);
+          return;
+        }
+        setServerMode(m.mode);
+        if (m.needs_confirm) {
+          setModeAmbiguous({
+            detected:   m.mode,
+            confidence: m.confidence,
+            scores:     m.scores,
+          });
+        } else {
+          setModeAmbiguous(null);
+        }
+      },
       // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
       // handoff) emits this BEFORE content streams. Pin the task_id on
       // the streaming assistant bubble so the ShipStatusCard renders
@@ -696,6 +722,40 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         })}
         <div ref={endRef} />
       </div>
+
+      {/* Ambiguous-mode disambiguation banner — non-blocking. Sits between
+          the message list and the composer so it's the last thing the
+          user sees before typing. Auto-cleared on next submit. */}
+      {modeAmbiguous && (
+        <div data-testid="mode-ambiguous-banner" style={{
+          margin: "0 16px 8px",
+          padding: "10px 14px",
+          background: "var(--accent-soft)",
+          border: "1px solid var(--border-strong)",
+          borderRadius: 6, fontSize: 12,
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        }}>
+          <span style={{ color: "var(--text-dim)", flex: 1, minWidth: 200 }}>
+            ORA picked{" "}
+            <strong style={{ color: "var(--accent-2)" }}
+                    data-testid="mode-ambiguous-detected">
+              Mode {modeAmbiguous.detected}
+            </strong>{" "}
+            ({Math.round(modeAmbiguous.confidence * 100)}% confident). If
+            that's wrong, cancel and rephrase — e.g. start with
+            "debug …" for D, "add …" for C, "should I …" for B.
+          </span>
+          <button
+            type="button"
+            data-testid="mode-ambiguous-ok"
+            onClick={() => setModeAmbiguous(null)}
+            className="btn-primary"
+            style={{ padding: "4px 12px", fontSize: 11 }}
+          >
+            Got it
+          </button>
+        </div>
+      )}
 
       <form
         onSubmit={send}
