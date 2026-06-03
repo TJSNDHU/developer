@@ -841,12 +841,28 @@ async def chat_stream(
                 summary = _synthesise_max_iters_summary(
                     body.prompt, partial_invocations,
                 )
-                # Prepend a one-line timeout banner so the user knows
-                # this was a graceful cut-off, not a model answer.
-                content = (
-                    f"⏱️ I cut myself off at {int(HARD_TIMEOUT_S)}s to avoid "
-                    f"a runaway tool-loop.\n\n{summary}"
-                )
+                # RECURRING_ISSUES.md Pattern #2 fix: distinguish slow-API
+                # waiting from a genuine reasoning loop. If we made very
+                # few tool calls, the time was likely spent waiting on
+                # the model API (cold start / OpenRouter queue / network),
+                # NOT looping. Telling the user "I cut myself off" in
+                # that case is misleading and erodes trust.
+                tool_count = len(partial_invocations)
+                if tool_count < 3:
+                    content = (
+                        f"⏱️ Model API was slow to respond — waited "
+                        f"{int(HARD_TIMEOUT_S)}s and only got "
+                        f"{tool_count} tool call{'s' if tool_count != 1 else ''} "
+                        f"through. This usually means OpenRouter/DeepSeek "
+                        f"cold-started or a network blip — NOT that I was "
+                        f"stuck in a loop. Please retry the same prompt.\n\n"
+                        f"{summary}"
+                    )
+                else:
+                    content = (
+                        f"⏱️ I cut myself off at {int(HARD_TIMEOUT_S)}s to avoid "
+                        f"a runaway tool-loop.\n\n{summary}"
+                    )
                 # Stream as a normal assistant turn (meta → tokens → done)
                 # so the bubble renders properly instead of going red.
                 meta_payload = {
@@ -858,6 +874,7 @@ async def chat_stream(
                     "thinking_s": round(_t.monotonic() - t_start, 1),
                     "tool_calls_run": len(partial_invocations),
                     "timed_out": True,
+                    "slow_api": tool_count < 3,
                 }
                 yield f"data: {json.dumps(meta_payload)}\n\n"
                 CHUNK = 16

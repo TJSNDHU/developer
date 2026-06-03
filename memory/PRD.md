@@ -1875,3 +1875,45 @@ User shared the official design-spec screenshots (color tokens · buttons · bad
 
 **Standing rule** (added to RECURRING_ISSUES.md philosophy):
 > Future agents touching `index.css` MUST update `test_iter66_design_tokens_lock.py` if they intentionally change a token, AND the user must approve the drift. Silent hex changes = test failure.
+
+
+---
+
+## Iter 67 — RECURRING_ISSUES.md fixes landed (Feb 2026)
+
+**Master prompt's TASK 1 reframed honestly**: the master prompt claimed retry endpoint was sending empty body. Verified — false. Actual root cause: when Vanguard rejects empty body, task fails with no LLM-visible feedback. User clicks Retry → same prompt → same empty output → infinite loop.
+
+**Fixes applied** (no `Iter 67` comments per user instruction):
+
+### Pattern #1 — Retry endpoint surfaces previous failure
+`backend/routers/cto_projects.py::retry_task`:
+- Reads `old.error` + last error step from `old.steps`
+- Builds `augmented_context` = old context + "Previous attempt failed: <reason>. Do NOT repeat. If a file body was rejected as empty, write the FULL implementation."
+- Passes `augmented_context` to `bg.add_task` (NOT `old.context`)
+- Response includes `carried_failure_context: bool` flag for UI
+
+### Pattern #2 — Timeout message distinguishes slow-API from loop
+`backend/routers/chat.py` ~line 847:
+- When `tool_count < 3`, message reads "Model API was slow — waited 90s and only got N tool call(s)... NOT stuck in a loop. Please retry."
+- High-tool-count case keeps existing "I cut myself off" wording
+- Meta payload adds `slow_api: bool`
+
+### Patterns #3, #4 — Deferred to P2
+- #3 (Mode D boilerplate) — needs Mode D prompt threshold lower, not surgical
+- #4 (mode classifier confidence scoring) — file `mode_classifier.py` doesn't exist yet; would be a new ~200-line service; bigger than 1-iter scope
+
+### Pattern #5 — Verified NO codebase cap
+`_run_task` does not enforce file-count limit. The 1-of-N behavior is LLM-self-imposed (planner prompts). Deferred to prompt engineering, not codebase change.
+
+### Pattern #6 — Fixed in Iter 63 already
+Admin cache purge button.
+
+### TASK 5 (Login OAuth button) — VERIFIED ALREADY DONE
+Login.jsx line 71-96 has `data-testid="login-github-oauth"`, "Continue with GitHub", redirects to `/api/aurem-dev/github/oauth/connect`. The "deep audit" that flagged it as missing was stale (pre-Iter 50).
+
+### TASK 4 (Git commits in Project Brain) — ALREADY IMPLEMENTED
+`project_brain.py` line 86-103 already surfaces "Recent commits AUREM has shipped" via event_log. External GitHub API supplement deferred (rate-limit risk, marginal value over existing internal log).
+
+### Tests
+`backend/tests/test_iter67_recurring_pattern_fixes.py` — 3/3 PASS.
+Full regression: **329 pass / 14 fail (14 pre-existing environmental, not iter67-introduced)**.

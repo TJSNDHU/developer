@@ -604,30 +604,55 @@ async def retry_task(
 
     new_task_id = "t_" + uuid.uuid4().hex[:12]
     _maxx = bool(old.get("maxx_mode", False))
+    # Pattern #1 fix from RECURRING_ISSUES.md — the AI failed last time for a
+    # reason. Carry that reason forward in the new task's context so the
+    # model sees what to avoid. Without this, retry produces the exact same
+    # output (especially for "empty file body" rejections).
+    prev_err = (old.get("error") or "").strip()
+    prev_steps = old.get("steps") or []
+    # Surface last error step text too — often more specific than the
+    # top-level error field (e.g. per-file Vanguard rejection list).
+    last_err_step = next(
+        (s.get("step", "") for s in reversed(prev_steps)
+         if s.get("status") in ("error", "fail")),
+        "",
+    )
+    augmented_context = old.get("context", "")
+    failure_signals = [s for s in (prev_err, last_err_step) if s]
+    if failure_signals:
+        augmented_context = (
+            (augmented_context + "\n\n" if augmented_context else "")
+            + "Previous attempt failed:\n"
+            + "\n".join(f"  • {s[:300]}" for s in failure_signals)
+            + "\n\nDo NOT repeat that failure. If a file body was rejected as "
+              "empty, write the FULL implementation (classes, functions, "
+              "actual logic) — not just a docstring or `pass`."
+        )
     await db.cto_tasks.insert_one({
         "task_id":      new_task_id,
         "user_id":      me["user_id"],
         "project_id":   old["project_id"],
         "task":         old.get("task", ""),
         "files":        old.get("files", []),
-        "context":      old.get("context", ""),
+        "context":      augmented_context,
         "status":       "queued",
         "maxx_mode":    _maxx,
         "created_at":   time.time(),
         "retry_of":     task_id,
-        "steps":        [{"step": f"🔁 retry of {task_id}", "status": "info",
+        "steps":        [{"step": f"🔁 retry of {task_id}"
+                                  + (" (with failure context)" if failure_signals else ""),
+                          "status": "info",
                           "ts": time.time()}],
     })
     user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
         or await _user_gh_token(me["user_id"])
-    # BUG 4 fix — propagate maxx_mode from the original task so the retry
-    # also runs through Claude review (was always falling back to non-Maxx).
     bg.add_task(
         _run_task,
         new_task_id, proj, old.get("task", ""),
-        old.get("files", []), old.get("context", ""), user_token, _maxx,
+        old.get("files", []), augmented_context, user_token, _maxx,
     )
-    return {"ok": True, "task_id": new_task_id, "retry_of": task_id}
+    return {"ok": True, "task_id": new_task_id, "retry_of": task_id,
+            "carried_failure_context": bool(failure_signals)}
 
 
 
