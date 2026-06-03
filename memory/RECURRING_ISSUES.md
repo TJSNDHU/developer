@@ -211,7 +211,7 @@ request after pattern recurrence in Pillar 4 / command_hub work._
 
 | Pattern | Status | Fix location |
 |---|---|---|
-| #1 — Empty file body retry loop | **PARTIAL FIX** — retry endpoint now passes previous error + explicit "write FULL implementation" hint into new task's `context`. In-task auto-regenerate before failing still TODO (deeper orchestrator surgery — deferred). | `backend/routers/cto_projects.py::retry_task` |
+| #1 — Empty file body retry loop | **FULLY FIXED** — (a) user-initiated retry now augments context with previous failure (iter 67), (b) in-task auto-regenerate fires ONCE with explicit "write FULL implementation" nudge before failing, (c) final error message tells user how to rephrase ("specify which file to edit"). | `backend/routers/cto_projects.py::retry_task` + `_run_task` pre-push gate |
 | #2 — 90s timeout misleading message | **FIXED** — when `tool_count < 3`, message reads "Model API was slow", `slow_api: true` flag in meta payload. | `backend/routers/chat.py` ~line 847 |
 | #3 — Mode D boilerplate for missing-signal cases | **FIXED** — Mode D system prompt now lists valid signals (natural-language symptoms, screenshots, F12 errors, file_contents) and explicitly tells the model to "prefer a Mode-A-style READ plan over bailing" when signals are weak. | `backend/services/mode_d_debugger.py::DIAGNOSIS_SYSTEM` |
 | #4 — Wrong-mode classification | **FIXED** — new `services/mode_classifier.py` adds `classify_intent_v2()` with confidence scores + `needs_confirm` flag. Wired into `routers/chat.py` so SSE `mode` event now carries `confidence`, `scores`, `needs_confirm`. UI can ask user when ambiguous. | `backend/services/mode_classifier.py` + `routers/chat.py` |

@@ -13,6 +13,7 @@ import Analytics from "./pages/Analytics";
 import Projects from "./pages/Projects";
 import Admin from "./pages/Admin";
 import ShipWall from "./pages/ShipWall";
+import BrainDump from "./pages/BrainDump";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/brain/:projectId" element={<BrainDump />} />
         <Route path="/wall" element={<ShipWall />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1012,16 +1012,58 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             return
         await _log(task_id, f"✏️ {len(edits)} files to update", "success")
 
-        # 2b) PRE-PUSH GATE — reject AI output that looks truncated. We'd
+        # PRE-PUSH GATE — reject AI output that looks truncated. We'd
         # rather fail loudly here than silently push a half-file that
         # later confuses Claude/users when they scan the repo.
-        bad: list[str] = []
-        for path, body in edits.items():
-            reason = _looks_truncated(path, body)
-            if reason:
-                bad.append(f"{path} — {reason}")
+        #
+        # Before failing, give the model ONE chance to regenerate with
+        # explicit guidance about what went wrong (Pattern #1 deep fix).
+        # Without this, an empty-body output sent the user into a manual
+        # Retry loop that did nothing different.
+        async def _truncation_reasons(blocks: dict) -> list[str]:
+            out: list[str] = []
+            for path, body in blocks.items():
+                reason = _looks_truncated(path, body)
+                if reason:
+                    out.append(f"{path} — {reason}")
+            return out
+
+        bad: list[str] = await _truncation_reasons(edits)
+        if (not edits) or (bad and len(bad) == len(edits)):
+            # No edits OR every edit was rejected — try once more with a
+            # nudge. This is in-task auto-regenerate; the user has not
+            # clicked Retry. If THIS also fails we surface an actionable
+            # error rather than silently looping.
+            await _log(task_id,
+                       "no usable file edits — auto-regenerating with explicit guidance",
+                       "warning")
+            nudge = (
+                "Your previous response contained no usable file changes "
+                "(empty file body or no FILE blocks).\n"
+                "You MUST output complete file content using this exact format:\n"
+                "FILE: <path>\n```\n<complete file body — real code, not "
+                "a docstring or `pass`>\n```\n"
+                "Do NOT just describe what you would do. Write the actual code."
+            )
+            reply2 = await _retry(
+                lambda: call_llm(
+                    messages=[{"role": "user", "content": user_msg + "\n\n" + nudge}],
+                    system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                ),
+                what="AI codegen auto-retry", task_id=task_id,
+            )
+            edits = {}
+            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
+                                 reply2, re.DOTALL):
+                edits[m.group(1).strip()] = m.group(2)
+            bad = await _truncation_reasons(edits)
+
         if bad:
-            err = "AI returned suspect edits (refusing to push):\n  - " + "\n  - ".join(bad)
+            err = ("AI returned suspect edits (refusing to push):\n  - "
+                   + "\n  - ".join(bad)
+                   + "\n\nTry rephrasing: specify which file to edit and "
+                     "what to change. Example: 'Edit auth.py and add "
+                     "rate limiting to the /login endpoint'.")
             await _log(task_id, f"🚫 {err}", "error")
             await _set_status(task_id, status="failed", error=err[:2000],
                               completed_at=time.time())

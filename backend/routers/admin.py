@@ -769,6 +769,62 @@ async def admin_brain_delete_decision(
     return {"ok": True, "removed": n}
 
 
+@router.get("/brain/{project_id}/dump")
+async def admin_brain_dump(
+    project_id: str,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Returns exactly what ORA sees for this project.
+
+    Used when "ORA gave wrong answer" — founder can compare the user's
+    question against the literal context block that was injected into
+    the system prompt. Includes raw brain document for decision/pref
+    inline deletion + the assembled string for diff debugging.
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    proj = await db.cto_projects.find_one({"project_id": project_id})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+
+    # Fetch the PAT so the assembled context includes remote commits
+    # (matches what ORA would see for this user in a real chat turn).
+    token = None
+    try:
+        from routers.cto_projects import _decrypt_pat, _user_gh_token
+        token = await _decrypt_pat(proj["user_id"], proj.get("github_token")) \
+            or await _user_gh_token(proj["user_id"])
+    except Exception:
+        token = None
+
+    brain_doc = await db.project_brains.find_one({"project_id": project_id}) or {}
+    # Strip Mongo _id from the raw doc so it stays JSON-serialisable
+    brain_doc.pop("_id", None)
+
+    from services.project_brain import get_brain_context
+    repo_full = f"{proj.get('github_owner', '')}/{proj.get('github_repo', '')}"
+    try:
+        assembled = await get_brain_context(
+            db, project_id, repo_full, github_token=token,
+        )
+    except Exception as e:
+        assembled = f"(error assembling context: {e})"
+
+    return {
+        "project_id":           project_id,
+        "repo":                 repo_full,
+        "raw_brain":            brain_doc,
+        "assembled_context":    assembled,
+        "context_length_chars": len(assembled),
+        "has_github_commits":   "Recent GitHub commits" in assembled,
+        "has_aurem_commits":    "Recent commits AUREM" in assembled,
+        "has_decisions":        bool(brain_doc.get("decisions")),
+        "has_preferences":      bool(brain_doc.get("team_preferences")
+                                     or brain_doc.get("preferences")),
+        "had_pat":              bool(token),
+    }
+
+
 @router.delete("/project-brain/{project_id}/preference")
 async def admin_brain_delete_preference(
     project_id: str,

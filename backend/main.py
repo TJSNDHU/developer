@@ -270,6 +270,51 @@ async def _global_exc_handler(request: _FastReq, exc: Exception):
         content={"detail": "An internal error occurred. Please try again."},
     )
 
+_BUILD_HASH: str | None = None
+
+
+def _resolve_build_hash() -> str:
+    """Compute once at import — short git SHA of the current deploy.
+
+    Resolution order:
+      1. Explicit env var (BUILD_HASH / GIT_COMMIT / VERCEL_GIT_COMMIT_SHA)
+         — set by CI / Emergent / Vercel during deploy.
+      2. `git rev-parse --short HEAD` — works on dev pods.
+      3. Last-modified time of this file as a deploy fingerprint — so
+         Emergent containers (no git binary) still show SOMETHING the
+         founder can compare across deploys.
+    """
+    global _BUILD_HASH
+    if _BUILD_HASH is not None:
+        return _BUILD_HASH
+    env_h = (os.getenv("BUILD_HASH") or os.getenv("GIT_COMMIT")
+             or os.getenv("VERCEL_GIT_COMMIT_SHA"))
+    if env_h:
+        _BUILD_HASH = env_h[:7]
+        return _BUILD_HASH
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            cwd=os.path.dirname(os.path.abspath(__file__)) + "/..",
+            timeout=2,
+        )
+        _BUILD_HASH = out.decode().strip()[:7]
+        if _BUILD_HASH:
+            return _BUILD_HASH
+    except Exception:
+        pass
+    # Last resort — mtime of this file. Format: m<unix-mins>. Stable
+    # within one deploy, changes whenever the container is rebuilt.
+    try:
+        mtime = int(os.path.getmtime(__file__) // 60)
+        _BUILD_HASH = f"m{mtime:x}"
+    except Exception:
+        _BUILD_HASH = "unknown"
+    return _BUILD_HASH
+
+
 # ── Health ──
 @app.get("/api/health")
 async def health():
@@ -278,6 +323,8 @@ async def health():
         "service": "aurem-dev",
         "uptime_s": round(time.time() - START_TIME, 2),
         "db": app.state.db is not None,
+        "build_hash": _resolve_build_hash(),
+        "env": os.getenv("ENVIRONMENT", "production"),
     }
 
 # ── Routers ──

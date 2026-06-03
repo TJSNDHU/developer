@@ -55,6 +55,26 @@ export default function AdminOverview() {
   return (
     <div style={{ padding: "24px 20px", maxWidth: 900 }}>
 
+      {/* Build hash banner — one-glance "am I on the right deploy?"
+          Click target removed: just informational. */}
+      {health?.build_hash && (
+        <div data-testid="admin-build-banner" style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "5px 12px", marginBottom: 14,
+          background: "var(--panel-2)", border: "1px solid var(--border)",
+          borderRadius: 4,
+          fontSize: 10, color: "var(--text-faint)",
+          fontFamily: "'JetBrains Mono', monospace",
+          letterSpacing: "0.05em",
+        }}>
+          build <span style={{ color: "var(--accent-2)" }}>
+            {health.build_hash}
+          </span>
+          {health.env && <> · <span>{health.env}</span></>}
+          {uptimeMin > 0 && <> · uptime {uptimeMin}m</>}
+        </div>
+      )}
+
       {/* ── System health ───────────────────────────────────── */}
       <Section title="System health">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
