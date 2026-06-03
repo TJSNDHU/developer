@@ -11,7 +11,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
-  Pencil, Info, Undo2,
+  Pencil, Info, Undo2, Copy as CopyIcon,
 } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
@@ -52,8 +52,13 @@ function Body() {
   useEffect(() => { refresh(); }, [refresh]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 24, minHeight: 540 }}>
-      <aside data-testid="proj-list" className="card" style={{ padding: 14, alignSelf: "start" }}>
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "minmax(0, 320px) minmax(0, 1fr)",
+      gap: 24, minHeight: 540,
+      width: "100%", maxWidth: "100%", minWidth: 0,
+    }}>
+      <aside data-testid="proj-list" className="card" style={{ padding: 14, alignSelf: "start", minWidth: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <span className="eyebrow">projects</span>
           <button data-testid="proj-add-btn" className="btn-ghost" onClick={() => setShowAdd(true)}
@@ -782,21 +787,51 @@ function TaskRow({ t, onRollback }) {
     onRollback?.(t);
   }
 
+  // Iter 68 — Per-row action helpers (view commit, copy task id).
+  // Visible always (not hover-only) since the user reported "no options
+  // showing" — they couldn't discover the hover affordance.
+  function copyTaskId() {
+    navigator.clipboard?.writeText(t.task_id);
+  }
+  const commitUrl = t.commit_sha && t.project_id
+    ? `https://github.com/${t.github_owner || ""}/${t.github_repo || ""}/commit/${t.commit_sha}`
+    : null;
+
   return (
     <div data-testid={`task-row-${t.task_id}`} style={{
       borderTop: "1px solid var(--border)", padding: "10px 0",
+      minWidth: 0,
     }}>
       <div onClick={() => setOpen((v) => !v)} style={{
-        display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+        display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer",
+        minWidth: 0,
       }}>
-        {running ? <Loader2 size={13} style={{ color, animation: "spin 1s linear infinite" }} />
-                 : t.status === "done" ? <CheckCircle2 size={13} style={{ color }} />
-                 : <AlertCircle size={13} style={{ color }} />}
+        <div style={{ flexShrink: 0, paddingTop: 2 }}>
+          {running ? <Loader2 size={13} style={{ color, animation: "spin 1s linear infinite" }} />
+                   : t.status === "done" ? <CheckCircle2 size={13} style={{ color }} />
+                   : <AlertCircle size={13} style={{ color }} />}
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {/* Iter 68 — Wrap to 2 lines with ellipsis instead of single-line
+              nowrap. Multi-line clamp keeps the row height predictable
+              without truncating mid-word like the old "nowrap + ellipsis". */}
+          <div style={{
+            fontSize: 13, color: "var(--text)",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            lineHeight: 1.4,
+          }}>
             {t.task}
           </div>
-          <div style={{ fontSize: 10, color, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
+          <div style={{
+            fontSize: 10, color, fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: "0.1em", marginTop: 3,
+            overflowWrap: "anywhere",
+          }}>
             {t.status}{t.commit_sha ? ` · ${t.commit_sha}` : ""}
             {t.rollback_sha && (
               <span style={{ color: "var(--text-faint)", marginLeft: 8 }}>
@@ -815,29 +850,60 @@ function TaskRow({ t, onRollback }) {
             )}
           </div>
         </div>
-        {canRollback && (
+        {/* Action strip — flex-shrink:0 so it never gets pushed off-screen */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 4,
+          flexShrink: 0,
+        }} onClick={(e) => e.stopPropagation()}>
+          {commitUrl && (
+            <a
+              href={commitUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid={`task-view-commit-${t.task_id}`}
+              title="View commit on GitHub"
+              className="btn-ghost"
+              style={{
+                padding: "4px 8px", fontSize: 11,
+                textDecoration: "none",
+              }}
+            >
+              <ExternalLink size={11} />
+            </a>
+          )}
           <button
-            data-testid={`task-rollback-${t.task_id}`}
-            onClick={handleRollback}
-            title="Revert this commit on the remote repo"
+            data-testid={`task-copy-id-${t.task_id}`}
+            onClick={copyTaskId}
+            title="Copy task ID"
             className="btn-ghost"
-            style={{
-              padding: "4px 10px", fontSize: 11,
-              borderColor: "rgba(255,107,107,0.3)",
-              color: "var(--danger)",
-            }}
+            style={{ padding: "4px 8px", fontSize: 11 }}
           >
-            <Undo2 size={11} /> Rollback
+            <CopyIcon size={11} />
           </button>
-        )}
-        {rbRunning && (
-          <span data-testid={`task-rollback-status-${t.task_id}`}
-                style={{ fontSize: 11, color: "var(--accent-2)",
-                         display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
-            reverting…
-          </span>
-        )}
+          {canRollback && (
+            <button
+              data-testid={`task-rollback-${t.task_id}`}
+              onClick={handleRollback}
+              title="Revert this commit on the remote repo"
+              className="btn-ghost"
+              style={{
+                padding: "4px 10px", fontSize: 11,
+                borderColor: "rgba(255,107,107,0.3)",
+                color: "var(--danger)",
+              }}
+            >
+              <Undo2 size={11} /> Rollback
+            </button>
+          )}
+          {rbRunning && (
+            <span data-testid={`task-rollback-status-${t.task_id}`}
+                  style={{ fontSize: 11, color: "var(--accent-2)",
+                           display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+              reverting…
+            </span>
+          )}
+        </div>
       </div>
       {open && (
         <div style={{
