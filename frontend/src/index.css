@@ -378,6 +378,55 @@ table { max-width: 100%; }
   .aurem-main-padded.is-chat { padding: 0; }
 }
 
+/* Iter 65 — Chat page is height-locked. Without this the <main> would
+   grow to ChatPanel's natural height and the whole window would scroll,
+   hiding the sticky top tab bar AND the Send button at the bottom.
+   By forcing the main to exactly the viewport height, ChatPanel's
+   internal `chat-messages` overflow:auto is the ONLY thing that scrolls. */
+.aurem-main-padded.is-chat {
+  padding: 0;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Iter 65 — Generic side-rail layout. Any `<aside>` that wants its nav
+   to scroll INTERNALLY (not push the page) should have these props:
+   height: 100vh, overflow: hidden. Then mark the scrollable child with
+   `.aurem-rail-scroll`. The footer (user info / sign-out) stays pinned
+   at the bottom via `margin-top: auto` on a sibling block. */
+.aurem-rail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* a hair of right padding so the scrollbar never overlaps content */
+  padding-right: 4px;
+}
+.aurem-rail-scroll::-webkit-scrollbar { width: 6px; }
+.aurem-rail-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+/* Admin shell mobile drawer — at <=900px the 220px aside becomes an
+   off-canvas drawer just like the main app shell. */
+@media (max-width: 900px) {
+  .aurem-admin-shell { grid-template-columns: 1fr !important; }
+  .aurem-admin-shell > aside.glass-sidebar {
+    position: fixed; top: 0; left: 0;
+    width: 260px; max-width: 85vw; height: 100dvh;
+    z-index: 80;
+    transform: translateX(-100%);
+    transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.4);
+  }
+  .aurem-admin-shell[data-drawer-open="true"] > aside.glass-sidebar {
+    transform: translateX(0);
+  }
+}
+
 /* 8. PageHeader title shrinks on phone so it never overflows. */
 @media (max-width: 600px) {
   [data-testid="page-header"] h1 { font-size: 24px !important; line-height: 1.2; }

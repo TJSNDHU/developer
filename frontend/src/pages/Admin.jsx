@@ -14,6 +14,7 @@ import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import AuremAdminPanel from "../components/AuremAdminPanel";
 import AdminOverview from "./AdminOverview";
+import AgentTokenPanel from "../components/AgentTokenPanel";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -199,8 +200,11 @@ function UsersList({ onSelect }) {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Iter 65 — Agent token P&L widget, top of Users tab.
+          Answers: "kya Claude/Maxx ka extra cost worth hai?" */}
+      <AgentTokenPanel />
       <div style={{ display: "flex", justifyContent: "space-between",
-                     alignItems: "center", marginBottom: 14 }}>
+                     alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
         <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                       color: "var(--text-faint)", margin: 0 }}>
           Users ({users.length})
@@ -211,7 +215,7 @@ function UsersList({ onSelect }) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search email / name…"
           className="input"
-          style={{ width: 260 }}
+          style={{ width: 260, maxWidth: "100%" }}
         />
       </div>
       <Card>
@@ -970,17 +974,23 @@ export default function Admin() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid",
-                   gridTemplateColumns: "220px 1fr", background: "transparent" }}>
+    <div className="aurem-admin-shell" style={{
+      height: "100vh", maxHeight: "100vh", overflow: "hidden",
+      display: "grid",
+      gridTemplateColumns: "220px 1fr",
+      background: "transparent",
+    }}>
       <aside
         className="glass-sidebar"
         style={{
           padding: "20px 12px",
           display: "flex", flexDirection: "column",
+          height: "100vh", overflow: "hidden", minHeight: 0,
         }}
       >
         <div style={{ padding: "0 8px 16px",
-                       borderBottom: "1px solid var(--border)", marginBottom: 12 }}>
+                       borderBottom: "1px solid var(--border)", marginBottom: 12,
+                       flexShrink: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>
             AUREM CTO
           </div>
@@ -989,6 +999,7 @@ export default function Admin() {
             Admin Panel
           </div>
         </div>
+        <div className="aurem-rail-scroll" data-testid="admin-nav-scroll">
         {NAV.map(({ id, label, Icon }) => {
           const active = page === id;
           return (
@@ -1004,15 +1015,18 @@ export default function Admin() {
                 color: active ? "var(--text)" : "var(--text-dim)",
                 border: "none", fontSize: 12, textAlign: "left",
                 width: "100%", cursor: "pointer", borderRadius: 4,
+                whiteSpace: "nowrap",
               }}>
               <Icon size={14} /> {label}
             </button>
           );
         })}
-        <div style={{ marginTop: "auto", paddingTop: 12,
+        </div>
+        <div style={{ marginTop: "auto", paddingTop: 12, flexShrink: 0,
                        borderTop: "1px solid var(--border)" }}>
           <div style={{ fontSize: 11, color: "var(--text-faint)",
-                         padding: "0 8px", marginBottom: 8 }}>
+                         padding: "0 8px", marginBottom: 8,
+                         overflowWrap: "anywhere" }}>
             {me.email}
           </div>
           <Link to="/dashboard"
@@ -1032,7 +1046,7 @@ export default function Admin() {
           </button>
         </div>
       </aside>
-      <main style={{ overflow: "auto" }}>
+      <main style={{ overflow: "auto", height: "100vh", maxHeight: "100vh", minWidth: 0 }}>
         {renderPage()}
       </main>
     </div>

@@ -364,6 +364,128 @@ async def token_pnl(authorization: Optional[str] = Header(None)):
     }
 
 
+# ── Iter 65 — Per-agent token consumption with range selector ──────────
+# UI calls this with ?range=24h|7d|30d|90d|365d and renders a small
+# comparison chart in the Users tab. Goal: Teji can answer "kya
+# Claude/Maxx ka extra cost worth hai vs DeepSeek for the same task?"
+@router.get("/agent-tokens")
+async def agent_tokens(
+    range: str = "7d",
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    await _require_admin(authorization)
+    db = require_db()
+    range_map = {
+        "24h":   ("hourly",   86400,            3600),     # 24 hourly buckets
+        "7d":    ("daily",    7 * 86400,        86400),    # 7 daily
+        "30d":   ("daily",    30 * 86400,       86400),    # 30 daily
+        "90d":   ("weekly",   90 * 86400,       7 * 86400),
+        "365d":  ("monthly",  365 * 86400,      30 * 86400),
+    }
+    if range not in range_map:
+        range = "7d"
+    bucket_label, window_secs, bucket_secs = range_map[range]
+    now = time.time()
+    since = now - window_secs
+
+    # Pull every done task in window with agent + tokens + created_at.
+    cur = db.cto_tasks.find(
+        {"created_at": {"$gte": since}, "status": "done"},
+        {"agent_used": 1, "tokens_used": 1, "created_at": 1,
+         "claude_corrected": 1, "_id": 0},
+    )
+    # Cost rates per 1k tokens (real OpenRouter/Anthropic prices Feb 2026)
+    cost_per_1k = {"deepseek": 0.30, "maxx": 0.65, "claude": 0.65, "groq": 0.03}
+
+    # Bucket → agent → tokens
+    buckets: dict[float, dict[str, int]] = {}
+    totals = {"deepseek": 0, "maxx": 0, "claude": 0, "groq": 0}
+    task_counts = {"deepseek": 0, "maxx": 0, "claude": 0, "groq": 0}
+    claude_corrections = 0
+
+    async for d in cur:
+        agent = (d.get("agent_used") or "deepseek").lower()
+        if agent not in totals:
+            agent = "deepseek"
+        tk = int(d.get("tokens_used") or 0)
+        bucket_start = (int(d.get("created_at", now) // bucket_secs)) * bucket_secs
+        bkt = buckets.setdefault(bucket_start, {a: 0 for a in totals})
+        bkt[agent] += tk
+        totals[agent] += tk
+        task_counts[agent] += 1
+        if d.get("claude_corrected"):
+            claude_corrections += 1
+
+    # Format chronological series
+    series = []
+    for bs in sorted(buckets.keys()):
+        row = {"ts": int(bs), "label": _bucket_label(bs, bucket_label)}
+        for agent, val in buckets[bs].items():
+            row[agent] = val
+        series.append(row)
+
+    # Cost summary
+    costs = {a: round((t / 1000) * cost_per_1k.get(a, 0.30), 4)
+             for a, t in totals.items()}
+    total_cost = round(sum(costs.values()), 4)
+
+    # Per-task averages — the key question Teji asks
+    avg_per_task = {}
+    for a in totals:
+        n = task_counts[a]
+        avg_per_task[a] = {
+            "tokens_avg": round(totals[a] / n) if n else 0,
+            "cost_avg_usd": round((totals[a] / n / 1000) * cost_per_1k.get(a, 0.30), 4)
+                             if n else 0,
+        }
+
+    # Claude-vs-DeepSeek delta — directly answers the "how much extra"
+    extra_for_claude = None
+    if task_counts["deepseek"] > 0 and (task_counts["maxx"] + task_counts["claude"]) > 0:
+        ds_avg_cost = avg_per_task["deepseek"]["cost_avg_usd"]
+        maxx_avg_tokens = (
+            totals["maxx"] + totals["claude"]
+        ) / max(task_counts["maxx"] + task_counts["claude"], 1)
+        claude_rate = cost_per_1k["maxx"]
+        claude_avg_cost = round((maxx_avg_tokens / 1000) * claude_rate, 4)
+        extra_for_claude = {
+            "deepseek_avg_cost_per_task": ds_avg_cost,
+            "claude_maxx_avg_cost_per_task": claude_avg_cost,
+            "delta_usd_per_task": round(claude_avg_cost - ds_avg_cost, 4),
+            "delta_multiplier": round(claude_avg_cost / ds_avg_cost, 2)
+                                if ds_avg_cost else None,
+        }
+
+    return {
+        "range": range,
+        "bucket": bucket_label,
+        "buckets_count": len(series),
+        "series": series,
+        "totals_tokens": totals,
+        "task_counts": task_counts,
+        "claude_corrections": claude_corrections,
+        "cost_per_1k_usd": cost_per_1k,
+        "costs_usd": costs,
+        "total_cost_usd": total_cost,
+        "avg_per_task": avg_per_task,
+        "claude_vs_deepseek": extra_for_claude,
+    }
+
+
+def _bucket_label(ts: float, granularity: str) -> str:
+    """Human-readable bucket label for the chart x-axis."""
+    from datetime import datetime, timezone as _tz
+    dt = datetime.fromtimestamp(ts, tz=_tz.utc)
+    if granularity == "hourly":
+        return dt.strftime("%H:00")
+    if granularity == "daily":
+        return dt.strftime("%b %d")
+    if granularity == "weekly":
+        return f"wk {dt.strftime('%b %d')}"
+    return dt.strftime("%b %Y")
+
+
+
 # ── Empty stubs for unbuilt features ──────────────────────────────────
 @router.get("/payments")
 async def list_payments(authorization: Optional[str] = Header(None)):

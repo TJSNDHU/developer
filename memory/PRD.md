@@ -1773,3 +1773,54 @@ Returns structured report so UI can show exactly what landed.
 
 ### Tests
 `/app/backend/tests/test_iter64_responsive_sweep.py` — 9 source-level smoke tests. Combined Iter63+64: 20/20 PASS.
+
+
+---
+
+## Iter 65 — Layout lock-down + Agent token P&L widget (Feb 2026)
+
+**3 critical bugs + 1 feature requested by user:**
+
+### Bug fix 1: Chat scroll hides Send button + project header
+**Root cause**: `<main>` for `/dashboard` had `padding: 0` (Iter 64) but no `height: 100vh`. ChatPanel inside set `height: 100vh` on its own root, but the parent grew with content → page-level scroll → top tabs + Send input got pushed off-screen.
+
+**Fix**: `index.css` — `.aurem-main-padded.is-chat { height: 100vh; max-height: 100vh; overflow: hidden; min-height: 0; }`. Now ChatPanel internal layout (sticky top tabs + flex-1 scrollable messages + sticky composer) actually works because the parent is hard-constrained to viewport height.
+
+### Bug fix 2: Admin sidebar scrolls with page instead of internally
+**Root cause**: `Admin.jsx` root had `minHeight: 100vh` (not `height`), aside had no height constraint, 11 nav items + footer (email + back to app + sign out) could push the WHOLE page to scroll. As page scrolled, the aside scrolled with it.
+
+**Fix**:
+- Root: `height: 100vh; max-height: 100vh; overflow: hidden` + class `.aurem-admin-shell`
+- Aside: `height: 100vh; overflow: hidden`
+- Nav items wrapped in `<div className="aurem-rail-scroll">` (CSS helper from `index.css`)
+- Footer (email + back to app + sign out) stays pinned via `marginTop: auto`
+- Main: `height: 100vh; overflow: auto` — internal scroll only
+
+### Bug fix 3: Mobile (`<=900px`) admin sidebar
+**Fix**: `.aurem-admin-shell` mobile drawer rules in `index.css` — sidebar becomes off-canvas drawer with `translateX(-100%)`, slides in on `data-drawer-open="true"` (matches `.aurem-app-shell` pattern from Iter 64).
+
+### Feature: Per-agent token P&L widget (Users tab)
+**Endpoint** `GET /admin/agent-tokens?range=24h|7d|30d|90d|365d`:
+- Aggregates `cto_tasks.tokens_used` grouped by `agent_used` over selected window
+- Returns chronological `series` (hourly/daily/weekly/monthly buckets), per-agent totals, USD costs at real Feb-2026 rates (DeepSeek $0.30 · Maxx/Claude $0.65 · Groq $0.03 per 1k tok)
+- Computes `claude_vs_deepseek` delta — **answers Teji's question directly**: extra USD per task + multiplier (e.g. "Claude is 2.16× the DeepSeek cost per task")
+- Reports `claude_corrections` count (how often Maxx caught DeepSeek bugs)
+
+**Component** `/app/frontend/src/components/AgentTokenPanel.jsx`:
+- Range selector pills (`24h/7d/30d/90d/1y`) — `data-testid=agent-tokens-range-{id}`
+- 4 per-agent summary cards (DeepSeek orange, Claude/Maxx amber, Groq green) showing total cost · tokens · task count · avg/task
+- **Claude-vs-DeepSeek headline callout** in orange — the actionable number
+- Stacked-bar time-series chart (pure CSS, no chart lib) — each bucket shows agent split
+- Footer line: total cost, range, rate card
+- Rendered at top of Admin → Users tab
+
+### Tests: `/app/backend/tests/test_iter65_agent_tokens_and_layout.py` — 9/9 PASS
+- Endpoint registered, admin-gated, all 5 ranges supported
+- `claude_vs_deepseek` delta computed
+- Real cost rates in source
+- AgentTokenPanel.jsx renders + Admin imports it
+- Admin shell height-locked, aside internal scroll, main internal scroll
+- index.css chat lock + rail scroll helper + admin mobile drawer
+
+### Live curl verified
+`/admin/agent-tokens?range=7d` → `{range:7d, bucket:daily, series:[…], totals_tokens:{deepseek:1500}, costs_usd:{deepseek:0.45}, claude_vs_deepseek:null (no Claude tasks yet)}`. Switching `?range=24h` → bucket changes to `hourly`. ✓
