@@ -132,7 +132,6 @@ function Tab({ testid, label, Icon, active, onClick, onClose }) {
         display: "flex", alignItems: "center", gap: 8,
         padding: "7px 12px 7px 10px",
         borderTopLeftRadius: 6, borderTopRightRadius: 6,
-        borderBottom: "none",
         border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
         borderBottom: active ? "1px solid var(--panel)" : "1px solid var(--border)",
         background: active ? "var(--panel)" : "transparent",

@@ -13,8 +13,7 @@
  * Lightweight inline bar chart (no charting lib) for the time series.
  */
 import React, { useEffect, useState, useMemo } from "react";
-import { api } from "../lib/api";
-import { getToken } from "../lib/auth";
+import { api, getToken } from "../lib/api";
 
 const RANGES = [
   { id: "24h",  label: "24h",  desc: "hourly" },
