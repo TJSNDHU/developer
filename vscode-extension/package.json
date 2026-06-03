@@ -1,0 +1,57 @@
+{
+  "name": "aurem-cto",
+  "displayName": "AUREM CTO — AI Engineer for Your Repo",
+  "description": "ORA AI chat sidebar. Right-click to ship code directly to GitHub.",
+  "version": "0.1.0",
+  "publisher": "auremcto",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Other"],
+  "keywords": ["ai", "github", "agent", "commit", "aurem", "ora"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "aurem.openChat", "title": "AUREM: Open ORA Chat" },
+      { "command": "aurem.shipSelection", "title": "Ship via AUREM CTO" },
+      { "command": "aurem.login", "title": "AUREM: Connect GitHub" },
+      { "command": "aurem.logout", "title": "AUREM: Disconnect" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "aurem.shipSelection", "when": "editorHasSelection", "group": "aurem@1" }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "aurem-sidebar", "title": "AUREM ORA", "icon": "assets/sidebar-icon.svg" }
+      ]
+    },
+    "views": {
+      "aurem-sidebar": [
+        { "type": "webview", "id": "aurem.chatView", "name": "ORA Chat" }
+      ]
+    },
+    "configuration": {
+      "title": "AUREM CTO",
+      "properties": {
+        "aurem.serverUrl": {
+          "type": "string",
+          "default": "https://auremcto.com",
+          "description": "AUREM backend URL"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
