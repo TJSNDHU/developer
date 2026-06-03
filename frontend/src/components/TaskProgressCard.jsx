@@ -100,8 +100,8 @@ export default function TaskProgressCard({ taskId, task, project, onRollback }) 
         minWidth: 260,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Loader2 size={12} style={{ animation: "spin 1s linear infinite", color: "var(--accent-2)" }} />
-          <span>{current.icon} {current.label}</span>
+          <Loader2 size={12} style={{ animation: "spin 1s linear infinite", color: "var(--info)" }} />
+          <span style={{ color: "var(--info)" }}>{current.icon} {current.label}</span>
           <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10 }}>{taskId}</span>
         </div>
         {(task?.steps || []).slice(-2).map((s, i) => (

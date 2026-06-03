@@ -16,16 +16,25 @@
   --bg-elev: #0d1018;
   --panel: #11141d;
   --panel-2: #161a25;
-  --border: rgba(255, 200, 120, 0.08);
-  --border-strong: rgba(255, 200, 120, 0.18);
+  /* Borders — Iter 66 design-spec lock:
+     default 0.10 (per "Default border" spec line)
+     strong  0.22 (per "Ghost button border" spec line) */
+  --border: rgba(255, 200, 120, 0.10);
+  --border-strong: rgba(255, 200, 120, 0.22);
   --text: #f4ecdc;
   --text-dim: #a39d8a;
   --text-faint: #6b6557;
-  --accent: #ff8a2a;       /* sodium-amber */
-  --accent-2: #ffc560;     /* warm gold */
+  --accent: #ff8a2a;       /* sodium amber (primary) */
+  --accent-end: #e57718;   /* primary gradient endpoint */
+  --accent-2: #ffc560;     /* warm gold (secondary) */
   --accent-soft: rgba(255, 138, 42, 0.12);
-  --danger: #ff6b6b;
+  /* Semantic status colors — see spec strip
+     ok=#6dd4a1 · error=#ff6b6b · warn=#ffc560 · info=#7da4ff */
   --ok: #6dd4a1;
+  --danger: #ff6b6b;
+  --danger-soft: rgba(255, 107, 107, 0.12);
+  --warn: #ffc560;
+  --info: #7da4ff;
 }
 
 * { box-sizing: border-box; }
@@ -76,7 +85,7 @@ a:hover { color: var(--accent); }
   align-items: center;
   gap: 8px;
   padding: 12px 20px;
-  background: linear-gradient(180deg, var(--accent) 0%, #e57718 100%);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-end) 100%);
   color: #0a0a0a;
   font-weight: 600;
   font-size: 14px;
@@ -91,7 +100,28 @@ a:hover { color: var(--accent); }
   transform: translateY(-1px);
   box-shadow: 0 12px 40px -10px rgba(255, 138, 42, 0.8);
 }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }   /* Iter 66 — spec: 0.4 */
+
+/* Iter 66 — danger variant per spec strip */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(255, 107, 107, 0.30);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+  transition: background 150ms, border-color 150ms;
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.18);
+  border-color: rgba(255, 107, 107, 0.45);
+}
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ghost button */
 .btn-ghost {

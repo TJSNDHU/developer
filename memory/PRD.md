@@ -1824,3 +1824,54 @@ Returns structured report so UI can show exactly what landed.
 
 ### Live curl verified
 `/admin/agent-tokens?range=7d` → `{range:7d, bucket:daily, series:[…], totals_tokens:{deepseek:1500}, costs_usd:{deepseek:0.45}, claude_vs_deepseek:null (no Claude tasks yet)}`. Switching `?range=24h` → bucket changes to `hourly`. ✓
+
+
+---
+
+## Iter 66 — Design tokens locked to spec (Feb 2026)
+
+User shared the official design-spec screenshots (color tokens · buttons · badges · nav · cards · modals · inputs · toggles · code block). All tokens **verified or locked** to exact spec values in `index.css`:
+
+### `:root` tokens (exact spec)
+```
+--bg            #07080d      page background
+--bg-elev       #0d1018      elevated bg
+--panel         #11141d      cards, sidebar
+--panel-2       #161a25      inputs, toolbar
+
+--text          #f4ecdc      primary text
+--text-dim      #a39d8a      secondary text
+--text-faint    #6b6557      placeholder, faint
+
+--accent        #ff8a2a      sodium amber (primary)
+--accent-end    #e57718      primary gradient endpoint  ← NEW Iter 66
+--accent-2      #ffc560      warm gold (secondary)
+--accent-soft   rgba(255,138,42,0.12)
+
+--border        rgba(255,200,120,0.10)   ← adjusted Iter 66 (was 0.08)
+--border-strong rgba(255,200,120,0.22)   ← adjusted Iter 66 (was 0.18)
+
+--ok            #6dd4a1      shipped badge
+--danger        #ff6b6b      error badge
+--danger-soft   rgba(255,107,107,0.12)  ← NEW Iter 66
+--warn          #ffc560      queued badge        ← NEW Iter 66
+--info          #7da4ff      running badge       ← NEW Iter 66
+```
+
+### Component additions
+- `.btn-primary` now uses `linear-gradient(180deg, var(--accent), var(--accent-end))` (no more hardcoded `#e57718`).
+- `.btn-primary:disabled` opacity 0.5 → **0.4** (spec).
+- **`.btn-danger`** new class — uses `var(--danger-soft)` bg + `var(--danger)` text per spec strip.
+- `TaskProgressCard.jsx` running state now uses `var(--info)` (blue spinner) — matches "RUNNING" badge in spec.
+
+### Tests `/app/backend/tests/test_iter66_design_tokens_lock.py`
+5 source-level lock tests — fail loudly if any hex drifts. Locks:
+- Every hex in `:root` exact-matches spec
+- Every rgba() in `:root` exact-matches spec
+- `.btn-primary` uses `var(--accent-end)` (no hardcoded hex allowed)
+- `.btn-primary:disabled` opacity = 0.4
+- `.btn-danger` exists with correct vars
+- All 5 status palette hexes (ok/error/warn/info/accent) present
+
+**Standing rule** (added to RECURRING_ISSUES.md philosophy):
+> Future agents touching `index.css` MUST update `test_iter66_design_tokens_lock.py` if they intentionally change a token, AND the user must approve the drift. Silent hex changes = test failure.
