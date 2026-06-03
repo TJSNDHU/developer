@@ -587,6 +587,17 @@ async def chat_stream(
                         "needs_confirm": _conf["needs_confirm"]
                             and not getattr(body, "mode_override", None),
                     })
+                    # Fire-and-forget telemetry — keeps a rolling window
+                    # of the last 100 classifications so we can tune the
+                    # vocabulary against real-world ambiguity. Failures
+                    # MUST NOT block the chat path.
+                    try:
+                        from services.mode_classifier import log_classification
+                        _ = asyncio.create_task(
+                            log_classification(get_db(), _conf, body.prompt or "")
+                        )
+                    except Exception:
+                        pass
                 else:
                     await q.put({"type": "mode", "mode": _mode})
 

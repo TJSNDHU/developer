@@ -1967,3 +1967,54 @@ Pattern #1 upgraded from PARTIAL to **FULLY FIXED**. Only #5 remains (codebase h
 - `frontend/src/pages/BrainDump.jsx` — new (220 lines)
 - `frontend/src/pages/AdminOverview.jsx` — build banner at top
 - `memory/RECURRING_ISSUES.md` — Pattern #1, #3 marked FULLY FIXED
+
+
+---
+
+## Iter 70 — Mode classifier telemetry + Brain Replay (Feb 2026)
+
+### TASK 1 — Mode classifier telemetry ✅
+**Backend** `services/mode_classifier.py::log_classification(db, result, message)`:
+- Async fire-and-forget helper, swallows all exceptions
+- Stores `mode`, `confidence`, `scores`, `needs_confirm`, `f12_forced`, `msg_len`, `ts` (NO message text — privacy)
+- Rolling window cap at 100 docs via batched delete-oldest
+
+**Backend** `GET /admin/mode-telemetry`:
+- Returns `total`, `mode_counts` (Counter), `needs_confirm_pct`, `f12_forced_pct`, `avg_confidence`, `recent` (last 10)
+- Admin-gated
+
+**Backend** `routers/chat.py` SSE path:
+- After classification v2, fires `asyncio.create_task(log_classification(…))` inside try/except — never blocks the chat path
+
+**Frontend** AdminOverview adds a one-line telemetry strip:
+- Per-mode counts (A:2 · B:3 · C:5 · D:8 · E:1)
+- `avg conf 0.89`
+- `ambiguous 8%` (warn-colored if > 15%)
+- `F12-forced X%`
+
+### TASK 2 — Brain Replay endpoint + form ✅
+**Backend** `POST /admin/brain/{project_id}/replay`:
+- Admin-gated, takes `{question}`, returns `{question, answer, brain_chars, context_used}`
+- Reads brain via same `get_brain_context(github_token=…)` as the live chat path so the sandbox is comparable
+- Read-only by construction: zero `insert_one`, zero `commit_files`, zero Vanguard
+- Hard 2000-char limit on question
+
+**Frontend** `BrainDump.jsx` `<BrainReplay />` sub-component:
+- Inline form below tech-stack badges, italic disclaimer "No commits, no writes — purely diagnostic"
+- Input + Ask button, shows ORA's answer in a monospace block with brain-chars-used footer
+
+### TASK 3 — VS Code extension publish
+**SKIPPED** — `/app/vscode-extension/` folder doesn't exist in the repo. Iter 49 output was a zip download, not committed. Building from scratch is a 600+ line separate iter. Logged in backlog.
+
+### Tests + verify
+- **8/8 Iter 70 tests pass**
+- **Full regression: 362 pass / 14 fail** (same 14 pre-existing env failures, zero new regressions)
+- Live curl verified: telemetry returns 0-state for fresh DB → 3-state after triggering 3 chat messages; brain replay returns 400 on empty question, 404 on missing project, 200 on real project
+- End-to-end: SSE chat → telemetry stored → admin endpoint returns aggregates
+
+### Files changed
+- `backend/services/mode_classifier.py` — `log_classification` async helper
+- `backend/routers/chat.py` — fire-and-forget telemetry after classify_intent_v2
+- `backend/routers/admin.py` — `/admin/mode-telemetry` + `/admin/brain/{id}/replay` endpoints
+- `frontend/src/pages/AdminOverview.jsx` — telemetry strip below CachePurgePanel
+- `frontend/src/pages/BrainDump.jsx` — `<BrainReplay />` sub-component

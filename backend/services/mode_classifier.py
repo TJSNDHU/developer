@@ -135,3 +135,44 @@ def classify_intent_v2(
         "needs_confirm": confidence < _NEEDS_CONFIRM_THRESHOLD,
         "f12_forced": False,
     }
+
+
+# Rolling-window telemetry — last 100 classifications kept in MongoDB
+# for ambiguity tuning. Capped via a delete-oldest sweep on each insert
+# so the collection never grows unbounded.
+_TELEMETRY_WINDOW = 100
+
+
+async def log_classification(db, result: dict, message: str) -> None:
+    """Fire-and-forget. Caller should wrap in asyncio.create_task or
+    a swallowing try/except — failures here MUST NOT break the chat
+    path. Stores only the result metadata + message length (not the
+    message itself, for privacy)."""
+    if db is None or not result:
+        return
+    try:
+        import time as _time
+        await db["mode_classifications"].insert_one({
+            "mode":          result.get("mode"),
+            "confidence":    float(result.get("confidence", 0.0)),
+            "scores":        result.get("scores", {}),
+            "needs_confirm": bool(result.get("needs_confirm", False)),
+            "f12_forced":    bool(result.get("f12_forced", False)),
+            "msg_len":       len(message or ""),
+            "ts":            _time.time(),
+        })
+        count = await db["mode_classifications"].count_documents({})
+        if count > _TELEMETRY_WINDOW:
+            # Delete the oldest entries in one batched call instead of
+            # looping count-100 times — cheap on a 100-doc collection.
+            overflow = count - _TELEMETRY_WINDOW
+            old_docs = await db["mode_classifications"].find(
+                {}, {"_id": 1}
+            ).sort("ts", 1).limit(overflow).to_list(overflow)
+            if old_docs:
+                await db["mode_classifications"].delete_many(
+                    {"_id": {"$in": [d["_id"] for d in old_docs]}}
+                )
+    except Exception:
+        # swallow — telemetry must never break the chat
+        return

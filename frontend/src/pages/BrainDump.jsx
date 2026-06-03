@@ -194,6 +194,10 @@ export default function BrainDump() {
               </div>
             </Section>
           )}
+
+          {/* Brain replay — sandbox "what would ORA say?" tester.
+              Pure read-only: no MongoDB writes, no commit, no Vanguard. */}
+          <BrainReplay projectId={projectId} />
         </>
       )}
     </div>
@@ -223,5 +227,96 @@ function Row({ children, testid }) {
     }}>
       {children}
     </div>
+  );
+}
+
+
+function BrainReplay({ projectId }) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer]     = useState(null);
+  const [busy, setBusy]         = useState(false);
+  const [err, setErr]           = useState(null);
+
+  async function ask(e) {
+    e?.preventDefault();
+    const q = question.trim();
+    if (!q || busy) return;
+    setBusy(true);
+    setErr(null);
+    setAnswer(null);
+    try {
+      const r = await api.post(
+        `/admin/brain/${projectId}/replay`,
+        { question: q },
+        AUTH(),
+      );
+      setAnswer(r.data);
+    } catch (e2) {
+      setErr(e2?.response?.data?.detail || e2.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Brain replay — sandbox tester (read-only)">
+      <div data-testid="brain-replay" style={{
+        padding: "12px 14px",
+        background: "var(--panel-2)",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+      }}>
+        <div style={{ fontSize: 11, color: "var(--text-faint)",
+                       marginBottom: 10, fontStyle: "italic" }}>
+          Ask ORA a question using ONLY this project's brain context.
+          No commits, no writes, no Vanguard scan — purely diagnostic.
+        </div>
+        <form onSubmit={ask} style={{ display: "flex", gap: 8,
+                                       flexWrap: "wrap" }}>
+          <input
+            data-testid="brain-replay-input"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="e.g. what tech stack does this project use?"
+            className="input"
+            style={{ flex: 1, minWidth: 220 }}
+            maxLength={2000}
+          />
+          <button
+            type="submit"
+            data-testid="brain-replay-ask"
+            disabled={busy || !question.trim()}
+            className="btn-primary"
+            style={{ padding: "8px 16px", fontSize: 12 }}
+          >
+            {busy ? "Asking…" : "Ask ORA"}
+          </button>
+        </form>
+        {err && (
+          <div data-testid="brain-replay-error" style={{
+            marginTop: 10, padding: "8px 10px", fontSize: 11,
+            background: "var(--danger-soft)", color: "var(--danger)",
+            border: "1px solid var(--danger)", borderRadius: 4,
+          }}>{err}</div>
+        )}
+        {answer && (
+          <div data-testid="brain-replay-answer" style={{
+            marginTop: 12, padding: "10px 12px",
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border)",
+            borderRadius: 4, fontSize: 12, color: "var(--text)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            lineHeight: 1.55, overflowWrap: "anywhere",
+          }}>
+            {answer.answer}
+            <div style={{ marginTop: 8, fontSize: 10,
+                           color: "var(--text-faint)",
+                           fontFamily: "'JetBrains Mono', monospace" }}>
+              {answer.brain_chars} chars of brain context used
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
   );
 }

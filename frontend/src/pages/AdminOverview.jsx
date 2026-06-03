@@ -15,24 +15,26 @@ export default function AdminOverview() {
   const [stats,   setStats]   = useState(null);
   const [wall,    setWall]    = useState(null);
   const [council, setCouncil] = useState(null);
+  const [telemetry, setTelemetry] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
-    // /health lives at the app root (`/api/health`), not under
-    // /api/aurem-dev. Use a direct fetch so we hit the right URL.
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes] = await Promise.allSettled([
-        fetch(HEALTH_URL).then((r) => r.json()),
-        api.get("/usage/public/stats"),
-        api.get("/wall/stats"),
-        api.get("/admin/council/stats", { headers: h }),
-      ]);
-      if (healthRes.status  === "fulfilled") setHealth(healthRes.value);
-      if (statsRes.status   === "fulfilled") setStats(statsRes.value.data);
-      if (wallRes.status    === "fulfilled") setWall(wallRes.value.data);
-      if (councilRes.status === "fulfilled") setCouncil(councilRes.value.data);
+      const [healthRes, statsRes, wallRes, councilRes, telRes] =
+        await Promise.allSettled([
+          fetch(HEALTH_URL).then((r) => r.json()),
+          api.get("/usage/public/stats"),
+          api.get("/wall/stats"),
+          api.get("/admin/council/stats",   { headers: h }),
+          api.get("/admin/mode-telemetry",  { headers: h }),
+        ]);
+      if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
+      if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
+      if (wallRes.status     === "fulfilled") setWall(wallRes.value.data);
+      if (councilRes.status  === "fulfilled") setCouncil(councilRes.value.data);
+      if (telRes.status      === "fulfilled") setTelemetry(telRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -89,6 +91,53 @@ export default function AdminOverview() {
 
       {/* ── Cache & refresh (Iter 63) ───────────────────────── */}
       <CachePurgePanel />
+
+      {/* ── Mode classifier telemetry — last 100 messages ──── */}
+      {telemetry && telemetry.total > 0 && (
+        <Section title="Mode classifier — last 100 messages">
+          <div data-testid="mode-telemetry-panel" style={{
+            padding: "12px 14px",
+            background: "var(--panel)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            display: "flex", flexWrap: "wrap",
+            gap: 14, alignItems: "center",
+            fontSize: 12, color: "var(--text-dim)",
+          }}>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "var(--text)", letterSpacing: "0.05em",
+            }}>
+              {Object.entries(telemetry.mode_counts).sort()
+                .map(([m, n]) => (
+                  <span key={m}
+                        data-testid={`mode-count-${m}`}
+                        style={{ marginRight: 14 }}>
+                    {m}: <b style={{ color: "var(--accent-2)" }}>{n}</b>
+                  </span>
+                ))}
+            </div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 12 }}>
+              <span data-testid="mode-avg-confidence">
+                avg conf <b style={{ color: "var(--text)" }}>
+                  {telemetry.avg_confidence}
+                </b>
+              </span>
+              <span data-testid="mode-needs-confirm-pct">
+                ambiguous <b style={{
+                  color: telemetry.needs_confirm_pct > 15
+                    ? "var(--warn)" : "var(--text)",
+                }}>
+                  {telemetry.needs_confirm_pct}%
+                </b>
+              </span>
+              {telemetry.f12_forced_pct > 0 && (
+                <span>F12-forced <b>{telemetry.f12_forced_pct}%</b></span>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
 
       {/* ── User metrics ────────────────────────────────────── */}
       <Section title="Users & ships">

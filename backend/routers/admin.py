@@ -825,6 +825,108 @@ async def admin_brain_dump(
     }
 
 
+# ── Mode classifier telemetry — rolling-window 100 docs ───────────────
+@router.get("/mode-telemetry")
+async def mode_telemetry(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Aggregates the last 100 mode classifications + the most recent 10
+    raw entries. Lets the founder see which modes ORA picks most often,
+    how often it asks for confirmation, and how confident it is on avg.
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    docs = await db["mode_classifications"].find(
+        {}, {"_id": 0}
+    ).sort("ts", -1).limit(100).to_list(100)
+
+    from collections import Counter
+    mode_counts = Counter(d.get("mode", "?") for d in docs)
+    needs_confirm_count = sum(1 for d in docs if d.get("needs_confirm"))
+    f12_forced_count = sum(1 for d in docs if d.get("f12_forced"))
+    avg_confidence = (
+        sum(d.get("confidence", 0.0) for d in docs) / len(docs)
+        if docs else 0.0
+    )
+    total = len(docs)
+    return {
+        "total":              total,
+        "mode_counts":        dict(mode_counts),
+        "needs_confirm_pct":  round(needs_confirm_count / max(total, 1) * 100, 1),
+        "f12_forced_pct":     round(f12_forced_count    / max(total, 1) * 100, 1),
+        "avg_confidence":     round(avg_confidence, 2),
+        "recent":             docs[:10],
+    }
+
+
+# ── Brain replay — sandbox "what would ORA say" without committing ───
+@router.post("/brain/{project_id}/replay")
+async def admin_brain_replay(
+    project_id: str,
+    payload: dict,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Read-only ORA tester. Given a project's assembled brain context,
+    answer a question without writing to MongoDB, without invoking
+    Vanguard/Mode-D, and without firing any commit. Used to debug
+    'ORA gave a wrong answer' cases — founder can iterate on the
+    question text and see how ORA's response changes.
+    """
+    await _require_admin(authorization)
+    question = (payload or {}).get("question", "").strip()
+    if not question:
+        raise HTTPException(400, "question required")
+    if len(question) > 2000:
+        raise HTTPException(400, "question too long (max 2000 chars)")
+
+    db = require_db()
+    proj = await db.cto_projects.find_one({"project_id": project_id})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+
+    # Match the PAT resolution used by the real chat path so the replay
+    # answer is comparable to what a user would actually get.
+    token = None
+    try:
+        from routers.cto_projects import _decrypt_pat, _user_gh_token
+        token = await _decrypt_pat(proj["user_id"], proj.get("github_token")) \
+            or await _user_gh_token(proj["user_id"])
+    except Exception:
+        token = None
+
+    from services.project_brain import get_brain_context
+    from services.llm import call_llm
+
+    repo_full = f"{proj.get('github_owner', '')}/{proj.get('github_repo', '')}"
+    brain_ctx = await get_brain_context(
+        db, project_id, repo_full, github_token=token,
+    )
+
+    system = (
+        "You are ORA, AUREM's AI engineer. You know this about the project:\n\n"
+        + (brain_ctx or "(no project memory recorded yet)")
+        + "\n\nAnswer the user's question directly using only the context "
+          "above. Do not write code, do not propose commits — this is a "
+          "read-only diagnostic session."
+    )
+    try:
+        answer = await call_llm(
+            messages=[{"role": "user", "content": question}],
+            system=system, max_tokens=600, temperature=0.2,
+        )
+    except Exception as e:
+        raise HTTPException(502, f"LLM call failed: {e}")
+
+    return {
+        "project_id":    project_id,
+        "question":      question,
+        "answer":        answer,
+        "brain_chars":   len(brain_ctx),
+        "context_used":  bool(brain_ctx),
+    }
+
+
+
 @router.delete("/project-brain/{project_id}/preference")
 async def admin_brain_delete_preference(
     project_id: str,
