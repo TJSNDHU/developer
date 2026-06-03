@@ -214,7 +214,7 @@ request after pattern recurrence in Pillar 4 / command_hub work._
 | #1 — Empty file body retry loop | **PARTIAL FIX** — retry endpoint now passes previous error + explicit "write FULL implementation" hint into new task's `context`. In-task auto-regenerate before failing still TODO (deeper orchestrator surgery — deferred). | `backend/routers/cto_projects.py::retry_task` |
 | #2 — 90s timeout misleading message | **FIXED** — when `tool_count < 3`, message reads "Model API was slow", `slow_api: true` flag in meta payload. | `backend/routers/chat.py` ~line 847 |
 | #3 — Mode D boilerplate for missing-signal cases | **OPEN** — needs Mode D prompt threshold lowering. Deferred (P2). | `backend/services/mode_d_debug.py` |
-| #4 — Wrong-mode classification | **OPEN** — needs `mode_classifier.py` to be created. Confidence scoring sketch in master prompt, deferred (P2). | NEW: `backend/services/mode_classifier.py` |
+| #4 — Wrong-mode classification | **FIXED** — new `services/mode_classifier.py` adds `classify_intent_v2()` with confidence scores + `needs_confirm` flag. Wired into `routers/chat.py` so SSE `mode` event now carries `confidence`, `scores`, `needs_confirm`. UI can ask user when ambiguous. | `backend/services/mode_classifier.py` + `routers/chat.py` |
 | #5 — Multi-file scaffold 1-of-N | **VERIFIED NO HARD CAP IN CODE** — `_run_task` doesn't limit edits count. The 1-of-N pattern is from the LLM's own self-limiting. Deferred — needs prompt engineering, not codebase change. | n/a |
 | #6 — Stale browser cache | **FIXED** (Iter 63) — admin panel "🧹 Purge & hard-refresh" button. | `frontend/src/pages/AdminOverview.jsx` |
 

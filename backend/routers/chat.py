@@ -554,11 +554,30 @@ async def chat_stream(
                             await q.put({"type": "result", "result": result})
                             return
 
-                # ─── Iter 42 — Mode classifier + Mode D/E early routing ───
-                # Decide A/B/C/D/E once and broadcast to frontend so the UI
+                # Decide A/B/C/D/E/F once and broadcast to frontend so the UI
                 # can show the live pill before tokens stream.
                 _mode = classify_intent(body.prompt or "", body.f12_payload)
-                await q.put({"type": "mode", "mode": _mode})
+                # Confidence scoring — surfaces a `mode_confirm` event when
+                # the message is ambiguous so the UI can ask the user
+                # before burning an LLM call on the wrong mode. Honoured
+                # only when the user has NOT explicitly overridden via
+                # body.mode_override (mode_override skips confirm).
+                try:
+                    from services.mode_classifier import classify_intent_v2
+                    _conf = classify_intent_v2(body.prompt or "", body.f12_payload)
+                except Exception:
+                    _conf = None
+                if _conf:
+                    await q.put({
+                        "type": "mode",
+                        "mode": _mode,
+                        "confidence": _conf["confidence"],
+                        "scores": _conf["scores"],
+                        "needs_confirm": _conf["needs_confirm"]
+                            and not getattr(body, "mode_override", None),
+                    })
+                else:
+                    await q.put({"type": "mode", "mode": _mode})
 
                 # Mode D — debug session (READ → DIAGNOSE → CONFIRM → fix)
                 # Mode E — full repo audit (REPORT only, no commit)
