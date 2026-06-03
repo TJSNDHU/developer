@@ -486,7 +486,6 @@ def _bucket_label(ts: float, granularity: str) -> str:
 
 
 
-# ── Empty stubs for unbuilt features ──────────────────────────────────
 @router.get("/payments")
 async def list_payments(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)

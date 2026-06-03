@@ -1,9 +1,13 @@
 """
-aurem_cto.routers.domain — P4 placeholder.
+aurem_cto.routers.domain — Custom domain config.
 
-Domain linking + 60-s cron verification probe. Builds the DNS-record
-table and Caddyfile snippet; once P4 lands, adds the verification
-badge + LE staging gate.
+Lets a user attach their own apex domain (e.g. `app.example.com`) to
+their AUREM-hosted preview. Generates the DNS records they need to
+create, the Caddyfile snippet that pairs with them, and a verify-dig
+command so they can confirm propagation themselves. The actual TLS
+issuance is handled by Caddy at request time via Let's Encrypt; this
+router only persists config + serves the latest verification status
+that the dns_verification cron writes back.
 """
 from __future__ import annotations
 

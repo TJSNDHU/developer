@@ -1,12 +1,15 @@
 """
-aurem_cto.routers.unlock — P6 unlock-request flow placeholder.
+aurem_cto.routers.unlock — Time-windowed GitHub-collaborator access.
 
-Customer requests temporary GitHub collaborator access. Admin approves
-with a time window; cron auto-revokes when the window expires. Full
-audit trail.
+Customer files a request for temporary collaborator access on their
+own repo. The request is persisted with status="pending" and reviewed
+manually by an admin (no automated approval yet). The `GET /mine`
+endpoint flags requests older than 7 days as `stale=True` so the UI
+can prompt the user to email support rather than silently waiting.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -41,12 +44,25 @@ async def request_unlock(body: UnlockRequestBody,
         "reason":      body.reason,
         "status":      "pending",
         "requested_at": _now_iso(),
+        "created_at":  time.time(),
         "approved_at": None,
         "approved_by": None,
         "expires_at":  None,
         "revoked_at":  None,
     })
-    return {"request_id": req_id, "status": "pending"}
+    return {
+        "ok":         True,
+        "request_id": req_id,
+        "status":     "pending",
+        "message": (
+            "Your unlock request has been submitted. Our team reviews "
+            "these manually — email support@auremcto.com if you need "
+            "this expedited."
+        ),
+    }
+
+
+_STALE_AFTER_S = 7 * 86400
 
 
 @router.get("/mine")
@@ -56,5 +72,23 @@ async def my_requests(authorization: str = Header(None)) -> dict[str, Any]:
     cur = db.aurem_cto_unlock_requests.find(
         {"user_id": me["user_id"]}, {"_id": 0},
     ).sort("requested_at", -1).limit(20)
-    rows = [d async for d in cur]
+    rows = []
+    now = time.time()
+    async for d in cur:
+        if d.get("status") == "pending":
+            # Older docs predate the created_at field — parse requested_at
+            # ISO string as a fallback so the staleness check still works
+            # for legacy rows.
+            ts = d.get("created_at")
+            if ts is None:
+                try:
+                    ts = datetime.fromisoformat(
+                        d.get("requested_at", "").replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    ts = now
+            d["stale"] = (now - ts) > _STALE_AFTER_S
+        else:
+            d["stale"] = False
+        rows.append(d)
     return {"requests": rows}

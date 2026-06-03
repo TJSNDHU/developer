@@ -1,13 +1,11 @@
 """
-aurem_cto.routers.harden — P1 server auto-hardening (placeholder).
+aurem_cto.routers.harden — Server hardening status (read-only).
 
-When a customer connects a server for the first time, this router
-SSHes in and runs apt update/upgrade, installs Docker + Compose +
-Caddy, sets up the deploy user, locks down root SSH, and returns the
-hardening report.
-
-Real implementation lands in the P1 slice. Right now only a status
-endpoint is exposed so the frontend can detect module presence.
+Surfaces the most recent hardening report for the authenticated user.
+The actual hardening run (SSH in, apt update/upgrade, install Docker +
+Caddy, lock down root SSH, create deploy user) is a manual operation
+right now — request it via support@auremcto.com. This endpoint just
+serves the persisted report once that work is done.
 """
 from __future__ import annotations
 
