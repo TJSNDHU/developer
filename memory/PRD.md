@@ -2309,3 +2309,61 @@ STRIPE_TEAM_PRICE_ID=price_…
 FRONTEND_URL=https://auremcto.com
 ```
 Webhook endpoint to register in Stripe: `https://auremcto.com/api/aurem-dev/payments/webhook`
+
+
+### Iter 75 — gap-closure: sandbox runner + DB task plan + esbuild + TF-IDF (Jun 2026)
+
+**GAP 1 — e2b sandbox runner (the big one — closes vs Cursor/Claude Code)**
+- `services/sandbox_runner.py` — three async helpers
+  (`run_python_check`, `run_tests_in_sandbox`, `validate_generated_files`).
+  All silently no-op when `E2B_API_KEY` is unset, when the SDK isn't
+  installed, or on any exception — never blocks the worker pipeline.
+- `_run_task_via_api` calls `validate_generated_files(edits, task)` AFTER
+  the AST/esbuild gate. If pytest tests are in the edits we run them
+  inside the sandbox; otherwise we run an `ast.parse` sweep. Test passes
+  surface as `Sandbox tests passed: N ✓` in the live tape.
+
+**GAP 2 — DB-backed multi-file task plan + structural contract retry**
+- When a multi-file task is detected we extract every concrete file path
+  the task/context mentions and persist them on the `cto_tasks` row as
+  `task_plan: [{file, status:"pending"}]`. A `task_plan` SSE frame is
+  emitted at pct=18 so the UI can render immediately.
+- After truncation passes, if `edits` is missing any promised file we
+  fire one targeted LLM retry ("You promised N files, only M arrived")
+  and merge the resulting blocks into `edits`. Soft-fail logged, never
+  blocks the pipeline.
+- Each per-file `task_state` emit now also flips the matching
+  `task_plan.$.status` to `"done"` so the UI ticks in real time.
+- `components/TaskManagementPanel.jsx` accepts a `taskId` prop and polls
+  `GET /cto/tasks/{id}` every 3 s for the DB plan. Falls back to the
+  text-parsed checklist when no taskId / no DB plan. `MessageBubble`
+  passes `m.shipped_task_id`.
+- Persona: new `MULTI-FILE CONTRACT — LEGALLY BINDING` section drilled
+  into the head of the persona file.
+
+**GAP 3 — TF-IDF fallback in semantic_search_repo**
+- `services/local_tools.py::semantic_search_repo` now tries GitHub Code
+  Search first and, if it returns <3 hits, merges results from a local
+  TF-IDF pass over the cached `cto_codebase_index` doc. Each row carries
+  `source: "github_search" | "index_tfidf"` so callers know the
+  provenance. Vector DB is still a future iter — this is the practical
+  upgrade that needs zero infra.
+
+**GAP 4 — esbuild → node --check JS/TS/JSX/TSX gate**
+- `_check_js_syntax` tries `esbuild --bundle=false --log-level=error`
+  first (JSX/TSX-aware). Falls back to `node --check` if esbuild is
+  missing. Tmpfile cleanup hardened with finally-block + nested try.
+- Dev image confirmed esbuild 0.28.0; production Dockerfile must ship
+  the same.
+
+**Tests**
+- 9 new tests in `test_iter75_gap_coverage.py` lock every gap.
+- `test_iter74_task_panel.py::test_task_management_panel_wired_into_message_bubble`
+  updated for the new render condition (assistant + checklist OR shipped task).
+- Full regression: **438 pass / 14 pre-existing env failures / 9 skips**
+  (429 → 438, +9 new, zero regressions).
+- Backend restart clean.
+
+**Env needed on prod** (handoff):
+- `E2B_API_KEY=e2b_…` — free 100 sandbox-hours/month at e2b.dev.
+  Without it everything still works; just no sandbox validation.

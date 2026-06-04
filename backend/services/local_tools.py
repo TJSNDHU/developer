@@ -546,19 +546,80 @@ async def semantic_search_repo(ctx: dict, args: dict) -> dict:
                 "error": f"GitHub search failed: {type(e).__name__}: {e}"}
 
     results = [
-        {"path": item["path"], "score": round(item.get("score", 0), 2)}
+        {"path": item["path"], "score": round(item.get("score", 0), 2),
+         "source": "github_search"}
         for item in data.get("items", [])
     ]
+
+    # Fall back to a local TF-IDF pass over the cached codebase index
+    # when GitHub Code Search came back thin (rate-limit, private repo
+    # not yet indexed, etc.). Merge — dedup by path.
+    if len(results) < 3:
+        try:
+            tfidf_hits = await _index_tfidf_search(
+                query, user_id, project_id, max_hits - len(results),
+            )
+            seen = {r["path"] for r in results}
+            for h in tfidf_hits:
+                if h["path"] not in seen:
+                    results.append(h)
+                    seen.add(h["path"])
+        except Exception:
+            pass
+
     return {
         "ok":      True,
         "query":   query,
-        "total":   data.get("total_count", 0),
-        "results": results,
+        "total":   data.get("total_count", 0) or len(results),
+        "results": results[:max_hits],
         "hint": (
             f"Found {len(results)} files. "
             "Use read_repo_files to read the most relevant ones in parallel."
         ),
     }
+
+
+async def _index_tfidf_search(query: str, user_id: str,
+                              project_id: str, max_hits: int) -> list[dict]:
+    """Bag-of-words overlap scorer over the cached codebase index.
+
+    Returns at most `max_hits` results sorted by descending score.
+    Empty list on any error so callers can no-op the fallback.
+    """
+    if max_hits <= 0:
+        return []
+    try:
+        from cto_services.db import get_db as _gdb
+        db = _gdb()
+        if db is None:
+            return []
+        idx = await db.cto_codebase_index.find_one(
+            {"user_id": user_id, "project_id": project_id},
+            {"files": 1, "_id": 0},
+        )
+        if not idx or not idx.get("files"):
+            return []
+        q_words = {w for w in query.lower().split() if len(w) > 2}
+        if not q_words:
+            return []
+        scored: list[dict] = []
+        for f in idx["files"]:
+            blob = (
+                (f.get("snippet") or "")
+                + " " + (f.get("path") or "")
+                + " " + (f.get("role") or "")
+            ).lower()
+            overlap = sum(1 for w in q_words if w in blob)
+            if overlap:
+                scored.append({
+                    "path":   f.get("path") or "",
+                    "score":  round(overlap / max(len(q_words), 1), 2),
+                    "source": "index_tfidf",
+                })
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:max_hits]
+    except Exception:
+        return []
 
 
 # ── TOOL 6: get_commit_diff (single-commit patch) ────────────────────────────

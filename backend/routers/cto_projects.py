@@ -1091,6 +1091,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         )
         _is_multi = any(kw in task.lower() for kw in _multi_file_keywords)
         _multi_file_instruction = ""
+        _promised_files: set[str] = set()
         if _is_multi:
             _multi_file_instruction = (
                 "\n\nMULTI-FILE TASK DETECTED: You MUST generate ALL required "
@@ -1099,6 +1100,26 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 "checklist format: [ ] file → [x] done. Ship the complete "
                 "implementation in one commit."
             )
+            # Structural multi-file contract — extract every concrete file
+            # path mentioned in the task/context.  If the LLM later returns
+            # an `edits` dict missing any of these, we auto-retry with a
+            # very specific "you promised N files, only M arrived" nudge.
+            import re as _refm
+            _promised_files = set(_refm.findall(
+                r"[\w./-]+\.(?:py|jsx?|tsx?|css|json|md|html|yml|yaml)",
+                f"{task}\n{context or ''}",
+            ))
+            if _promised_files:
+                db_for_plan = get_db()
+                if db_for_plan is not None:
+                    _plan = [{"file": f, "status": "pending"}
+                             for f in sorted(_promised_files)[:12]]
+                    await db_for_plan.cto_tasks.update_one(
+                        {"task_id": task_id},
+                        {"$set": {"task_plan": _plan}},
+                    )
+                    await _emit(task_id, f"Plan: {len(_plan)} files",
+                                kind="task_plan", plan=_plan, pct=18)
 
         user_msg = (
             f"TASK: {task}\n"
@@ -1267,6 +1288,46 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _emit(task_id, "Running linter…", pct=75)
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
+        # ── Multi-file contract — verify every file the user promised
+        # actually arrived. If something is missing we ask the LLM to
+        # fill the gap in one targeted retry and merge the result.
+        if _is_multi and _promised_files:
+            _delivered = {p.lstrip("./") for p in edits.keys()}
+            _missing = {f for f in _promised_files
+                        if f.lstrip("./") not in _delivered}
+            if _missing and len(_missing) <= 4:
+                await _emit(task_id,
+                            f"Missing files — regenerating ({len(_missing)})…",
+                            pct=77)
+                await _log(task_id,
+                           f"⚠️ Multi-file contract: missing "
+                           f"{', '.join(sorted(_missing))}", "warning")
+                _miss_nudge = (
+                    "Your previous response was missing these files that "
+                    "the task explicitly references:\n  - "
+                    + "\n  - ".join(sorted(_missing))
+                    + "\n\nGenerate the COMPLETE content for every missing "
+                      "file now, in the same FILE: <path>\n```\n…\n``` format. "
+                      "Output every missing file in one response — no "
+                      "'Next:', no 'Reply to continue'."
+                )
+                try:
+                    fill = await _retry(
+                        lambda: call_llm(
+                            messages=[{"role": "user",
+                                       "content": user_msg + "\n\n" + _miss_nudge}],
+                            system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                        ),
+                        what="multi-file contract retry", task_id=task_id,
+                    )
+                    for _m in re.finditer(
+                        r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
+                        fill, re.DOTALL,
+                    ):
+                        edits[_m.group(1).strip()] = _m.group(2)
+                except Exception as _fe:
+                    logger.warning("multi-file contract retry soft-failed: %r", _fe)
+
         # ── Syntax validation — catch broken code before it reaches GitHub.
         # AST check for Python, `node --check` for JS/TS when node is
         # available (falls back silently if not — never blocks the
@@ -1276,8 +1337,12 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _emit(task_id, "Validating generated code…", pct=78)
 
         def _check_js_syntax(filepath: str, content: str) -> Optional[str]:
-            """Return an error string for invalid JS/TS, None if valid OR
-            if node isn't installed (so we degrade gracefully)."""
+            """Return an error string for invalid JS/TS/JSX/TSX, None if
+            valid OR if neither esbuild nor node is installed (so we
+            degrade gracefully — never block on missing parsers).
+
+            Tries `esbuild` first (understands JSX/TSX/decorators), then
+            falls back to `node --check` (structural-only, no JSX)."""
             import subprocess as _sp_mod
             import tempfile as _tf
             import os as _os
@@ -1289,22 +1354,28 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 ) as fh:
                     fh.write(content)
                     tmp = fh.name
-                # `node --check` parses ESM/CJS without executing — fast
-                # (~30 ms) and zero side effects.  JSX/TSX get parsed as
-                # JS so this catches every unclosed bracket / typo;
-                # JSX-specific tags slip through, which is acceptable.
-                result = _sp_mod.run(
+                # 1) esbuild — proper JSX-aware parser
+                try:
+                    r = _sp_mod.run(
+                        ["esbuild", tmp, "--bundle=false", "--log-level=error"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if r.returncode != 0 and (r.stderr or "").strip():
+                        return (r.stderr or r.stdout).strip()[:300]
+                    return None
+                except FileNotFoundError:
+                    pass   # fall through to node
+                # 2) node --check — structural only, no JSX support
+                r = _sp_mod.run(
                     ["node", "--check", tmp],
                     capture_output=True, text=True, timeout=5,
                 )
-                if result.returncode != 0:
-                    return (result.stderr or result.stdout).strip()[:200]
+                if r.returncode != 0:
+                    return (r.stderr or r.stdout).strip()[:200]
                 return None
             except FileNotFoundError:
-                # node binary not present — skip silently
                 return None
             except Exception:
-                # never block the pipeline on this check failing
                 return None
             finally:
                 if tmp:
@@ -1386,6 +1457,36 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _emit(task_id, "Syntax error — task failed",
                         kind="fail", pct=100)
             return
+
+        # ── Sandbox validation (e2b) — runs generated Python in an
+        # isolated container so ORA can verify its own code before
+        # committing. Silently skipped if E2B_API_KEY isn't set.
+        try:
+            from services.sandbox_runner import validate_generated_files
+            _sandbox = await validate_generated_files(edits, task)
+            if not _sandbox.get("skipped"):
+                if _sandbox.get("ok"):
+                    _passed = (
+                        _sandbox.get("checks", {})
+                                 .get("tests", {})
+                                 .get("passed", 0)
+                    )
+                    if _passed > 0:
+                        await _emit(task_id, f"Sandbox tests passed: {_passed} ✓",
+                                    pct=80)
+                        await _log(task_id, f"Sandbox: {_passed} tests passed",
+                                   "success")
+                else:
+                    _tout = ""
+                    for _cn, _cr in (_sandbox.get("checks") or {}).items():
+                        if not _cr.get("ok"):
+                            _tout += (_cr.get("output") or _cr.get("stderr") or "")[:500]
+                    if _tout:
+                        await _log(task_id,
+                                   f"⚠️ Sandbox flagged failures:\n{_tout[:300]}",
+                                   "warning")
+        except Exception as _se:
+            logger.warning("sandbox validation soft-failed: %r", _se)
 
         # iter 41 — Design Linter (zero LLM cost, pure regex).
         # Auto-fixes safe issues first (console.log, transition: all), then
@@ -1498,6 +1599,18 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 files_total=_total,
                 pct=85 + int((_i / max(_total, 1)) * 5),
             )
+            # Flip the matching task_plan row → done so the UI's
+            # TaskManagementPanel ticks off in real time.
+            if _promised_files:
+                _db_plan = get_db()
+                if _db_plan is not None:
+                    try:
+                        await _db_plan.cto_tasks.update_one(
+                            {"task_id": task_id, "task_plan.file": _fp},
+                            {"$set": {"task_plan.$.status": "done"}},
+                        )
+                    except Exception:
+                        pass
         await _emit(task_id, "Committing to GitHub…", pct=90)
 
         async def _prog(step: str, status: str = "info"):

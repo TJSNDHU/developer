@@ -22,5 +22,7 @@ def test_task_management_panel_wired_into_message_bubble():
     js = _read("frontend/src/components/MessageBubble.jsx")
     assert "TaskManagementPanel" in js
     assert "hasChecklist" in js
-    # Renders only on assistant messages with checklist
-    assert "m.role === \"assistant\" && hasChecklist(m.content)" in js
+    # Renders for assistant messages that either carry a checklist OR
+    # have an attached shipped task (so the DB-backed plan can poll).
+    assert "m.role === \"assistant\"" in js
+    assert "hasChecklist(m.content)" in js

@@ -9,7 +9,8 @@
  *
  * Wire into MessageBubble.jsx — render when message contains checklist lines.
  */
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { api } from "../lib/api";
 
 const ITEM_RE = /^\s*\[([x/\s])\]\s+(.+)$/;
 
@@ -37,8 +38,44 @@ export function hasChecklist(text) {
   return text.split("\n").some(l => ITEM_RE.test(l));
 }
 
-export default function TaskManagementPanel({ text }) {
-  const items = useMemo(() => parseChecklist(text), [text]);
+export default function TaskManagementPanel({ text, taskId }) {
+  // If a taskId is provided we poll the DB-backed plan (source of truth
+  // for multi-file tasks). Otherwise we fall back to parsing the
+  // assistant message — same behaviour as before so single-file tasks
+  // still render their inline checklist.
+  const [dbPlan, setDbPlan] = useState(null);
+
+  useEffect(() => {
+    if (!taskId) return;
+    let cancelled = false;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const r = await api.get(`/cto/tasks/${taskId}`);
+        const plan = r.data?.task?.task_plan || r.data?.task_plan;
+        if (!cancelled && Array.isArray(plan) && plan.length) {
+          setDbPlan(plan);
+          // Stop polling once everything is done.
+          if (plan.every((p) => p.status === "done")) return;
+        }
+      } catch { /* ignore — keep polling */ }
+      if (!cancelled) timer = setTimeout(poll, 3000);
+    };
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [taskId]);
+
+  const items = useMemo(() => {
+    if (dbPlan && dbPlan.length) {
+      return dbPlan.map((p) => ({
+        status: p.status === "done" ? "done"
+              : p.status === "active" ? "active"
+              : "pending",
+        label: p.file || p.label || "",
+      }));
+    }
+    return parseChecklist(text);
+  }, [dbPlan, text]);
 
   if (!items.length) return null;
 

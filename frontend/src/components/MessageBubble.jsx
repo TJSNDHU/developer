@@ -373,9 +373,9 @@ export default function MessageBubble({
             </button>
           )}
           {m.content}
-          {/* Multi-file checklist parsed from ORA's message — pairs with Gap 3. */}
-          {m.role === "assistant" && hasChecklist(m.content) && (
-            <TaskManagementPanel text={m.content} />
+          {/* Multi-file checklist parsed from ORA's message + DB-backed plan (pairs with Gap 3 + structural multi-file contract). */}
+          {m.role === "assistant" && (hasChecklist(m.content) || m.shipped_task_id) && (
+            <TaskManagementPanel text={m.content} taskId={m.shipped_task_id} />
           )}
           {/* Inline HTML preview directly inside the bubble (separate from side PreviewPanel) */}
           {m.role === "assistant" && !m.streaming && (() => {
