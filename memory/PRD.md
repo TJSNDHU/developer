@@ -2152,3 +2152,57 @@ the OAuth flow lives inside step 1 so users never leave the modal.
 - Fresh login → "Continue with GitHub" appears as the primary CTA.
 - "Skip — paste a URL" flips to the manual input panel.
 - Dismissal flag still persists across reload.
+
+
+### Iter 74 — 4 technical-gap fixes (Jun 2026)
+
+**GAP 1 — Semantic codebase search**
+- `services/local_tools.py` → new `semantic_search_repo(query, language?, max?)`
+  hitting `GET https://api.github.com/search/code` scoped to
+  `repo:owner/repo`.  Returns `{path, score}` results + a hint telling
+  ORA to follow up with `read_repo_files` in parallel.
+- Also `get_commit_diff(sha)` hitting `GET /repos/{o}/{r}/commits/{sha}`
+  → returns the first 8 changed files with patch snippets (600 chars
+  each) so ORA can study HOW a similar past change was made.
+- Both registered in `TOOL_SPECS` and `LOCAL_TOOLS` dispatch.
+
+**GAP 2 — Python AST syntax validation**
+- `services/vanguard_scanner.py::scan_text` now runs `ast.parse` on any
+  `.py` blob and emits a `python_syntax_error` finding (severity
+  CRITICAL, source `ast`) the existing pre-push gate already blocks on.
+- `routers/cto_projects.py::_run_task_via_api` gained a dedicated
+  `_syntax_errors()` closure that runs AFTER the truncation gate and
+  BEFORE the design linter.  On failure → one auto-regen with the
+  exact errors fed back to the LLM, mirroring the existing empty-body
+  retry pattern.  If the retry still fails → task is marked failed with
+  an actionable rephrase hint.
+
+**GAP 3 — Multi-file task tracking**
+- `cto_projects.py::_run_task_via_api` keyword-detects multi-file
+  intent (`all`, `every`, `each`, `multiple`, `scaffold`, `workers`,
+  `pillar`, `complete`, `full implementation`) and appends a
+  `MULTI-FILE TASK DETECTED` instruction to `user_msg` telling the
+  model to ship ALL files in a single response with `[ ] → [x]` progress.
+
+**GAP 4 / 5 — Persona + parallel tool calls**
+- `orchestrator.py::_TOOL_HELP_TEMPLATE` now lists
+  `semantic_search_repo` and `get_commit_diff`, and carries an explicit
+  `# PARALLEL TOOL CALLS — CRITICAL FOR SPEED` block with a
+  sequential-vs-parallel example.
+- `orchestrator.py::AUREM_CTO_PERSONA` gained four new sections:
+  `SEARCH STRATEGY`, `PARALLEL READS — MANDATORY`, `MULTI-FILE TASK
+  EXECUTION`, `TASK STATE TRACKING`.
+
+**Tests + verify**
+- 11 new tests in `test_iter74_gaps.py`, all green.
+- Full regression: **408 pass / 14 pre-existing env failures / 9 skips**
+  (397 → 408, +11; zero new regressions).
+- `deep_testing_backend_v2` (iteration_8.json) confirms:
+  · semantic_search_repo + get_commit_diff registered & validated
+  · Vanguard AST gate catches syntax errors / passes valid Python /
+    leaves JS/TS alone
+  · pre-push gate matches design (auto-retry, then fail with actionable
+    error)
+  · multi-file instruction appended to user_msg (not silently dropped)
+  · SSE endpoint behaviour preserved (401 unauth, 404 missing task)
+  · No tracebacks leak from validation errors.
