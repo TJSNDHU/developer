@@ -601,6 +601,23 @@ async def chat_stream(
                 else:
                     await q.put({"type": "mode", "mode": _mode})
 
+                # Ops-intent signal — surfaces a deep-link to /admin/ops
+                # when the user asks for a server operation AUREM can't
+                # execute on their infra (e.g. "restart supervisor",
+                # "free disk space"). Avoids ORA fabricating bash.
+                try:
+                    from services.mode_classifier import looks_like_ops_request
+                    if looks_like_ops_request(body.prompt or ""):
+                        await q.put({"type": "ops_redirect",
+                                     "url": "/admin/ops",
+                                     "reason": "This is a server operation. "
+                                               "AUREM can't run commands on "
+                                               "your infrastructure — open "
+                                               "the Ops Recipes for copy-paste "
+                                               "runbooks."})
+                except Exception:
+                    pass
+
                 # Mode D — debug session (READ → DIAGNOSE → CONFIRM → fix)
                 # Mode E — full repo audit (REPORT only, no commit)
                 if _mode in ("D", "E"):

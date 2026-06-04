@@ -14,6 +14,7 @@ import Projects from "./pages/Projects";
 import Admin from "./pages/Admin";
 import ShipWall from "./pages/ShipWall";
 import BrainDump from "./pages/BrainDump";
+import OpsRecipes from "./pages/OpsRecipes";
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/ops" element={<OpsRecipes />} />
         <Route path="/admin/brain/:projectId" element={<BrainDump />} />
         <Route path="/wall" element={<ShipWall />} />
         <Route path="*" element={<Navigate to="/" replace />} />

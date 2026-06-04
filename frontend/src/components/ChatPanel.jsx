@@ -208,6 +208,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // banner so the user can rephrase next time if ORA picked the wrong
   // mode. Cleared automatically when a new prompt is sent.
   const [modeAmbiguous, setModeAmbiguous] = useState(null);
+  // Iter 73 — ORA-detected ops request → deep-link to /admin/ops instead
+  // of letting the model fabricate bash. Cleared on next prompt.
+  const [opsRedirect, setOpsRedirect] = useState(null);
   const lastF12PayloadRef = useRef(null);
   const endRef = useRef(null);
   const abortRef = useRef(null);
@@ -444,6 +447,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // Clear any leftover ambiguous-mode banner from the previous turn —
     // a new prompt = new classification.
     setModeAmbiguous(null);
+    setOpsRedirect(null);
     // Clear all attachments on send (uploading ones go too — UX rule:
     // hit Send → bubble shipped; what didn't make it can be re-attached).
     setAttachments([]);
@@ -515,6 +519,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           setModeAmbiguous(null);
         }
       },
+      onOpsRedirect: (m) => setOpsRedirect(m),
       // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
       // handoff) emits this BEFORE content streams. Pin the task_id on
       // the streaming assistant bubble so the ShipStatusCard renders
@@ -722,6 +727,44 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         })}
         <div ref={endRef} />
       </div>
+
+      {/* Ops redirect banner — when ORA detects "restart supervisor"
+          / "free disk space" etc, link to the runbook page instead of
+          letting the model fabricate bash commands. */}
+      {opsRedirect && (
+        <div data-testid="ops-redirect-banner" style={{
+          margin: "0 16px 8px",
+          padding: "10px 14px",
+          background: "var(--accent-soft)",
+          border: "1px solid var(--accent)",
+          borderRadius: 6, fontSize: 12,
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        }}>
+          <span style={{ color: "var(--text-dim)", flex: 1, minWidth: 200 }}>
+            {opsRedirect.reason || "This is a server operation that runs on your infra."}
+          </span>
+          <a
+            data-testid="ops-redirect-link"
+            href={opsRedirect.url || "/admin/ops"}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary"
+            style={{ padding: "4px 12px", fontSize: 11,
+                      textDecoration: "none" }}
+          >
+            Open Ops Recipes →
+          </a>
+          <button
+            type="button"
+            data-testid="ops-redirect-dismiss"
+            onClick={() => setOpsRedirect(null)}
+            className="btn-ghost"
+            style={{ padding: "4px 10px", fontSize: 11 }}
+          >
+            dismiss
+          </button>
+        </div>
+      )}
 
       {/* Ambiguous-mode disambiguation banner — non-blocking. Sits between
           the message list and the composer so it's the last thing the

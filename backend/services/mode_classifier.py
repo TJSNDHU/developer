@@ -176,3 +176,28 @@ async def log_classification(db, result: dict, message: str) -> None:
     except Exception:
         # swallow — telemetry must never break the chat
         return
+
+
+# Ops-intent detector — separate from mode classification because these
+# requests don't belong to any of A-F. They're infra ops AUREM cannot
+# (and shouldn't) run on the user's own server. Instead of letting ORA
+# fabricate bash commands, the frontend renders a deep-link to /admin/ops.
+_OPS_VOCAB = (
+    "restart supervisor", "supervisor restart", "supervisorctl",
+    "systemctl restart", "service restart", "reboot server",
+    "free disk space", "disk full", "no space left",
+    "mongod is down", "mongo connection refused", "mongodb crashed",
+    "free up memory", "out of memory", "oom killed",
+    "ssh into", "log into server", "check server logs",
+    "nginx restart", "caddy restart", "docker restart",
+)
+
+
+def looks_like_ops_request(message: str) -> bool:
+    """True when the user is asking AUREM to perform a server operation
+    we can't reach. Caller should redirect to /admin/ops instead of
+    letting ORA fabricate bash."""
+    if not message:
+        return False
+    low = message.lower()
+    return any(phrase in low for phrase in _OPS_VOCAB)

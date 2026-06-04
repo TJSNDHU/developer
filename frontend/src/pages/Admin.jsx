@@ -8,7 +8,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
   Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
-  LogOut, ExternalLink, ArrowLeft, Loader2, Brain, Eye,
+  LogOut, ExternalLink, ArrowLeft, Loader2, Brain, Eye, Terminal,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
@@ -1021,6 +1021,18 @@ export default function Admin() {
             </button>
           );
         })}
+        <Link
+          to="/admin/ops"
+          data-testid="admin-nav-ops"
+          className="btn-ghost"
+          style={{ display: "flex", alignItems: "center", gap: 10,
+                    padding: "8px 10px", marginBottom: 2,
+                    background: "transparent", color: "var(--text-dim)",
+                    border: "none", fontSize: 12, textAlign: "left",
+                    width: "100%", borderRadius: 4, textDecoration: "none",
+                    whiteSpace: "nowrap" }}>
+          <Terminal size={14} /> Ops recipes
+        </Link>
         </div>
         <div style={{ marginTop: "auto", paddingTop: 12, flexShrink: 0,
                        borderTop: "1px solid var(--border)" }}>
