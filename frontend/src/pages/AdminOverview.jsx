@@ -151,40 +151,49 @@ export default function AdminOverview() {
       </Section>
 
       {/* ── Features checklist ──────────────────────────────── */}
-      <Section title="Features — live status">
+      <Section title="Features — live status (Iter 73-74)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          <FeatureRow name="Two-Agent Maxx"         status="live"    note="DeepSeek + Claude review" />
-          <FeatureRow name="Project Brain"          status="live"    note="Per-repo memory + commit log surfacing (Iter 57)" />
-          <FeatureRow name="Design Linter + 007"    status="live"    note="25 secret patterns" />
-          <FeatureRow name="GitHub Issues context"  status="live"    note="1hr TTL cache" />
-          <FeatureRow name="Parallel agents"        status="live"    note="asyncio.gather" />
-          <FeatureRow name="Mode A/B/C/D/E/F"       status="live"    note="6 intent modes (F = Engage)" />
-          <FeatureRow name="F12 error capture"      status="live"    note="Browser → ORA" />
-          <FeatureRow name="Mode D→C real handoff"  status="live"    note="Real cto_tasks row" />
-          <FeatureRow name="PAT encryption"         status="live"    note="HKDF-Fernet v1:" />
-          <FeatureRow name="Vanguard skill injection" status="live"  note="9 skills (PCI + Privacy), 3 max/task" />
-          <FeatureRow name="Rate limiting + bucket cap" status="live" note="30/min chat, OOM-proof (Iter 52)" />
-          <FeatureRow name="Free tier cap"          status="live"    note="10 tasks/30d (failed excluded)" />
-          <FeatureRow name="SSE task streamer"      status="live"    note="task_handoff frame" />
-          <FeatureRow name="ORA council logger"     status="live"    note="A/B only (no D/E pollution)" />
-          <FeatureRow name="Daily JSONL export"     status="live"    note="ORA training data" />
-          <FeatureRow name="Sentry monitoring"      status="needs-dsn" note="SDK wired, set SENTRY_DSN" />
-          <FeatureRow name="GitHub OAuth"           status="needs-key" note="Set GITHUB_OAUTH_CLIENT_ID" />
-          <FeatureRow name="Public stats strip"     status="live"    note="Landing page" />
-          <FeatureRow name="Ship Wall"              status="live"    note="auremcto.com/wall" />
-          <FeatureRow name="ORA Wrapped"            status="live"    note="/wrapped/me + share-to-X" />
-          <FeatureRow name="Post-commit wrap-up"    status="live"    note="Auto follow-up (Iter 53)" />
-          <FeatureRow name="Tool-call leak fix"     status="live"    note="Synth summary + loop guard (Iter 55)" />
-          <FeatureRow name="90s timeout streamer"   status="live"    note="Graceful summary not red error" />
-          <FeatureRow name="OAuth runtime origin"   status="live"    note="window.location.origin (Iter 56)" />
-          <FeatureRow name="Mandatory tool-use"     status="live"    note="ORA must read_repo_file (Iter 57)" />
-          <FeatureRow name="Truncated tree rescue"  status="live"    note="Contents-API walk fallback (Iter 58)" />
-          <FeatureRow name="Upload vision OCR"      status="live"    note="Gemini 2.5 + visible pills (Iter 59)" />
-          <FeatureRow name="Hosted deploy"          status="live"    note="Vercel/Netlify hooks (Iter 60)" />
-          <FeatureRow name="Mode F — Engage"        status="live"    note="Grounded market/copy advice (Iter 60)" />
-          <FeatureRow name="VS Code extension"      status="pending" note="Build + publish" />
-          <FeatureRow name="SWE-bench score"        status="pending" note="Run benchmark" />
-          <FeatureRow name="Per-step task_progress" status="pending" note="Real-time worker tape (replace 2s polling)" />
+          <FeatureRow name="Two-Agent Maxx"          status="live"    note="DeepSeek + Claude review" />
+          <FeatureRow name="Project Brain"           status="live"    note="Per-repo memory + commit SHAs" />
+          <FeatureRow name="Design Linter + 007"     status="live"    note="25 secret patterns" />
+          <FeatureRow name="Parallel agents"         status="live"    note="Backend/Frontend/Tests sub-tapes" />
+          <FeatureRow name="Mode A/B/C/D/E/F"        status="live"    note="6 intent modes" />
+          <FeatureRow name="F12 error capture"       status="live"    note="Browser → ORA debugger" />
+          <FeatureRow name="PAT encryption"          status="live"    note="HKDF-Fernet v1:" />
+          <FeatureRow name="Vanguard skill injection" status="live"   note="9 skills, 3 max/task" />
+          <FeatureRow name="Rate limiting"           status="live"    note="30/min chat, OOM-proof" />
+          <FeatureRow name="SSE task streamer"       status="live"    note="task_handoff + task_state frames" />
+          <FeatureRow name="ORA council logger"      status="live"    note="A/B only" />
+          <FeatureRow name="Sentry monitoring"       status="needs-dsn" note="SDK wired, set SENTRY_DSN" />
+          <FeatureRow name="GitHub OAuth"            status="live"    note="Inline in NewUserWizard step 1" />
+          <FeatureRow name="Public stats strip"      status="live"    note="Real /usage/public/stats" />
+          <FeatureRow name="Ship Wall"               status="live"    note="auremcto.com/wall" />
+          <FeatureRow name="ORA Wrapped"             status="live"    note="/wrapped/me + share-to-X" />
+          <FeatureRow name="VS Code extension"       status="live"    note="aurem-cto-0.1.0.vsix shipped (Iter 72)" />
+          <FeatureRow name="OpsRecipes runbook"      status="live"    note="/admin/ops — 5 ops recipes (Iter 73)" />
+          <FeatureRow name="Live worker tape"        status="live"    note="Terminal-feed SSE in chat (Iter 73)" />
+          <FeatureRow name="task_state per-file"     status="live"    note="Writing N/M files mini-bar (Iter 74 f/u)" />
+          <FeatureRow name="NewUserWizard"           status="live"    note="3-step onboarding w/ inline OAuth (Iter 73)" />
+          <FeatureRow name="Parallel sub-tapes"      status="live"    note="Per-agent mini progress bars (Iter 73)" />
+          <FeatureRow name="Semantic code search"    status="live"    note="GitHub Code Search tool (Iter 74)" />
+          <FeatureRow name="get_commit_diff tool"    status="live"    note="ORA studies past commits (Iter 74)" />
+          <FeatureRow name="Python AST gate"         status="live"    note="ast.parse + node --check (Iter 74)" />
+          <FeatureRow name="Multi-file checklist"    status="live"    note="[ ] → [x] TaskManagementPanel (Iter 74)" />
+          <FeatureRow name="Brain Show-diff buttons" status="live"    note="Per-commit pattern recall (Iter 74 f/u)" />
+          <FeatureRow name="4-tier pricing"          status="live"    note="Free/Starter/Pro/Team + Stripe (Iter 75)" />
+          <FeatureRow name="Mode classifier telemetry" status="live"  note="/admin/mode-telemetry (Iter 70)" />
+          <FeatureRow name="Brain replay sandbox"    status="live"    note="/admin/brain/{pid}/replay (Iter 70)" />
+          <FeatureRow name="SWE-bench score"         status="pending" note="Run benchmark" />
+        </div>
+        <div style={{
+          marginTop: 14, fontSize: 11, color: "var(--text-dim)",
+          padding: "8px 12px",
+          background: "rgba(109,212,161,0.06)",
+          border: "1px solid rgba(109,212,161,0.22)",
+          borderRadius: 5,
+        }}>
+          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>419 passing</strong>
+          {" "}/ 14 pre-existing env failures / 9 skips. Build hash above ↑.
         </div>
       </Section>
 

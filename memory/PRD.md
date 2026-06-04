@@ -2261,3 +2261,51 @@ the OAuth flow lives inside step 1 so users never leave the modal.
 - JSX-specific syntax checking would require Babel/esbuild — node --check
   catches structural errors (missing braces, unclosed strings) but not
   JSX-tag-mismatch.  Acceptable for now.
+
+
+### Iter 75/76 — 4-tier pricing + Stripe subscriptions + full Landing redesign (Jun 2026)
+
+**Backend**
+- `services/subscription_tiers.py` — single source of truth.  `Tier` str-enum (FREE/STARTER/PRO/TEAM/FOUNDER) + `TIER_LIMITS` dict + `get_limit()` / `can_use_feature()` / `plan_price()`.  Founder mirrors Pro so dogfooding isn't gated.
+- `services/usage.py` — `MONTHLY_TASK_LIMITS` is now a thin shim that delegates to subscription_tiers (no drift).  `assert_has_task_budget()` raises 402 with structured detail when the monthly cap is hit. Failed tasks excluded (Iter 52 BUG 3 behaviour preserved, moved from cto_projects → usage).
+- `routers/cto_projects.py` — `submit_task` enforces Maxx mode (`can_use_feature("maxx_mode")`, 403 with structured `feature_locked` payload).  `_run_task_via_api` resolves the project owner's tier once and gates parallel agents (Free/Starter fall through to single-agent path silently).
+- `routers/payments.py` — full rewrite to native `stripe` SDK with subscription-mode Checkout + price IDs.  New endpoints:
+  - `POST /payments/checkout` — accepts `{plan|tier, origin_url?}`, returns `{checkout_url, url, session_id}`. 503s gracefully if Stripe key or price ID missing.
+  - `GET /payments/status/{session_id}` — frontend poll after redirect; flips user tier + writes `stripe_sub_id` on `paid`.
+  - `POST /payments/webhook` (+ legacy `/webhook/stripe` alias) — signature-verified; flips tier on `checkout.session.completed`, demotes to free on `customer.subscription.deleted|paused`.
+  - `GET /payments/my-plan` — current tier + full feature dict for UI.
+  - `POST /payments/portal` — Stripe-hosted billing-portal session.
+- Graceful 503 when env not configured — `sk_test_emergent` placeholder still works for dev (with a noisy log warning).
+
+**Frontend**
+- `components/PricingCards.jsx` — reusable 4-tier card grid. Calls `/payments/checkout` with `plan`, redirects to Stripe.  Current-plan card shows "Manage billing" → `/payments/portal`.
+- `pages/Settings.jsx` — new "Plans" section using `<PricingCards>`. Stripe redirect with `?session_id=` triggers a 12-cycle poll on `/payments/status`; banner shows "Upgraded to PRO" on success.  Profile row now surfaces `tasks_this_month / monthly_task_cap`.
+- `pages/Landing.jsx` — full 8-section redesign per spec:
+  1. Hero — "The AI engineer that commits directly to your GitHub"
+  2. Features grid — 6 cards (direct commit, Project Brain, F12 debug, live tape, parallel agents, VS Code)
+  3. What's new — 6 Iter 73-74 highlights
+  4. Pricing — `<PricingCards>` + "Copilot switched to token billing. We didn't." banner
+  5. Demo placeholder — 16:9 box with PlayCircle CTA
+  6. Public stats strip — real `/usage/public/stats` data
+  7. Start in 30s — GitHub OAuth CTA
+  8. Ship Wall embed — live `/wall/feed?limit=5` (graceful empty)
+  9. Footer — `/wall` + `/vs/cursor` + © line
+- `pages/AdminOverview.jsx` — feature list refreshed to Iter 73-74 (live tape, parallel sub-tapes, wizard, semantic search, AST gate, Brain show-diff, multi-file checklist, 4-tier pricing). Test count chip shows **419 passing**.
+
+**Tests + verify**
+- `test_subscription_tiers.py` — 10 new tests: per-tier limits, feature gates, founder mirroring, unknown-tier fallback, MONTHLY_TASK_LIMITS shim mirrors subscription_tiers (no drift), all 5 payment endpoints registered (+legacy alias), payments.py imports the same `TIER_LIMITS` object (no duplicate).
+- `test_iter45_grade.py::test_free_tier_cap_logic_present` updated for the refactor (now asserts subscription_tiers + assert_has_task_budget wiring).
+- `test_iter52_production_bug_fixes.py::test_bug3` updated to check usage.py (where the count moved to) instead of cto_projects.py — same behaviour, new location.
+- Full regression: **429 pass / 14 pre-existing env failures / 9 skips** (419 → 429, +10).
+- Backend restart clean. Landing renders all 4 new sections (pricing/features/whatsnew/demo) via Playwright smoke.
+
+**Open env-var work (handoff to user — required before live billing works):**
+```
+STRIPE_SECRET_KEY=sk_live_…            # current env has sk_test_emergent placeholder
+STRIPE_WEBHOOK_SECRET=whsec_…          # from Stripe Dashboard → Webhooks
+STRIPE_STARTER_PRICE_ID=price_…        # Stripe Dashboard → Products
+STRIPE_PRO_PRICE_ID=price_…
+STRIPE_TEAM_PRICE_ID=price_…
+FRONTEND_URL=https://auremcto.com
+```
+Webhook endpoint to register in Stripe: `https://auremcto.com/api/aurem-dev/payments/webhook`

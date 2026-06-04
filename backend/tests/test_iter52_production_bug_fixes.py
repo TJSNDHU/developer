@@ -74,29 +74,24 @@ def test_bug2_update_project_encrypts_pat():
 # ─── BUG 3 — submit_task free-tier excludes failed tasks ─────────────────
 
 def test_bug3_free_tier_count_excludes_failed_tasks():
+    """The monthly task count (now in services/usage.py::get_usage) must
+    restrict to non-failed statuses — failed tasks should never burn
+    the user's free-tier quota.  Refactored in Iter 75 from the
+    submit-task local check to the central usage helper."""
     src_path = os.path.join(
-        os.path.dirname(__file__), "..", "routers", "cto_projects.py"
+        os.path.dirname(__file__), "..", "services", "usage.py",
     )
     with open(src_path, encoding="utf-8") as fh:
         src = fh.read()
-    # The 30-day count_documents filter must restrict status to a
-    # non-failed list. We check for the canonical $in clause.
-    sub_section = re.search(
-        r"async def submit_task\(.*?bg\.add_task",
-        src, re.DOTALL,
-    )
-    assert sub_section, "could not locate submit_task in source"
-    block = sub_section.group(0)
-    assert '"status": {"$in":' in block, (
+    # Canonical $in clause that whitelists non-failed statuses
+    assert '"status": {"$in":' in src, (
         "BUG 3 regression — failed tasks are again counting against the "
         "free-tier monthly cap."
     )
-    # And the $in list must explicitly include 'done' (success) but the
-    # value 'failed' must NOT appear in that whitelist.
-    assert '"done"' in block
+    assert '"done"' in src
     failed_in_status_whitelist = re.search(
         r'"status": \{"\$in":\s*\[[^\]]*"failed"',
-        block,
+        src,
     )
     assert failed_in_status_whitelist is None, (
         "BUG 3 regression — 'failed' must not be in the whitelist."

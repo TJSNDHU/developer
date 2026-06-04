@@ -49,12 +49,24 @@ class TestRateLimiter:
 
 @pytest.mark.asyncio
 async def test_free_tier_cap_logic_present():
-    """Make sure the free-tier cap code path is present in submit_task."""
+    """Free-tier task cap must remain enforced.  Refactored in Iter 75 —
+    the literal `FREE_TIER_MONTHLY_CAP` constant is gone in favour of
+    `services/subscription_tiers.py` (single source of truth) plus
+    `assert_has_task_budget()` in `services/usage.py`."""
+    from services.subscription_tiers import get_limit
+    assert get_limit("free", "tasks_per_month") == 10
+
     import inspect
+    from services.usage import assert_has_task_budget
+    src = inspect.getsource(assert_has_task_budget)
+    # Endpoint must still raise on cap hit
+    assert "402" in src or "HTTPException" in src
+    assert "monthly_task_cap" in src
+
     from routers.cto_projects import submit_task
-    src = inspect.getsource(submit_task)
-    assert "FREE_TIER_MONTHLY_CAP" in src
-    assert "Free tier limit reached" in src
+    sub_src = inspect.getsource(submit_task)
+    # submit_task delegates the cap check to assert_has_task_budget
+    assert "assert_has_task_budget" in sub_src
 
 
 # ─── Public stats endpoint shape ────────────────────────────────────────

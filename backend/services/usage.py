@@ -16,12 +16,14 @@ so internal usage doesn't consume customer-facing quota.
 """
 from __future__ import annotations
 import os
+from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from cto_services.db import require_db
 
 PLAN_LIMITS = {
     "free":    1_000,
+    "starter": 10_000,
     "pro":     50_000,
     "team":    100_000,
     # Founder plan — practically unlimited. The check in `assert_has_budget`
@@ -29,6 +31,20 @@ PLAN_LIMITS = {
     # sentinel so any code path that reads `effective_limit` does the right
     # thing (e.g. UI shows "∞" / huge number).
     "founder": 1_000_000_000,
+}
+
+from services.subscription_tiers import get_limit as _tier_limit
+
+# Monthly task-count limits (the headline pricing model — flat-fee, no
+# token surprises).  Single source of truth lives in
+# services/subscription_tiers.py; this thin shim keeps the old import
+# path stable for everything that already imports MONTHLY_TASK_LIMITS.
+MONTHLY_TASK_LIMITS = {
+    "free":    _tier_limit("free",    "tasks_per_month"),
+    "starter": _tier_limit("starter", "tasks_per_month"),
+    "pro":     _tier_limit("pro",     "tasks_per_month"),
+    "team":    _tier_limit("team",    "tasks_per_month"),
+    "founder": _tier_limit("founder", "tasks_per_month"),
 }
 
 # Founder allow-list: addresses here auto-promote to tier="founder" +
@@ -80,6 +96,21 @@ async def get_usage(user_id: str) -> dict:
     pct = round((used / effective) * 100, 1) if (effective > 0 and not is_unlimited) else 0
     is_exhausted = False if is_unlimited else (used >= effective)
 
+    # ── Monthly task counter (flat-fee meter). Counts every task this
+    # user has SUBMITTED + ran since the first of the current UTC month.
+    # Failed tasks are excluded (Iter 52 BUG 3) — a stale PAT or auth
+    # error shouldn't burn the user's quota before the AI ran.
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0,
+    )
+    tasks_this_month = await db.cto_tasks.count_documents({
+        "user_id": user_id,
+        "created_at": {"$gte": month_start.timestamp()},
+        "status": {"$in": ["done", "running", "pulling", "reading",
+                            "fixing", "pushing", "queued"]},
+    })
+    task_cap = MONTHLY_TASK_LIMITS.get(tier, MONTHLY_TASK_LIMITS["free"])
+
     return {
         "user_id": user_id,
         "tier": tier,
@@ -91,7 +122,37 @@ async def get_usage(user_id: str) -> dict:
         "pct_used": pct,
         "is_exhausted": is_exhausted,
         "is_unlimited": is_unlimited,
+        "tasks_this_month": tasks_this_month,
+        "monthly_task_cap": task_cap,
+        "tasks_remaining":  None if task_cap is None
+                            else max(0, task_cap - tasks_this_month),
     }
+
+
+async def assert_has_task_budget(user_id: str) -> None:
+    """Raise HTTP 402 if the user has hit their monthly task cap.
+
+    Flat-fee tiers (free=10, starter=50) have a hard ceiling. Pro / Team /
+    Founder are unlimited and short-circuit immediately.
+    """
+    u = await get_usage(user_id)
+    if u.get("is_unlimited"):
+        return
+    cap = u.get("monthly_task_cap")
+    if cap is None:
+        return
+    if u.get("tasks_this_month", 0) >= cap:
+        raise HTTPException(402, detail={
+            "error": "monthly_task_limit_reached",
+            "tier": u["tier"],
+            "tasks_this_month": u["tasks_this_month"],
+            "monthly_task_cap": cap,
+            "upgrade_url": "/settings#pricing",
+            "message": (
+                f"You've used all {cap} tasks on the {u['tier'].title()} "
+                "plan this month. Upgrade to Pro for unlimited tasks."
+            ),
+        })
 
 
 async def assert_has_budget(user_id: str) -> None:

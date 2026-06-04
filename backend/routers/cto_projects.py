@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
 from services.llm import call_llm
-from services.usage import assert_has_budget, get_usage
+from services.usage import assert_has_budget, assert_has_task_budget, get_usage
 from services.github_api_writer import (
     commit_files as gh_api_commit,
     revert_commit as gh_api_revert,
@@ -354,25 +354,25 @@ async def submit_task(
     # called and no row is written to `cto_tasks`.
     await assert_has_budget(me["user_id"])
 
-    # Iter 45 — free-tier monthly task cap. Founders/paid unaffected.
-    if (me.get("tier") in (None, "free")) and not _is_unlimited:
-        from datetime import datetime, timezone, timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
-        used_30d = await require_db().cto_tasks.count_documents({
-            "user_id": me["user_id"], "created_at": {"$gte": cutoff},
-            # BUG 3 fix — don't count failed tasks against the free-tier
-            # monthly cap. A user with a stale PAT was burning their 10
-            # task quota on auth errors before the AI ran.
-            "status": {"$in": ["done", "running", "pulling", "reading",
-                               "fixing", "pushing", "queued"]},
-        })
-        FREE_TIER_MONTHLY_CAP = int(os.getenv("FREE_TIER_MONTHLY_CAP", "10"))
-        if used_30d >= FREE_TIER_MONTHLY_CAP:
-            raise HTTPException(
-                429,
-                f"Free tier limit reached: {FREE_TIER_MONTHLY_CAP} tasks per 30 days. "
-                f"Upgrade to ship unlimited.",
-            )
+    # Tier-based monthly task cap (free=10, starter=50, pro/team/founder
+    # unlimited). Single source of truth — MONTHLY_TASK_LIMITS in
+    # services/usage.py. Replaces the iter-45 free-only counter.
+    await assert_has_task_budget(me["user_id"])
+
+    # Tier-based feature gate — Maxx mode requires Pro / Team / Founder.
+    if body.maxx_mode:
+        from services.subscription_tiers import can_use_feature
+        if not can_use_feature(me.get("tier"), "maxx_mode"):
+            raise HTTPException(403, {
+                "error": "feature_locked",
+                "feature": "maxx_mode",
+                "current_tier": me.get("tier", "free"),
+                "upgrade_url": "/settings#pricing",
+                "message": (
+                    "Maxx mode (Claude reviewer) is a Pro feature. "
+                    "Upgrade at auremcto.com/settings to enable it."
+                ),
+            })
 
     db = require_db()
     proj = await db.cto_projects.find_one(
@@ -631,6 +631,7 @@ async def retry_task(
     see what error the original hit. Returns the new `task_id`."""
     me = await current_dev(authorization)
     await assert_has_budget(me["user_id"])
+    await assert_has_task_budget(me["user_id"])
     db = require_db()
     old = await db.cto_tasks.find_one(
         {"task_id": task_id, "user_id": me["user_id"]}
@@ -974,6 +975,20 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                           completed_at=time.time())
         return
 
+    # Resolve the project owner's current tier ONCE — drives every
+    # feature gate downstream (parallel agents, priority queue, etc.).
+    user_tier = "free"
+    try:
+        _db_for_tier = get_db()
+        if _db_for_tier is not None:
+            _u = await _db_for_tier.dev_users.find_one(
+                {"user_id": proj.get("user_id")}, {"tier": 1},
+            )
+            if _u and _u.get("tier"):
+                user_tier = _u["tier"]
+    except Exception:
+        pass
+
     try:
         await _set_status(task_id, status="pulling", started_at=time.time())
         await _emit(task_id, "Reading repository files…", pct=10)
@@ -1105,8 +1120,12 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             from services.parallel_agents import (
                 should_parallelize, run_parallel_agents, decompose_task,
             )
+            from services.subscription_tiers import can_use_feature
             file_tree_hint = list(contents.keys()) + (files or [])
-            if should_parallelize(task, file_tree_hint):
+            # Parallel agents are a Pro feature — Free / Starter fall
+            # through to the single-agent path (no error, just slower).
+            _parallel_allowed = can_use_feature(user_tier, "parallel_agents")
+            if should_parallelize(task, file_tree_hint) and _parallel_allowed:
                 # Pre-decompose so we know which agents are about to fire
                 # — that lets the chat bubble render the badges + per-agent
                 # mini progress bars BEFORE the LLM round-trip resolves.
