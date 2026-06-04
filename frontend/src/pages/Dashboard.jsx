@@ -14,14 +14,17 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
 import PreviewPane from "../components/PreviewPane";
 import TabBar, { useActiveProject } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
+import { toast } from "../components/Toast";
 import { api } from "../lib/api";
 
 const PREVIEW_PREF_KEY = "aurem_preview_open";
+const SHARE_MILESTONES = [10, 25, 50, 100, 250];
 
 export default function Dashboard() {
   return (
@@ -34,6 +37,7 @@ export default function Dashboard() {
 function DashboardBody() {
   const { sessionId, refreshSessions } = useChatSession();
   const project = useActiveProject();
+  const navigate = useNavigate();
   const [showWizard, setShowWizard] = useState(false);
   const [latestTaskId, setLatestTaskId] = useState(null);
   const [showPreview, setShowPreview] = useState(() => {
@@ -68,6 +72,24 @@ function DashboardBody() {
         setShowPreview(true);
         try { localStorage.setItem(PREVIEW_PREF_KEY, "1"); } catch { /* ignore */ }
       }
+      // Milestone share-prompt — fires the first time the user reaches
+      // 10/25/50/… shipped tasks this period. Stored per-milestone in
+      // localStorage so we never nag the same user twice.
+      api.get("/wrapped/me?period=all_time").then((r) => {
+        const shipped = r.data?.stats?.tasks_shipped || 0;
+        const milestone = SHARE_MILESTONES.find(
+          (m) => shipped >= m && !localStorage.getItem(`aurem_toast_${m}`),
+        );
+        if (!milestone) return;
+        try { localStorage.setItem(`aurem_toast_${milestone}`, "1"); }
+        catch { /* ignore */ }
+        toast({
+          message: `🎉 You've shipped ${milestone} tasks with AUREM — tap to share your Wrapped`,
+          kind: "info",
+          duration: 8000,
+          onClick: () => navigate("/wrapped"),
+        });
+      }).catch(() => { /* silent */ });
     };
     window.addEventListener("aurem:shipped", handler);
     return () => window.removeEventListener("aurem:shipped", handler);

@@ -2422,3 +2422,34 @@ routes + 2 nav links missing.
 - `routers/payments.py` 4-tier Stripe ✓
 - Settings page already has `<PricingCards />` ✓
 - AdminOverview feature list already current to Iter 75 ✓
+
+
+### Iter 77 — Share loop (auto-toast + fallback share text + Settings embed) (Jun 2026)
+
+**T1 — Milestone share toast (Dashboard)**
+- `pages/Dashboard.jsx` — `SHARE_MILESTONES = [10, 25, 50, 100, 250]`.
+  When `aurem:shipped` event fires, hit `GET /wrapped/me?period=all_time`
+  and toast the first uncrossed milestone. Per-milestone localStorage
+  key (`aurem_toast_10`, `_25`, …) so no nagging.
+- `components/Toast.jsx` — new optional `onClick` handler. Toast becomes
+  clickable + auto-dismisses on tap. Cursor flips to pointer.
+- Toast copy: `"🎉 You've shipped {count} tasks with AUREM — tap to share your Wrapped"` → routes to `/wrapped`.
+
+**T2 — OraWrapped fallback share text**
+- `components/OraWrapped.jsx` — when the server's `data.share_text` is
+  empty/missing, we synthesise the user-requested template from the
+  same stats: `"This month I shipped {N} tasks with @AUREMcto 🚀 …
+  #AUREM #ShipWithAI"`. Copy + tweet buttons now never go dead.
+
+**T3 — Settings OraWrapped embed**
+- `pages/Settings.jsx` — `<OraWrapped defaultPeriod="this_month" />`
+  rendered inside a `data-testid="settings-wrapped"` card immediately
+  below the Plans section. Users see plan + activity on one page.
+
+**Tests + verify**
+- 4 new tests in `test_iter77_share_loop.py` (toast wiring + onClick +
+  fallback text + Settings embed).
+- Full regression: **452 pass / 14 pre-existing env failures / 9 skips**
+  (448 → 452, +4, zero regressions).
+- Browser smoke: Settings renders Profile → GitHub → Plans (4 cards) →
+  Wrapped embed, sidebar has Ship Wall + Wrapped nav.

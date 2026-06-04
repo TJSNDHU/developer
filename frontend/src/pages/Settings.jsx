@@ -8,6 +8,7 @@ import Shell, { PageHeader } from "../components/Shell";
 import { api, getUser } from "../lib/api";
 import GitHubCard from "../components/GitHubCard";
 import PricingCards from "../components/PricingCards";
+import OraWrapped from "../components/OraWrapped";
 
 export default function Settings() {
   const [me, setMe]         = useState(getUser());
@@ -110,6 +111,15 @@ export default function Settings() {
             Flat fee. No token surprises. Cancel any time.
           </p>
           <PricingCards currentTier={me?.tier || usage?.tier || "free"} />
+        </section>
+
+        {/* Your activity — OraWrapped mini embed so plan + usage live on the same page */}
+        <section
+          className="card"
+          data-testid="settings-wrapped"
+          style={{ gridColumn: "1 / -1" }}
+        >
+          <OraWrapped defaultPeriod="this_month" />
         </section>
 
         <section className="card" data-testid="settings-vault" style={{ gridColumn: "1 / -1" }}>

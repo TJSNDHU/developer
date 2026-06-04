@@ -5,10 +5,10 @@ import React, { useEffect, useState } from "react";
 
 let _id = 0;
 
-export function toast({ message, kind = "info", duration = 3500 }) {
+export function toast({ message, kind = "info", duration = 3500, onClick = null }) {
   window.dispatchEvent(
     new CustomEvent("aurem:toast", {
-      detail: { id: ++_id, message, kind, duration },
+      detail: { id: ++_id, message, kind, duration, onClick },
     })
   );
 }
@@ -53,6 +53,12 @@ export default function Toaster() {
           <div
             key={t.id}
             data-testid={`toast-${t.kind}`}
+            onClick={() => {
+              if (t.onClick) {
+                try { t.onClick(); } catch { /* ignore */ }
+                setList((cur) => cur.filter((x) => x.id !== t.id));
+              }
+            }}
             style={{
               padding: "10px 14px",
               background: palette.bg,
@@ -64,6 +70,8 @@ export default function Toaster() {
               maxWidth: 380,
               boxShadow: "0 8px 24px -8px rgba(0,0,0,0.5)",
               animation: "toastIn 220ms cubic-bezier(0.4,0,0.2,1)",
+              cursor: t.onClick ? "pointer" : "default",
+              pointerEvents: "auto",
             }}
           >
             {t.message}

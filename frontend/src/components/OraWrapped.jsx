@@ -23,15 +23,27 @@ export default function OraWrapped({ defaultPeriod = "this_month" }) {
 
   const stats = data?.stats;
 
+  // Server returns a hand-curated share_text. If that's ever missing or
+  // empty we synthesise a sensible fallback from the same stats so the
+  // "Post on X" / copy buttons are NEVER dead.
+  const fallbackShareText = stats ? (
+    `This month I shipped ${stats.tasks_shipped || 0} tasks with @AUREMcto 🚀\n` +
+    `${stats.hours_saved || 0}h saved · ${stats.repos_touched || 0} repos · ` +
+    `Flat fee, no token surprises\n` +
+    `#AUREM #ShipWithAI`
+  ) : "";
+  const shareText = (data?.share_text && data.share_text.trim())
+                    || fallbackShareText;
+
   function copyShareText() {
-    if (!data?.share_text) return;
-    navigator.clipboard.writeText(data.share_text);
+    if (!shareText) return;
+    navigator.clipboard.writeText(shareText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const tweetUrl = data?.share_text
-    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(data.share_text)}`
+  const tweetUrl = shareText
+    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`
     : "#";
 
   return (
