@@ -12,7 +12,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Rocket, Database, Globe, Settings as Cog,
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
-  ChevronsLeft, ChevronsRight, FolderGit2, Menu, X,
+  ChevronsLeft, ChevronsRight, FolderGit2, Menu, X, Trophy, Gift,
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
 import TokenBell from "./TokenBell";
@@ -25,6 +25,8 @@ const NAV = [
   { to: "/domain", label: "Domain", icon: Globe, testid: "nav-domain" },
   { to: "/tokens", label: "Tokens", icon: Coins, testid: "nav-tokens" },
   { to: "/analytics", label: "Analytics", icon: BarChart3, testid: "nav-analytics" },
+  { to: "/wall", label: "Ship Wall", icon: Trophy, testid: "nav-wall" },
+  { to: "/wrapped", label: "Wrapped", icon: Gift, testid: "nav-wrapped" },
   { to: "/settings", label: "Settings", icon: Cog, testid: "nav-settings" },
 ];
 

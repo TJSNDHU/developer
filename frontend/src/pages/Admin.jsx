@@ -896,9 +896,9 @@ const NAV = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
-export default function Admin() {
+export default function Admin({ initialTab = "overview" }) {
   const navigate = useNavigate();
-  const [page, setPage] = useState("overview");
+  const [page, setPage] = useState(initialTab);
   const [selectedUser, setSelectedUser] = useState(null);
   const [me, setMe] = useState(null);
 

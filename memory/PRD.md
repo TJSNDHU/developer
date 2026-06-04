@@ -2393,3 +2393,32 @@ Webhook endpoint to register in Stripe: `https://auremcto.com/api/aurem-dev/paym
 **No new env vars required** — preview pane works on every ship.
 - Optional future: `VERCEL_TOKEN` to auto-fetch deploy URLs (already
   scoped via `services/vercel_preview.py` skeleton, wiring deferred).
+
+
+### Iter 76 follow-up — Audit-driven routing fixes (Jun 2026)
+
+User audit surfaced unrouted/unlinked surfaces. Backend was complete
+(sandbox_runner, subscription_tiers, payments all live); only 3 frontend
+routes + 2 nav links missing.
+
+**Frontend**
+- `App.jsx` — 3 new routes:
+  - `/admin/overview` → `<AdminOverview />` (the standalone Iter 54 page now reachable directly)
+  - `/admin/architecture` → `<Admin initialTab="arch" />` (deep-link into the existing Architecture tab)
+  - `/wrapped` → `<Wrapped />`
+- `pages/Wrapped.jsx` — new Shell-wrapped page hosting the existing `<OraWrapped defaultPeriod="this_month" />`. Smoke verified: stats cards + period selector render under sidebar.
+- `pages/Admin.jsx` — accepts new `initialTab` prop (default `"overview"`) so the `/admin/architecture` deep-link lands on the right tab without an extra click.
+- `components/Shell.jsx` — Ship Wall + Wrapped added to sidebar NAV (Trophy + Gift icons, `nav-wall` / `nav-wrapped` testids).
+
+**Tests**
+- 4 new tests in `test_iter76_routing.py` lock routes + nav + initialTab prop + Wrapped page wiring.
+- `test_iter54_shipwall_wrapped_overview.py::test_admin_page_wires_overview_as_first_tab` updated for the new function signature (still defaults to `"overview"` via the prop default).
+- Full regression: **448 pass / 14 pre-existing env failures / 9 skips**
+  (444 → 448, +4 new, zero regressions).
+
+**No new backend code** — audit confirmed Iter 75 already shipped:
+- `services/sandbox_runner.py` ✓
+- `services/subscription_tiers.py` ✓
+- `routers/payments.py` 4-tier Stripe ✓
+- Settings page already has `<PricingCards />` ✓
+- AdminOverview feature list already current to Iter 75 ✓

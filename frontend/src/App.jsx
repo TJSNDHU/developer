@@ -12,6 +12,8 @@ import Tokens from "./pages/Tokens";
 import Analytics from "./pages/Analytics";
 import Projects from "./pages/Projects";
 import Admin from "./pages/Admin";
+import AdminOverview from "./pages/AdminOverview";
+import Wrapped from "./pages/Wrapped";
 import ShipWall from "./pages/ShipWall";
 import BrainDump from "./pages/BrainDump";
 import OpsRecipes from "./pages/OpsRecipes";
@@ -33,9 +35,12 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/overview" element={<AdminOverview />} />
+        <Route path="/admin/architecture" element={<Admin initialTab="arch" />} />
         <Route path="/admin/ops" element={<OpsRecipes />} />
         <Route path="/admin/brain/:projectId" element={<BrainDump />} />
         <Route path="/wall" element={<ShipWall />} />
+        <Route path="/wrapped" element={<Wrapped />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

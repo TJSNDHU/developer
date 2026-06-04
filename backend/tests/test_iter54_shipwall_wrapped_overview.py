@@ -111,8 +111,10 @@ def test_admin_page_wires_overview_as_first_tab():
     )
     with open(path, encoding="utf-8") as fh:
         src = fh.read()
-    # Overview must be the default landing tab.
-    assert 'useState("overview")' in src
+    # Overview must be the default landing tab (still the default arg
+    # even after the `initialTab` prop was added for deep-link routing).
+    assert ('useState("overview")' in src
+            or 'initialTab = "overview"' in src)
     # Overview must be the FIRST nav item.
     nav_block = src.split("const NAV = [", 1)[1].split("];", 1)[0]
     first_id = nav_block.split('{ id: "', 1)[1].split('"', 1)[0]
