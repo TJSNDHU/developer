@@ -773,40 +773,68 @@ function Architecture() {
                     color: "var(--text-faint)", margin: "22px 0 8px" }}>
         Code surface · routers · services · pages
       </h3>
-      <div data-testid="arch-code-surface" style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-        gap: 12,
-      }}>
-        {CODE_SURFACE.map((col) => (
-          <Card key={col.title} style={{ padding: 14 }}>
+      <CodeSurfaceLive />
+    </div>
+  );
+}
+
+function CodeSurfaceLive() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/admin/code-surface")
+      .then((r) => setData(r.data))
+      .catch(() => setData(null));
+  }, []);
+  // Fall back to the static map if the endpoint isn't reachable (e.g.
+  // running against a build that pre-dates the endpoint).
+  const surface = data?.surface || Object.fromEntries(
+    CODE_SURFACE.map((c) => [c.title.toLowerCase(), c.items.map((i) => ({
+      file: i.name, desc: i.note, lines: 0,
+    }))]),
+  );
+  const columns = [
+    { key: "routers",    title: "Routers" },
+    { key: "services",   title: "Services" },
+    { key: "pages",      title: "Pages" },
+    { key: "components", title: "Components" },
+  ];
+  return (
+    <div data-testid="arch-code-surface" style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+      gap: 12,
+    }}>
+      {columns.map((col) => {
+        const items = surface[col.key] || [];
+        return (
+          <Card key={col.key} style={{ padding: 14 }}>
             <div style={{
               fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase",
               color: "var(--accent-2, #ffb347)", marginBottom: 8,
               fontWeight: 600,
-            }}>{col.title} · {col.items.length}</div>
+            }}>{col.title} · {items.length}</div>
             <ul style={{ listStyle: "none", margin: 0, padding: 0,
                           display: "grid", gap: 4 }}>
-              {col.items.map((it) => (
-                <li key={it.name} style={{
+              {items.map((it) => (
+                <li key={it.file || it.name} style={{
                   fontSize: 11.5, color: "var(--text-dim)",
                   fontFamily: "'JetBrains Mono', monospace",
                   display: "flex", justifyContent: "space-between",
                   gap: 8,
                 }}>
-                  <span style={{ overflowWrap: "anywhere" }}>{it.name}</span>
-                  {it.note && (
+                  <span style={{ overflowWrap: "anywhere" }}>{it.file || it.name}</span>
+                  {(it.lines > 0 || it.desc) && (
                     <span style={{
                       color: "var(--text-faint)", fontSize: 10,
                       whiteSpace: "nowrap", flexShrink: 0,
-                    }}>{it.note}</span>
+                    }}>{it.lines > 0 ? `${it.lines}L` : (it.desc || it.note || "")}</span>
                   )}
                 </li>
               ))}
             </ul>
           </Card>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }

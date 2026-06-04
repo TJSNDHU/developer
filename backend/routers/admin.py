@@ -824,6 +824,71 @@ async def admin_brain_dump(
     }
 
 
+# ── Code surface (live file map for /admin/architecture) ─────────────
+@router.get("/code-surface")
+async def code_surface(authorization: Optional[str] = Header(None, alias="Authorization")):
+    """Walk load-bearing source dirs and return live counts.
+
+    Drift-proof replacement for the hand-maintained CODE_SURFACE constant
+    on the Architecture page — the frontend reads from here so a new
+    file in routers/ or pages/ shows up immediately."""
+    await _require_admin(authorization)
+    import os
+    base = "/app"
+    scan = {
+        "routers":    "backend/routers",
+        "services":   "backend/services",
+        "pages":      "frontend/src/pages",
+        "components": "frontend/src/components",
+    }
+    surface: dict[str, list[dict]] = {k: [] for k in scan}
+    for category, rel in scan.items():
+        full = os.path.join(base, rel)
+        if not os.path.isdir(full):
+            continue
+        for fname in sorted(os.listdir(full)):
+            if fname.startswith((".", "_")):
+                continue
+            if not fname.endswith((".py", ".jsx", ".tsx", ".js", ".ts")):
+                continue
+            fpath = os.path.join(full, fname)
+            try:
+                with open(fpath, encoding="utf-8") as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+            lines = content.count("\n")
+            desc = ""
+            for raw in content.splitlines()[:10]:
+                t = raw.strip()
+                if not t:
+                    continue
+                if t.startswith(('"""', "'''")):
+                    desc = t.strip("\"'").strip()
+                    break
+                if t.startswith("/*") or t.startswith("//") or t.startswith("*"):
+                    desc = t.lstrip("/*").lstrip("/ *").strip()
+                    break
+                if (t.startswith("import") or t.startswith("from")
+                        or t.startswith("<") or t.startswith("{")):
+                    continue
+                if t.startswith("#") and not t.startswith("#!"):
+                    desc = t.lstrip("# ").strip()
+                    break
+            surface[category].append({
+                "file":  fname,
+                "lines": lines,
+                "desc":  desc[:80],
+                "path":  os.path.join(rel, fname),
+            })
+    return {
+        "ok":          True,
+        "surface":     surface,
+        "total_files": sum(len(v) for v in surface.values()),
+    }
+
+
+
 # ── Recent commits with SHAs (powers BrainDump "Show diff →" buttons) ─
 @router.get("/brain/{project_id}/recent-commits")
 async def brain_recent_commits(
