@@ -2367,3 +2367,29 @@ Webhook endpoint to register in Stripe: `https://auremcto.com/api/aurem-dev/paym
 **Env needed on prod** (handoff):
 - `E2B_API_KEY=e2b_…` — free 100 sandbox-hours/month at e2b.dev.
   Without it everything still works; just no sandbox validation.
+
+
+### Iter 76 — Live preview pane (Bolt-style split-pane chat ↔ iframe) (Jun 2026)
+
+**Backend**
+- `_frontend_subset(edits)` — picks up to 10 render-safe files (.html / .css / .js / .jsx / .ts / .tsx, each ≤32 KB) so the cto_tasks doc stays under ~320 KB even on big multi-file ships.
+- `_set_status(status="done", …)` on both API + git paths now writes `edits=_frontend_subset(edits)` so `GET /cto/tasks/{id}` returns a render-ready payload to the preview pane.
+
+**Frontend**
+- `components/PreviewPane.jsx` — split-pane right side.  Polls `/cto/tasks/{id}` every 2.5 s, stops on terminal status.  Two modes:
+  - **blob** — builds a single HTML doc from the task's edits and renders it in a `sandbox="allow-scripts allow-same-origin allow-forms"` iframe (zero network calls, instant).
+  - **url**  — switches to `task.preview_url` once Vercel/Netlify reports the deploy is READY.
+  - Toolbar pills (Live / Preview), URL bar, short-SHA chip, reload, "open in new tab".
+- `components/ChatPanel.jsx` — when an `aurem-handoff` frame lands and we tag the message with `shipped_task_id`, we also dispatch `window.CustomEvent("aurem:shipped", { task_id })`.
+- `pages/Dashboard.jsx` full rewrite — top-bar `[◈] Preview` toggle (persisted in `localStorage["aurem_preview_open"]`, auto-pops first time a task ships), 60/40 split with a 4-px col-resize handle (clamped 30 % ↔ 75 %), full transitions.
+- `index.css` — `@keyframes aurem-spin` for the empty-state spinner.
+
+**Tests + verify**
+- 6 new tests in `test_iter76_preview_pane.py`: component shape (sandbox attrs + testids), Dashboard split-pane wiring + persist, ChatPanel emits `aurem:shipped`, backend `_frontend_subset` is wired into both done-status calls, helper correctly filters .py/.md/oversize/non-string + caps at 10, `@keyframes aurem-spin` in CSS.
+- Full regression: **444 pass / 14 pre-existing env failures / 9 skips**
+  (438 → 444, +6 new, zero regressions).
+- Backend restart clean. Browser smoke: split-pane renders both sides, toggle works, "No preview yet" empty state shown, no console errors.
+
+**No new env vars required** — preview pane works on every ship.
+- Optional future: `VERCEL_TOKEN` to auto-fetch deploy URLs (already
+  scoped via `services/vercel_preview.py` skeleton, wiring deferred).

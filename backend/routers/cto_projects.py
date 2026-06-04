@@ -54,6 +54,31 @@ WORKSPACE.mkdir(parents=True, exist_ok=True)
 _task_queues: dict[str, asyncio.Queue] = {}
 
 
+def _frontend_subset(edits: dict[str, str]) -> dict[str, str]:
+    """Pick only renderable front-end files for the live preview pane.
+
+    We persist these on the cto_tasks doc so the right-side
+    `<PreviewPane />` can render them in an iframe blob the moment the
+    task completes — no extra round-trip to the repo needed.
+
+    Cap: 10 files × 32 KB each = ~320 KB max stored per task. Anything
+    bigger gets dropped (the user can still view the live Vercel URL)."""
+    out: dict[str, str] = {}
+    for path, body in (edits or {}).items():
+        if not isinstance(body, str):
+            continue
+        if not path.lower().endswith(
+            (".html", ".css", ".js", ".jsx", ".ts", ".tsx")
+        ):
+            continue
+        if len(body) > 32_000:
+            continue
+        out[path] = body
+        if len(out) >= 10:
+            break
+    return out
+
+
 async def _emit(task_id: str, step: str,
                 kind: str = "step", pct: Optional[int] = None,
                 **extra) -> None:
@@ -1682,6 +1707,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _set_status(task_id, status="done", result=summary,
                           commit_sha=sha,
                           files_changed=list(edits.keys()),
+                          edits=_frontend_subset(edits),
                           verified=True,
                           completed_at=time.time())
         await _emit(task_id, f"Done — {sha[:7]}", kind="done", pct=100)
@@ -1876,6 +1902,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         await _set_status(task_id, status="done", result=summary,
                           commit_sha=sha,
                           files_changed=list(edits.keys()),
+                          edits=_frontend_subset(edits),
                           completed_at=time.time())
         db = get_db()
         if db is not None:

@@ -274,6 +274,11 @@ body.aurem-glass #root {
   100% { transform: translateX(160%); }
 }
 
+/* Live preview pane spinner. */
+@keyframes aurem-spin {
+  to { transform: rotate(360deg); }
+}
+
 .glass-bubble {
   position: relative;
   border-radius: 14px;

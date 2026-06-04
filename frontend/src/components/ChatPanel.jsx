@@ -550,6 +550,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           }
           return copy;
         });
+        // Fire a global hook so the right-side <PreviewPane /> can latch
+        // onto the new task without prop-drilling through Shell.
+        try {
+          window.dispatchEvent(new CustomEvent("aurem:shipped", {
+            detail: { task_id: p.task_id, project_id: p.project_id },
+          }));
+        } catch { /* ignore */ }
       },
       onMeta: (m) => {
         if (m.provider) providerSeen = m.provider;
