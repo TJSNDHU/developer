@@ -261,6 +261,12 @@ body.aurem-glass #root {
   100% { background-position: 200% 0; }
 }
 
+/* Iter 73 — TaskLiveTape blinking caret. */
+@keyframes aurem-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
 .glass-bubble {
   position: relative;
   border-radius: 14px;

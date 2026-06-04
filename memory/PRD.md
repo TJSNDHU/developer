@@ -2018,3 +2018,49 @@ Pattern #1 upgraded from PARTIAL to **FULLY FIXED**. Only #5 remains (codebase h
 - `backend/routers/admin.py` — `/admin/mode-telemetry` + `/admin/brain/{id}/replay` endpoints
 - `frontend/src/pages/AdminOverview.jsx` — telemetry strip below CachePurgePanel
 - `frontend/src/pages/BrainDump.jsx` — `<BrainReplay />` sub-component
+
+
+### Iter 73 — Ops Recipes + Live Worker Tape (Jun 2026)
+
+**TASK 1 — `/admin/ops` runbook page (already complete from prior turn):**
+- `frontend/src/pages/OpsRecipes.jsx` — 5 copy-paste runbooks (supervisor
+  restart, service logs, disk full, mongo refused, deploy stuck), each
+  with bash commands, contextual notes, and an escalate panel.
+- Route mounted at `/admin/ops` in `App.jsx`, linked from `Admin.jsx` nav.
+
+**TASK 2 — Live worker tape (SSE) in chat bubble:**
+- `backend/routers/cto_projects.py`:
+  - In-memory `_task_queues: dict[str, asyncio.Queue]` (256-frame ring;
+    overflow drops oldest so the worker never blocks).
+  - `_emit(task_id, step, kind, pct)` helper for milestone frames.
+  - `_log()` now ALSO fans out to the SSE queue (status→kind: `error`→
+    `fail`, others→`step`).
+  - Milestone emits in `_run_task_via_api`: pct=10 (reading), pct=30
+    (thinking), pct=60 (writing), pct=75 (linter), pct=90 (committing),
+    pct=100 (done/fail).
+  - New `GET /cto/tasks/{id}/stream` — SSE endpoint, JWT-auth, synthetic
+    terminal frame when client connects post-completion, 2 s keepalive
+    ping, Mongo poll fallback, 5 min wall-clock cap, queue cleanup on
+    terminal frame.
+- `frontend/src/components/TaskLiveTape.jsx` (~170 lines):
+  - Fetch + ReadableStream parser (EventSource can't send Bearer JWT).
+  - Thin orange progress bar 0→100 %.
+  - Timestamped colour-coded log lines (`step`/`done`/`fail`).
+  - Blinking caret while live; testids: `task-live-tape`,
+    `task-live-tape-bar`, `task-live-tape-step-N`, `task-live-tape-caret`.
+- `frontend/src/index.css` — `@keyframes aurem-blink`.
+- Wired into `MessageBubble.jsx` (auto-handoff card) and `ShipDialog.jsx`
+  (manual ship) — appears above the existing `TaskProgressCard`.
+
+**Tests + verify:**
+- 8/8 new tests in `test_iter73_live_tape.py` pass:
+  emit→queue, log→SSE fanout, overflow drops oldest, endpoint mounted,
+  synthetic terminal frame for completed task, FE component testids,
+  ChatPanel wiring, `aurem-blink` keyframe.
+- Full regression: **388 pass / 14 fail** (same pre-existing env
+  failures, zero new regressions; up from 380 → 388).
+- Backend restart clean, endpoint returns 401 unauth as expected.
+
+**Deferred to next iter** (per user "TASK 1 ONLY this iter"):
+- Task 3 — `NewUserWizard.jsx` onboarding overlay (~150 lines).
+- Task 2 — parallel-agent mini badges (Backend / Frontend / Tests).

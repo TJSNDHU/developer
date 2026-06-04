@@ -18,6 +18,7 @@ import React from "react";
 import { Loader2 } from "lucide-react";
 import ShipLintBadge from "./ShipLintBadge";
 import TaskProgressCard from "./TaskProgressCard";
+import TaskLiveTape from "./TaskLiveTape";
 
 export default function ShipDialog({
   idx,
@@ -45,12 +46,15 @@ export default function ShipDialog({
             : "Switch to a connected project to enable Ship via CTO."}
         </div>
       ) : shipState.status === "shipped" ? (
-        <TaskProgressCard
-          taskId={shipState.taskId}
-          task={taskInfo}
-          project={activeProject}
-          onRollback={onRollback}
-        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TaskLiveTape taskId={shipState.taskId} />
+          <TaskProgressCard
+            taskId={shipState.taskId}
+            task={taskInfo}
+            project={activeProject}
+            onRollback={onRollback}
+          />
+        </div>
       ) : (
         <>
           <button

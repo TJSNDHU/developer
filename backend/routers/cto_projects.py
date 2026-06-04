@@ -5,6 +5,7 @@ Mounted under /api/aurem-dev/cto/* to avoid clashing with /projects/* (new-proje
 """
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from cto_services.auth import current_dev
@@ -41,6 +43,40 @@ if not _GIT_AVAILABLE:
 
 WORKSPACE = Path(os.getenv("WORKSPACE_PATH", "/tmp/aurem-dev-projects"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
+
+
+# ── Live progress streams (Iter 73) ──────────────────────────────────────
+# In-memory per-task asyncio.Queue used to fan out worker steps to the
+# /cto/tasks/{id}/stream SSE endpoint so chat bubbles render a live
+# "worker tape" (reading files… thinking… committing…) instead of a
+# silent spinner.  Queues are popped once the task emits a done/fail
+# terminal frame, or when the stream times out (5 min wall-clock).
+_task_queues: dict[str, asyncio.Queue] = {}
+
+
+async def _emit(task_id: str, step: str,
+                kind: str = "step", pct: Optional[int] = None) -> None:
+    """Push one progress frame onto the task's live SSE queue.
+
+    Non-blocking; safe to call even if no consumer is listening (the queue
+    just buffers up to 256 frames then drops oldest)."""
+    if not task_id:
+        return
+    q = _task_queues.get(task_id)
+    if q is None:
+        q = asyncio.Queue(maxsize=256)
+        _task_queues[task_id] = q
+    frame = {"type": kind, "step": step, "pct": pct, "ts": time.time()}
+    try:
+        q.put_nowait(frame)
+    except asyncio.QueueFull:
+        # Drop the oldest frame to make room for the new one rather than
+        # blocking the worker — the SSE client will see a small gap.
+        try:
+            q.get_nowait()
+            q.put_nowait(frame)
+        except Exception:
+            pass
 
 
 # ── Models ───────────────────────────────────────────────────────────────
@@ -667,15 +703,98 @@ async def project_tasks(project_id: str, authorization: str = Header(None)) -> d
     return {"ok": True, "tasks": tasks}
 
 
+@router.get("/tasks/{task_id}/stream")
+async def task_stream(task_id: str, authorization: str = Header(None)):
+    """SSE stream of live worker steps for a single task (Iter 73).
+
+    Used by the chat bubble's <TaskLiveTape> to render a terminal-style
+    progress feed: reading files… → thinking… → committing → done.
+
+    Closes on a `done` or `fail` frame, or after 5 min wall-clock.
+    Sends a keepalive `ping` every 2 s of silence so the EventSource
+    on slow networks doesn't auto-retry."""
+    me = await current_dev(authorization)
+    db = require_db()
+    task = await db.cto_tasks.find_one(
+        {"task_id": task_id, "user_id": me["user_id"]}, {"_id": 0}
+    )
+    if not task:
+        raise HTTPException(404, "task not found")
+
+    async def generate():
+        q = _task_queues.get(task_id)
+        if q is None:
+            q = asyncio.Queue(maxsize=256)
+            _task_queues[task_id] = q
+        # If the task already terminated before the client connected,
+        # emit a single synthetic final frame and exit immediately.
+        if task.get("status") in ("done", "failed"):
+            final = {
+                "type": "done" if task["status"] == "done" else "fail",
+                "step": (f"Done — {task.get('commit_sha','')[:7]}"
+                         if task["status"] == "done"
+                         else f"Failed — {(task.get('error') or '')[:80]}"),
+                "pct": 100,
+                "ts": time.time(),
+            }
+            yield f"data: {json.dumps(final)}\n\n"
+            _task_queues.pop(task_id, None)
+            return
+
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=2.0)
+            except asyncio.TimeoutError:
+                yield "data: {\"type\":\"ping\"}\n\n"
+                # Poll Mongo — covers the case where the worker finished
+                # but its terminal _emit was dropped (e.g. queue full or
+                # process restart).
+                t = await db.cto_tasks.find_one(
+                    {"task_id": task_id}, {"_id": 0, "status": 1,
+                                            "commit_sha": 1, "error": 1},
+                )
+                if t and t.get("status") in ("done", "failed"):
+                    final = {
+                        "type": "done" if t["status"] == "done" else "fail",
+                        "step": (f"Done — {t.get('commit_sha','')[:7]}"
+                                 if t["status"] == "done"
+                                 else f"Failed — {(t.get('error') or '')[:80]}"),
+                        "pct": 100,
+                        "ts": time.time(),
+                    }
+                    yield f"data: {json.dumps(final)}\n\n"
+                    _task_queues.pop(task_id, None)
+                    return
+                continue
+            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("type") in ("done", "fail"):
+                _task_queues.pop(task_id, None)
+                return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # ── Background worker ────────────────────────────────────────────────────
 async def _log(task_id: str, step: str, status: str = "info"):
     db = get_db()
-    if db is None:
-        return
-    await db.cto_tasks.update_one(
-        {"task_id": task_id},
-        {"$push": {"steps": {"step": step, "status": status, "ts": time.time()}}},
-    )
+    if db is not None:
+        await db.cto_tasks.update_one(
+            {"task_id": task_id},
+            {"$push": {"steps": {"step": step, "status": status, "ts": time.time()}}},
+        )
+    # Also fan out to the live SSE queue so chat bubbles can render the
+    # worker tape in real time (Iter 73).  status→kind: error→fail, others→step.
+    kind = "fail" if status == "error" else "step"
+    await _emit(task_id, step, kind=kind)
 
 
 async def _set_status(task_id: str, **fields):
@@ -847,6 +966,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
     try:
         await _set_status(task_id, status="pulling", started_at=time.time())
+        await _emit(task_id, "Reading repository files…", pct=10)
         await _log(task_id, f"📡 Reading {owner}/{repo}@{branch} via API…")
 
         # 1) Read target files (or auto-pick a few likely ones) IN PARALLEL
@@ -915,6 +1035,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         if issues_ctx:
             await _log(task_id, "📋 injected relevant GitHub issues")
 
+        await _emit(task_id, "ORA thinking…", pct=30)
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
@@ -1010,6 +1131,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _set_status(task_id, status="done", result=summary,
                               completed_at=time.time())
             return
+        await _emit(task_id, "Writing files…", pct=60)
         await _log(task_id, f"✏️ {len(edits)} files to update", "success")
 
         # PRE-PUSH GATE — reject AI output that looks truncated. We'd
@@ -1068,6 +1190,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _set_status(task_id, status="failed", error=err[:2000],
                               completed_at=time.time())
             return
+        await _emit(task_id, "Running linter…", pct=75)
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
         # iter 41 — Design Linter (zero LLM cost, pure regex).
@@ -1167,6 +1290,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
         # 3) Commit + push as one atomic API call
         await _set_status(task_id, status="pushing")
+        await _emit(task_id, "Committing to GitHub…", pct=90)
 
         async def _prog(step: str, status: str = "info"):
             await _log(task_id, step, status)
@@ -1239,6 +1363,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                           files_changed=list(edits.keys()),
                           verified=True,
                           completed_at=time.time())
+        await _emit(task_id, f"Done — {sha[:7]}", kind="done", pct=100)
         db = get_db()
         if db is not None:
             await db.cto_projects.update_one(
@@ -1265,6 +1390,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _log(task_id, f"❌ {safe}", "error")
         await _set_status(task_id, status="failed", error=safe,
                           completed_at=time.time())
+        await _emit(task_id, f"Failed — {safe[:80]}", kind="fail", pct=100)
         # Iter 48 — background-task crash goes to Sentry (bypasses HTTP
         # middleware so explicit capture needed).
         try:
@@ -1359,6 +1485,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         if issues_ctx:
             await _log(task_id, "📋 injected relevant GitHub issues")
 
+        await _emit(task_id, "ORA thinking…", pct=30)
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()

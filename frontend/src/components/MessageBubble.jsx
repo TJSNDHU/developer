@@ -21,6 +21,7 @@ import { api } from "../lib/api";
 import { toast } from "./Toast";
 import ShipDialog from "./ShipDialog";
 import TaskProgressCard from "./TaskProgressCard";
+import TaskLiveTape from "./TaskLiveTape";
 
 // ---- Helpers (only used here) ----------------------------------------------
 
@@ -480,6 +481,9 @@ export default function MessageBubble({
           <div data-testid={`auto-handoff-row-${idx}`} style={{
             marginTop: 10, paddingLeft: 4,
           }}>
+            <TaskLiveTape
+              taskId={shipState.taskId || m.shipped_task_id}
+            />
             <TaskProgressCard
               taskId={shipState.taskId || m.shipped_task_id}
               task={taskInfo}
