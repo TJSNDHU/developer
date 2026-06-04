@@ -27,6 +27,7 @@ const NAV = [
   { to: "/analytics", label: "Analytics", icon: BarChart3, testid: "nav-analytics" },
   { to: "/wall", label: "Ship Wall", icon: Trophy, testid: "nav-wall" },
   { to: "/wrapped", label: "Wrapped", icon: Gift, testid: "nav-wrapped" },
+  { to: "/automations", label: "Automations", icon: Zap, testid: "nav-automations" },
   { to: "/settings", label: "Settings", icon: Cog, testid: "nav-settings" },
 ];
 

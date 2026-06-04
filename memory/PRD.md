@@ -2484,3 +2484,50 @@ routes + 2 nav links missing.
 ⚠ Note: prompt-injection persistently observed in the lint tool's
 response wrapper this session (`<directive level="advisory" …>` text).
 Ignored — verified all files clean via direct AST parse.
+
+
+### Iter 78 — Automations + live code-surface (Jun 2026)
+
+**T1 — `GET /admin/code-surface` (Emergent suggestion)**
+- `routers/admin.py` — new endpoint walks `backend/routers`, `backend/services`,
+  `frontend/src/pages`, `frontend/src/components`, returns `{file, lines,
+  desc, path}` rows per category. Admin-only.
+- `pages/Admin.jsx` — `CodeSurfaceLive` component fetches the endpoint on
+  mount; the hand-curated `CODE_SURFACE` constant kept as offline
+  fallback so the page never bricks if the API is down.
+- Architecture page now self-updates whenever a router/service/page is
+  added — no more drift between Overview claims and reality.
+
+**T2 — Scheduled / event-driven automations (closes Cursor-Automations gap)**
+- `routers/automations.py` — already shipped, this iter wires it to
+  `_enqueue_cto_task` so a `push` webhook ACTUALLY runs the worker
+  instead of leaving the row stuck on `queued`. Added
+  `POST /automations/{id}/run` for manual fire-now (used by cron-style
+  rules + the "Run now" button on the page).
+- `pages/Automations.jsx` — already shipped; added "Run now" button per
+  row (data-testid `run-{id}`). Webhook URL builds from `API_BASE`,
+  copy button, template variable hints (`{branch}`, `{pusher}`,
+  `{commit_messages}`).
+- `App.jsx` — `/automations` route registered.
+- `components/Shell.jsx` — sidebar `nav-automations` link (Zap icon).
+
+**Tests + verify**
+- 11 new tests across three files:
+  - `test_iter78_automations.py` (5) — CRUD + webhook → task enqueue +
+    non-push skip + router mount.
+  - `test_iter78_code_surface.py` (3) — admin-gated + live file map
+    shape + Architecture wiring.
+  - `test_iter78_automations_ui.py` (3) — App route + Shell nav +
+    page testids + template hints.
+- Full regression: **484 pass / 2 pre-existing env-key failures / 3 skips**
+  (455 → 484, +29 net, zero regressions).
+- Live smoke: `POST /automations/webhook/github` with `X-GitHub-Event: ping`
+  returns `{"ok":true,"skipped":true,"event":"ping"}`. `/automations`
+  route loads (redirects to /login when unauthenticated, as expected).
+
+**Setup for prod**
+- GitHub repo → Settings → Webhooks → Add webhook
+  Payload URL: `https://auremcto.com/api/aurem-dev/automations/webhook/github`
+  Content type: `application/json`
+  Secret: matches env `GITHUB_WEBHOOK_SECRET` (optional but recommended)
+  Event: just the push event

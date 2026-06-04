@@ -82,6 +82,9 @@ async def github_webhook(
         f"- {(c.get('message') or '')[:80]}" for c in commits[:3]
     )
 
+    # Lazy import to avoid circular routers <-> services on app boot.
+    from routers.cto_projects import _enqueue_cto_task
+
     for rule in rules:
         try:
             description = rule["task_template"].format(
@@ -98,20 +101,23 @@ async def github_webhook(
         })
         if not proj:
             continue
-        # Queue the task using the same shape `submit_task` would write.
-        task_id = f"auto_{int(time.time()*1000)}_{ObjectId()}"
-        await db.cto_tasks.insert_one({
-            "task_id":     task_id,
-            "project_id":  proj.get("project_id") or str(proj.get("_id", "")),
-            "user_id":     rule["user_id"],
-            "description": description,
-            "task":        description,
-            "status":      "queued",
-            "source":      "automation_webhook",
-            "automation_id": str(rule["_id"]),
-            "created_at":  time.time(),
-            "steps":       [],
-        })
+        # Reuse the canonical enqueue path so the background worker
+        # actually runs (clone → AI fix → push), instead of leaving the
+        # row stuck on "queued" forever.
+        res = await _enqueue_cto_task(
+            user_id=rule["user_id"],
+            project_id=proj.get("project_id"),
+            task_text=description,
+        )
+        if not res.get("ok"):
+            continue
+        task_id = res["task_id"]
+        # Tag the row so it's filterable in the UI as automation-driven.
+        await db.cto_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"source": "automation_webhook",
+                      "automation_id": str(rule["_id"])}},
+        )
         triggered.append(task_id)
         await db.cto_automations.update_one(
             {"_id": rule["_id"]},
@@ -163,6 +169,65 @@ async def list_automations(
     for r in rows:
         r["_id"] = str(r["_id"])
     return {"ok": True, "automations": rows}
+
+
+@router.post("/{automation_id}/run")
+async def run_automation_now(
+    automation_id: str, authorization: Optional[str] = Header(None),
+) -> dict:
+    """Manually fire an automation against its repo.
+
+    Useful for cron-style rules that the user wants to trigger ahead of
+    schedule, or for `manual` triggers (the only way they ever run).
+    """
+    me = await current_dev(authorization)
+    db = require_db()
+    rule = await db.cto_automations.find_one(
+        {"_id": ObjectId(automation_id), "user_id": me["user_id"]},
+    )
+    if not rule:
+        raise HTTPException(404, "Automation not found")
+
+    repo_full = rule.get("repo_full_name", "")
+    owner, _, repo = repo_full.partition("/")
+    proj = await db.cto_projects.find_one({
+        "user_id":      me["user_id"],
+        "github_owner": owner,
+        "github_repo":  repo,
+    })
+    if not proj:
+        raise HTTPException(409, "No project matches this automation's repo")
+
+    try:
+        description = rule["task_template"].format(
+            branch=rule.get("branch_filter") or "main",
+            pusher=me.get("email") or me["user_id"],
+            repo=repo_full, commit_count=0, commit_messages="(manual run)",
+        )
+    except KeyError:
+        description = rule["task_template"]
+
+    from routers.cto_projects import _enqueue_cto_task
+    res = await _enqueue_cto_task(
+        user_id=me["user_id"],
+        project_id=proj.get("project_id"),
+        task_text=description,
+    )
+    if not res.get("ok"):
+        raise HTTPException(409, res.get("reason", "could not enqueue"))
+
+    task_id = res["task_id"]
+    await db.cto_tasks.update_one(
+        {"task_id": task_id},
+        {"$set": {"source": "automation_manual",
+                  "automation_id": str(rule["_id"])}},
+    )
+    await db.cto_automations.update_one(
+        {"_id": rule["_id"]},
+        {"$set": {"last_triggered": time.time()},
+         "$inc": {"trigger_count": 1}},
+    )
+    return {"ok": True, "task_id": task_id}
 
 
 @router.post("/{automation_id}/toggle")

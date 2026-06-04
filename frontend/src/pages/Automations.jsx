@@ -6,7 +6,7 @@
  * project.  Backend: routers/automations.py.
  */
 import React, { useEffect, useState } from "react";
-import { Plus, Trash2, Zap, Copy, Check, GitBranch } from "lucide-react";
+import { Plus, Trash2, Zap, Copy, Check, GitBranch, Play } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api, API_BASE } from "../lib/api";
 
@@ -46,6 +46,17 @@ export default function Automations() {
   async function toggle(id) {
     try { await api.post(`/automations/${id}/toggle`); await load(); }
     catch { /* noop */ }
+  }
+  async function runNow(id) {
+    try {
+      const r = await api.post(`/automations/${id}/run`);
+      if (r?.data?.task_id) {
+        alert(`Task queued: ${r.data.task_id}`);
+      }
+      await load();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Run failed");
+    }
   }
   async function del(id) {
     if (!confirm("Delete this automation?")) return;
@@ -164,6 +175,13 @@ export default function Automations() {
                       {r.trigger_count > 0 && <><span>·</span><span>{r.trigger_count} runs</span></>}
                     </div>
                   </div>
+                  <button onClick={() => runNow(r._id)} className="btn-ghost"
+                          data-testid={`run-${r._id}`}
+                          style={{ padding: "4px 10px", fontSize: 11,
+                                    display: "inline-flex", gap: 4,
+                                    alignItems: "center" }}>
+                    <Play size={10} /> Run now
+                  </button>
                   <button onClick={() => toggle(r._id)} className="btn-ghost"
                           data-testid={`toggle-${r._id}`}
                           style={{ padding: "4px 10px", fontSize: 11 }}>

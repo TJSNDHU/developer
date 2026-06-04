@@ -17,6 +17,7 @@ import Wrapped from "./pages/Wrapped";
 import ShipWall from "./pages/ShipWall";
 import BrainDump from "./pages/BrainDump";
 import OpsRecipes from "./pages/OpsRecipes";
+import Automations from "./pages/Automations";
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/admin/brain/:projectId" element={<BrainDump />} />
         <Route path="/wall" element={<ShipWall />} />
         <Route path="/wrapped" element={<Wrapped />} />
+        <Route path="/automations" element={<Automations />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
