@@ -480,7 +480,161 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     }
 
 
-# ── TOOL 5: get_repo_info (project metadata) ─────────────────────────────────
+# ── TOOL 5: semantic_search_repo (GitHub code search) ────────────────────────
+
+async def semantic_search_repo(ctx: dict, args: dict) -> dict:
+    """Search the connected repo by concept via GitHub Code Search.
+
+    Better than `search_repo` (grep) for "find all files related to X" —
+    GitHub's index returns relevant matches even when the literal string
+    isn't present.
+
+    args:
+      query     str  — concept / symbol (natural language ok)
+      language  str? — 'python', 'javascript', 'typescript'
+      max       int? — max results (default 10, cap 20)
+    """
+    user_id    = ctx.get("user_id")
+    project_id = ctx.get("project_id")
+    query      = ((args or {}).get("query") or "").strip()
+    language   = ((args or {}).get("language") or "").strip()
+    max_hits   = min(int((args or {}).get("max") or 10), 20)
+
+    if not query:
+        return {"ok": False, "error": "query is required"}
+
+    proj = await _resolve_project(user_id, project_id)
+    if not proj:
+        return {"ok": False, "error": "No project connected"}
+
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo") or ""
+    token = proj.get("github_token") or None
+    if not owner or not repo:
+        return {"ok": False, "error": "Project missing github_owner or github_repo"}
+
+    gh_query = f"{query} repo:{owner}/{repo}"
+    if language:
+        gh_query += f" language:{language}"
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.get(
+                "https://api.github.com/search/code",
+                params={"q": gh_query, "per_page": max_hits},
+                headers=headers,
+            )
+            if r.status_code == 403:
+                return {"ok": False,
+                        "error": "GitHub search rate limited — try again in 30s"}
+            if r.status_code == 422:
+                return {"ok": False, "error": f"Invalid search query: {query}"}
+            r.raise_for_status()
+            data = r.json()
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "GitHub search timed out"}
+    except Exception as e:
+        return {"ok": False,
+                "error": f"GitHub search failed: {type(e).__name__}: {e}"}
+
+    results = [
+        {"path": item["path"], "score": round(item.get("score", 0), 2)}
+        for item in data.get("items", [])
+    ]
+    return {
+        "ok":      True,
+        "query":   query,
+        "total":   data.get("total_count", 0),
+        "results": results,
+        "hint": (
+            f"Found {len(results)} files. "
+            "Use read_repo_files to read the most relevant ones in parallel."
+        ),
+    }
+
+
+# ── TOOL 6: get_commit_diff (single-commit patch) ────────────────────────────
+
+async def get_commit_diff(ctx: dict, args: dict) -> dict:
+    """Return the diff for one commit.
+
+    Pairs with the brain context's "recent commits" so the model can see
+    exactly HOW similar work was done before writing new code.
+
+    args:
+      sha  str  — commit SHA (7 or 40 chars)
+    """
+    user_id    = ctx.get("user_id")
+    project_id = ctx.get("project_id")
+    sha        = ((args or {}).get("sha") or "").strip()
+
+    if not sha:
+        return {"ok": False,
+                "error": "sha is required (get it from brain context recent commits)"}
+
+    proj = await _resolve_project(user_id, project_id)
+    if not proj:
+        return {"ok": False, "error": "No project connected"}
+
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo") or ""
+    token = proj.get("github_token") or None
+    if not owner or not repo:
+        return {"ok": False, "error": "Project missing github_owner or github_repo"}
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(
+                f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}",
+                headers=headers,
+            )
+            if r.status_code == 404:
+                return {"ok": False, "error": f"Commit {sha} not found"}
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        return {"ok": False, "error": f"GitHub API error: {e}"}
+
+    files_changed = [
+        {
+            "path":      f["filename"],
+            "status":    f["status"],
+            "additions": f.get("additions", 0),
+            "deletions": f.get("deletions", 0),
+            "patch":     (f.get("patch") or "")[:600],
+        }
+        for f in (data.get("files") or [])[:8]
+    ]
+    commit_info = data.get("commit", {}) or {}
+    author = commit_info.get("author") or {}
+    return {
+        "ok":           True,
+        "sha":          sha[:7],
+        "message":      commit_info.get("message", ""),
+        "author":       author.get("name", ""),
+        "date":         author.get("date", ""),
+        "files_changed": files_changed,
+        "total_files":   len(data.get("files") or []),
+    }
+
+
+# ── TOOL 7: get_repo_info (project metadata) ─────────────────────────────────
 
 async def get_repo_info(ctx: dict, args: dict) -> dict:
     """Return connected project metadata: owner, repo, branch, tech_stack, last task."""
@@ -562,6 +716,35 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "semantic_search_repo",
+        "description": (
+            "Search the connected repo by CONCEPT or symbol using GitHub Code Search. "
+            "USE THIS FIRST before search_repo when you need to find files related to "
+            "a concept like 'authentication', 'rate limiting', 'payment processing'. "
+            "Returns file paths ranked by relevance. Then use read_repo_files to read "
+            "them. Example: query='JWT token validation' finds auth.py, middleware.py, "
+            "utils/token.py even if they don't contain the exact phrase."
+        ),
+        "args_spec": {
+            "query":    "string — concept or symbol to find (natural language ok)",
+            "language": "optional string — 'python', 'javascript', 'typescript'",
+            "max":      "optional int — max results, default 10",
+        },
+    },
+    {
+        "name": "get_commit_diff",
+        "description": (
+            "Get the full diff for a specific commit — shows exactly what files "
+            "changed and how. Use this when the project brain shows recent commits "
+            "and you want to understand HOW similar work was done before writing "
+            "new code. Example: brain shows 'added Stripe webhook handler 2 days "
+            "ago' → call get_commit_diff with that SHA to see the exact pattern used."
+        ),
+        "args_spec": {
+            "sha": "string — commit SHA (7 or 40 chars, from brain context recent commits)",
+        },
+    },
+    {
         "name": "get_repo_info",
         "description": (
             "Get connected project metadata: owner, repo, branch, tech stack, "
@@ -575,11 +758,13 @@ TOOL_SPECS: list[dict] = [
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 LOCAL_TOOLS: dict[str, callable] = {
-    "read_repo_file":  read_repo_file,
-    "read_repo_files": read_repo_files,
-    "list_repo_files": list_repo_files,
-    "search_repo":     search_repo,
-    "get_repo_info":   get_repo_info,
+    "read_repo_file":       read_repo_file,
+    "read_repo_files":      read_repo_files,
+    "list_repo_files":      list_repo_files,
+    "search_repo":          search_repo,
+    "semantic_search_repo": semantic_search_repo,
+    "get_commit_diff":      get_commit_diff,
+    "get_repo_info":        get_repo_info,
 }
 
 

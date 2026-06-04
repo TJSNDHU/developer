@@ -104,6 +104,28 @@ def scan_text(
     if not text:
         return []
     findings: list[dict] = []
+
+    # Python AST check — catches the syntax errors grep cannot find.
+    # Treated as a CRITICAL finding so the pre-push gate blocks the commit.
+    if filepath.endswith(".py"):
+        try:
+            import ast as _ast
+            _ast.parse(text)
+        except SyntaxError as _se:
+            line_no = _se.lineno or 1
+            lines = text.split("\n")
+            snippet = (lines[line_no - 1] if 0 < line_no <= len(lines) else "").strip()[:120]
+            findings.append({
+                "name": "python_syntax_error",
+                "rule": "python_syntax_error",
+                "severity": "CRITICAL",
+                "filepath": filepath,
+                "line": line_no,
+                "snippet": snippet,
+                "message": f"SyntaxError: {_se.msg}",
+                "source": "ast",
+            })
+
     lines = text.split("\n")
     for name, pattern, severity in SECRET_PATTERNS:
         for i, line in enumerate(lines, 1):

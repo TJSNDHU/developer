@@ -1066,11 +1066,31 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 await _log(task_id, "🛡️ injected Vanguard security skills")
         except Exception:
             pass
+        # Multi-file task detection — tells ORA to ship everything in
+        # one turn instead of stopping after file 1 with "Next:".  Keyword
+        # heuristic; the persona itself handles the ≥3-file checklist.
+        _multi_file_keywords = (
+            "all ", "every ", "each ", "multiple", "scaffold",
+            "workers", "pillar", "4 files", "5 files", "3 files",
+            "all files", "complete", "full implementation",
+        )
+        _is_multi = any(kw in task.lower() for kw in _multi_file_keywords)
+        _multi_file_instruction = ""
+        if _is_multi:
+            _multi_file_instruction = (
+                "\n\nMULTI-FILE TASK DETECTED: You MUST generate ALL required "
+                "files in this single response. Do NOT stop after the first "
+                "file. Do NOT say 'Next:' or 'Reply to continue'. Use the "
+                "checklist format: [ ] file → [x] done. Ship the complete "
+                "implementation in one commit."
+            )
+
         user_msg = (
             f"TASK: {task}\n"
             f"{('CONTEXT: ' + context) if context else ''}\n\n"
             f"Tech: {proj.get('tech_stack','auto')}\n\n"
             f"{repo_block or ''}{extra_context_block}\n\n{files_blob}"
+            f"{_multi_file_instruction}"
         )
 
         # iter 43 — Parallel multi-agent codegen for big tasks.
@@ -1227,6 +1247,83 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             return
         await _emit(task_id, "Running linter…", pct=75)
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
+
+        # ── Syntax validation — catch broken code before it reaches GitHub.
+        # AST check for Python, rough bracket-balance for JS/TS.  On
+        # failure, one auto-regen with the exact errors fed back (same
+        # nudge pattern used by the truncation gate above).
+        await _emit(task_id, "Validating generated code…", pct=78)
+        def _syntax_errors(blocks: dict[str, str]) -> list[str]:
+            out: list[str] = []
+            for _spath, _scontent in blocks.items():
+                if _spath.endswith(".py"):
+                    try:
+                        import ast as _ast
+                        _ast.parse(_scontent)
+                    except SyntaxError as _se:
+                        out.append(
+                            f"{_spath}: SyntaxError line {_se.lineno or 1}: {_se.msg}"
+                        )
+                elif _spath.endswith((".js", ".jsx", ".ts", ".tsx")):
+                    _opens  = (_scontent.count("{") + _scontent.count("(")
+                               + _scontent.count("["))
+                    _closes = (_scontent.count("}") + _scontent.count(")")
+                               + _scontent.count("]"))
+                    if abs(_opens - _closes) > 8:
+                        out.append(
+                            f"{_spath}: bracket imbalance "
+                            f"({_opens} open vs {_closes} close) — likely truncated"
+                        )
+            return out
+
+        syntax_errors = _syntax_errors(edits)
+        if syntax_errors:
+            await _log(
+                task_id,
+                "⚠️ Syntax errors detected — auto-regenerating with feedback",
+                "warning",
+            )
+            await _emit(task_id, "Syntax errors found — regenerating…", pct=79)
+            _syn_nudge = (
+                "Your previous response generated code with these syntax "
+                "errors:\n  - "
+                + "\n  - ".join(syntax_errors)
+                + "\n\nRegenerate the COMPLETE corrected files in the same "
+                "FILE: <path>\\n```\\n…\\n``` format. Ensure every function, "
+                "class, and block is properly closed. Do not truncate any "
+                "file. Output ALL files you edited, not just the broken ones."
+            )
+            reply3 = await _retry(
+                lambda: call_llm(
+                    messages=[{"role": "user",
+                               "content": user_msg + "\n\n" + _syn_nudge}],
+                    system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                ),
+                what="AI syntax-fix auto-retry", task_id=task_id,
+            )
+            new_edits: dict[str, str] = {}
+            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
+                                 reply3, re.DOTALL):
+                new_edits[m.group(1).strip()] = m.group(2)
+            if new_edits:
+                # Merge — preserve any files the retry didn't include.
+                edits = {**edits, **new_edits}
+            syntax_errors = _syntax_errors(edits)
+
+        if syntax_errors:
+            _err_str = "\n  - ".join(syntax_errors[:3])
+            err = (
+                "Generated code has syntax errors after auto-retry:\n  - "
+                + _err_str
+                + "\n\nTry rephrasing: specify the exact function or class "
+                "to change, or split the work into smaller files."
+            )
+            await _log(task_id, f"🚫 {err}", "error")
+            await _set_status(task_id, status="failed", error=err[:2000],
+                              completed_at=time.time())
+            await _emit(task_id, "Syntax error — task failed",
+                        kind="fail", pct=100)
+            return
 
         # iter 41 — Design Linter (zero LLM cost, pure regex).
         # Auto-fixes safe issues first (console.log, transition: all), then
