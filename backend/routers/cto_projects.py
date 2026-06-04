@@ -55,11 +55,16 @@ _task_queues: dict[str, asyncio.Queue] = {}
 
 
 async def _emit(task_id: str, step: str,
-                kind: str = "step", pct: Optional[int] = None) -> None:
+                kind: str = "step", pct: Optional[int] = None,
+                **extra) -> None:
     """Push one progress frame onto the task's live SSE queue.
 
     Non-blocking; safe to call even if no consumer is listening (the queue
-    just buffers up to 256 frames then drops oldest)."""
+    just buffers up to 256 frames then drops oldest).
+
+    Any **extra keyword args are merged into the frame so callers can ship
+    structured payloads (e.g. `agents=["backend","frontend"]` for the
+    parallel-mode worker tape)."""
     if not task_id:
         return
     q = _task_queues.get(task_id)
@@ -67,6 +72,11 @@ async def _emit(task_id: str, step: str,
         q = asyncio.Queue(maxsize=256)
         _task_queues[task_id] = q
     frame = {"type": kind, "step": step, "pct": pct, "ts": time.time()}
+    if extra:
+        # Don't let callers overwrite the canonical fields.
+        for k, v in extra.items():
+            if k not in frame:
+                frame[k] = v
     try:
         q.put_nowait(frame)
     except asyncio.QueueFull:
@@ -1072,9 +1082,22 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         parallelized = False
         agents_count = 1
         try:
-            from services.parallel_agents import should_parallelize, run_parallel_agents
+            from services.parallel_agents import (
+                should_parallelize, run_parallel_agents, decompose_task,
+            )
             file_tree_hint = list(contents.keys()) + (files or [])
             if should_parallelize(task, file_tree_hint):
+                # Pre-decompose so we know which agents are about to fire
+                # — that lets the chat bubble render the badges + per-agent
+                # mini progress bars BEFORE the LLM round-trip resolves.
+                _agents_preview = decompose_task(task, f"{owner}/{repo}@{branch}", file_tree_hint)
+                _agent_roles = [a.get("role", "agent") for a in _agents_preview]
+                await _emit(
+                    task_id,
+                    f"Parallel mode — {len(_agent_roles)} agents working simultaneously",
+                    kind="parallel", pct=30,
+                    agents=[r.title() for r in _agent_roles],
+                )
                 await _log(task_id, "⚡ Task is multi-domain — splitting into parallel agents")
                 gen_result = await run_parallel_agents(
                     task_description=user_msg,
@@ -1084,6 +1107,18 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 edits = gen_result.get("file_blocks", {}) or {}
                 parallelized = bool(gen_result.get("parallelized"))
                 agents_count = int(gen_result.get("agents_used", 1))
+                if parallelized:
+                    # Fan out one terminal frame per agent so the per-agent
+                    # mini-bars can settle to ✓ / ✕ in the UI.
+                    for r in gen_result.get("agent_results", []):
+                        ok = not r.get("error")
+                        await _emit(
+                            task_id,
+                            f"{r.get('role','agent').title()} agent {'done' if ok else 'failed'}",
+                            kind="parallel_agent",
+                            role=r.get("role", "agent").title(),
+                            ok=ok,
+                        )
                 if parallelized and edits:
                     summary = f"Parallel codegen ({agents_count} agents) — {task[:120]}"
                     await _log(task_id,

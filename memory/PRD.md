@@ -2064,3 +2064,57 @@ Pattern #1 upgraded from PARTIAL to **FULLY FIXED**. Only #5 remains (codebase h
 **Deferred to next iter** (per user "TASK 1 ONLY this iter"):
 - Task 3 — `NewUserWizard.jsx` onboarding overlay (~150 lines).
 - Task 2 — parallel-agent mini badges (Backend / Frontend / Tests).
+
+
+### Iter 73 — Tasks 2 + 3 (Jun 2026)
+
+**Task 3 — `NewUserWizard.jsx` onboarding overlay:**
+- 3-step modal triggered on /dashboard when
+  `GET /cto/projects/list` returns []
+  AND `localStorage["aurem_wizard_dismissed"]` is unset.
+- Step 1: GitHub repo URL + branch → `POST /cto/projects/add`.
+- Step 2: Free-form task brief → `POST /cto/tasks/submit`.
+- Step 3: Live `<TaskLiveTape />` rendering the just-submitted task.
+- Skip / X / completion all set the dismissal flag so the wizard never
+  reappears on this device.
+- Switches to the newly-created project tab (`setActiveProjectId`)
+  before closing so the user lands in chat with the right context.
+- Wired into `Dashboard.jsx` via `useEffect` + `api.get("/cto/projects/list")`.
+
+**Task 2 — Parallel-agent badges + per-agent sub-tapes:**
+- `routers/cto_projects.py`:
+  - `_emit()` now accepts `**extra` kwargs (canonical fields
+    `type/step/pct/ts` are protected from override).
+  - When `should_parallelize()` fires we `decompose_task()` first to
+    learn the roster, then emit a `parallel` SSE frame
+    `{ type: "parallel", agents: ["Backend","Frontend","Tests"], pct: 30 }`
+    BEFORE the LLM round-trip — UI renders badges instantly.
+  - After `run_parallel_agents()` resolves, one `parallel_agent` frame
+    per role (`{ type, role, ok }`) is emitted so each mini-bar settles
+    to ✓ / ✕.
+- `components/TaskLiveTape.jsx`:
+  - Maintains an `agents` state map (`{ name: "running"|"done"|"failed" }`).
+  - Renders a CSS-grid of `<AgentMini />` cards above the step feed,
+    each with its own indeterminate slide animation while running and
+    a settled green/red bar on completion.
+  - The redundant `parallel_agent` lines are suppressed from the main
+    feed so the UI stays clean.
+- `index.css` → `@keyframes aurem-mini-slide` for the indeterminate pulse.
+
+**Tests + verify:**
+- 8 new tests in `test_iter73_wizard_and_parallel.py` (wizard testids +
+  endpoint wiring + Dashboard mount + _emit extras + canonical-field
+  protection + parallel-mode router wiring + multi-domain decompose +
+  TaskLiveTape rendering + keyframe).
+- Full regression: **396 pass / 14 pre-existing env failures**
+  (388 → 396).
+- Browser smoke (Playwright via screenshot tool):
+  fresh login → wizard appears → URL validation rejects bad input →
+  step 2 surfaces server-side "GitHub not connected" gracefully → Skip
+  dismisses + persists across reload → dashboard renders cleanly.
+
+**Backlog after this iter:**
+- Real-task validation of the live tape on a connected repo (waiting
+  for a user with OAuth-connected GitHub).
+- Settings flow polish so the wizard's "Skip → Connect GitHub" path
+  drops the user directly on the OAuth button.
