@@ -47,6 +47,20 @@ def test_new_user_wizard_component_exists():
     assert "aurem_wizard_dismissed" in js
 
 
+def test_wizard_has_inline_github_oauth():
+    """Iter 73 follow-up: Connect-with-GitHub button + repo picker live
+    inside step 1 so the user never has to leave the wizard."""
+    js = _read("frontend/src/components/NewUserWizard.jsx")
+    assert "wizard-connect-github" in js
+    assert "/github/oauth/connect" in js
+    assert "/github/oauth/status" in js
+    assert "/github/oauth/repos" in js
+    # Inline picker for the user's repos
+    assert "wizard-repo-picker" in js
+    # Manual-paste fallback still available
+    assert 'setGhStatus("manual")' in js
+
+
 def test_wizard_wired_into_dashboard():
     js = _read("frontend/src/pages/Dashboard.jsx")
     assert "NewUserWizard" in js

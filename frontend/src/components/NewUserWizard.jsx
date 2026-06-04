@@ -11,9 +11,9 @@
  *
  * Iter 73 Task 3.
  */
-import React, { useState } from "react";
-import { Loader2, X, ArrowRight, GitBranch } from "lucide-react";
-import { api } from "../lib/api";
+import React, { useEffect, useRef, useState } from "react";
+import { Loader2, X, ArrowRight, GitBranch, Github } from "lucide-react";
+import { api, getToken, API_BASE } from "../lib/api";
 import TaskLiveTape from "./TaskLiveTape";
 import { setActiveProjectId } from "./TabBar";
 
@@ -40,6 +40,96 @@ export default function NewUserWizard({ onComplete }) {
   const [taskId, setTaskId]     = useState(null);
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState("");
+
+  // GitHub OAuth state — drives whether step 1 shows a Connect button
+  // or the repo URL input + picker.
+  const [ghStatus, setGhStatus] = useState("checking"); // "checking" | "connected" | "disconnected"
+  const [ghLogin, setGhLogin]   = useState("");
+  const [repos, setRepos]       = useState([]);
+  const [reposBusy, setReposBusy] = useState(false);
+  const pollRef = useRef(null);
+  const popupRef = useRef(null);
+
+  // Initial OAuth status check.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get("/github/oauth/status");
+        if (cancelled) return;
+        if (r.data?.connected) {
+          setGhStatus("connected");
+          setGhLogin(r.data.login || "");
+          fetchRepos();
+        } else {
+          setGhStatus("disconnected");
+        }
+      } catch {
+        if (!cancelled) setGhStatus("disconnected");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function fetchRepos() {
+    setReposBusy(true);
+    try {
+      const r = await api.get("/github/oauth/repos");
+      setRepos(r.data?.repos || []);
+    } catch {
+      setRepos([]);
+    } finally {
+      setReposBusy(false);
+    }
+  }
+
+  function connectGithub() {
+    const token = getToken();
+    if (!token) {
+      setErr("Session expired — please log in again.");
+      return;
+    }
+    // Open the OAuth flow in a popup. The backend's /connect handler
+    // accepts the JWT via `?auth=` so cookieless browsers still work.
+    const url = `${API_BASE}/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+    const w = 560, h = 720;
+    const left = Math.max(0, window.screenX + (window.outerWidth  - w) / 2);
+    const top  = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
+    popupRef.current = window.open(
+      url, "aurem_github_oauth",
+      `width=${w},height=${h},left=${left},top=${top}`,
+    );
+    // Poll status every 2 s until either: connected, popup closed by user,
+    // or 90 s timeout.  This is more reliable than postMessage across
+    // GitHub's domain handoff.
+    if (pollRef.current) clearInterval(pollRef.current);
+    const started = Date.now();
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await api.get("/github/oauth/status");
+        if (r.data?.connected) {
+          clearInterval(pollRef.current); pollRef.current = null;
+          try { popupRef.current?.close?.(); } catch { /* xorigin */ }
+          setGhStatus("connected");
+          setGhLogin(r.data.login || "");
+          fetchRepos();
+        }
+      } catch { /* keep polling */ }
+      if (popupRef.current?.closed) {
+        // user closed the window without finishing
+        if (ghStatus !== "connected") {
+          clearInterval(pollRef.current); pollRef.current = null;
+        }
+      }
+      if (Date.now() - started > 90_000) {
+        clearInterval(pollRef.current); pollRef.current = null;
+      }
+    }, 2000);
+  }
 
   function close() {
     dismissWizard();
@@ -68,10 +158,14 @@ export default function NewUserWizard({ onComplete }) {
       setStep(2);
     } catch (e2) {
       const msg = e2?.response?.data?.detail || e2?.message || "Could not connect repo.";
-      setErr(msg);
-      // 400 from /projects/add when GitHub isn't connected → push them to Settings.
+      // If the server replies "GitHub not connected" mid-flow (e.g. user
+      // is in manual mode for a private repo), flip the panel back to
+      // the OAuth-connect view instead of asking them to leave.
       if (/github not connected/i.test(msg)) {
-        setErr("GitHub isn't connected. Skip to dashboard, then open Settings → Connect GitHub.");
+        setGhStatus("disconnected");
+        setErr("This repo needs GitHub access. Connect once below — your manual URL will stick.");
+      } else {
+        setErr(msg);
       }
     } finally {
       setBusy(false);
@@ -156,34 +250,134 @@ export default function NewUserWizard({ onComplete }) {
           {step === 1 && (
             <form onSubmit={submitRepo} data-testid="wizard-step-1">
               <h2 id="wizard-title" style={hStyle}>Connect your GitHub repo</h2>
-              <p style={pStyle}>
-                Paste a repo URL — ORA will read it, write the diff, and
-                push the commit back to this branch.
-              </p>
-              <label style={lStyle}>Repository</label>
-              <input
-                data-testid="wizard-repo-input"
-                autoFocus
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo"
-                style={iStyle}
-              />
-              <label style={lStyle}>Branch</label>
-              <input
-                data-testid="wizard-branch-input"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                placeholder="main"
-                style={iStyle}
-              />
-              {err && <div data-testid="wizard-error" style={errStyle}>{err}</div>}
-              <Footer
-                busy={busy}
-                primary="Continue"
-                onPrimary={submitRepo}
-                onSkip={close}
-              />
+
+              {ghStatus === "checking" && (
+                <div data-testid="wizard-gh-checking" style={{
+                  display:"flex", alignItems:"center", gap:8,
+                  fontSize:12, color:"var(--text-dim)",
+                  padding:"18px 0",
+                }}>
+                  <Loader2 size={12} style={{ animation:"spin 1s linear infinite" }} />
+                  Checking GitHub connection…
+                </div>
+              )}
+
+              {ghStatus === "disconnected" && (
+                <div data-testid="wizard-gh-disconnected">
+                  <p style={pStyle}>
+                    Connect GitHub once — AUREM will use it to read your
+                    repos, write commits, and open PRs. We never store the
+                    token in plaintext.
+                  </p>
+                  <button
+                    data-testid="wizard-connect-github"
+                    type="button"
+                    onClick={connectGithub}
+                    style={{
+                      ...primaryBtn, width: "100%",
+                      justifyContent: "center",
+                      background: "#1f2229",
+                      color: "var(--text)",
+                      border: "1px solid var(--border-strong, rgba(255,200,120,0.32))",
+                      padding: "11px 14px", fontSize: 13,
+                    }}
+                  >
+                    <Github size={14} />
+                    Continue with GitHub
+                  </button>
+                  <div style={{
+                    fontSize: 10.5, color: "var(--text-faint)",
+                    textAlign: "center", marginTop: 10, lineHeight: 1.5,
+                  }}>
+                    Opens in a popup. After authorising, this wizard will
+                    pick up automatically.
+                  </div>
+                  {err && <div data-testid="wizard-error" style={errStyle}>{err}</div>}
+                  <Footer
+                    busy={false}
+                    primary="Skip — paste a URL"
+                    onPrimary={() => setGhStatus("manual")}
+                    onSkip={close}
+                  />
+                </div>
+              )}
+
+              {(ghStatus === "connected" || ghStatus === "manual") && (
+                <>
+                  {ghStatus === "connected" && (
+                    <div data-testid="wizard-gh-connected" style={{
+                      display:"flex", alignItems:"center", gap:8,
+                      padding:"6px 10px", marginBottom:12,
+                      background:"rgba(109,212,161,0.07)",
+                      border:"1px solid rgba(109,212,161,0.22)",
+                      borderRadius:4, fontSize:11,
+                      color:"var(--ok, #6dd4a1)",
+                    }}>
+                      <Github size={11} />
+                      Connected as <strong>{ghLogin || "github user"}</strong>
+                    </div>
+                  )}
+                  <p style={pStyle}>
+                    {ghStatus === "connected"
+                      ? "Pick a repo from your account or paste any URL — ORA will read it, write the diff, and push the commit back."
+                      : "Paste any public repo URL. (You can connect GitHub later from Settings for private repos.)"}
+                  </p>
+
+                  {ghStatus === "connected" && (
+                    <>
+                      <label style={lStyle}>Your repositories</label>
+                      <select
+                        data-testid="wizard-repo-picker"
+                        disabled={reposBusy}
+                        onChange={(e) => {
+                          const idx = parseInt(e.target.value, 10);
+                          const r = repos[idx];
+                          if (r) {
+                            setRepoUrl(r.url || `https://github.com/${r.full_name}`);
+                            setBranch(r.default_branch || "main");
+                          }
+                        }}
+                        style={iStyle}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>
+                          {reposBusy ? "Loading…" : `${repos.length} repos found — pick one`}
+                        </option>
+                        {repos.map((r, i) => (
+                          <option key={r.full_name} value={i}>
+                            {r.full_name}{r.private ? " · private" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+
+                  <label style={lStyle}>Repository URL</label>
+                  <input
+                    data-testid="wizard-repo-input"
+                    autoFocus={ghStatus !== "connected"}
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    placeholder="https://github.com/owner/repo"
+                    style={iStyle}
+                  />
+                  <label style={lStyle}>Branch</label>
+                  <input
+                    data-testid="wizard-branch-input"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    placeholder="main"
+                    style={iStyle}
+                  />
+                  {err && <div data-testid="wizard-error" style={errStyle}>{err}</div>}
+                  <Footer
+                    busy={busy}
+                    primary="Continue"
+                    onPrimary={submitRepo}
+                    onSkip={close}
+                  />
+                </>
+              )}
             </form>
           )}
 

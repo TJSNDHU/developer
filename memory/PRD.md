@@ -2118,3 +2118,37 @@ Pattern #1 upgraded from PARTIAL to **FULLY FIXED**. Only #5 remains (codebase h
   for a user with OAuth-connected GitHub).
 - Settings flow polish so the wizard's "Skip → Connect GitHub" path
   drops the user directly on the OAuth button.
+
+
+### Iter 73 — Inline GitHub OAuth in Wizard (Jun 2026)
+
+Follow-up polish to Task 3.  Previously the wizard told users
+"GitHub isn't connected — skip to dashboard and open Settings".  Now
+the OAuth flow lives inside step 1 so users never leave the modal.
+
+**Frontend `NewUserWizard.jsx`:**
+- On mount, hits `GET /github/oauth/status`.
+  - `connected`   → shows a green "Connected as @login" pill,
+    fetches the repo list via `GET /github/oauth/repos`, and renders a
+    `<select>` repo picker that auto-fills the URL + default branch.
+  - `disconnected` → shows a big "Continue with GitHub" CTA that opens
+    `/api/aurem-dev/github/oauth/connect?auth=<jwt>` in a 560×720 popup
+    and polls `/status` every 2 s (90 s ceiling).  When the popup
+    finishes, the wizard flips to the connected view automatically.
+  - `manual`      → fallback for users who don't want OAuth — just the
+    paste-a-URL inputs.
+- If the user is in `manual` mode and `/projects/add` returns
+  "GitHub not connected" (e.g. private repo), the wizard flips back to
+  the disconnected panel with a soft "Connect once below — your manual
+  URL will stick" message.
+- Testids added: `wizard-connect-github`, `wizard-repo-picker`,
+  `wizard-gh-connected`, `wizard-gh-disconnected`, `wizard-gh-checking`.
+
+**Tests:**
+- 1 new test in `test_iter73_wizard_and_parallel.py` (`test_wizard_has_inline_github_oauth`) locking the OAuth wiring.
+- Full regression: **397 pass / 14 pre-existing env failures**.
+
+**Browser smoke (Playwright):**
+- Fresh login → "Continue with GitHub" appears as the primary CTA.
+- "Skip — paste a URL" flips to the manual input panel.
+- Dismissal flag still persists across reload.
