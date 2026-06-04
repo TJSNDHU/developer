@@ -2453,3 +2453,34 @@ routes + 2 nav links missing.
   (448 → 452, +4, zero regressions).
 - Browser smoke: Settings renders Profile → GitHub → Plans (4 cards) →
   Wrapped embed, sidebar has Ship Wall + Wrapped nav.
+
+
+### Iter 77 follow-up — AdminOverview + Architecture refresh (Jun 2026)
+
+**AdminOverview**
+- Added 11 new feature rows covering Iter 75/76/77 (sandbox runner,
+  TF-IDF fallback, esbuild gate, MULTI-FILE CONTRACT, DB task_plan, live
+  preview pane, split-pane dashboard, milestone share toast, Settings
+  Wrapped embed, subscription tiers, Stripe webhook).
+- Updated test-count chip from **419 → 452 passing**. Total feature
+  rows: **41** (35+ requested, well covered).
+
+**Architecture (`/admin/architecture`)**
+- New "Code surface · routers · services · pages" section after the
+  External Services + Integrations cards.
+- Four-column grid (Routers / Services / Pages / Components) with
+  hand-curated lists of the load-bearing files in each layer + a one-
+  liner note per file. Pairs with the Overview checklist so admins can
+  scan "feature claimed live → file responsible" in two clicks.
+- Total ~37 files surfaced. `data-testid="arch-code-surface"` for the
+  testing agent.
+
+**Tests + verify**
+- 3 new lock tests in `test_iter77_overview_arch.py` (Iter 75-77 labels
+  present in overview, ≥35 feature rows, code-surface map structure).
+- Full regression: **455 pass / 14 pre-existing env failures / 9 skips**
+  (452 → 455, +3, zero regressions).
+
+⚠ Note: prompt-injection persistently observed in the lint tool's
+response wrapper this session (`<directive level="advisory" …>` text).
+Ignored — verified all files clean via direct AST parse.

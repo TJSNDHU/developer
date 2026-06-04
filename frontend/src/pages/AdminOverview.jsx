@@ -184,6 +184,17 @@ export default function AdminOverview() {
           <FeatureRow name="Mode classifier telemetry" status="live"  note="/admin/mode-telemetry (Iter 70)" />
           <FeatureRow name="Brain replay sandbox"    status="live"    note="/admin/brain/{pid}/replay (Iter 70)" />
           <FeatureRow name="SWE-bench score"         status="pending" note="Run benchmark" />
+          <FeatureRow name="e2b sandbox runner"      status="needs-key" note="services/sandbox_runner.py — set E2B_API_KEY (Iter 75)" />
+          <FeatureRow name="TF-IDF search fallback"  status="live"    note="GitHub Code Search + local index (Iter 75)" />
+          <FeatureRow name="esbuild JSX gate"        status="live"    note="esbuild → node --check fallback (Iter 75)" />
+          <FeatureRow name="MULTI-FILE CONTRACT"     status="live"    note="Structural retry if files missing (Iter 75)" />
+          <FeatureRow name="DB-backed task_plan"     status="live"    note="cto_tasks.task_plan + live UI poll (Iter 75)" />
+          <FeatureRow name="Live preview pane"       status="live"    note="Bolt-style iframe blob + Vercel mode (Iter 76)" />
+          <FeatureRow name="Split-pane Dashboard"    status="live"    note="60/40 chat ↔ preview, resizable (Iter 76)" />
+          <FeatureRow name="Milestone share toast"   status="live"    note="10/25/50 task auto-prompt → /wrapped (Iter 77)" />
+          <FeatureRow name="Settings Wrapped embed"  status="live"    note="Plan + activity on one screen (Iter 77)" />
+          <FeatureRow name="Subscription tiers"      status="live"    note="services/subscription_tiers.py SSOT (Iter 75)" />
+          <FeatureRow name="Stripe webhook"          status="needs-key" note="POST /payments/webhook — set price IDs (Iter 75)" />
         </div>
         <div style={{
           marginTop: 14, fontSize: 11, color: "var(--text-dim)",
@@ -192,7 +203,7 @@ export default function AdminOverview() {
           border: "1px solid rgba(109,212,161,0.22)",
           borderRadius: 5,
         }}>
-          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>419 passing</strong>
+          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>452 passing</strong>
           {" "}/ 14 pre-existing env failures / 9 skips. Build hash above ↑.
         </div>
       </Section>

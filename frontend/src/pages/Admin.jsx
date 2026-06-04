@@ -768,9 +768,110 @@ function Architecture() {
           </div>
         )}
       </Card>
+
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "22px 0 8px" }}>
+        Code surface · routers · services · pages
+      </h3>
+      <div data-testid="arch-code-surface" style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gap: 12,
+      }}>
+        {CODE_SURFACE.map((col) => (
+          <Card key={col.title} style={{ padding: 14 }}>
+            <div style={{
+              fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase",
+              color: "var(--accent-2, #ffb347)", marginBottom: 8,
+              fontWeight: 600,
+            }}>{col.title} · {col.items.length}</div>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0,
+                          display: "grid", gap: 4 }}>
+              {col.items.map((it) => (
+                <li key={it.name} style={{
+                  fontSize: 11.5, color: "var(--text-dim)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  display: "flex", justifyContent: "space-between",
+                  gap: 8,
+                }}>
+                  <span style={{ overflowWrap: "anywhere" }}>{it.name}</span>
+                  {it.note && (
+                    <span style={{
+                      color: "var(--text-faint)", fontSize: 10,
+                      whiteSpace: "nowrap", flexShrink: 0,
+                    }}>{it.note}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
+
+// Static map of the codebase surface — pairs with AdminOverview's
+// feature checklist. Hand-maintained when shape changes meaningfully.
+const CODE_SURFACE = [
+  {
+    title: "Routers",
+    items: [
+      { name: "auth.py",            note: "JWT + signup" },
+      { name: "chat.py",            note: "SSE stream" },
+      { name: "cto_projects.py",    note: "tasks + brain" },
+      { name: "admin.py",           note: "ops + telemetry" },
+      { name: "github_oauth.py",    note: "PAT + OAuth" },
+      { name: "payments.py",        note: "Stripe 4-tier" },
+      { name: "wall.py",            note: "ship feed" },
+      { name: "wrapped.py",         note: "user stats" },
+      { name: "deploy.py",          note: "Vercel/Netlify" },
+    ],
+  },
+  {
+    title: "Services",
+    items: [
+      { name: "orchestrator.py",       note: "persona + tools" },
+      { name: "local_tools.py",        note: "7 LLM tools" },
+      { name: "project_brain.py",      note: "per-repo memory" },
+      { name: "vanguard_scanner.py",   note: "AST + 25 patterns" },
+      { name: "parallel_agents.py",    note: "Back/Front/Tests" },
+      { name: "mode_classifier.py",    note: "A→F router" },
+      { name: "sandbox_runner.py",     note: "e2b validate" },
+      { name: "subscription_tiers.py", note: "tier SSOT" },
+      { name: "usage.py",              note: "task + token meter" },
+    ],
+  },
+  {
+    title: "Pages",
+    items: [
+      { name: "Landing.jsx",       note: "marketing" },
+      { name: "Dashboard.jsx",     note: "split pane" },
+      { name: "Settings.jsx",      note: "plan + wrapped" },
+      { name: "Wrapped.jsx",       note: "/wrapped" },
+      { name: "ShipWall.jsx",      note: "/wall" },
+      { name: "BrainDump.jsx",     note: "diff buttons" },
+      { name: "OpsRecipes.jsx",    note: "/admin/ops" },
+      { name: "AdminOverview.jsx", note: "feature audit" },
+      { name: "Admin.jsx",         note: "tabs + arch" },
+    ],
+  },
+  {
+    title: "Components",
+    items: [
+      { name: "ChatPanel.jsx",           note: "SSE chat" },
+      { name: "MessageBubble.jsx",       note: "rich render" },
+      { name: "TaskLiveTape.jsx",        note: "terminal feed" },
+      { name: "TaskProgressCard.jsx",    note: "ship + rollback" },
+      { name: "TaskManagementPanel.jsx", note: "checklist" },
+      { name: "PreviewPane.jsx",         note: "iframe blob" },
+      { name: "NewUserWizard.jsx",       note: "onboarding" },
+      { name: "PricingCards.jsx",        note: "4-tier grid" },
+      { name: "OraWrapped.jsx",          note: "share card" },
+      { name: "Toast.jsx",               note: "milestones" },
+    ],
+  },
+];
 
 function SettingsPage() {
   const [s, setS] = useState(null);
