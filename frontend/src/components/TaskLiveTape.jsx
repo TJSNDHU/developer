@@ -176,6 +176,40 @@ export default function TaskLiveTape({ taskId, onDone }) {
           // already reflected in the mini-bars above — keep the feed clean
           return null;
         }
+        if (s.type === "task_state" && s.files_total > 1) {
+          // Multi-file write progress (pairs with TaskManagementPanel).
+          const pctFiles = Math.round((s.files_done / s.files_total) * 100);
+          return (
+            <div
+              key={i}
+              data-testid={`task-live-tape-state-${i}`}
+              style={{
+                fontSize: 10,
+                color: "var(--accent-2, #ffb347)",
+                fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                padding: "3px 0 4px",
+              }}
+            >
+              Writing {s.files_done}/{s.files_total} files
+              <div style={{
+                height: 2,
+                background: "var(--border, rgba(255,200,120,0.12))",
+                borderRadius: 2,
+                overflow: "hidden",
+                marginTop: 3,
+                width: 140,
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${pctFiles}%`,
+                  background: "var(--accent, #ff8a2a)",
+                  borderRadius: 2,
+                  transition: "width .3s ease",
+                }}/>
+              </div>
+            </div>
+          );
+        }
         return (
           <div
             key={i}

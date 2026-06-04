@@ -19,6 +19,7 @@ export default function BrainDump() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [commits, setCommits] = useState([]);
 
   async function load() {
     setBusy(true);
@@ -33,7 +34,32 @@ export default function BrainDump() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
+  async function loadCommits() {
+    try {
+      const r = await api.get(
+        `/admin/brain/${projectId}/recent-commits`, AUTH(),
+      );
+      setCommits(r.data?.commits || []);
+    } catch {
+      // non-fatal; just hide the section
+      setCommits([]);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    loadCommits();
+    /* eslint-disable-next-line */
+  }, [projectId]);
+
+  function askOraAboutCommit(sha, description) {
+    const message = (
+      `What pattern was used in commit ${sha}? Call get_commit_diff with ` +
+      `sha="${sha}" and explain the approach. Context: "${description}".`
+    );
+    window.dispatchEvent(new CustomEvent("ora:prefill", { detail: { message } }));
+    navigate("/dashboard");
+  }
 
   async function deleteDecision(title) {
     if (!window.confirm(`Delete decision "${title}"?`)) return;
@@ -120,6 +146,68 @@ export default function BrainDump() {
               {data.assembled_context || "(empty — no brain context for this project)"}
             </pre>
           </Section>
+
+          {/* Recent commits with "Show diff →" — pre-fills ORA with get_commit_diff. */}
+          {commits.length > 0 && (
+            <Section title={`Recent commits (${commits.length})`}>
+              {commits.map((c, i) => (
+                <Row key={c.sha || i} testid={`brain-commit-${i}`}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      fontSize: 12, color: "var(--text)", fontWeight: 500,
+                      overflowWrap: "anywhere",
+                    }}>
+                      {c.short_sha && (
+                        <code data-testid={`brain-commit-sha-${i}`} style={{
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontSize: 11,
+                          color: "var(--accent-2, #ffb347)",
+                          background: "var(--bg-elev)",
+                          padding: "1px 6px", borderRadius: 3,
+                          flexShrink: 0,
+                        }}>{c.short_sha}</code>
+                      )}
+                      <span style={{ flex: 1, overflowWrap: "anywhere" }}>
+                        {c.description || "(no description)"}
+                      </span>
+                    </div>
+                    {c.files?.length > 0 && (
+                      <div style={{
+                        fontSize: 10.5, color: "var(--text-faint)",
+                        marginTop: 3,
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>
+                        {c.files.slice(0, 4).map(f => `· ${f}`).join("  ")}
+                        {c.files.length > 4 ? ` +${c.files.length - 4} more` : ""}
+                      </div>
+                    )}
+                  </div>
+                  {c.sha && (
+                    <button
+                      data-testid={`brain-commit-show-diff-${i}`}
+                      onClick={() => askOraAboutCommit(c.sha, c.description || "")}
+                      style={{
+                        fontSize: 10,
+                        padding: "3px 9px",
+                        background: "rgba(255,138,42,0.08)",
+                        border: "1px solid rgba(255,200,120,0.32)",
+                        borderRadius: 5,
+                        color: "var(--accent-2, #ffb347)",
+                        cursor: "pointer",
+                        marginLeft: 8,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                      title="Pre-fill chat with get_commit_diff(sha)"
+                    >
+                      Show diff →
+                    </button>
+                  )}
+                </Row>
+              ))}
+            </Section>
+          )}
 
           {/* Decisions list with inline delete */}
           {Array.isArray(data.raw_brain?.decisions) && data.raw_brain.decisions.length > 0 && (

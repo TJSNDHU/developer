@@ -1249,13 +1249,56 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
         # ── Syntax validation — catch broken code before it reaches GitHub.
-        # AST check for Python, rough bracket-balance for JS/TS.  On
-        # failure, one auto-regen with the exact errors fed back (same
-        # nudge pattern used by the truncation gate above).
+        # AST check for Python, `node --check` for JS/TS when node is
+        # available (falls back silently if not — never blocks the
+        # pipeline on an env-level missing binary).  On failure, one
+        # auto-regen with the exact errors fed back (same nudge pattern
+        # used by the truncation gate above).
         await _emit(task_id, "Validating generated code…", pct=78)
+
+        def _check_js_syntax(filepath: str, content: str) -> Optional[str]:
+            """Return an error string for invalid JS/TS, None if valid OR
+            if node isn't installed (so we degrade gracefully)."""
+            import subprocess as _sp_mod
+            import tempfile as _tf
+            import os as _os
+            suffix = _os.path.splitext(filepath)[1] or ".js"
+            tmp = None
+            try:
+                with _tf.NamedTemporaryFile(
+                    suffix=suffix, mode="w", delete=False, encoding="utf-8",
+                ) as fh:
+                    fh.write(content)
+                    tmp = fh.name
+                # `node --check` parses ESM/CJS without executing — fast
+                # (~30 ms) and zero side effects.  JSX/TSX get parsed as
+                # JS so this catches every unclosed bracket / typo;
+                # JSX-specific tags slip through, which is acceptable.
+                result = _sp_mod.run(
+                    ["node", "--check", tmp],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode != 0:
+                    return (result.stderr or result.stdout).strip()[:200]
+                return None
+            except FileNotFoundError:
+                # node binary not present — skip silently
+                return None
+            except Exception:
+                # never block the pipeline on this check failing
+                return None
+            finally:
+                if tmp:
+                    try:
+                        _os.unlink(tmp)
+                    except Exception:
+                        pass
+
         def _syntax_errors(blocks: dict[str, str]) -> list[str]:
             out: list[str] = []
             for _spath, _scontent in blocks.items():
+                if not _scontent or not _scontent.strip():
+                    continue
                 if _spath.endswith(".py"):
                     try:
                         import ast as _ast
@@ -1265,15 +1308,15 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                             f"{_spath}: SyntaxError line {_se.lineno or 1}: {_se.msg}"
                         )
                 elif _spath.endswith((".js", ".jsx", ".ts", ".tsx")):
-                    _opens  = (_scontent.count("{") + _scontent.count("(")
-                               + _scontent.count("["))
-                    _closes = (_scontent.count("}") + _scontent.count(")")
-                               + _scontent.count("]"))
-                    if abs(_opens - _closes) > 8:
-                        out.append(
-                            f"{_spath}: bracket imbalance "
-                            f"({_opens} open vs {_closes} close) — likely truncated"
-                        )
+                    js_err = _check_js_syntax(_spath, _scontent)
+                    if js_err:
+                        out.append(f"{_spath}: {js_err}")
+                elif _spath.endswith(".json"):
+                    try:
+                        import json as _jparse
+                        _jparse.loads(_scontent)
+                    except Exception as _je:
+                        out.append(f"{_spath}: invalid JSON: {_je}")
             return out
 
         syntax_errors = _syntax_errors(edits)
@@ -1422,6 +1465,20 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
         # 3) Commit + push as one atomic API call
         await _set_status(task_id, status="pushing")
+        # Per-file progress frames so the live tape can render the
+        # "Writing 2/4 files" mini bar. gh_api_commit is atomic on the
+        # remote side, so we narrate the writes locally before firing it.
+        _file_list = list(edits.keys())
+        _total = len(_file_list)
+        for _i, _fp in enumerate(_file_list, 1):
+            await _emit(
+                task_id,
+                f"Writing file {_i} of {_total}: {_fp}",
+                kind="task_state",
+                files_done=_i,
+                files_total=_total,
+                pct=85 + int((_i / max(_total, 1)) * 5),
+            )
         await _emit(task_id, "Committing to GitHub…", pct=90)
 
         async def _prog(step: str, status: str = "info"):
@@ -1513,6 +1570,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                     files_changed=list(edits.keys()),
                     was_correction_applied=not review_result["pass"],
                     issues_found=review_result.get("issues", []),
+                    sha=sha or "",
                 ))
             except Exception:
                 pass
@@ -1706,6 +1764,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
                     files_changed=list(edits.keys()),
                     was_correction_applied=False,
                     issues_found=[],
+                    sha=sha or "",
                 ))
             except Exception:
                 pass

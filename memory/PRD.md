@@ -2206,3 +2206,58 @@ the OAuth flow lives inside step 1 so users never leave the modal.
   · multi-file instruction appended to user_msg (not silently dropped)
   · SSE endpoint behaviour preserved (401 unauth, 404 missing task)
   · No tracebacks leak from validation errors.
+
+
+### Iter 74 — follow-ups (Jun 2026): Brain show-diff, task_state SSE, node --check
+
+**T1 — Brain "Show diff →" buttons**
+- `services/project_brain.py::update_brain_after_commit` now accepts &
+  stores `sha` (40-char cap) on the event log entry.  Both call sites
+  in `routers/cto_projects.py` pass the real commit SHA (API + git
+  paths).
+- New admin endpoint `GET /admin/brain/{project_id}/recent-commits`
+  returns the last 12 commit events with sha / short_sha / description /
+  files / correction_applied / iso-ts.  Admin-only (`_require_admin`).
+- `pages/BrainDump.jsx` gained a Recent commits section — each row
+  renders the short SHA chip, description, file list, and a "Show
+  diff →" button that dispatches `ora:prefill` with a primed prompt and
+  navigates to `/dashboard`.
+- `components/ChatPanel.jsx` listens for `ora:prefill` and drops the
+  message into the input box — so the button is one click from "see
+  this past commit pattern → ask ORA about it."
+
+**T2 — `task_state` SSE frames**
+- `_run_task_via_api` emits one `task_state` frame per file BEFORE the
+  atomic GitHub commit, carrying `files_done` / `files_total` plus a
+  monotonic `pct` between 85 → 90.
+- `TaskLiveTape.jsx` renders these frames inline as a compact "Writing
+  N/M files" line with its own 140-px mini progress bar — pairs with
+  the `TaskManagementPanel`'s `[ ] → [x]` checklist for full multi-file
+  visibility.
+
+**T3 — `node --check` for JS/TS syntax**
+- `_check_js_syntax` writes the file to a tmp path, runs
+  `node --check`, returns the captured stderr / stdout on failure (capped
+  at 200 chars) and `None` otherwise.  `FileNotFoundError` and generic
+  `Exception` both silently no-op so a missing node binary never blocks
+  the pipeline.
+- Replaces the bracket-balance heuristic that produced false positives
+  on legitimate JSX (e.g. ternary-heavy components).
+
+**Tests + verify**
+- 9 new tests in `test_iter74_followup.py` — sha persistence, endpoint
+  registration, BrainDump testids, ChatPanel listener, task_state shape,
+  TaskLiveTape rendering, node --check real-world parse on valid +
+  invalid JS.
+- `test_iter74_gaps.py::test_pre_push_syntax_gate_present` updated to
+  match the new node-based gate (no more `bracket imbalance` string).
+- Full regression: **419 pass / 14 pre-existing env failures / 9 skips**
+  (410 → 419, +9; zero new regressions).
+- Backend restart clean.
+
+**Open follow-ups**
+- Live happy-path validation of the Show-diff loop requires a
+  GitHub-OAuth-connected user (same gate as wizard E2E).
+- JSX-specific syntax checking would require Babel/esbuild — node --check
+  catches structural errors (missing braces, unclosed strings) but not
+  JSX-tag-mismatch.  Acceptable for now.

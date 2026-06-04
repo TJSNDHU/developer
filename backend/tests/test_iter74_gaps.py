@@ -74,8 +74,9 @@ def test_pre_push_syntax_gate_present():
     assert "_syntax_errors" in src
     # AST is the source of truth for Python
     assert "_ast.parse" in src
-    # Bracket-balance heuristic for JS/TS
-    assert "bracket imbalance" in src
+    # JS/TS validated via `node --check` (replacing the old bracket
+    # heuristic in Iter 74 follow-up)
+    assert "_check_js_syntax" in src
     # Auto-retry fires before failing
     assert "AI syntax-fix auto-retry" in src
 

@@ -195,6 +195,7 @@ async def update_brain_after_commit(
     files_changed: list[str],
     was_correction_applied: bool,
     issues_found: list[str],
+    sha: str = "",
 ):
     """
     Called after every successful gh_api_commit().
@@ -208,6 +209,7 @@ async def update_brain_after_commit(
             files_changed=list(final_code.keys()),
             was_correction_applied=not review["pass"],
             issues_found=review.get("issues", []),
+            sha=commit_sha,
         )
     """
     now = datetime.now(timezone.utc)
@@ -217,6 +219,7 @@ async def update_brain_after_commit(
         "files": files_changed[:10],      # cap at 10 files
         "correction_applied": was_correction_applied,
         "issues": issues_found[:5],
+        "sha": (sha or "")[:40],
         "ts": now,
     }
 

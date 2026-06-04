@@ -824,6 +824,47 @@ async def admin_brain_dump(
     }
 
 
+# ── Recent commits with SHAs (powers BrainDump "Show diff →" buttons) ─
+@router.get("/brain/{project_id}/recent-commits")
+async def brain_recent_commits(
+    project_id: str,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Return the last N (default 12) commit events from a project brain.
+
+    Each row carries the SHA, one-line description, files touched, and
+    a UTC timestamp. The BrainDump page renders these as a list with
+    "Show diff →" buttons that dispatch `ora:prefill` so the user lands
+    in chat with `get_commit_diff(<sha>)` pre-filled.
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    brain_doc = await db["project_brains"].find_one(
+        {"project_id": project_id},
+        {"event_log": 1, "_id": 0},
+    )
+    if not brain_doc:
+        return {"project_id": project_id, "commits": []}
+
+    events = brain_doc.get("event_log") or []
+    commits = [e for e in events if e.get("type") == "commit"]
+    # Newest first; cap at 12 rows to keep the UI tight.
+    commits = list(reversed(commits))[:12]
+
+    rows = []
+    for ev in commits:
+        ts = ev.get("ts")
+        rows.append({
+            "sha":               (ev.get("sha") or "")[:40],
+            "short_sha":         (ev.get("sha") or "")[:7],
+            "description":       (ev.get("description") or "").strip().splitlines()[0][:160],
+            "files":             ev.get("files") or [],
+            "correction_applied": bool(ev.get("correction_applied")),
+            "ts":                ts.isoformat() if hasattr(ts, "isoformat") else ts,
+        })
+    return {"project_id": project_id, "commits": rows}
+
+
 # ── Mode classifier telemetry — rolling-window 100 docs ───────────────
 @router.get("/mode-telemetry")
 async def mode_telemetry(

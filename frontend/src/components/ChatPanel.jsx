@@ -198,6 +198,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }).catch(() => {});
   }, []);
 
+  // ora:prefill — fired by BrainDump's "Show diff →" buttons and any
+  // other surface that wants to drop the user into chat with a primed
+  // prompt. Listener lives here because ChatPanel owns the input state.
+  useEffect(() => {
+    const handler = (e) => {
+      const msg = e?.detail?.message;
+      if (typeof msg === "string" && msg.trim()) setInput(msg);
+    };
+    window.addEventListener("ora:prefill", handler);
+    return () => window.removeEventListener("ora:prefill", handler);
+  }, []);
+
   // Iter 42 — F12 error capture + mode classifier
   const f12 = useF12Errors();
   const [detectedMode, setDetectedMode] = useState(null);
