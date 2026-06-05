@@ -1,13 +1,15 @@
-# robots.txt — AUREM Dev (auremcto.com)
-# Last updated: 2026-05-31
+# robots.txt — AUREM CTO (auremcto.com)
+# Last updated: 2026-06-05
 #
 # Policy: we welcome traditional crawlers AND AI/LLM crawlers — answer
-# engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews) are
-# now a significant share of dev tool discovery. Block only the dashboard
-# surfaces that require login.
+# engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews,
+# Gemini, You.com) are now a significant share of dev-tool discovery.
+# Block only the dashboard surfaces that require login.
 
 User-agent: *
 Allow: /
+Allow: /wall
+Allow: /wrapped
 Disallow: /dashboard
 Disallow: /admin
 Disallow: /deploy
@@ -17,6 +19,7 @@ Disallow: /settings
 Disallow: /tokens
 Disallow: /analytics
 Disallow: /projects
+Disallow: /automations
 Disallow: /api/
 
 # ── Traditional search engines (explicit allow for clarity) ─────────
@@ -79,6 +82,21 @@ User-agent: cohere-ai
 Allow: /
 
 User-agent: Diffbot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: Meta-ExternalAgent
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: ImagesiftBot
+Allow: /
+
+User-agent: Amazonbot
 Allow: /
 
 # ── No high-frequency scrapers / archivers we don't want ────────────

@@ -2587,3 +2587,63 @@ Patterns:
 **To activate Firecrawl**
 - Add `FIRECRAWL_API_KEY=fc-...` to `backend/.env`, restart backend.
 - All other code already wired; no additional work needed.
+
+
+### Iter 80 — SEO + GEO + PWA (Jun 2026)
+
+Closes the discoverability and offline-install gaps.
+
+**PWA**
+- `frontend/public/sw.js` (new) — versioned service worker.
+  - Network-only for `/api/*` (chat / SSE must hit live backend)
+  - Stale-while-revalidate for static assets (`.js .css .webp .png`)
+  - Navigation network-first with offline shell fallback
+  - SSE bypass (`text/event-stream` never cached)
+- `frontend/public/site.webmanifest` — rewritten:
+  - `id`, `display_override`, `dir`, `prefer_related_applications:false`
+  - Maskable variants of 192/512 icons
+  - 4 app shortcuts (Dashboard / Projects / Ship Wall / Automations)
+  - VS Code extension listed as `related_application`
+- `frontend/src/main.jsx` — registers the SW on `window.load`
+  (silent fail on http:// dev so Vite preview still works).
+
+**SEO**
+- `frontend/public/sitemap.xml` — added `/wall`, `/wrapped`, refreshed
+  `lastmod` to 2026-06-05.
+- `frontend/index.html`:
+  - Title + description + OG + Twitter rebranded to "AUREM CTO".
+  - JSON-LD `offers` corrected to the live 4-tier model
+    (Free / Starter $9 / Pro $19 / Team $35) — was missing Starter
+    and had Team $49 (stale).
+  - `featureList` rewritten to the current capabilities
+    (direct GitHub commit, Project Brain, Vanguard, Maxx, parallel
+    agents, live preview, F12 capture, automations).
+  - FAQ answers refreshed (pricing + commit pipeline).
+  - Keywords expanded with `aurem cto`, `direct github commit`,
+    `tavily firecrawl agent`, `copilot alternative`, etc.
+
+**GEO (LLM-engine optimization)**
+- `frontend/public/robots.txt`:
+  - Explicit `Allow` rows added for `YouBot`, `Meta-ExternalAgent`,
+    `Amazonbot`, `FacebookBot`, `ImagesiftBot`.
+  - `/wall` and `/wrapped` now in the public allow-list.
+  - `/automations` added to the gated disallow list.
+- `frontend/public/llms.txt` — rewritten end-to-end with the actual
+  June 2026 pricing + capability list (no more "1,000 tokens" /
+  "$49 Team" stale content). Now references all 5 new web skills.
+
+**Tests + verify**
+- 10 new tests in `test_iter80_seo_pwa.py` (sw.js shape, manifest
+  installability, sitemap public-page set, JSON-LD pricing exact
+  match, GEO crawler allow-list, llms.txt freshness).
+- Full regression: **507 pass / 2 pre-existing env-key failures / 4 skips**
+  (497 → 507, +10 net, zero regressions).
+- Live `curl -I` proof: `/sw.js`, `/site.webmanifest`, `/sitemap.xml`,
+  `/robots.txt`, `/llms.txt` all serve 200 from the running frontend.
+- Landing screenshot — renders clean, no console regressions.
+
+**Production rollout notes**
+- Service worker auto-purges old caches on each `CACHE_VERSION` bump
+  (current `aurem-v2`). Bump it whenever shipping a breaking asset.
+- Add `Service-Worker-Allowed: /` header in the production CDN if the
+  frontend ever moves to a sub-path.
