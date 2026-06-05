@@ -962,6 +962,38 @@ async def skill_status(authorization: Optional[str] = Header(None)):
     }
 
 
+# ── Architecture health report (Iter 86) ──────────────────────────────
+# Surfaces the static-analysis health signal in /admin/architecture so
+# the next 1952-line file is caught at 320, not 2000. Read-only, admin
+# only, no LLM, no network — pure AST + filesystem walk via radon.
+
+@router.get("/architecture-health")
+async def architecture_health(
+    summary: bool = False,
+    authorization: Optional[str] = Header(None),
+):
+    """Run the architecture health report.
+
+    Query params:
+        summary=true → return a short text body instead of full JSON
+                       (useful for one-line Admin tab headlines).
+    """
+    await _require_admin(authorization)
+    from services.architecture_health import (
+        run_health_report, summarise,
+    )
+    report = run_health_report()
+    if summary:
+        return {"ok": True, "summary": summarise(report),
+                "counts": {
+                    "bloated":     len(report["bloated_files"]),
+                    "complex":     len(report["complexity_hits"]),
+                    "circular":    len(report["circular_imports"]),
+                    "violations":  len(report["boundary_violations"]),
+                }}
+    return {"ok": True, "report": report}
+
+
 # ── Recent commits with SHAs (powers BrainDump "Show diff →" buttons) ─
 @router.get("/brain/{project_id}/recent-commits")
 async def brain_recent_commits(

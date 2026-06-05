@@ -1,0 +1,157 @@
+{
+  "bloated_files": [
+    {
+      "lines": 1788,
+      "rel": "routers/cto_projects.py"
+    },
+    {
+      "lines": 1353,
+      "rel": "routers/chat.py"
+    },
+    {
+      "lines": 1160,
+      "rel": "services/auto_website_builder.py"
+    },
+    {
+      "lines": 1143,
+      "rel": "pages/Admin.jsx"
+    },
+    {
+      "lines": 1106,
+      "rel": "components/ChatPanel.jsx"
+    },
+    {
+      "lines": 1105,
+      "rel": "routers/admin.py"
+    },
+    {
+      "lines": 1077,
+      "rel": "shared/providers/twilio.py"
+    },
+    {
+      "lines": 890,
+      "rel": "pages/Projects.jsx"
+    },
+    {
+      "lines": 797,
+      "rel": "shared/commercial/brain_orchestrator.py"
+    },
+    {
+      "lines": 753,
+      "rel": "components/Shell.jsx"
+    },
+    {
+      "lines": 726,
+      "rel": "services/local_tools.py"
+    },
+    {
+      "lines": 667,
+      "rel": "services/orchestrator.py"
+    },
+    {
+      "lines": 650,
+      "rel": "shared/commercial/billing_service.py"
+    },
+    {
+      "lines": 629,
+      "rel": "components/MessageBubble.jsx"
+    },
+    {
+      "lines": 571,
+      "rel": "shared/commercial/a2a_handoff_service.py"
+    },
+    {
+      "lines": 548,
+      "rel": "shared/memory_tiers.py"
+    },
+    {
+      "lines": 528,
+      "rel": "pages/AdminOverview.jsx"
+    },
+    {
+      "lines": 523,
+      "rel": "shared/commercial/workspace_service.py"
+    },
+    {
+      "lines": 516,
+      "rel": "shared/commercial/date_parser.py"
+    },
+    {
+      "lines": 469,
+      "rel": "shared/providers/free_apis.py"
+    },
+    {
+      "lines": 467,
+      "rel": "services/llm_gateway.py"
+    },
+    {
+      "lines": 452,
+      "rel": "components/NewUserWizard.jsx"
+    },
+    {
+      "lines": 437,
+      "rel": "services/architecture_health.py"
+    },
+    {
+      "lines": 410,
+      "rel": "services/web_skills.py"
+    },
+    {
+      "lines": 408,
+      "rel": "services/mode_d_debugger.py"
+    },
+    {
+      "lines": 404,
+      "rel": "services/github_deploy_service.py"
+    },
+    {
+      "lines": 386,
+      "rel": "pages/BrainDump.jsx"
+    },
+    {
+      "lines": 386,
+      "rel": "pages/Landing.jsx"
+    },
+    {
+      "lines": 380,
+      "rel": "shared/commercial/token_vault.py"
+    },
+    {
+      "lines": 364,
+      "rel": "components/AuremAdminPanel.jsx"
+    },
+    {
+      "lines": 362,
+      "rel": "services/repo_context.py"
+    },
+    {
+      "lines": 352,
+      "rel": "services/project_brain.py"
+    },
+    {
+      "lines": 339,
+      "rel": "services/mode_e_auditor.py"
+    },
+    {
+      "lines": 326,
+      "rel": "main.py"
+    },
+    {
+      "lines": 313,
+      "rel": "components/TaskLiveTape.jsx"
+    },
+    {
+      "lines": 310,
+      "rel": "routers/deploy.py"
+    },
+    {
+      "lines": 310,
+      "rel": "shared/commercial/key_service.py"
+    },
+    {
+      "lines": 303,
+      "rel": "cto_services/codebase_indexer.py"
+    }
+  ],
+  "line_limit": 300
+}

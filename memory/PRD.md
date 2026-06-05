@@ -2919,3 +2919,86 @@ that gap end-to-end.
 | Mutation verbs (exactly 27 sharp) | ✅ |
 | File path required (slash + ext) | ✅ |
 | Citation truthfulness (machine-enforced) | ✅ Iter 85 |
+
+
+### Iter 86 — Architecture health (the meta-fix) (Jun 2026)
+
+`cto_projects.py` hit 1952 lines before anyone noticed. That's not a
+single bug — it's a process bug: we discovered it manually. This iter
+turns four proven architecture-quality signals into an automated,
+repeatable report so the next 1952-line file is caught at 320, not 2000.
+
+**Engine** — `services/architecture_health.py`
+- Pure-Python static analysis. No LLM, no network, no filesystem
+  mutations. ~400 ms on the current 166-file codebase.
+- 5 signals computed in one pass:
+  1. **File-size bloat**: > 300 non-blank source lines.
+  2. **Cyclomatic complexity**: functions with CC > 10 via radon.
+  3. **God files**: top 10 imported by ≥ 3 other modules.
+  4. **Circular imports**: iterative Tarjan SCC over the import
+     graph, components of size > 1.
+  5. **Module boundary violations**:
+     - `routers/` importing `routers/` (cross-API leak)
+     - `services/` importing `routers/` (inverted dependency)
+     - any `httpx.AsyncClient()` / `requests.*` outside
+       `services/` and `cto_services/` (HTTP must be wrapped).
+- Skips `__pycache__`, `node_modules`, generated dirs, `tests/`,
+  `migrations/`, `.min.`/`.bundle.` files.
+- Public API: `run_health_report(roots=None)` → JSON-serialisable
+  dict; `summarise(report)` → one-screen text.
+
+**CLI** — `scripts/architecture_health.py`
+- `python scripts/architecture_health.py` → human summary.
+- `--json` → raw report payload.
+- `--update-baseline` → snapshot current bloated files to
+  `memory/arch_health_baseline.json`.
+- `--fail-on-new` → exit 1 if a NEW bloated file appeared since the
+  baseline (drop into CI to gate PRs).
+
+**Baseline** — `memory/arch_health_baseline.json`
+- Seeded this iter with the current 38 bloated files. Refactor PRs
+  will remove paths from this list; regression PRs (adding new
+  bloated files) will trip `--fail-on-new`.
+
+**Admin endpoint** — `routers/admin.py`
+- `GET /api/aurem-dev/admin/architecture-health` → full report
+  (admin-only, no LLM, no network).
+- `?summary=true` variant returns a short text body + counts
+  (for the Admin tab's one-line headlines).
+
+**Headline findings on the current codebase**
+- **38 bloated files**. Top 5:
+    1788  `routers/cto_projects.py`
+    1353  `routers/chat.py`
+    1160  `services/auto_website_builder.py`
+    1143  `pages/Admin.jsx`
+    1106  `components/ChatPanel.jsx`
+- **99 functions with CC > 10**. Top 3:
+    CC=117  `cto_projects.py::_run_task_via_api` (line 988)
+    CC=68   `auto_website_builder.py::build_site_for_lead`
+    CC=60   `orchestrator.py::chat_with_tools`
+- **0 circular imports** (good).
+- **10 boundary violations**, all `http-call-outside-services`
+  (raw `httpx.AsyncClient(…)` calls from router / shared files).
+
+**Tests** — 9 in `test_iter86_architecture_health.py`:
+- Engine returns full payload, < 8 s, detects known bloated file.
+- `summarise()` produces all 5 sections.
+- CLI: summary exits 0, JSON valid, `--fail-on-new` clean against
+  the freshly committed baseline.
+- Admin endpoint: admin-only gate, returns report, summary flag.
+- Full regression: **549 pass / 2 pre-existing failures / 4 skips**
+  (540 → 549, +9 net, zero regressions).
+
+**Dependencies**
+- Added `radon==6.0.1` + transitive (`mando==0.7.1`,
+  `colorama==0.4.6`) to `backend/requirements.txt`.
+
+**How to wire CI gating**
+- Add this single line to any pre-merge job:
+  ```
+  python backend/scripts/architecture_health.py --fail-on-new
+  ```
+- Refactor a bloated file → its row leaves the baseline on the
+  next `--update-baseline` run. Add a new bloated file → CI fails
+  the PR with a list of exact paths to fix or grandfather.

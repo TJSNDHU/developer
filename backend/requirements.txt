@@ -157,3 +157,6 @@ xlsxwriter==3.2.9
 yarl==1.24.2
 youtube-transcript-api==1.0.3
 zipp==4.1.0
+colorama==0.4.6
+mando==0.7.1
+radon==6.0.1
