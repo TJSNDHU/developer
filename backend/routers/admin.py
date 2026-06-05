@@ -888,6 +888,79 @@ async def code_surface(authorization: Optional[str] = Header(None, alias="Author
     }
 
 
+# ── Web skill smoke endpoints (Iter 79) ───────────────────────────────
+# Direct REST entry points so devs (and pytest) can hit Tavily/Firecrawl
+# without going through the LLM tool-call loop. Mounted at
+# /api/aurem-dev/admin/skills/*. Admin-only — these calls cost money.
+
+class _SkillBody(BaseModel):
+    query: Optional[str] = None
+    url: Optional[str] = None
+    urls: Optional[list[str]] = None
+    max_results: Optional[int] = None
+    deep: Optional[bool] = None
+    topic: Optional[str] = None
+    formats: Optional[list[str]] = None
+    limit: Optional[int] = None
+
+
+async def _run_skill(name: str, body: _SkillBody, authorization: Optional[str]):
+    await _require_admin(authorization)
+    from services.web_skills import invoke_web_tool
+    args = {k: v for k, v in body.model_dump().items() if v is not None}
+    res = await invoke_web_tool(name, args, {})
+    if res is None:
+        raise HTTPException(404, f"Unknown skill: {name}")
+    return res
+
+
+@router.post("/skills/web-search")
+async def skill_web_search(body: _SkillBody,
+                           authorization: Optional[str] = Header(None)):
+    return await _run_skill("web_search", body, authorization)
+
+
+@router.post("/skills/fetch-url")
+async def skill_fetch_url(body: _SkillBody,
+                          authorization: Optional[str] = Header(None)):
+    return await _run_skill("fetch_url", body, authorization)
+
+
+@router.post("/skills/search-and-summarize")
+async def skill_web_search_and_summarize(
+    body: _SkillBody, authorization: Optional[str] = Header(None),
+):
+    return await _run_skill("web_search_and_summarize", body, authorization)
+
+
+@router.post("/skills/firecrawl-scrape")
+async def skill_firecrawl_scrape(body: _SkillBody,
+                                 authorization: Optional[str] = Header(None)):
+    return await _run_skill("firecrawl_scrape", body, authorization)
+
+
+@router.post("/skills/firecrawl-crawl")
+async def skill_firecrawl_crawl(body: _SkillBody,
+                                authorization: Optional[str] = Header(None)):
+    return await _run_skill("firecrawl_crawl_site", body, authorization)
+
+
+@router.get("/skills/status")
+async def skill_status(authorization: Optional[str] = Header(None)):
+    """Reveal which web skills are wired (key present). No secrets returned."""
+    await _require_admin(authorization)
+    import os
+    return {
+        "ok": True,
+        "skills": {
+            "web_search":               bool(os.environ.get("TAVILY_API_KEY")),
+            "fetch_url":                bool(os.environ.get("TAVILY_API_KEY")),
+            "web_search_and_summarize": bool(os.environ.get("TAVILY_API_KEY")),
+            "firecrawl_scrape":         bool(os.environ.get("FIRECRAWL_API_KEY")),
+            "firecrawl_crawl_site":     bool(os.environ.get("FIRECRAWL_API_KEY")),
+        },
+    }
+
 
 # ── Recent commits with SHAs (powers BrainDump "Show diff →" buttons) ─
 @router.get("/brain/{project_id}/recent-commits")

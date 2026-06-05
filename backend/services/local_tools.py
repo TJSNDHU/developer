@@ -26,6 +26,10 @@ from typing import Optional
 
 from cto_services.db import get_db
 from .repo_context import _fetch_file as _gh_fetch_file
+from .web_skills import (
+    WEB_TOOLS as _WEB_TOOLS,
+    WEB_TOOL_SPECS as _WEB_TOOL_SPECS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -814,7 +818,7 @@ TOOL_SPECS: list[dict] = [
         ),
         "args_spec": {},
     },
-]
+] + _WEB_TOOL_SPECS
 
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
@@ -826,6 +830,7 @@ LOCAL_TOOLS: dict[str, callable] = {
     "semantic_search_repo": semantic_search_repo,
     "get_commit_diff":      get_commit_diff,
     "get_repo_info":        get_repo_info,
+    **_WEB_TOOLS,
 }
 
 
