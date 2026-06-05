@@ -444,6 +444,20 @@ export default function MessageBubble({
               <Zap size={10} style={{ color: "var(--accent-2)" }} /> maxx
             </div>
           )}
+          {!m.streaming && (m.council || m.provider === "mode-b-council") && (
+            <div data-testid={`council-badge-${idx}`} style={{
+              marginTop: 8, fontSize: 10,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "var(--accent-2)", letterSpacing: "0.1em",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "2px 8px",
+              border: "1px solid var(--accent-2)",
+              borderRadius: 999,
+              opacity: 0.85,
+            }}>
+              · 5-adviser council · chairman verdict
+            </div>
+          )}
         </div>
 
         {/* Action row for assistant bubbles — copy / 👍 / 👎 — visible on hover */}

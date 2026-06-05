@@ -175,6 +175,15 @@ def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
         r"\brecommend\b",
         r"\bhow should i\b",
         r"\bwhat do you think\b",
+        # Iter 81 — stuck-decision phrases. These also fire the Mode B
+        # auto-upgrade (Decision Council) downstream.
+        r"\btorn between\b",
+        r"\bstuck (on|between)\b",
+        r"\bcan'?t decide\b",
+        r"\bcannot decide\b",
+        r"\bdebating between\b",
+        r"\b(pivot or persevere|build or buy)\b",
+        r"\b(decision )?council\b",
     ]
     for p in b_patterns:
         if _re_mode.search(p, message or "", _re_mode.IGNORECASE):
@@ -758,6 +767,39 @@ async def chat_stream(
                     await q.put({"type": "result", "result": result})
                     return
 
+                # Iter 81 — Mode B auto-upgrade: Decision Council. Only
+                # fires when classifier picked Mode B AND the message
+                # has genuine stuck-decision signals. Regular Mode B
+                # advice (e.g. "should I add caching") falls through to
+                # the orchestrator below.
+                if _mode == "B":
+                    from services.mode_b_council import is_council_request, run_council
+                    if is_council_request(body.prompt or "", _mode):
+                        activity["label"] = "convening the council…"
+                        try:
+                            council_md = await run_council(
+                                prompt=body.prompt or "",
+                                repo_ctx=repo_ctx or "",
+                                brain_ctx=brain_ctx or "",
+                            )
+                        except Exception as _ce:
+                            logger.exception("mode B council failed")
+                            council_md = (
+                                f"_(Council failed: {_ce}. Try again or "
+                                "rephrase the decision more concretely.)_"
+                            )
+                        result = {
+                            "ok": True,
+                            "content":  council_md,
+                            "provider": "mode-b-council",
+                            "fallback_chain": ["mode_b_council"],
+                            "iterations": 1, "tool_calls_run": 0,
+                            "tool_invocations": [], "mode": "B",
+                            "council": True,
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
+
                 # Iter 60 — Mode F (Engage / Market). Token-cheap single
                 # LLM call routed through mode_f_engage. We pass the
                 # already-built repo + brain context so the LLM can
@@ -1074,6 +1116,7 @@ async def chat_stream(
             "provider": provider,
             "session_id": body.session_id,
             "tokens_remaining": tokens_remaining,
+            "council": bool(result.get("council")),
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 

@@ -2647,3 +2647,63 @@ Closes the discoverability and offline-install gaps.
   (current `aurem-v2`). Bump it whenever shipping a breaking asset.
 - Add `Service-Worker-Allowed: /` header in the production CDN if the
   frontend ever moves to a sub-path.
+
+
+### Iter 81 — Mode B auto-upgrade: Decision Council (Jun 2026)
+
+When ORA's classifier picks Mode B AND the user is genuinely stuck on
+a hard decision, vanilla "balanced advice" is the LEAST useful answer.
+This iter wires a structured 5-adviser council + Chairman verdict that
+auto-fires on those messages.
+
+**Backend** — `services/mode_b_council.py` (new):
+- `is_council_request(msg, mode)` — regex over ~15 stuck-decision
+  phrases (`torn between`, `stuck on`, `can't decide`, `pivot or
+  persevere`, `decision council`, explicit `should i (pivot|quit|fire|
+  hire|launch|raise|sell)`, etc.). Returns False for mode != "B".
+- `run_council(prompt, repo_ctx, brain_ctx)` — single LLM call via
+  `call_llm_with_meta(mode="review")` → Claude Sonnet. System prompt
+  enforces EXACTLY 7 sections (Decision header, 5 advisers in
+  character, Peer review, Chairman's call with 4 bolded items).
+  4096-token budget. ~$0.04 per call.
+- Soft guard: if Claude omits the Chairman section, append a
+  "rerun" note instead of shipping a half-council.
+
+**Mode B vocabulary widened** in `routers/chat.py`:
+- Added `torn between`, `stuck on/between`, `can't decide`,
+  `debating between`, `pivot or persevere`, `build or buy`,
+  `decision council` to the `b_patterns` list so the classifier
+  actually routes these to Mode B (the upgrade signals were a
+  superset of the existing patterns).
+
+**Chat router wiring** (`routers/chat.py`):
+- New `if _mode == "B" and is_council_request(...)` branch placed
+  BEFORE the Mode F branch (council wins on collisions). On hit:
+  - SSE activity stream: `"convening the council…"`
+  - Single LLM call returns full Markdown
+  - Result payload tagged `{"provider": "mode-b-council",
+    "council": true}` so the frontend can render a distinct badge.
+- `done` SSE frame propagates the `council` flag.
+
+**Frontend**:
+- `components/ChatPanel.jsx` — `onDone` handler now passes through
+  `council` from the SSE done frame to the message object.
+- `components/MessageBubble.jsx` — pill badge `· 5-adviser council ·
+  chairman verdict` rendered on council messages (data-testid
+  `council-badge-{idx}`).
+
+**Tests + verify**
+- 6 new tests in `test_iter81_mode_b_council.py`:
+  - 4 trigger-logic tests (true positives, true negatives, mode-gate,
+    safe-on-empty).
+  - 1 wiring lock (council branch is BEFORE Mode F in chat.py,
+    `"council": True` and `provider: "mode-b-council"` present).
+  - 1 real e2e (skipped if no LLM key) — runs Claude end-to-end
+    against a realistic Product Hunt timing decision, asserts all 11
+    required Markdown sections are present and the output is >1200
+    chars (catches the "Claude returned only headers" failure mode).
+- Full regression: **513 pass / 2 pre-existing env failures / 4 skips**
+  (507 → 513, +6 net, zero regressions).
+- Live SSE curl proof: the Postgres-vs-Mongo council generated 6,582
+  chars of structured Markdown with all 11 required sections, `done`
+  frame correctly emitted `council=true, provider=mode-b-council`.

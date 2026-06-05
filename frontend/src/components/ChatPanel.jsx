@@ -634,6 +634,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             copy[copy.length - 1] = {
               ...last, streaming: false,
               provider: d.provider || providerSeen || "—",
+              council: !!(d.council || d.provider === "mode-b-council"),
             };
           }
           return copy;
