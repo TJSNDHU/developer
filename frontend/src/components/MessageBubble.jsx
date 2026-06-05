@@ -42,12 +42,49 @@ function extractInlineHTML(text) {
 
 // Detect a ```aurem-handoff fenced block — emitted by AUREM in HANDOFF MODE.
 // A real handoff must describe actual file work (below 40 chars = noise).
+//
+// Iter 83 hardening: the fence is ONLY for actionable code mutation work.
+// The model occasionally misuses it for follow-up reading instructions
+// or for questions ("Would you like me to read…?"), which would otherwise
+// render a Ship button on chat/advice/search responses. We reject those
+// here in addition to the system-prompt guidance so a misbehaving model
+// can't trigger a "Ship via CTO" on a search reply.
+//
+// Heuristic: the brief must contain at least one mutation verb
+// (create / add / fix / write / edit / rewrite / refactor / replace /
+// implement / scaffold / wire / install / patch / delete / remove /
+// migrate / update). If every action line is a read-only verb
+// (read / inspect / check / review / examine / look at), we treat the
+// fence as conversational noise and hide the Ship row.
+const MUTATION_VERBS = /\b(create|add|fix|write|edit|rewrite|refactor|replace|implement|scaffold|wire|install|patch|delete|remove|migrate|update|generate|integrate|ship|build|render|render\s+as|introduce|hook|set up|configure|seed|encrypt|decrypt|sanitize|validate|handle|reject|emit|stream|inject|expose|deprecate|rename|move)\b/i;
+const READ_ONLY_LINE = /^\s*\d*[\.\)]?\s*(read|inspect|check|review|examine|look at|see|look into|investigate|verify|confirm|explore|browse|find|search|locate|identify|understand|might (reference|contain)|may (reference|include)|could (be|include))\b/i;
+const QUESTION_LINE = /\?[\s)]*$/;
+
 function extractHandoffBrief(content) {
   if (!content || typeof content !== "string") return null;
   const m = content.match(/```aurem-handoff\s*\n([\s\S]*?)```/);
   if (!m) return null;
   const brief = m[1].trim();
   if (brief.length < 40) return null;
+
+  // Strip "Would you like me to…?" or any line that ends in '?'.
+  const lines = brief
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+
+  // If EVERY non-empty line is read-only or a question, this is not
+  // a ship-ready brief — it's the model leaking discovery follow-ups
+  // into the fence by mistake.
+  const allReadOnly = lines.every(
+    (l) => READ_ONLY_LINE.test(l) || QUESTION_LINE.test(l)
+  );
+  if (allReadOnly) return null;
+
+  // Must contain at least one mutation verb somewhere in the brief.
+  if (!MUTATION_VERBS.test(brief)) return null;
+
   return brief;
 }
 
