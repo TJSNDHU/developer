@@ -60,10 +60,46 @@ def test_system_prompt_lists_absolute_negatives_for_handoff_fence():
         "'Would you like me to'",
         "any line ending in '?'",
         "MUST contain at least one mutation verb",
+        # Iter 84 — extended rules (a)-(d).
+        "ABSOLUTE NEGATIVES — extended",
+        "(a) The brief contains ANY of these phrases",
+        "(b) The brief contains NO file-path token",
+        "(c) The brief is longer than 1500 characters",
+        "(d) Any file path inside the brief was NOT successfully",
+        "BRIEF FORMAT — LEARN BY EXAMPLE",
+        "✓ CORRECT brief",
+        "✗ INCORRECT brief #1",
+        "✗ INCORRECT brief #2",
+        "✗ INCORRECT brief #3",
+        "Why it fails:",
+        # Concrete example tokens must persist so the model has a
+        # path it can pattern-match against.
+        "backend/routers/auth.py",
+        "frontend/src/pages/Login.jsx",
+        "Would you like me to refactor",
     ):
         assert must in joined, (
             f"orchestrator system prompt missing required guard line: {must!r}"
         )
+
+
+def test_orchestrator_example_block_demonstrates_each_failure_mode():
+    """The example block must teach by contrast: ONE correct brief,
+    THREE incorrect briefs each illustrating a different failure mode.
+    This catches a future refactor where someone deletes 2 of the 3
+    counter-examples 'to keep the prompt short'."""
+    src = _read("backend/services/orchestrator.py")
+    joined = re.sub(r'"\s*\n\s*"', "", src)
+    # Exactly one ✓ block, exactly three ✗ blocks numbered #1 #2 #3.
+    assert joined.count("✓ CORRECT brief") == 1
+    for n in (1, 2, 3):
+        assert f"✗ INCORRECT brief #{n}" in joined, \
+            f"missing INCORRECT example #{n}"
+    # Each ✗ block must include its own 'Why it fails:' note so the
+    # rationale is paired with the example, not buried elsewhere.
+    assert joined.count("Why it fails:") >= 3, (
+        "Each ✗ INCORRECT brief must have its own 'Why it fails:' note"
+    )
 
 
 # ── 2. UI guard — content validation, not just length ─────────────────
