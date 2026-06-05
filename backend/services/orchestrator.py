@@ -619,6 +619,11 @@ async def chat_with_tools(
                 "iterations": iters,
                 "tool_calls_run": len(invocations),
                 "tool_invocations": invocations,
+                # Iter 85 — paths the model actually read this turn.
+                # Frontend cross-checks any path quoted inside a
+                # ```aurem-handoff fence against this set so a
+                # fabricated citation cannot render Ship via CTO.
+                "verified_paths": sorted(tool_paths_read),
                 "mode": llm_mode,
             }
 
@@ -691,6 +696,20 @@ async def chat_with_tools(
         clean = _synthesise_max_iters_summary(prompt, invocations)
 
 
+    # Same verified_paths computation as the happy path — at max-iters
+    # we still want the UI guard to know which files were actually read.
+    _max_iter_paths = {
+        inv.get("args", {}).get("path", "")
+        for inv in invocations
+        if inv.get("tool") in ("read_repo_file",)
+    } | {
+        p
+        for inv in invocations
+        if inv.get("tool") in ("read_repo_files",)
+        for p in (inv.get("args", {}).get("paths") or [])
+    }
+    _max_iter_paths.discard("")
+
     return {
         "ok": True,
         "content": clean,
@@ -699,6 +718,7 @@ async def chat_with_tools(
         "iterations": iters,
         "tool_calls_run": len(invocations),
         "tool_invocations": invocations,
+        "verified_paths": sorted(_max_iter_paths),
         "mode": llm_mode,
         "max_iters_hit": True,
     }

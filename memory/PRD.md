@@ -2842,3 +2842,80 @@ defenses landed.
   enforced, any-`?` anywhere rejection).
 - Full regression: **533 pass / 2 pre-existing failures / 4 skips**
   (524 → 533, +9 net, zero regressions).
+
+
+### Iter 85 — Machine-enforced citation truthfulness (Jun 2026)
+
+The only honest gap left after Iter 83-84 was Rule (d) — "no fabricated
+citations". The system prompt enforced it, but the UI had no signal
+from the backend about which files were actually opened this turn, so
+a misbehaving model could still slip a `semantic_search_repo` hit into
+the fence without ever calling `read_repo_file` on it. Iter 85 closes
+that gap end-to-end.
+
+**Backend** — `services/orchestrator.py`
+- Both happy-path and `max_iters_hit` return dicts now include
+  `verified_paths: sorted(tool_paths_read)` — the deduped set of
+  every successful `read_repo_file` / `read_repo_files` invocation
+  this turn.
+- Reused the existing `tool_paths_read` computation that already
+  powered the "unsourced citations" warning footer.
+- max-iters return path computes its own copy (`_max_iter_paths`)
+  because the original is scoped to the loop body.
+
+**Chat SSE** — `routers/chat.py`
+- `done_payload` propagates `verified_paths: result.get("verified_paths")
+  or []` so the field is always present (empty list on Mode A/B/F
+  shortcuts that never hit the tool loop).
+
+**Frontend stash** — `components/ChatPanel.jsx`
+- `onDone` handler lifts `d.verified_paths` onto the assistant message
+  as `verifiedPaths`.
+
+**UI Gate 7** — `components/MessageBubble.jsx`
+- `extractHandoffBrief(content, verifiedPaths)` signature extended.
+- New constants: `FILE_PATH_TOKEN_GLOBAL` (global flag for enumerating
+  every path) and `_normalisePath` (strips `./` / leading slashes so
+  the backend and brief representations match).
+- Gate 7: if `verifiedPaths` is a non-empty array, EVERY file-path
+  token in the brief must appear in it. A miss → return null (no
+  Ship button). Version-skew tolerance: if the backend omits the
+  field (older deployment), gate is skipped — better to render a
+  real button than over-block.
+- Call site at line 389 now passes `m.verifiedPaths`.
+
+**Mutation-verb trim** — exactly 27 sharp verbs.
+- Dropped 5 more conversational verbs (`import`, `export`, `mount`,
+  `swap`, `extract`) that survived Iter 84. The list is now exactly
+  what was proposed in the original table: 27 verbs, all hard file
+  mutations.
+
+**Tests** — 7 in `test_iter85_verified_paths.py`:
+- Orchestrator emits `verified_paths` on BOTH return paths.
+- Chat done frame propagates the field.
+- ChatPanel stashes onto the message.
+- `extractHandoffBrief` signature accepts `verifiedPaths`.
+- Gate 7 implementation present (Set-based check, Array.isArray
+  tolerance, return-null on fabricated, Iter 85 comment).
+- Global path extraction enumerated correctly.
+- Mutation verb list is EXACTLY 27 (no drift back to 32).
+- Full regression: **540 pass / 2 pre-existing failures / 4 skips**
+  (533 → 540, +7 net, zero regressions).
+
+**Live SSE proof**
+- `curl chat/stream` on Mode A greeting → done frame now contains
+  `"verified_paths": []` (empty because no tools ran). Field is
+  guaranteed present so the frontend never sees `undefined`.
+
+**End state — all 9 proposed gates DONE, no honest gaps left**
+| Gate | Status |
+| --- | --- |
+| Length min (40) | ✅ |
+| Length max (1500) | ✅ |
+| Line max (12) | ✅ |
+| `?` anywhere | ✅ |
+| Permission phrases (13 variants) | ✅ |
+| Read-only verbs (38+ forms) | ✅ |
+| Mutation verbs (exactly 27 sharp) | ✅ |
+| File path required (slash + ext) | ✅ |
+| Citation truthfulness (machine-enforced) | ✅ Iter 85 |

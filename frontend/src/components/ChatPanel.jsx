@@ -635,6 +635,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ...last, streaming: false,
               provider: d.provider || providerSeen || "—",
               council: !!(d.council || d.provider === "mode-b-council"),
+              verifiedPaths: Array.isArray(d.verified_paths)
+                ? d.verified_paths
+                : [],
             };
           }
           return copy;

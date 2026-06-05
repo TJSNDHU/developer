@@ -42,41 +42,46 @@ function extractInlineHTML(text) {
 
 // Detect a ```aurem-handoff fenced block — emitted by AUREM in HANDOFF MODE.
 //
-// Iter 84 tightening (defense-in-depth with the orchestrator prompt):
+// Iter 84 + 85 tightening (defense-in-depth with the orchestrator prompt):
 // the fence is ONLY for actionable code mutation work. We've seen the
 // model leak it for follow-up reading instructions, permission-asking
-// questions, and vague advice without file paths. Each gate below
-// targets a specific failure mode observed in production.
+// questions, vague advice without file paths, and most importantly
+// fabricated citations (paths copied from semantic_search_repo that the
+// model never actually opened). Each gate below targets a specific
+// failure mode observed in production.
 //
-// Gates (in order):
-//   1. Length: 40 ≤ chars ≤ 1500. ≤ 12 non-empty lines. A ship brief
-//      is one tight paragraph, not a design doc.
-//   2. Any '?' anywhere → reject (questions don't ship).
-//   3. Permission-asking phrases ("would you like", "should i", etc.)
-//      anywhere → reject.
-//   4. Every non-empty line is a read-only verb / passive lookup →
-//      reject (this was the user's real-world bug).
-//   5. Must contain at least one mutation verb tied to file work.
-//   6. Must contain at least one file-path token (slash + known ext).
+// Gates (in order, short-circuiting):
+//   1. Length: 40 ≤ chars ≤ 1500. ≤ 12 non-empty lines.
+//   2. Any '?' anywhere → reject.
+//   3. Permission-asking phrases → reject.
+//   4. Every non-empty line is a read-only verb / passive lookup → reject.
+//   5. At least one mutation verb tied to file work (sharp list of 27).
+//   6. At least one file-path token (slash + known extension).
+//   7. Iter 85 — every file-path token in the fence MUST appear in the
+//      `verifiedPaths` set provided by the backend (paths actually
+//      `read_repo_file`'d this turn). Citations the model fabricated
+//      from a semantic_search hit but never opened are rejected.
 const MAX_BRIEF_CHARS = 1500;
 const MAX_BRIEF_LINES = 12;
 
-// Mutation verbs that imply DIRECT file work. Narrowed vs the previous
-// list — removed soft verbs (build, update, handle, expose, validate,
-// render, set up, configure) that the model abuses in non-mutation
-// senses. Each verb here is something a worker can do to a file.
+// Mutation verbs — sharp list of 27. Excludes soft verbs the model
+// abuses in non-mutation senses (build / update / handle / expose /
+// validate / render / configure / set up), AND excludes verbs that
+// are usually conversational rather than file-changing
+// (import / export / mount / swap / extract).
 const MUTATION_VERBS = new RegExp(
   "\\b(create|add|fix|write|edit|rewrite|refactor|replace|implement" +
     "|scaffold|wire|install|patch|delete|remove|migrate|generate" +
     "|integrate|ship|introduce|inject|deprecate|rename|move|append" +
-    "|prepend|register|import|export|mount|swap|extract)\\b",
+    "|prepend|register)\\b",
   "i",
 );
 
 // Lines whose ACTION is read-only. Catches active read verbs AND
 // passive lookups ("is located at", "can be found in", "appears to
 // live at", "may reference"). Anchored to line start after optional
-// list bullet / number.
+// list bullet / number so a mid-sentence "the bug is located at line 80
+// of auth.py" inside a real ship brief is NOT mis-rejected.
 const READ_ONLY_LINE = new RegExp(
   "^\\s*[-*•]?\\s*\\d*[.)]?\\s*" +
     "(read|inspect|check|review|examine|see how|see if|look at" +
@@ -101,8 +106,7 @@ const PERMISSION_PHRASES = new RegExp(
 );
 
 // A real file-path token = at least one '/' AND a known extension.
-// Filenames alone (no slash) do NOT qualify — they leave too much
-// ambiguity for the worker.
+// Filenames alone (no slash) do NOT qualify.
 const FILE_PATH_TOKEN = new RegExp(
   "\\b[\\w.\\-/@]+/[\\w.\\-]+" +
     "\\.(py|pyi|js|jsx|ts|tsx|md|mdx|json|ya?ml|css|scss|sass|html?" +
@@ -110,7 +114,17 @@ const FILE_PATH_TOKEN = new RegExp(
   "i",
 );
 
-function extractHandoffBrief(content) {
+// Pull EVERY file-path token out of the brief — used by Gate 7 to
+// cross-check against `verifiedPaths`. The global flag matters here.
+const FILE_PATH_TOKEN_GLOBAL = new RegExp(FILE_PATH_TOKEN.source, "gi");
+
+function _normalisePath(p) {
+  if (!p) return "";
+  // Leading "./" and "/" are harmless; backend stores plain repo paths.
+  return String(p).replace(/^\.?\/+/, "").trim();
+}
+
+function extractHandoffBrief(content, verifiedPaths) {
   if (!content || typeof content !== "string") return null;
   const m = content.match(/```aurem-handoff\s*\n([\s\S]*?)```/);
   if (!m) return null;
@@ -140,6 +154,21 @@ function extractHandoffBrief(content) {
 
   // Gate 6 — at least one concrete file-path token.
   if (!FILE_PATH_TOKEN.test(brief)) return null;
+
+  // Gate 7 — fabricated-citation guard. Iter 85.
+  // If the backend tells us which files the model actually read this
+  // turn, EVERY path inside the brief must be in that set. If the
+  // backend omits the field (e.g. an older deployment) we don't enforce
+  // — better to render a real Ship button than to over-block in a
+  // version-skew scenario.
+  if (Array.isArray(verifiedPaths) && verifiedPaths.length > 0) {
+    const seen = new Set(verifiedPaths.map(_normalisePath));
+    const briefPaths = brief.match(FILE_PATH_TOKEN_GLOBAL) || [];
+    const fabricated = briefPaths
+      .map(_normalisePath)
+      .filter((p) => p && !seen.has(p));
+    if (fabricated.length > 0) return null;
+  }
 
   return brief;
 }
@@ -355,7 +384,9 @@ export default function MessageBubble({
   const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
   const showUserCopy = m.role === "user" && !!m.content;
   // Detect ```aurem-handoff fence → render one-click Ship via CTO button
-  const handoffBrief = showActions ? extractHandoffBrief(m.content) : null;
+  const handoffBrief = showActions
+    ? extractHandoffBrief(m.content, m.verifiedPaths)
+    : null;
   const canShip = !!(handoffBrief && activeProject?.project_id && !exhausted);
 
   async function shipViaCTO() {

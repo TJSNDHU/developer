@@ -1117,6 +1117,12 @@ async def chat_stream(
             "session_id": body.session_id,
             "tokens_remaining": tokens_remaining,
             "council": bool(result.get("council")),
+            # Iter 85 — paths the model actually read this turn.
+            # Frontend uses this to enforce ABSOLUTE NEGATIVE rule (d):
+            # any path inside the ```aurem-handoff fence that is NOT in
+            # this set is a fabricated citation, so the Ship button is
+            # suppressed.
+            "verified_paths": result.get("verified_paths") or [],
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 

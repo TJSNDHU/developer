@@ -116,8 +116,8 @@ def test_messagebubble_guard_requires_mutation_verb():
     assert "MUTATION_VERBS.test(brief)" in src
     # Must require at least one concrete file-path token.
     assert "FILE_PATH_TOKEN.test(brief)" in src
-    # Iter 84 hardening comment must stay so the rationale isn't lost.
-    assert "Iter 84 tightening" in src
+    # Iter 84 / 85 hardening comment must stay so the rationale isn't lost.
+    assert "Iter 84 + 85 tightening" in src or "Iter 84 tightening" in src
 
 
 def test_messagebubble_mutation_verbs_regex_lists_required_verbs():
@@ -134,21 +134,30 @@ def test_messagebubble_mutation_verbs_regex_lists_required_verbs():
     )
     assert m, "MUTATION_VERBS block not found"
     block = m.group(1)
-    for verb in (
+    # Iter 85 — sharp list of exactly 27 mutation verbs.
+    required = [
         "create", "add", "fix", "write", "edit", "rewrite", "refactor",
         "replace", "implement", "scaffold", "wire", "install", "patch",
         "delete", "remove", "migrate", "generate", "integrate", "ship",
         "introduce", "inject", "deprecate", "rename", "move",
-    ):
+        "append", "prepend", "register",
+    ]
+    for verb in required:
         assert f"|{verb}" in block or f"({verb}" in block, (
             f"MUTATION_VERBS regex missing required verb: {verb}"
         )
-    # Soft verbs the previous (too-permissive) regex carried — must
-    # NOT be in the new tightened list.
-    for soft in ("handle", "expose", "validate", "configure", "set up"):
-        assert soft not in block, (
+    # Soft / conversational verbs MUST NOT reappear — the previous
+    # versions of this list let them through and the model abused
+    # every one of them.
+    for soft in (
+        "handle", "expose", "validate", "configure", "set up",
+        "build", "update", "render",
+        # Iter 85 — also dropped these as too-conversational:
+        "import", "export", "mount", "swap", "extract",
+    ):
+        assert f"|{soft}" not in block and f"({soft}|" not in block, (
             f"MUTATION_VERBS still contains soft verb {soft!r}; "
-            f"that's what made the previous version too permissive."
+            f"that's what made earlier versions too permissive."
         )
 
 
