@@ -79,6 +79,13 @@ async def login(body: LoginBody) -> dict:
     user = await db.dev_users.find_one({"email": body.email}, {"_id": 0})
     if not user:
         raise HTTPException(401, "Invalid credentials")
+    # OAuth-only accounts have no password — block password sign-in for
+    # them with a clear message so they go through the GitHub button.
+    if not user.get("password"):
+        raise HTTPException(
+            401,
+            "This account uses GitHub sign-in. Use 'Continue with GitHub'.",
+        )
     if not bcrypt.checkpw(body.password.encode(), user["password"].encode()):
         raise HTTPException(401, "Invalid credentials")
     # Auto-promote whoever matches ADMIN_EMAIL env var (cheap, idempotent)

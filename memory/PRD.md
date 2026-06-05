@@ -2707,3 +2707,81 @@ auto-fires on those messages.
 - Live SSE curl proof: the Postgres-vs-Mongo council generated 6,582
   chars of structured Markdown with all 11 required sections, `done`
   frame correctly emitted `council=true, provider=mode-b-council`.
+
+
+### Iter 82 — GitHub OAuth-first signup fix + PWA install popup (Jun 2026)
+
+**Bug fixed (the user's actual report)**
+The "Continue with GitHub" buttons on `/login` and `/signup` browser-
+navigated to `/api/aurem-dev/github/oauth/connect?signup=1`. That
+endpoint blindly required a JWT (`current_dev(authorization)`), so an
+unauthenticated visitor saw `{"detail":"Authorization header missing"}`.
+
+**Root cause**: the endpoint was originally built for the "Connect
+GitHub from Settings" flow (existing user adding GitHub to their
+account). The UI used the same endpoint as if it were a true OAuth
+sign-in/sign-up entry — wrong shape.
+
+**Fix** — `routers/github_oauth.py` rewritten with TWO modes:
+- `/connect?signup=1` → **anonymous**. State nonce `signup:{uuid}`,
+  persisted in `oauth_states` with `mode: "signup"`. Redirects to
+  GitHub consent.
+- `/connect` (no flag) → still requires JWT (Settings connect flow,
+  unchanged).
+- `/callback` looks at `state` prefix:
+  - `signup:` → exchange code → fetch GitHub user. If verified email
+    is private, hit `/user/emails` (new scope `user:email` added to
+    `SCOPES`) for the primary. Look up existing AUREM user by
+    GitHub login OR email; create if not found
+    (password=None, auth_provider="github"). Issue JWT, redirect to
+    `/oauth-finish#token=...&login=...` (token in URL fragment so it
+    never lands in server logs / Referer).
+  - `{user_id}:` → original "connect to existing" flow.
+- `routers/auth.py` — password sign-in now refuses OAuth-only accounts
+  with a clear message ("Use 'Continue with GitHub'") instead of a
+  generic 401.
+
+**Frontend**:
+- `pages/OAuthFinish.jsx` (new) — reads `#token=...` fragment, stashes
+  via `setToken`, hydrates user via `/usage/me`, sets the
+  `aurem_just_logged_in` flag for the PWA prompt, clears the
+  fragment, redirects to `/dashboard`.
+- `App.jsx` — `/oauth-finish` route registered.
+- `pages/Login.jsx` + `pages/Signup.jsx` — set
+  `aurem_just_logged_in` after a successful email/password sign-in
+  too (so the PWA prompt fires regardless of auth method).
+
+**PWA install popup**
+- `components/PWAInstallPrompt.jsx` (new) — listens for the
+  browser's `beforeinstallprompt` event, parks the deferred prompt,
+  and pops a branded modal (right-bottom card) ONLY when the user
+  just signed in (`aurem_just_logged_in` flag).
+- Skips already-installed PWAs (`matchMedia("(display-mode:
+  standalone)")`), respects a permanent `aurem_pwa_dismissed`
+  localStorage flag if the user said "not now", listens for the
+  `appinstalled` event to confirm and never nag again.
+- Two CTAs: **Install** (calls `evt.prompt()`, awaits `userChoice`)
+  and **Not now** (sets the dismissed flag).
+- `components/Shell.jsx` — `<PWAInstallPrompt />` mounted inside the
+  shell, rendered only when a token is present (`{token && …}`) so
+  it never appears on `/`, `/login`, `/signup`.
+
+**Tests** — 11 new tests in `test_iter82_oauth_signup.py`:
+- `connect?signup=1` returns 3xx to github.com (the regression — was
+  401 before).
+- State row persisted with `mode: "signup"`.
+- `/connect` without signup still 401s.
+- `/callback` rejects unknown state.
+- Password sign-in blocks OAuth-only accounts.
+- Frontend wiring locks (route, OAuthFinish behaviour, PWA component,
+  Shell mount, just-logged-in flag from both login + signup forms).
+- Full regression: **524 pass / 2 pre-existing env failures / 4 skips**
+  (513 → 524, +11 net, zero regressions).
+- Live curl proof: `GET /github/oauth/connect?signup=1` → 307 with
+  `Location: https://github.com/login/oauth/authorize?...&state=signup:...&scope=repo,read:user,user:email`.
+
+**Production checklist** (these env vars must be set on auremcto.com)
+- `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
+  `GITHUB_REDIRECT_URI=https://auremcto.com/api/aurem-dev/github/oauth/callback`,
+  `APP_URL=https://auremcto.com` (preview env had `client_id` empty
+  during this iter — that's expected for preview).

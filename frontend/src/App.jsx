@@ -18,6 +18,7 @@ import ShipWall from "./pages/ShipWall";
 import BrainDump from "./pages/BrainDump";
 import OpsRecipes from "./pages/OpsRecipes";
 import Automations from "./pages/Automations";
+import OAuthFinish from "./pages/OAuthFinish";
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/wall" element={<ShipWall />} />
         <Route path="/wrapped" element={<Wrapped />} />
         <Route path="/automations" element={<Automations />} />
+        <Route path="/oauth-finish" element={<OAuthFinish />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
 import TokenBell from "./TokenBell";
+import PWAInstallPrompt from "./PWAInstallPrompt";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -751,6 +752,7 @@ export default function Shell({ children, requireAuth }) {
           {children}
         </main>
       </div>
+      {token && <PWAInstallPrompt />}
     </SessionCtx.Provider>
   );
 }

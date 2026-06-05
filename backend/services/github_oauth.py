@@ -20,7 +20,7 @@ def client_id() -> str:    return _env("GITHUB_OAUTH_CLIENT_ID")
 def client_secret() -> str: return _env("GITHUB_OAUTH_CLIENT_SECRET")
 def redirect_uri() -> str:  return _env("GITHUB_REDIRECT_URI")
 
-SCOPES = "repo,read:user"
+SCOPES = "repo,read:user,user:email"
 
 
 def auth_url(state: str) -> str:

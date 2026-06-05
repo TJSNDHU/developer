@@ -42,6 +42,7 @@ export default function Signup() {
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
       });
+      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
       navigate(next, { replace: true });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign up failed.");
