@@ -108,50 +108,111 @@ def test_messagebubble_guard_requires_mutation_verb():
     src = _read("frontend/src/components/MessageBubble.jsx")
     assert "MUTATION_VERBS" in src
     assert "READ_ONLY_LINE" in src
-    assert "QUESTION_LINE" in src
+    assert "PERMISSION_PHRASES" in src
+    assert "FILE_PATH_TOKEN" in src
     # Must explicitly reject read-only briefs.
     assert "allReadOnly" in src
     # Must require at least one mutation verb to render Ship button.
     assert "MUTATION_VERBS.test(brief)" in src
-    # Negative cases still gated — comments document each.
-    assert "Iter 83 hardening" in src
+    # Must require at least one concrete file-path token.
+    assert "FILE_PATH_TOKEN.test(brief)" in src
+    # Iter 84 hardening comment must stay so the rationale isn't lost.
+    assert "Iter 84 tightening" in src
 
 
-def test_messagebubble_guard_regex_actually_rejects_offending_briefs():
-    """Pull the regex out of the JS source and prove it rejects the
-    real-world failing brief the user reported. Catches a regression
-    where someone might delete or weaken the rules."""
+def test_messagebubble_mutation_verbs_regex_lists_required_verbs():
+    """Lock the MUTATION_VERBS regex *contents* by string match — far
+    more robust than parsing a JS regex literal back into Python. If
+    someone deletes a verb, the test fails."""
     src = _read("frontend/src/components/MessageBubble.jsx")
-    # Grab the MUTATION_VERBS line.
-    m = re.search(r"const MUTATION_VERBS = (/[^\n]+/i);", src)
-    assert m, "MUTATION_VERBS const not found in MessageBubble"
-    verbs_pattern = m.group(1)
-    # Convert JS regex literal to Python — strip leading / and trailing /i
-    verbs_body = verbs_pattern.strip("/")
-    verbs_body = verbs_body.rsplit("/", 1)[0]
-    verbs_re = re.compile(verbs_body, re.IGNORECASE)
+    # Locate just the MUTATION_VERBS block to scope the assertions.
+    m = re.search(
+        r"const MUTATION_VERBS = new RegExp\("
+        r"([\s\S]*?)"
+        r"\)\s*;",
+        src,
+    )
+    assert m, "MUTATION_VERBS block not found"
+    block = m.group(1)
+    for verb in (
+        "create", "add", "fix", "write", "edit", "rewrite", "refactor",
+        "replace", "implement", "scaffold", "wire", "install", "patch",
+        "delete", "remove", "migrate", "generate", "integrate", "ship",
+        "introduce", "inject", "deprecate", "rename", "move",
+    ):
+        assert f"|{verb}" in block or f"({verb}" in block, (
+            f"MUTATION_VERBS regex missing required verb: {verb}"
+        )
+    # Soft verbs the previous (too-permissive) regex carried — must
+    # NOT be in the new tightened list.
+    for soft in ("handle", "expose", "validate", "configure", "set up"):
+        assert soft not in block, (
+            f"MUTATION_VERBS still contains soft verb {soft!r}; "
+            f"that's what made the previous version too permissive."
+        )
 
-    # The user's actual leaked brief had ONLY "Read / Inspect / Check /
-    # Review" verbs — must NOT match a mutation verb.
-    bad_brief = (
-        "1. Read .agent/skills/skills/skyvern-browser-automation/SKILL.md\n"
-        "2. Inspect frontend/src/platform/AdminShell.jsx\n"
-        "3. Check backend/services/dev_cto_chat.py\n"
-        "4. Review memory/tier1/WATCHDOG_MODE.md"
-    )
-    assert not verbs_re.search(bad_brief), (
-        "MUTATION_VERBS regex should NOT match the user's pure-read brief"
-    )
 
-    # A legit ship brief MUST match.
-    good_brief = (
-        "Create a new file backend/services/foo.py exposing get_foo(). "
-        "Edit backend/routers/api.py to import and wire it under /foo. "
-        "Add tests in backend/tests/test_foo.py."
+def test_messagebubble_file_path_token_regex_lists_required_extensions():
+    """Lock FILE_PATH_TOKEN contents by string match."""
+    src = _read("frontend/src/components/MessageBubble.jsx")
+    m = re.search(
+        r"const FILE_PATH_TOKEN = new RegExp\("
+        r"([\s\S]*?)"
+        r"\)\s*;",
+        src,
     )
-    assert verbs_re.search(good_brief), (
-        "MUTATION_VERBS regex must match a real mutation brief"
+    assert m, "FILE_PATH_TOKEN block not found"
+    block = m.group(1)
+    # Must include the languages the worker can actually edit in this
+    # codebase.
+    for ext in ("py", "jsx", "tsx", "ts", "js", "md", "json", "css",
+                "html?", "env"):
+        assert ext in block, (
+            f"FILE_PATH_TOKEN regex missing required extension: {ext}"
+        )
+    # Must require a slash before the filename.
+    assert "/" in block
+
+
+def test_messagebubble_permission_phrases_regex_lists_required_phrases():
+    """Lock PERMISSION_PHRASES contents — the 9 phrases the system
+    prompt forbids must all be present in the UI guard regex too."""
+    src = _read("frontend/src/components/MessageBubble.jsx")
+    m = re.search(
+        r"const PERMISSION_PHRASES = new RegExp\("
+        r"([\s\S]*?)"
+        r"\)\s*;",
+        src,
     )
+    assert m, "PERMISSION_PHRASES block not found"
+    block = m.group(1)
+    for phrase in (
+        "would you like", "should i", "shall i", "want me to",
+        "do you want", "let me know", "tell me which",
+        "happy to", "i can",
+    ):
+        assert phrase in block.lower(), (
+            f"PERMISSION_PHRASES regex missing required phrase: {phrase!r}"
+        )
+
+
+def test_messagebubble_has_explicit_length_and_line_caps():
+    """Gates 1 — the constants must exist with the documented values
+    so a future refactor can't silently lift them to 'unbounded'."""
+    src = _read("frontend/src/components/MessageBubble.jsx")
+    assert "const MAX_BRIEF_CHARS = 1500;" in src
+    assert "const MAX_BRIEF_LINES = 12;" in src
+    # And both must actually be enforced inside extractHandoffBrief.
+    assert "brief.length > MAX_BRIEF_CHARS" in src
+    assert "lines.length > MAX_BRIEF_LINES" in src
+
+
+def test_messagebubble_rejects_any_question_mark_anywhere():
+    """Gate 2 — '?' anywhere must reject, not just at line end."""
+    src = _read("frontend/src/components/MessageBubble.jsx")
+    # The previous version only checked /\?[\s)]*$/ — line-end only.
+    # New version must use /\?/.test(brief) covering anywhere.
+    assert "if (/\\?/.test(brief)) return null;" in src
 
 
 # ── 3. Honest no-mock audit (light) ───────────────────────────────────

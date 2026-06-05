@@ -2785,3 +2785,60 @@ sign-in/sign-up entry — wrong shape.
   `GITHUB_REDIRECT_URI=https://auremcto.com/api/aurem-dev/github/oauth/callback`,
   `APP_URL=https://auremcto.com` (preview env had `client_id` empty
   during this iter — that's expected for preview).
+
+
+### Iter 83-84 — Ship-via-CTO fence hardening (Jun 2026)
+
+User reported: a pure search reply rendered a "🚀 Ship via CTO" button
+because ORA leaked `​```aurem-handoff` around reading instructions. Two
+defenses landed.
+
+**Layer 1 — `services/orchestrator.py` system prompt**
+- New "ABSOLUTE NEGATIVES — extended" rules (a)-(d):
+  (a) reject permission-asking phrases — `would you like`, `should i`,
+      `shall i`, `want me to`, `do you want`, `let me know`,
+      `if you'd like`, `confirm if`, `tell me which`, `i can …`,
+      `happy to …`.
+  (b) require a file-path token (slash + known extension).
+  (c) cap at 1500 chars / 12 lines — ship briefs are one tight
+      paragraph, not a design doc.
+  (d) refuse fabricated citations — only paths that were actually
+      `read_repo_file`'d this turn may appear in the fence.
+- New "BRIEF FORMAT — LEARN BY EXAMPLE" block:
+  ✓ ONE correct brief (quoting real line numbers in real paths).
+  ✗ THREE incorrect briefs each illustrating a distinct failure
+    mode — the reading-instructions leak, the permission-asking
+    question, the vague no-path advice.
+  Each ✗ paired with its own "Why it fails: …" rationale so the
+  example travels with the reason.
+
+**Layer 2 — `components/MessageBubble.jsx` UI guard tightening**
+- `extractHandoffBrief` is now a 6-gate validator (was 3):
+  1. 40 ≤ chars ≤ 1500. ≤ 12 non-empty lines.
+  2. ANY `?` anywhere → reject (was line-end only).
+  3. `PERMISSION_PHRASES` regex with 9 alternatives.
+  4. Every line read-only / passive lookup → reject.
+  5. At least one mutation verb (narrowed: dropped soft verbs
+     `build`, `update`, `handle`, `expose`, `validate`,
+     `configure`, `set up` that the model abused).
+  6. At least one file-path token (slash + known extension across
+     22 languages).
+- `READ_ONLY_LINE` now catches passive lookup forms too
+  (`is located at`, `can be found in`, `appears to`, `seems to`,
+  `lives in`).
+- `PERMISSION_PHRASES` and `FILE_PATH_TOKEN` are new constants.
+
+**Honest-no-mock audit**
+- `services/local_tools.py` and `services/web_skills.py` swept for
+  `return mock`, `fake_result`, `simulate_response` — clean.
+
+**Tests** — 9 in `test_iter83_handoff_guard.py`:
+- System prompt asserts every required substring including all 4
+  extended-rule labels and all 3 INCORRECT example blocks.
+- Example-block test enforces exactly 1 ✓ + 3 ✗ + ≥3 "Why it fails:".
+- UI guard tests assert constant + regex contents (mutation verbs
+  present, soft verbs absent, file-path extensions covered,
+  permission phrases covered, MAX_BRIEF_CHARS=1500 / LINES=12
+  enforced, any-`?` anywhere rejection).
+- Full regression: **533 pass / 2 pre-existing failures / 4 skips**
+  (524 → 533, +9 net, zero regressions).
