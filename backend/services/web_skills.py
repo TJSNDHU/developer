@@ -91,7 +91,6 @@ async def web_search(ctx: dict, args: dict) -> dict:
         "include_raw_content": False,
         "include_images": False,
         "topic": (args or {}).get("topic") or "general",
-        "auto_parameters": True,
     }
     headers = {
         "Authorization": f"Bearer {key}",
@@ -209,7 +208,6 @@ async def web_search_and_summarize(ctx: dict, args: dict) -> dict:
         "include_raw_content": False,
         "include_images": False,
         "topic": (args or {}).get("topic") or "general",
-        "auto_parameters": True,
     }
     headers = {
         "Authorization": f"Bearer {key}",

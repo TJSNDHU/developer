@@ -2531,3 +2531,59 @@ Ignored — verified all files clean via direct AST parse.
   Content type: `application/json`
   Secret: matches env `GITHUB_WEBHOOK_SECRET` (optional but recommended)
   Event: just the push event
+
+
+### Iter 79 — Web skills for ORA (Jun 2026)
+
+Closes the "ORA has no internet" gap. Five new skills wired into the
+orchestrator's tool-call layer (services/local_tools.py).
+
+**Backend** — `services/web_skills.py` (new):
+- `web_search`               · Tavily `/search` — Google-style top-N results
+- `fetch_url`                · Tavily `/extract` — clean markdown for any URL
+- `web_search_and_summarize` · `/search` + `include_answer=True`
+- `firecrawl_scrape`         · Firecrawl `/v1/scrape` — JS-heavy pages
+- `firecrawl_crawl_site`     · Firecrawl `/v1/crawl` — async + polled
+
+Patterns:
+- All keys from `os.environ`, missing key → clean `{"ok": False, "error":
+  "..."}` (never raises into the orchestrator).
+- Pure `httpx`, no new SDK packages.
+- 15s hard timeout on Tavily; 60s on Firecrawl scrape; 90s poll cap on crawl.
+- SSRF guard refuses `localhost / 127.x / 10.x / 172.16-31.x / 192.168.x /
+  169.254.x` on all URL-taking skills.
+- `auto_parameters` removed (returns 0 results on Tavily dev tier — confirmed empirically).
+- Content capped (search snippet 600c, fetch_url markdown 8 KB, scrape 12 KB,
+  crawl page 4 KB) so the LLM context never blows up.
+
+**Wiring**:
+- `services/local_tools.py` — `TOOL_SPECS += WEB_TOOL_SPECS`,
+  `LOCAL_TOOLS **= WEB_TOOLS`. ORA's existing `tool_call` loop now
+  auto-discovers the 5 skills via its system prompt's tool catalogue.
+- `routers/admin.py` — 6 new admin-only smoke endpoints under
+  `/api/aurem-dev/admin/skills/*` (`web-search`, `fetch-url`,
+  `search-and-summarize`, `firecrawl-scrape`, `firecrawl-crawl`, `status`).
+- `backend/.env` — added `TAVILY_API_KEY` (user-supplied).
+
+**Tests + verify**
+- 14 new tests in `test_iter79_web_skills.py`:
+  - Registry wiring (2)
+  - Graceful "no key" failure shape (2)
+  - Validation / SSRF gates (3)
+  - Admin REST endpoints + admin-only gate (3)
+  - Real Tavily e2e — search / fetch_url / search-and-summarize (3)
+  - Real Firecrawl e2e (1, auto-skip if no key)
+- **13 pass · 1 skipped (Firecrawl, key not provided)** in this iter.
+- Full regression: **497 pass / 2 pre-existing env-key failures / 4 skips**
+  (484 → 497, +13 net, zero regressions).
+- Live curl proof:
+  - `web-search "FastAPI latest"` → 3 real results, PyPI top.
+  - `fetch-url example.com` → real markdown "Example Domains" content.
+  - `search-and-summarize "What is FastAPI?"` → real one-paragraph answer +
+    2 cited URLs.
+- `GET /admin/skills/status` reflects which keys are wired
+  (`web_search:true, firecrawl_scrape:false` currently).
+
+**To activate Firecrawl**
+- Add `FIRECRAWL_API_KEY=fc-...` to `backend/.env`, restart backend.
+- All other code already wired; no additional work needed.
