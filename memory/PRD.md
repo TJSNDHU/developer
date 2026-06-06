@@ -3165,3 +3165,42 @@ spinner, no last-updated timestamp, no toast on error).
 - Live screenshot: anonymous `/wall` renders the standalone
   marketing layout (no sidebar — correct). Authed render path
   verified via tests.
+
+
+### Iter 89 — Ship button must never reappear after shipping (Jun 2026)
+
+User-reported bug:
+- After clicking *Ship via CTO* and successfully shipping, the
+  button reappeared on the SAME message after page refresh or
+  re-login. Should be gone forever once a turn is shipped.
+
+Root cause:
+- `MessageBubble.extractHandoffBrief()` ran unconditionally on
+  `m.content`. On reload `m.shipped_task_id` was set from
+  `/chat/history`, but the raw content STILL contained the
+  `​```aurem-handoff` fence, so the brief extracted → ShipDialog
+  rendered → button row visible while the "shipped" state caught up.
+
+Fix (`components/MessageBubble.jsx`):
+- `handoffBrief = showActions && !m.shipped_task_id ? extractHandoffBrief(...) : null`.
+- Once a turn carries `shipped_task_id`, the brief is suppressed
+  entirely. Render-path B (TaskLiveTape standalone, line ~629) takes
+  over and shows worker progress instead. The Ship button can NEVER
+  re-render on a shipped turn — Mongo flag alone is enough.
+
+Backend persistence chain — verified clean by tests:
+- `/chat/turn/shipped` writes `turns.{N}.shipped_task_id` and falls
+  back to the latest assistant turn on stale `turn_index`.
+- `/chat/history` returns the full turn object, so
+  `shipped_task_id` round-trips on every reload.
+
+Tests — 4 in `test_iter89_ship_button_no_reappear.py`:
+- `handoffBrief` source contains `showActions && !m.shipped_task_id`.
+- Old unconditional extract call is gone (regression guard).
+- Real e2e: insert a fenced assistant turn directly in Mongo →
+  POST `/chat/turn/shipped` → GET `/chat/history` → assert
+  `shipped_task_id` round-trips with the right value.
+- Real e2e: off-by-one `turn_index=99` falls back to the latest
+  assistant turn (`turn_index: 1` returned, Mongo doc updated).
+- Full regression: **570 pass / 2 pre-existing env failures / 4 skips**
+  (566 → 570, +4 net, zero regressions).

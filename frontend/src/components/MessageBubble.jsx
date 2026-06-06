@@ -393,7 +393,16 @@ export default function MessageBubble({
   const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
   const showUserCopy = m.role === "user" && !!m.content;
   // Detect ```aurem-handoff fence → render one-click Ship via CTO button
-  const handoffBrief = showActions
+  // Iter 89: once a turn has been shipped (m.shipped_task_id present
+  // from /chat/history), suppress the handoff brief entirely so the
+  // Ship button can NEVER come back. The raw `​```aurem-handoff` fence
+  // stays in m.content (we don't mutate past messages), but render
+  // path B (line ~629) takes over and shows TaskLiveTape inline.
+  //
+  // This is the user-reported fix: previously the button reappeared
+  // after refresh / re-login because extractHandoffBrief ran against
+  // the raw content and didn't know the turn had already shipped.
+  const handoffBrief = showActions && !m.shipped_task_id
     ? extractHandoffBrief(m.content, m.verifiedPaths)
     : null;
   const canShip = !!(handoffBrief && activeProject?.project_id && !exhausted);
