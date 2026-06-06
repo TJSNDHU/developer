@@ -18,6 +18,17 @@ import { useState, useEffect, useCallback } from "react";
 
 const API = process.env.REACT_APP_BACKEND_URL || "";
 
+// ─── time-ago helper for the "last updated" pill ─────────────────
+function _relTime(ms) {
+  if (!ms) return "—";
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 5)   return "just now";
+  if (s < 60)  return `${s} s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60)  return `${m} min ago`;
+  return new Date(ms).toLocaleTimeString();
+}
+
 // ─── tiny fetch helper ───────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
   const token = localStorage.getItem("aurem_token");
@@ -167,11 +178,16 @@ export default function AuremAdminPanel() {
   const [error,     setError]     = useState(null);
   const [projectId, setProjectId] = useState("");
   const [tab,       setTab]       = useState("overview");
+  // Iter 88 — live-update affordances.
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const fetchStats = useCallback(async () => {
     try {
+      setError(null);
       const s = await apiFetch("/api/aurem-dev/admin/ora-stats");
       setStats(s);
+      setLastUpdated(Date.now());
     } catch (e) {
       setError(e.message);
     }
@@ -187,11 +203,50 @@ export default function AuremAdminPanel() {
     }
   }, []);
 
+  // Manual refresh — gives the user explicit feedback (spinner + state
+  // disable + lastUpdated bump) so the click feels alive.
+  const refreshNow = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchStats();
+      // If the brain tab is active and a project_id is loaded, refresh
+      // that too so the entire visible surface stays current.
+      if (tab === "brain" && projectId) await fetchBrain(projectId);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchStats, fetchBrain, tab, projectId]);
+
+  // Auto-poll every 30s when the tab is visible. Pauses cleanly on
+  // background tabs to save the user's battery + our API budget.
   useEffect(() => {
     setLoading(true);
     fetchStats().finally(() => setLoading(false));
-    const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
+
+    let interval = null;
+    const start = () => {
+      if (interval) return;
+      interval = setInterval(() => {
+        if (document.visibilityState === "visible") fetchStats();
+      }, 30000);
+    };
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+    start();
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        fetchStats(); // catch up immediately on tab refocus
+        start();
+      } else {
+        stop();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [fetchStats]);
 
   const tabs = ["overview", "brain", "council"];
@@ -218,7 +273,9 @@ export default function AuremAdminPanel() {
           </div>
         </div>
         <button
-          onClick={fetchStats}
+          onClick={refreshNow}
+          disabled={refreshing}
+          data-testid="admin-panel-refresh"
           style={{
             background: "rgba(255,138,42,0.13)",
             border: "1px solid rgba(255,138,42,0.27)",
@@ -226,12 +283,42 @@ export default function AuremAdminPanel() {
             color: "#ffc560",
             padding: "6px 14px",
             fontSize: 12,
-            cursor: "pointer",
+            cursor: refreshing ? "wait" : "pointer",
+            opacity: refreshing ? 0.6 : 1,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          Refresh
+          {refreshing && (
+            <span style={{
+              display: "inline-block", width: 10, height: 10,
+              border: "2px solid rgba(255,197,96,0.25)",
+              borderTopColor: "#ffc560",
+              borderRadius: "50%",
+              animation: "auremspin 0.7s linear infinite",
+            }} />
+          )}
+          {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>
+      {/* live-update indicator */}
+      <div
+        data-testid="admin-panel-last-updated"
+        style={{
+          fontSize: 11,
+          color: "#475569",
+          marginTop: -16,
+          marginBottom: 18,
+          letterSpacing: "0.04em",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+      >
+        {lastUpdated
+          ? `Live · last updated ${_relTime(lastUpdated)} · auto-refresh 30 s`
+          : "Live · waiting for first sync"}
+      </div>
+      <style>{`@keyframes auremspin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid #ffffff0a", paddingBottom: 12 }}>

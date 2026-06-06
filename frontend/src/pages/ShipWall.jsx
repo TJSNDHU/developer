@@ -5,8 +5,9 @@
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 import usePageMeta from "../lib/usePageMeta";
+import Shell from "../components/Shell";
 
 const APP_URL = window.location.origin;
 
@@ -40,8 +41,13 @@ export default function ShipWall() {
     return () => clearInterval(t);
   }, [load]);
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", paddingBottom: 60 }}>
+  // Iter 88: When the user is authenticated, render inside the
+  // standard Shell so the sidebar is present. Anonymous visitors keep
+  // the existing marketing-style layout (no chrome).
+  const authed = !!getToken();
+  const body = (
+    <div style={{ minHeight: authed ? "auto" : "100vh",
+                  background: "var(--bg)", paddingBottom: 60 }}>
       <div style={{
         borderBottom: "1px solid var(--border)",
         padding: "20px 24px 18px",
@@ -97,6 +103,11 @@ export default function ShipWall() {
       </div>
     </div>
   );
+
+  if (authed) {
+    return <Shell>{body}</Shell>;
+  }
+  return body;
 }
 
 function StatNum({ label, value }) {

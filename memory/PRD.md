@@ -3112,3 +3112,56 @@ we already had in the prior assistant turn. Iter 87 fixes that.
   the slowest user repos, "ship" completes in < 2 s.
 - The orchestrator only runs when there's actual NEW reasoning to
   do — re-deriving a brief we already have is pure waste.
+
+
+### Iter 88 — Customer Ship Wall + Admin live-update (Jun 2026)
+
+Three user-reported bugs in one iter — all real fixes, no mock.
+
+**Bug 1 — `/wall` page had no sidebar after login**
+`pages/ShipWall.jsx` returned a bare `<div>`, no `<Shell>` wrapper.
+Authed users lost navigation when they clicked Ship Wall in the
+sidebar.
+- Fix: split the layout into `body` (the standalone marketing
+  view), check `getToken()` at render time, and wrap the same body
+  in `<Shell>` when authed. Anonymous visitors still get the
+  no-chrome marketing view — public Ship Wall behaviour preserved.
+
+**Bug 2 — Admin "Refresh" button looked dead**
+`components/AuremAdminPanel.jsx` `Refresh` button DID call
+`/admin/ora-stats` (200 OK), but no visual feedback existed (no
+spinner, no last-updated timestamp, no toast on error).
+- Fix: new `refreshing` + `lastUpdated` state. Button disabled +
+  spinner-with-keyframes + label switches to "Refreshing…" during
+  fetch. `data-testid="admin-panel-refresh"` for QA.
+- Bonus: `refreshNow` now also refetches the brain tab data when
+  that tab is active (previous version dropped brain refreshes
+  silently).
+
+**Bug 3 — No way to tell if admin data was live or stale**
+- Fix: visible `[data-testid="admin-panel-last-updated"]`
+  indicator under the header showing "Live · last updated 5 s ago
+  · auto-refresh 30 s". `_relTime()` helper handles seconds /
+  minutes / clock-time fallback.
+- Auto-poll made visibility-aware: pauses cleanly when the tab is
+  hidden (saves API budget + battery), catches up immediately on
+  tab refocus. `document.visibilityState` + `visibilitychange`
+  listener with proper cleanup.
+- `fetchStats` now clears any stale error banner on a successful
+  retry (the old version left stuck red banners forever).
+
+**Tests** — 7 in `test_iter88_admin_and_wall.py`:
+- ShipWall imports + renders inside Shell when authed.
+- ShipWall still renders standalone for anonymous visitors.
+- Refresh button has disabled + spinner + label switch + testid.
+- `refreshNow` actually refetches BOTH stats AND brain when on
+  the brain tab.
+- "Live · last updated" indicator present with auto-refresh copy.
+- Visibility-aware polling actually checks `document.visibilityState`
+  and listens for `visibilitychange`.
+- `fetchStats` clears `error` state on retry.
+- Full regression: **566 pass / 2 pre-existing env failures / 4 skips**
+  (559 → 566, +7 net, zero regressions).
+- Live screenshot: anonymous `/wall` renders the standalone
+  marketing layout (no sidebar — correct). Authed render path
+  verified via tests.
