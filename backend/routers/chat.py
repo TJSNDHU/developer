@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -451,7 +452,15 @@ async def chat_stream(
         # Iter 36: hard wall-clock ceiling — if the worker doesn't return
         # within HARD_TIMEOUT_S we abort and emit a friendly error so the
         # UI can never "thinking…" for 15 minutes again.
-        HARD_TIMEOUT_S = 90.0
+        # ── Wall-clock timeout. Was a flat 90 s — too tight for users
+        # working on larger repos where a single GitHub read costs 3-8 s
+        # on cold cache and the LLM's first response can hit 15-20 s on
+        # OpenRouter cold-start. Bumped to a 150 s default and made it
+        # env-configurable so prod can tune without a redeploy.
+        # Pattern #2 in RECURRING_ISSUES.md: the previous 90 s budget
+        # was getting eaten by the first tool call on real user repos,
+        # then "do it" on the retry hit the same wall.
+        HARD_TIMEOUT_S = float(os.getenv("CHAT_HARD_TIMEOUT_S", "150"))
         stop_event = asyncio.Event()
         q: asyncio.Queue = asyncio.Queue()
         # Shared activity hint the worker mutates as it progresses; the

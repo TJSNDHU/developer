@@ -76,7 +76,9 @@ def test_messagebubble_extracthandoffbrief_takes_verified_paths_arg():
 
 def test_messagebubble_gate7_rejects_fabricated_citations_via_doc_comment():
     """The Gate 7 implementation must reference verifiedPaths and reject
-    any brief path NOT in the set."""
+    a brief where EVERY path is fabricated (Iter 86 refined the
+    contract: legit new-file-creation paths can be unverified; only
+    pure fabrication — zero matches — is rejected)."""
     src = _read("frontend/src/components/MessageBubble.jsx")
     # Constants + helper used by Gate 7.
     assert "FILE_PATH_TOKEN_GLOBAL" in src
@@ -85,9 +87,10 @@ def test_messagebubble_gate7_rejects_fabricated_citations_via_doc_comment():
     # array (version-skew tolerance — older deployments without the
     # field still render correctly).
     assert "Array.isArray(verifiedPaths) && verifiedPaths.length > 0" in src
-    # Comparison via Set, fabricated list, return null on any miss.
+    # Set-based comparison still used.
     assert "new Set(verifiedPaths.map(_normalisePath))" in src
-    assert "fabricated.length > 0) return null" in src
+    # Iter 86 refined contract: "matched" set computed, reject if zero.
+    assert "matched.length === 0" in src
     # Iter 85 comment must stay so the rationale is preserved.
     assert "Iter 85" in src
 

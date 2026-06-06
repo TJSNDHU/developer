@@ -155,19 +155,28 @@ function extractHandoffBrief(content, verifiedPaths) {
   // Gate 6 — at least one concrete file-path token.
   if (!FILE_PATH_TOKEN.test(brief)) return null;
 
-  // Gate 7 — fabricated-citation guard. Iter 85.
-  // If the backend tells us which files the model actually read this
-  // turn, EVERY path inside the brief must be in that set. If the
-  // backend omits the field (e.g. an older deployment) we don't enforce
-  // — better to render a real Ship button than to over-block in a
-  // version-skew scenario.
+  // Gate 7 — fabricated-citation guard. Iter 85 (refined Iter 86).
+  // The relaxed contract:
+  //   • If `verifiedPaths` is empty/absent → skip the gate (version-skew).
+  //   • Otherwise, the brief must contain AT LEAST ONE path that IS
+  //     in verifiedPaths. That proves the model actually opened a
+  //     real file this turn. The remaining paths may be new files
+  //     the worker will CREATE (e.g. `backend/tests/test_foo.py`) —
+  //     those can't be in verifiedPaths because they don't exist on
+  //     disk yet. The original "ALL paths must match" rule killed
+  //     this legitimate new-file-creation case.
   if (Array.isArray(verifiedPaths) && verifiedPaths.length > 0) {
     const seen = new Set(verifiedPaths.map(_normalisePath));
-    const briefPaths = brief.match(FILE_PATH_TOKEN_GLOBAL) || [];
-    const fabricated = briefPaths
+    const briefPaths = (brief.match(FILE_PATH_TOKEN_GLOBAL) || [])
       .map(_normalisePath)
-      .filter((p) => p && !seen.has(p));
-    if (fabricated.length > 0) return null;
+      .filter(Boolean);
+    if (briefPaths.length > 0) {
+      const matched = briefPaths.filter((p) => seen.has(p));
+      if (matched.length === 0) {
+        // Every path in the brief was fabricated → fence is junk.
+        return null;
+      }
+    }
   }
 
   return brief;

@@ -3002,3 +3002,54 @@ repeatable report so the next 1952-line file is caught at 320, not 2000.
 - Refactor a bloated file → its row leaves the baseline on the
   next `--update-baseline` run. Add a new bloated file → CI fails
   the PR with a list of exact paths to fix or grandfather.
+
+
+### Iter 86 fixes — production user-pain (Jun 2026)
+
+A real user on `auremcto.com` working on THEIR repo hit two bugs in
+the same session: Ship-via-CTO button missing on a brief that included
+a brand-new test file, and ORA cutting itself off at 90 s mid-tool-call
+twice in a row on "do it" follow-ups. Both real bugs, both shipped
+this iter.
+
+**Fix A — UI Gate 7 false-positive on new-file creation**
+`components/MessageBubble.jsx`:
+- Old contract (Iter 85): **every** brief path must be in
+  `verifiedPaths`. Killed legit new-file-creation briefs
+  (e.g. `"Create backend/tests/test_mcp_server.py"`) because new
+  files can never be in `verifiedPaths` — they don't exist yet to
+  be read.
+- New contract: brief must contain **at least one** verified path.
+  That proves the model opened a real file this turn. Remaining
+  paths may be new files the worker will create.
+- Still rejects pure fabrication (zero verified paths in fence) —
+  the original bug from Iter 83-85 is still caught.
+
+**Fix B — `HARD_TIMEOUT_S` env-configurable, default raised to 150 s**
+`routers/chat.py`:
+- Was a flat `HARD_TIMEOUT_S = 90.0`. On real user repos the very
+  first cold-cache GitHub `read_repo_file` can take 5-10 s, then
+  the LLM's first response 10-20 s on OpenRouter cold-start —
+  90 s budget was getting eaten before any real work happened.
+  User saw "only got 1 tool call through" → retry → same wall.
+- Now `float(os.getenv("CHAT_HARD_TIMEOUT_S", "150"))`. Prod can
+  tune via env var without a redeploy.
+- Added `import os` at module top.
+
+**Tests** — 5 new in `test_iter86_fixes.py`:
+- Gate 7 strict-rule string ("fabricated.length > 0) return null")
+  must NOT be present.
+- "matched.length === 0" + "AT LEAST ONE path that IS" + "Iter 86"
+  comment must be present.
+- `HARD_TIMEOUT_S = 90.0` literal must NOT be present.
+- `os.getenv("CHAT_HARD_TIMEOUT_S", "150")` form MUST be present.
+- Module imports `os` (else NameError at startup).
+- Default extracted from source via regex must be ≥ 120.0 (anything
+  tighter is the bug coming back).
+- Iter 85 test updated to match the refined contract.
+- Full regression: **554 pass / 2 pre-existing failures / 4 skips**
+  (549 → 554, +5 net, zero regressions).
+
+**To deploy fix B without a redeploy**
+- Optional: `export CHAT_HARD_TIMEOUT_S=180` in prod env, restart
+  backend. Default 150 is fine for ~99 % of user repos.
