@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -381,6 +382,147 @@ async def list_agents(authorization: Optional[str] = Header(None)) -> dict:
 
 
 
+# ── Iter 87: "ship" shortcut helper ─────────────────────────────────────
+# When the prior assistant turn already emitted an ```aurem-handoff
+# fence and the new user prompt is a short confirmation ("ship",
+# "do it", "go", "yes", etc.), queue the cto_task directly from the
+# prior brief. This skips the orchestrator entirely — no second
+# reasoning loop, no second tool call budget, no 90 s wall.
+
+# Phrases that mean "execute the previous handoff brief" and ONLY that.
+# Short list on purpose — if the user types anything substantive we
+# want the normal reasoning loop, not a silent ship.
+_SHIP_CONFIRMATIONS = {
+    "ship", "ship it", "ship via cto", "do it", "do it now",
+    "go", "go ahead", "yes", "yep", "ok", "okay", "proceed",
+    "please ship", "ship please", "send it", "execute", "run it",
+}
+
+_HANDOFF_FENCE_RE = re.compile(
+    r"```aurem-handoff\s*\n([\s\S]*?)```",
+    re.MULTILINE,
+)
+
+
+def _normalise_confirmation(prompt: str) -> str:
+    return (prompt or "").strip().lower().rstrip(".!?")
+
+
+def _looks_like_ship_confirmation(prompt: str) -> bool:
+    p = _normalise_confirmation(prompt)
+    if not p or len(p) > 30:
+        return False
+    return p in _SHIP_CONFIRMATIONS
+
+
+async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
+    """Return an async generator that streams the ship-shortcut result,
+    or None when the shortcut doesn't apply (caller falls through to
+    the normal orchestrator path)."""
+    if not _looks_like_ship_confirmation(body.prompt):
+        return None
+    db = get_db()
+    if db is None:
+        return None
+    sess = await db.chat_sessions.find_one(
+        {"user_id": user_id, "session_id": body.session_id},
+        {"messages": 1, "_id": 0},
+    )
+    msgs = (sess or {}).get("messages") or []
+    # Walk back to find the most recent assistant turn with a handoff fence.
+    brief = None
+    for m in reversed(msgs):
+        if m.get("role") != "assistant":
+            continue
+        match = _HANDOFF_FENCE_RE.search(m.get("content") or "")
+        if match:
+            brief = match.group(1).strip()
+            break
+    if not brief:
+        return None
+
+    # Stream a small confirmation turn and queue the task.
+    async def _stream():
+        meta = {
+            "meta": True,
+            "session_id": body.session_id,
+            "provider": "aurem-ship-shortcut",
+            "mode": "C",
+            "temperature": 0.0,
+            "thinking_s": 0.0,
+            "tool_calls_run": 0,
+            "ship_shortcut": True,
+        }
+        yield f"data: {json.dumps(meta)}\n\n"
+
+        # Default to the user's current/last project — if none we can't
+        # actually queue, so degrade gracefully with a clear message.
+        project_id = body.project_id or ""
+        if not project_id or project_id == "home":
+            content = (
+                "🚢 Ship-shortcut detected, but no project is selected. "
+                "Open a project in the sidebar and run **ship** again."
+            )
+            for i in range(0, len(content), 16):
+                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
+            return
+
+        try:
+            from routers.cto_projects import _enqueue_cto_task
+            res = await _enqueue_cto_task(
+                user_id=user_id, project_id=project_id, task_text=brief,
+            )
+        except Exception as e:
+            content = (
+                f"🚢 Ship-shortcut failed to queue: {type(e).__name__}: {e}. "
+                "Try again, or run the task from a fresh prompt."
+            )
+            for i in range(0, len(content), 16):
+                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
+            return
+
+        if not res.get("ok"):
+            reason = res.get("reason", "unknown")
+            content = (
+                f"🚢 Ship-shortcut blocked: **{reason}**. "
+                "Connect a GitHub repo (Settings → GitHub) and retry."
+            )
+            for i in range(0, len(content), 16):
+                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
+            return
+
+        task_id = res["task_id"]
+        content = (
+            f"🚢 **Shipped via shortcut** — task `{task_id}` queued from the "
+            f"previous handoff brief. The worker will commit directly to "
+            f"your repo; live progress is in the task tape below."
+        )
+        # Mark the task so the UI knows it came from a shortcut.
+        try:
+            await db.cto_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {"source": "chat_ship_shortcut"}},
+            )
+        except Exception:
+            pass
+        for i in range(0, len(content), 16):
+            yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
+        done_payload = {
+            "done": True,
+            "provider": "aurem-ship-shortcut",
+            "session_id": body.session_id,
+            "verified_paths": [],
+            "ship_shortcut": True,
+            "task_id": task_id,
+        }
+        yield f"data: {json.dumps(done_payload)}\n\n"
+
+    return _stream()
+
+
 @router.post("/stream")
 async def chat_stream(
     request: Request,
@@ -406,6 +548,21 @@ async def chat_stream(
 
     repo_ctx = await get_repo_context(user_id, body.project_id or "")
     url_ctx = await build_url_context(body.prompt)
+
+    # ── Iter 87: "ship" shortcut ──────────────────────────────────────
+    # When the user's prompt is just "ship" / "do it" / "go" right after
+    # an assistant turn that already emitted an ```aurem-handoff fence,
+    # the model SHOULD NOT re-run the whole reasoning loop. That's the
+    # bug we kept seeing on auremcto.com: 10 tool calls / 90 s budget /
+    # timeout / no progress. Instead, lift the brief from the prior
+    # turn and queue the cto_task directly.
+    shipped_via_shortcut = await _maybe_ship_shortcut(
+        body=body, user_id=user_id, repo_ctx=repo_ctx,
+    )
+    if shipped_via_shortcut is not None:
+        return StreamingResponse(
+            shipped_via_shortcut, media_type="text/event-stream",
+        )
     # Inject the project's persistent memory (recent commits, tech stack,
     # past decisions, rejected ideas, recurring bugs) so a fresh chat
     # turn knows what AUREM has already shipped on this repo. Previously

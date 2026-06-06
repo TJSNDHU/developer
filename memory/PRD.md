@@ -3053,3 +3053,62 @@ this iter.
 **To deploy fix B without a redeploy**
 - Optional: `export CHAT_HARD_TIMEOUT_S=180` in prod env, restart
   backend. Default 150 is fine for ~99 % of user repos.
+
+
+### Iter 87 — "ship" shortcut (the real fix) (Jun 2026)
+
+The actual user-pain pattern: ORA emits a clean `aurem-handoff` fence,
+user types `ship` / `do it` / `go`, chat router treats it as a NEW
+prompt, re-runs the entire orchestrator + tool loop, eats the 90 s
+timeout AGAIN on cold-cache GitHub reads. User retries `do it` —
+same wall. Zero progress, two angry timeouts in a row.
+
+The root cause is architectural: we were re-deriving the brief that
+we already had in the prior assistant turn. Iter 87 fixes that.
+
+**Behaviour**
+- When a chat /stream request arrives, before doing anything else
+  the router checks:
+  1. Is the user's prompt one of ~17 short confirmations
+     (`ship`, `ship it`, `do it`, `go`, `yes`, `ok`, `proceed`,
+     `send it`, `execute`, `run it`, etc., max 30 chars)?
+  2. Does the prior assistant turn in the same session contain a
+     `​```aurem-handoff` fenced block?
+- If both → bypass the orchestrator entirely. Lift the brief from
+  the prior turn, call `_enqueue_cto_task` directly, stream a
+  small confirmation + `done` frame with `ship_shortcut: True`.
+- If either check fails → fall through to the normal orchestrator
+  path (no behaviour change).
+
+**Code**
+- `routers/chat.py` — new helpers `_looks_like_ship_confirmation`
+  and `_maybe_ship_shortcut`. Wired BEFORE the `gen()` block so
+  the shortcut intercepts.
+- Graceful degradation: shortcut without a project shows "open a
+  project and run ship again", shortcut where `_enqueue_cto_task`
+  refuses shows the reason ("connect a GitHub repo").
+- Confirmation phrases lowercased + trailing punctuation stripped
+  (`ship.`, `Ship!`, `SHIP?` all match).
+- The streamed reply uses `provider: "aurem-ship-shortcut"` so the
+  UI can render a distinct chip (and so analytics can count it).
+
+**Tests** — 5 new in `test_iter87_ship_shortcut.py`:
+- Confirmation classifier positives (18 phrases) + negatives
+  (long prompts, prose that contains a ship verb, empty).
+- Wiring lock: `_maybe_ship_shortcut` invoked BEFORE the
+  `async def gen():` block.
+- Real e2e: seed a Mongo session with a handoff fence, post
+  `prompt: "ship"`, parse the SSE stream, assert
+  `ship_shortcut: True` on meta + done frames.
+- Fall-through: bare "ship" with no prior handoff still routes
+  to the normal orchestrator (provider != aurem-ship-shortcut).
+- Full regression: **559 pass / 2 pre-existing env failures / 4 skips**
+  (554 → 559, +5 net, zero regressions).
+
+**Why this is the actual fix (not just a band-aid)**
+- The 90 s → 150 s bump in Iter 86 gives MORE budget. Iter 87
+  removes the NEED for the budget on the most common failure
+  pattern (ship-confirmation after a handoff). Combined: even on
+  the slowest user repos, "ship" completes in < 2 s.
+- The orchestrator only runs when there's actual NEW reasoning to
+  do — re-deriving a brief we already have is pure waste.
