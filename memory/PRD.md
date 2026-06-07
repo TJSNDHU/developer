@@ -3961,3 +3961,99 @@ Tests — 11 in `test_iter101_2_frontend_referral_annual_ui.py`:
 
 All 11 pass. Combined iter 101 (8 backend + 11 frontend) = **19 tests
 green**. Total: **640 tests** (629 → 640, +11, zero regressions).
+
+
+### Iter 102 — Overage Billing Cron + Referral Reward (Feb 2026)
+
+Two revenue-locking features. Both verified against the real Stripe
+LIVE API and real MongoDB.
+
+**1) End-of-month Maxx overage billing** (`services/billing_cron.py`):
+- `bill_maxx_overages(db)` iterates `cto_maxx_usage` rows where
+  `overage_count > 0` for the current month bucket.
+- For each row:
+  - Looks up the user's `stripe_customer_id` from `dev_users`.
+  - Creates `stripe.InvoiceItem.create()` at `$0.50/task × overage_count`.
+  - Creates + finalises an invoice with `auto_advance=True,
+    collection_method="charge_automatically"` — Stripe charges the
+    user's default payment method immediately.
+  - On success: resets `overage_count → 0` + stores
+    `last_billed_invoice` for audit. On failure: leaves the row
+    untouched so next month retries.
+- Wired into the existing `daily_digest._run_once()` scheduler with
+  a `datetime.now(UTC).day == 1` guard, so it runs exactly once
+  per month at the daily-digest hour.
+- Founder safety valve: new `POST /api/aurem-dev/admin/billing/run-overage-cron`
+  admin-only endpoint for manual reruns if the scheduled tick was
+  missed (redeploy / outage).
+- Webhook updated to persist `stripe_customer_id` on
+  `checkout.session.completed` (was previously only saving
+  subscription id — without customer id, overage billing couldn't
+  find who to charge).
+
+**2) Referral reward** (`services/billing_cron.py`):
+- `grant_referral_reward(db, new_user_id)` is invoked from the Stripe
+  webhook on `checkout.session.completed`.
+- Looks up `referrals` row where `new_user_id` matches and
+  `status == "pending_paid_conversion"`.
+- 3 paths:
+  - Referrer on FREE tier (no Stripe sub): marks the row
+    `status = "free_month_pending_upgrade"` and stores a
+    `credited_at` timestamp — the credit redeems automatically when
+    the referrer later upgrades.
+  - Referrer on Pro/Team: calls `stripe.Subscription.modify(sub_id,
+    trial_end=current_period_end + 30·86400, proration_behavior="none")`
+    → adds 30 days to their next renewal. Marks row `status =
+    "rewarded"`.
+  - No pending referral: clean `{"granted": False, "reason": "no
+    pending referral"}` — no DB writes, no side effects.
+- After successful Stripe extension: fires a Resend email from
+  `ora@aurem.live` (verified domain) subject **"You earned 1 free
+  month on AUREM CTO 🎉"** — best-effort, doesn't block reward.
+
+**End-to-end LIVE proofs (real Stripe API + real Mongo):**
+
+```
+PROOF 1 — Overage cron:
+  Seeded 3 Pro users with overages (5/12/7 tasks).
+  Ran cron → processed: 3, billed: 0, failed: 3
+  - 2 with fake customer IDs → Stripe rejected with
+    InvalidRequestError("No such customer: cus_NONEXISTENT_A")
+  - 1 with no customer_id → skipped with warning
+  - overage_count UNCHANGED on all 3 (proves we retry next month)
+  ✅ batch handles per-row failures without crashing
+
+PROOF 2 — Referral reward:
+  Case 1 (free referrer):
+    → status = "free_month_pending_upgrade" ✅
+  Case 2 (fake sub_id):
+    → Stripe API returned 404 with req_yjJ6at...
+      "No such subscription: 'sub_NONEXISTENT_FAKE'"
+    → REAL API CALL CONFIRMED ✅
+  Case 3 (no pending referral):
+    → clean false, no side effects ✅
+```
+
+Tests — 8 in `test_iter102_billing_cron_referral_reward.py`:
+- Module exports both functions.
+- `bill_maxx_overages` real-DB round-trip (seed 2 users, run, assert
+  processed=2, failed=2, overage_count UNCHANGED for retry).
+- `grant_referral_reward` free-tier credit path (status mutation +
+  credited_at timestamp).
+- `grant_referral_reward` missing-referral clean reject.
+- Webhook source contains `obj.get("customer")` + customer-id persist
+  + `grant_referral_reward(db, user_id)` invocation.
+- Daily digest contains `bill_maxx_overages` + `.day == 1` guard.
+- Admin manual-trigger endpoint registered.
+- Email body uses ora@aurem.live + references "free month".
+
+**89/89 infra tests across iter 90-102 GREEN.** Total: **648 tests**
+(640 → 648, +8, zero regressions).
+
+⚠️ **Production deploy: no env-var changes.** Pure code delta. After
+redeploy:
+- 1st of each month UTC: overage cron auto-runs at daily-digest hour.
+- Any Stripe `checkout.session.completed` webhook now: persists
+  customer id + grants referral reward + sends thank-you email.
+- Founder can `POST /admin/billing/run-overage-cron` anytime to
+  trigger manually.

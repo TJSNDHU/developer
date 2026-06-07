@@ -1349,6 +1349,22 @@ async def admin_financials_save(
     db = require_db()
     await save_settings(db, payload or {})
     # Return a full re-computed payload so the UI updates atomically.
+
+
+# ── Iter 102 — Manual trigger for end-of-month overage billing ─────────
+# Defensive: founder can run the cron on-demand if the scheduled 1st-of-
+# month tick was missed (e.g., backend was down, redeploy in progress).
+@router.post("/billing/run-overage-cron")
+async def admin_run_overage_cron(
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.billing_cron import bill_maxx_overages
+    db = require_db()
+    result = await bill_maxx_overages(db)
+    await db.billing_cron_runs.insert_one({**result, "trigger": "manual"})
+    return result
+
     return await compute_financials(db)
 
     # Also append to history (tiny, last 100 snapshots)

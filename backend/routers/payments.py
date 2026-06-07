@@ -238,16 +238,26 @@ async def stripe_webhook(request: Request) -> dict:
         user_id  = (obj.get("metadata") or {}).get("user_id")
         plan     = (obj.get("metadata") or {}).get("plan")
         sub_id   = obj.get("subscription")
+        cust_id  = obj.get("customer")
         if user_id and plan:
             await db.dev_users.update_one(
                 {"user_id": user_id},
                 {"$set": {
-                    "tier":            plan,
-                    "usage_tier":      plan,
-                    "stripe_sub_id":   sub_id,
-                    "tier_updated_at": datetime.now(timezone.utc).isoformat(),
+                    "tier":               plan,
+                    "usage_tier":         plan,
+                    "stripe_sub_id":      sub_id,
+                    "stripe_customer_id": cust_id,
+                    "tier_updated_at":    datetime.now(timezone.utc).isoformat(),
                 }},
             )
+            # Iter 102 — referral reward on paid conversion.
+            try:
+                from services.billing_cron import grant_referral_reward
+                grant = await grant_referral_reward(db, user_id)
+                if grant.get("granted"):
+                    logger.info(f"[webhook] referral reward granted to {grant.get('referrer')}")
+            except Exception as e:
+                logger.warning(f"[webhook] referral reward failed: {e!r}")
     elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
         sub_id = event["data"]["object"]["id"]
         await db.dev_users.update_one(
