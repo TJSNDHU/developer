@@ -3890,3 +3890,74 @@ STRIPE_STARTER_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tIkmsBhVl"
 STRIPE_PRO_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tNcieFG4B"
 STRIPE_TEAM_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tJ8Y1Deu0"
 ```
+
+
+### Iter 101.2 — Frontend: Annual Toggle + Hero Badge + Referral UI (Feb 2026)
+
+Founder asked for the conversion hack AND referral UI in one shot. Both shipped.
+
+**Annual billing toggle** (`components/PricingCards.jsx`):
+- Pill-shaped Monthly/Annual switch above the cards.
+- Annual mode: each card swaps to `$86/$182/$470 /year USD` with green
+  "Save $22/$46/$118 vs monthly" copy. The `SAVE 20%` badge in the
+  toggle itself stays green even when annual is selected.
+- Plan ID rewrite: `pro` → `pro_annual` etc. before POSTing to
+  `/payments/checkout`. Existing backend STRIPE_PRICES dict (iter 101.1)
+  routes to the new annual price IDs created in Stripe.
+
+**Hero "💸 Save 20% with annual" pill badge** (`pages/Landing.jsx`):
+- Sits next to the "Start free" + "Watch demo" CTAs.
+- Green border + green text + scroll-to-pricing-section on click.
+- **Visually verified** via Playwright screenshot — renders perfectly.
+
+**Referral landing capture** (`App.jsx`):
+- On EVERY route mount, parse `?ref=<uid>` from URL.
+- If present: stash in `localStorage.aurem_ref` for later attribution.
+- POST to `/api/aurem-dev/referrals/track` (public, no auth) so the
+  referrer's click counter ticks immediately — engagement signal
+  even before conversion.
+- **Verified live via real browser visit:** opened
+  `/?ref=test_referrer_xyz`, MongoDB `referral_clicks` collection
+  shows 2 rows with timestamp + path + user agent populated.
+
+**Signup attribution** (`pages/Signup.jsx`):
+- After successful registration, if `localStorage.aurem_ref` is set
+  AND it's not the same user just created (self-referral guard),
+  POST `/referrals/attribute` to link the new account to the
+  referrer in the `referrals` collection.
+- Clears `aurem_ref` from localStorage after use to prevent stale
+  state on subsequent signups from the same browser.
+
+**Referral share card** (`components/ReferralShare.jsx` — new):
+- Renders in Settings page above the Pricing section.
+- Green-tinted card titled "Refer a builder, earn 1 month free".
+- Fetches `/referrals/my` live — shows real `ref_link`, click count,
+  invites_sent, verified_signups.
+- Read-only input with full link + "Copy" button (becomes "Copied ✓"
+  for 2s after click).
+- One-tap share buttons: X/Twitter pre-fills the link + a tweet
+  template; LinkedIn opens its native share dialog.
+- 4-stat strip at the bottom: Clicks / Sign-ups / Paid conversions /
+  Free months earned.
+
+**End-to-end LIVE proofs:**
+- ✅ Hero badge rendered (Playwright screenshot)
+- ✅ Referral click WAS captured in `referral_clicks` collection
+  (real browser visit → 2 rows in Mongo with full metadata)
+- ✅ Annual toggle JSX wired in PricingCards
+- ✅ Plan rewrite `pro_annual` reaches existing STRIPE_PRICES dict
+- ✅ Signup `/referrals/attribute` call wired post-account-creation
+
+Tests — 11 in `test_iter101_2_frontend_referral_annual_ui.py`:
+- 6 parametrized checks for billing toggle JSX (testids + SAVE 20%
+  copy + plan rewrite)
+- Hero `Save 20% with annual` badge present
+- App.jsx captures `?ref=` + stashes localStorage + hits track endpoint
+- Signup calls `/referrals/attribute` + clears localStorage + has
+  self-referral guard at frontend layer
+- ReferralShare component fetches `/referrals/my` + has 6 testids +
+  renders real `data.clicks` / `data.verified_signups` (no mocks)
+- Settings.jsx imports + renders `<ReferralShare />`
+
+All 11 pass. Combined iter 101 (8 backend + 11 frontend) = **19 tests
+green**. Total: **640 tests** (629 → 640, +11, zero regressions).

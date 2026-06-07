@@ -9,6 +9,7 @@ import { api, getUser } from "../lib/api";
 import GitHubCard from "../components/GitHubCard";
 import PricingCards from "../components/PricingCards";
 import OraWrapped from "../components/OraWrapped";
+import ReferralShare from "../components/ReferralShare";
 
 export default function Settings() {
   const [me, setMe]         = useState(getUser());
@@ -89,6 +90,11 @@ export default function Settings() {
         </section>
 
         <GitHubCard />
+
+        {/* Iter 101 — Referral share */}
+        <section style={{ gridColumn: "1 / -1" }}>
+          <ReferralShare />
+        </section>
 
         {/* Pricing — 4-tier flat-fee cards, side-by-side */}
         <section

@@ -92,13 +92,20 @@ export const PRICING_TIERS = [
 export default function PricingCards({ currentTier = "free", compact = false }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState("");
+  // Iter 101 — monthly/annual toggle. Default monthly. When annual,
+  // we POST `plan=${tierId}_annual` to Stripe checkout which routes
+  // to the new $86/$182/$470 annual price IDs.
+  const [billing, setBilling] = useState("monthly");
+  const isAnnual = billing === "annual";
 
   async function upgrade(tierId) {
     setErr("");
     setBusy(tierId);
     try {
+      const planParam = isAnnual && tierId !== "free"
+        ? `${tierId}_annual` : tierId;
       const r = await api.post("/payments/checkout", {
-        plan: tierId,
+        plan: planParam,
         origin_url: window.location.origin,
       });
       const url = r.data?.checkout_url || r.data?.url;
@@ -134,12 +141,55 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
   }
 
   return (
-    <div data-testid="pricing-cards" style={{
-      display: "grid",
-      gap: compact ? 12 : 16,
-      gridTemplateColumns:
-        "repeat(auto-fit, minmax(220px, 1fr))",
-    }}>
+    <div>
+      {/* Iter 101 — Monthly/Annual billing toggle */}
+      <div data-testid="billing-toggle" style={{
+        display: "flex", justifyContent: "center", alignItems: "center",
+        gap: 4, marginBottom: 20,
+        padding: 4,
+        background: "var(--panel, #0f1219)",
+        border: "1px solid var(--border, rgba(255,200,120,0.16))",
+        borderRadius: 999,
+        width: "fit-content", margin: "0 auto 20px",
+      }}>
+        <button
+          data-testid="billing-monthly"
+          onClick={() => setBilling("monthly")}
+          style={{
+            padding: "8px 18px", fontSize: 12, fontWeight: 600,
+            background: !isAnnual ? "var(--accent, #ff8a2a)" : "transparent",
+            color: !isAnnual ? "var(--bg, #0a0c10)" : "var(--text-dim)",
+            border: "none", borderRadius: 999, cursor: "pointer",
+            transition: "all 0.15s",
+          }}
+        >Monthly</button>
+        <button
+          data-testid="billing-annual"
+          onClick={() => setBilling("annual")}
+          style={{
+            padding: "8px 18px", fontSize: 12, fontWeight: 600,
+            background: isAnnual ? "var(--accent, #ff8a2a)" : "transparent",
+            color: isAnnual ? "var(--bg, #0a0c10)" : "var(--text-dim)",
+            border: "none", borderRadius: 999, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          Annual
+          <span data-testid="annual-save-badge" style={{
+            fontSize: 9, fontWeight: 700,
+            padding: "2px 6px", borderRadius: 3,
+            background: isAnnual ? "rgba(0,0,0,0.18)" : "rgba(109,212,161,0.18)",
+            color: isAnnual ? "var(--bg, #0a0c10)" : "#6dd4a1",
+          }}>SAVE 20%</span>
+        </button>
+      </div>
+
+      <div data-testid="pricing-cards" style={{
+        display: "grid",
+        gap: compact ? 12 : 16,
+        gridTemplateColumns:
+          "repeat(auto-fit, minmax(220px, 1fr))",
+      }}>
       {PRICING_TIERS.map((t) => {
         const isCurrent = (t.id === currentTier)
           || (currentTier === "founder" && t.id === "pro");
@@ -206,12 +256,26 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
                 fontSize: 30, fontWeight: 500, color: "var(--text)",
                 letterSpacing: "-0.02em", lineHeight: 1,
               }}>
-                {t.price}
+                {(() => {
+                  // Iter 101 — annual mode shows /yr price with strike-through
+                  // on the would-be 12× monthly for visual anchor.
+                  if (!t.paid || !isAnnual) return t.price;
+                  const annualMap = { starter: "$86", pro: "$182", team: "$470" };
+                  return annualMap[t.id] || t.price;
+                })()}
                 <span style={{
                   fontSize: 12, color: "var(--text-faint)",
                   fontWeight: 400, marginLeft: 4,
-                }}>{t.period}</span>
+                }}>{isAnnual && t.paid ? "/ year USD" : t.period}</span>
               </div>
+              {isAnnual && t.paid && (
+                <div data-testid={`annual-save-${t.id}`} style={{
+                  fontSize: 10, color: "#6dd4a1", marginTop: 2,
+                  fontWeight: 600, letterSpacing: ".04em",
+                }}>
+                  Save ${ {starter: 22, pro: 46, team: 118}[t.id] || 0 } vs monthly
+                </div>
+              )}
               <div style={{
                 fontSize: 11, color: "var(--text-faint)", marginTop: 4,
               }}>{t.tagline}</div>
@@ -283,6 +347,7 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
           padding: "8px 12px", borderRadius: 5,
         }}>{err}</div>
       )}
+      </div>
     </div>
   );
 }

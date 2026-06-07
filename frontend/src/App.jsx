@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
 import Toaster from "./components/Toast";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -24,6 +25,32 @@ import Automations from "./pages/Automations";
 import OAuthFinish from "./pages/OAuthFinish";
 
 export default function App() {
+  // Iter 101 — Capture `?ref=<uid>` on any landing, stash in localStorage
+  // so Signup can attribute the referrer after account creation.
+  // Also pings the public /referrals/track endpoint so the referrer
+  // sees the click in their dashboard.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref");
+      if (ref && ref.length > 0 && ref.length < 100) {
+        localStorage.setItem("aurem_ref", ref);
+        const backend = process.env.REACT_APP_BACKEND_URL;
+        if (backend) {
+          fetch(`${backend}/api/aurem-dev/referrals/track`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ref_code: ref,
+              path: window.location.pathname,
+              user_agent: navigator.userAgent.slice(0, 200),
+            }),
+          }).catch(() => {});
+        }
+      }
+    } catch { /* no-op */ }
+  }, []);
+
   return (
     <BrowserRouter>
       <Toaster />

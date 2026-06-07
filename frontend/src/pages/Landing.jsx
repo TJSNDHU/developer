@@ -112,12 +112,29 @@ export default function Landing() {
             repo, writes the diff, runs the linter, pushes the commit —
             while you watch it work in real time.
           </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <Link to="/signup" data-testid="hero-cta-signup" className="btn-primary">
               Start free — 10 tasks <ArrowRight size={16} />
             </Link>
             <a href="#demo" data-testid="hero-cta-demo" className="btn-ghost">
               <PlayCircle size={16} /> Watch 60-second demo
+            </a>
+            <a
+              data-testid="hero-annual-badge"
+              href="#pricing"
+              style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: ".08em",
+                textTransform: "uppercase",
+                padding: "8px 12px",
+                background: "rgba(109,212,161,0.10)",
+                color: "#6dd4a1",
+                border: "1px solid rgba(109,212,161,0.35)",
+                borderRadius: 999,
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              💸 Save 20% with annual
             </a>
           </div>
         </section>

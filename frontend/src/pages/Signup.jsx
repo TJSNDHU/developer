@@ -47,6 +47,16 @@ export default function Signup() {
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
       });
+      // Iter 101 — if a referrer is in localStorage (set by App.jsx
+      // when ?ref=… landed), attribute the new account now that we
+      // have a token.
+      try {
+        const ref = localStorage.getItem("aurem_ref");
+        if (ref && ref !== r.data.user_id) {
+          await api.post("/referrals/attribute", { ref_code: ref });
+          localStorage.removeItem("aurem_ref");
+        }
+      } catch { /* non-blocking */ }
       try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
       navigate(next, { replace: true });
     } catch (e) {
