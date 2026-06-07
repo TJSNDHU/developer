@@ -1263,3 +1263,66 @@ async def purge_caches(
         report["mongo_caches"] = {"status": "skipped", "detail": "no DB"}
 
     return {"ok": True, "report": report}
+
+
+
+# ── Iter 98 — Live Integration Health Center ───────────────────────────
+# Real-time probes of every external dependency. Cached in Mongo so the
+# UI is fast; refreshed automatically once daily and on-demand by the
+# founder via POST /admin/integrations/refresh.
+@router.get("/integrations/health")
+async def integrations_health(
+    authorization: Optional[str] = Header(None),
+):
+    """Return the latest cached snapshot of every integration probe.
+    If no snapshot exists yet, run all probes inline (slow first hit)."""
+    await _require_admin(authorization)
+    db = require_db()
+    snap = await db.integration_health.find_one(
+        {"_id": "latest"}, {"_id": 0}
+    )
+    if not snap:
+        # Cold start — probe immediately so the founder sees real data.
+        from services.integration_health import run_all_probes, summary_counts
+        results = await run_all_probes()
+        snap = {
+            "results":      results,
+            "summary":      summary_counts(results),
+            "generated_at": time.time(),
+            "trigger":      "cold_start",
+        }
+        await db.integration_health.update_one(
+            {"_id": "latest"},
+            {"$set": snap},
+            upsert=True,
+        )
+    return snap
+
+
+@router.post("/integrations/refresh")
+async def integrations_refresh(
+    authorization: Optional[str] = Header(None),
+):
+    """Force-re-probe every integration NOW. Founder-only — each call
+    actually hits all the external APIs."""
+    await _require_admin(authorization)
+    from services.integration_health import run_all_probes, summary_counts
+    results = await run_all_probes()
+    snap = {
+        "results":      results,
+        "summary":      summary_counts(results),
+        "generated_at": time.time(),
+        "trigger":      "manual",
+    }
+    db = require_db()
+    await db.integration_health.update_one(
+        {"_id": "latest"},
+        {"$set": snap},
+        upsert=True,
+    )
+    # Also append to history (tiny, last 100 snapshots)
+    await db.integration_health_history.insert_one({
+        **snap,
+        "_id": f"snap_{int(snap['generated_at'])}",
+    })
+    return snap

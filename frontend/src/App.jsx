@@ -13,6 +13,7 @@ import Analytics from "./pages/Analytics";
 import Projects from "./pages/Projects";
 import Admin from "./pages/Admin";
 import AdminOverview from "./pages/AdminOverview";
+import AdminIntegrations from "./pages/AdminIntegrations";
 import Wrapped from "./pages/Wrapped";
 import ShipWall from "./pages/ShipWall";
 import BrainDump from "./pages/BrainDump";
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/admin/overview" element={<AdminOverview />} />
+        <Route path="/admin/integrations" element={<AdminIntegrations />} />
         <Route path="/admin/architecture" element={<Admin initialTab="arch" />} />
         <Route path="/admin/ops" element={<OpsRecipes />} />
         <Route path="/admin/brain/:projectId" element={<BrainDump />} />

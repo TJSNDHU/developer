@@ -79,13 +79,26 @@ export default function AdminOverview() {
 
       {/* ── System health ───────────────────────────────────── */}
       <Section title="System health">
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <HealthChip ok={dbOk}   label="MongoDB" />
           <HealthChip ok={true}   label="FastAPI" />
           <HealthChip ok={!!stats} label="Public stats API" />
           <HealthChip ok={!!wall}  label="Ship Wall" />
           <HealthChip ok={!!council} label="Council logger" />
           <InfoChip label={`Uptime ${uptimeMin}m`} />
+          <a
+            data-testid="goto-integrations"
+            href="/admin/integrations"
+            style={{
+              marginLeft: "auto",
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "var(--accent, #ff8a2a)",
+              color: "var(--bg, #0a0c10)",
+              border: "none", borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >Integration Health →</a>
         </div>
       </Section>
 

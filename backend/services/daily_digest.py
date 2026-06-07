@@ -164,6 +164,37 @@ async def _run_once() -> None:
     except Exception as e:
         logger.warning(f"ORA daily export failed: {e!r}")
 
+    # Iter 98 — auto-refresh the integration-health snapshot. The admin
+    # panel reads this from `integration_health.latest`; if we don't
+    # refresh, the founder would see stale data.
+    try:
+        from cto_services.db import get_db
+        from services.integration_health import run_all_probes, summary_counts
+        _db = get_db()
+        if _db is not None:
+            results = await run_all_probes()
+            snap = {
+                "results":      results,
+                "summary":      summary_counts(results),
+                "generated_at": time.time(),
+                "trigger":      "daily_auto",
+            }
+            await _db.integration_health.update_one(
+                {"_id": "latest"}, {"$set": snap}, upsert=True,
+            )
+            await _db.integration_health_history.insert_one({
+                **snap, "_id": f"snap_{int(snap['generated_at'])}",
+            })
+            counts = snap["summary"]
+            logger.info(
+                f"🩺 Integration health daily refresh: "
+                f"{counts['ok']}/{counts['total']} ok, "
+                f"{counts['warn']} warn, {counts['broken']} broken, "
+                f"{counts['missing']} missing"
+            )
+    except Exception as e:
+        logger.warning(f"integration health daily refresh failed: {e!r}")
+
 
 async def schedule_daily_digest() -> None:
     """Background loop — sleeps until target UTC hour, fires once, repeats."""

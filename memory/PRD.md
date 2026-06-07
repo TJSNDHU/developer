@@ -3554,3 +3554,80 @@ Stripe Portal, Sentry Slack alerts, demo video).
 
 
 additional steps beyond env + redeploy.
+
+
+### Iter 98 — Live Integration Health Center (Feb 2026)
+
+Founder asked: "audit everything — no mocks — and build a page that
+shows the live status of every API + auto-updates daily."
+
+**1) Mock audit — clean.** `grep -rE "mock|fake|placeholder"` across
+`/app/backend` returned only false-positives in linter/auditor code
+(prompts telling the AI not to write placeholders, regex detectors).
+No actual mocked logic in production paths.
+
+**2) New `services/integration_health.py`** — 11 REAL live probes:
+| Provider | Probe |
+|---|---|
+| Stripe | `stripe.Account.retrieve()` + price-id env check |
+| GitHub OAuth | `GET github.com/login/oauth/authorize?client_id=…` (302) |
+| Emergent LLM | Real `claude-haiku-4-5` round-trip via emergentintegrations |
+| OpenRouter | `GET /api/v1/credits` — returns $ remaining |
+| E2B | Spin real sandbox + `run_code("print(2+2)")` + kill |
+| Tavily | `POST /search` with healthcheck query |
+| Firecrawl | `POST /v1/scrape` of example.com |
+| Resend | `GET /domains` — confirms aurem.live verified |
+| Sentry | DSN parse + `main.SENTRY_ACTIVE` flag check |
+| Vercel | `GET /v2/user` |
+| MongoDB | `db.command('ping')` + collection counts |
+
+Each probe runs concurrently via `asyncio.gather`. Failures are
+isolated — one broken provider never crashes the others. Returns
+structured `{id, name, status, summary, detail, fix_hint, latency_ms}`.
+
+**3) Backend endpoints:**
+- `GET /api/aurem-dev/admin/integrations/health` — cached snapshot
+  (fast, runs cold-start probe if no cache exists yet).
+- `POST /api/aurem-dev/admin/integrations/refresh` — force re-probe
+  every API now (founder-only).
+
+**4) Daily auto-refresh:** hooked into the existing `_run_once()`
+scheduler in `services/daily_digest.py`. Refreshes at 6am UTC,
+writes to `integration_health.latest` + appends to
+`integration_health_history` for trend analysis.
+
+**5) Frontend `/admin/integrations` page** (`AdminIntegrations.jsx`):
+- 5-column summary band: Total / Live / Degraded / Broken / Missing
+- Grid of 11 cards (one per provider) with:
+  - Color-coded status badge (green/yellow/red/grey)
+  - Live summary text + last-checked timestamp + latency ms
+  - Detail panel (only for non-OK) with the raw error
+  - "Fix:" hint (only for non-OK) with deeplink to vendor dashboard
+- "Refresh now" button → calls `/admin/integrations/refresh`
+- Auto-polls cached snapshot every 60s
+- Link from `/admin/overview` System Health section
+
+**End-to-end verified live:**
+- `POST /admin/integrations/refresh` with founder JWT → all 11
+  providers returned `ok` (Stripe LIVE, GitHub accepted client_id,
+  Claude responded, OpenRouter $7.77 remaining, E2B sandbox executed,
+  Tavily 1 result, Firecrawl scraped example.com, Resend 1 verified
+  domain, Sentry active, Vercel `polarisbuiltinc-wq`, MongoDB 296
+  users + 3 tasks).
+- Summary: `{ok: 11, warn: 0, broken: 0, missing: 0, total: 11}`.
+- Frontend page renders correctly with all expected sections.
+
+Tests — 7 in `test_iter98_integration_health_center.py`:
+- Service module exports + 11+ probes wired
+- Each probe has (id, name, callable) tuple + no duplicates
+- Admin endpoints `/admin/integrations/health` + `/refresh` registered
+- daily_digest hooks `integration_health` refresh with `daily_auto` tag
+- `summary_counts()` shape correctness
+- **Mock guard** — `services/integration_health.py` must NOT import
+  `unittest.mock`/`MagicMock`/`Mock()` AND must reference all real
+  API hostnames (`api.stripe.com`, `api.tavily.com`,
+  `api.firecrawl.dev`, `api.resend.com`, `api.vercel.com`,
+  `openrouter.ai`, etc.) — regression-locks "no mocks" forever.
+- Live (opt-in): `run_all_probes()` returns ≥10 OK, 0 missing.
+
+All 7 pass. Total: **604 tests** (597 → 604, +7, zero regressions).
