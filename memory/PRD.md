@@ -3204,3 +3204,73 @@ Tests — 4 in `test_iter89_ship_button_no_reappear.py`:
   assistant turn (`turn_index: 1` returned, Mongo doc updated).
 - Full regression: **570 pass / 2 pre-existing env failures / 4 skips**
   (566 → 570, +4 net, zero regressions).
+
+
+### Iter 90 — Real Stripe Live Prices Wired (Feb 2026)
+
+Founder shared 3 product/price IDs to flip on real billing. Two
+problems uncovered & fixed:
+
+**Problem 1 — IDs founder pasted were fake.**
+- Pasted: `price_1TfX*_XYZ7cJIy2*` (note `XYZ` — Stripe never generates that).
+- Stripe live API returned `No such price` for all 3.
+- Used the real `sk_live_…` from `.env` to enumerate the live account
+  (`acct_1TKUU90Exg9gU93t` / polarisbuiltinc@gmail.com / "aurem" / CA).
+- Found the actual products & default prices:
+  - Starter → `price_1TfXg60Exg9gU93tU2tQVwI5` ($9 CAD/mo) — `prod_UerOYmgr5THCuo`
+  - Pro     → `price_1TfXi50Exg9gU93txCIR6npd` ($19 CAD/mo) — `prod_UerQj5CA06UGNS`
+  - Team    → `price_1TfXil0Exg9gU93tOB7yPyeA` ($35 CAD/mo) — `prod_UerRH4ZOgJ1HFn`
+- `.env` updated with the real price IDs.
+
+**Problem 2 — Supervisor placeholder shadowing real key.**
+- Platform exports `STRIPE_API_KEY=sk_test_emergent…` into every
+  process env. `load_dotenv()` (no override) was silently keeping it,
+  so `_stripe_key()` returned the sandbox placeholder instead of the
+  `sk_live_51TKUU…` in `.env`. Every Checkout call would have 401'd
+  in production silently.
+- Fix (`routers/payments.py::_stripe_key`): explicitly reject any
+  candidate that starts with `sk_test_emergent`, and fall back to
+  `dotenv_values(...)` if both env vars are placeholders. Real key
+  always wins. Zero behavior change for accounts with real keys
+  already in the process env.
+
+**End-to-end verified live:** Created real `cs_live_…` Checkout
+Sessions against the live Stripe API for all 3 plans — Stripe
+returned valid hosted-checkout URLs. The "Upgrade" button on
+auremcto.com now opens real payment screens.
+
+⚠️ **Currency note for the founder:** Prices are CAD, not USD. UI/
+landing page says `$9/$19/$35` but customer will be charged $9/$19/$35
+**CAD** (~$6.60/$13.95/$25.70 USD at 0.73 FX). To switch to USD, create
+new USD prices in Stripe and rotate the env vars.
+
+⚠️ **Production deploy reminder:** The Emergent preview `.env` is now
+correct. The founder MUST copy these same values into the production
+auremcto.com env vars dashboard and redeploy — preview env is not
+mirrored to prod automatically.
+
+Tests — 5 in `test_iter90_stripe_real_prices.py`:
+- Each price ID embeds the real account suffix `0Exg9gU93t` (rejects
+  fake IDs like the `XYZ`-pattern founder originally pasted).
+- `_stripe_key()` ignores the `sk_test_emergent` placeholder even
+  when explicitly set in the process env (`monkeypatch` simulation).
+- `STRIPE_PRICES["starter"|"pro"|"team"]()` resolves to a non-falsy
+  `price_*` for every plan once `.env` is loaded.
+- Full regression: **575 pass / 2 pre-existing env failures / 4 skips**
+  (570 → 575, +5 net, zero regressions).
+
+**Still pending from the founder-side prod-readiness audit (not done this iter):**
+- `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` — empty.
+  Sign-in-with-GitHub will not work until populated. Create OAuth
+  App at https://github.com/settings/developers, callback =
+  `https://auremcto.com/api/aurem-dev/github/oauth/callback`.
+- `FRONTEND_URL` env var — unset. Falls back to request base_url
+  which is fine in preview but should be hard-pinned to
+  `https://auremcto.com` in prod for clean Stripe redirect URLs.
+- Firecrawl credits exhausted — top up at firecrawl.dev or web
+  scrape will silently fall back to Tavily-only.
+- `E2B_API_KEY` / `VERCEL_TOKEN` — present-but-unverified for live
+  deploys; founder should rotate before public launch.
+- Subscription unit-economics math — deferred to next iter (will
+  produce `/app/memory/FOUNDER_LAUNCH_CHECKLIST.md` with full LLM/
+  Tavily/Firecrawl cost-per-tier and break-even per plan).

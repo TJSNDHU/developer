@@ -39,12 +39,34 @@ router = APIRouter(tags=["Payments"])
 
 def _stripe_key() -> str:
     """Return the Stripe secret key, preferring STRIPE_SECRET_KEY but
-    falling back to the older STRIPE_API_KEY env name."""
-    return (
-        os.environ.get("STRIPE_SECRET_KEY")
-        or os.environ.get("STRIPE_API_KEY")
-        or ""
-    )
+    falling back to the older STRIPE_API_KEY env name.
+
+    The platform's supervisor injects a stale `sk_test_emergent…`
+    placeholder into the process env which would otherwise shadow the
+    real key loaded from `.env`. We treat that placeholder as "not
+    configured" and reach into the .env via dotenv_values so the real
+    key always wins.
+    """
+    candidates = [
+        os.environ.get("STRIPE_SECRET_KEY"),
+        os.environ.get("STRIPE_API_KEY"),
+    ]
+    for c in candidates:
+        if c and not c.startswith("sk_test_emergent"):
+            return c
+    # Fall back to whatever .env actually contains, bypassing the
+    # stale supervisor-exported placeholder.
+    try:
+        from dotenv import dotenv_values
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+        vals = dotenv_values(env_path)
+        for k in ("STRIPE_SECRET_KEY", "STRIPE_API_KEY"):
+            v = (vals.get(k) or "").strip().strip('"').strip("'")
+            if v and not v.startswith("sk_test_emergent"):
+                return v
+    except Exception:
+        pass
+    return ""
 
 
 def _require_stripe() -> None:
