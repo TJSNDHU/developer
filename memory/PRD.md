@@ -3441,4 +3441,62 @@ All 5 pass with `RUN_LIVE_NETWORK_TESTS=1`. Suite total: **590 tests**
 E2B_API_KEY="e2b_97e5cec6ffa3e1360d5c6f2646586f34acc25212"
 ```
 The new e2b SDK propagates via `pip install -r requirements.txt`. No
+
+### Iter 96 — Sentry DSN Live + Init Order Bug Fix (Feb 2026)
+
+Founder shared the Sentry DSN. Wiring it up surfaced a real prod bug.
+
+**1) DSN configured in `.env`:**
+```
+SENTRY_DSN="https://3478abcff10846e53c8149658ba7463c@o4511525524471808.ingest.us.sentry.io/4511525525585920"
+SENTRY_ENV="production"
+SENTRY_RELEASE="aurem-dev@iter95"
+```
+
+**2) 🔴 Real bug found & fixed:** `main.py` defined `_sentry_filter`
+function AFTER calling `sentry_sdk.init(before_send=_sentry_filter,...)`.
+Python module-load is sequential — at the moment `init()` ran, the
+function name didn't exist yet, so Sentry init raised
+`NameError("name '_sentry_filter' is not defined")` and was silently
+caught by the broad `except Exception`. **Sentry was effectively
+disabled in every production deploy since Iter 45/48.** This was a
+silent reliability hole — every "ghost crash" the founder might have
+investigated never showed up in Sentry because init never completed.
+
+Fix: moved `_sentry_filter` definition ABOVE the `sentry_sdk.init()`
+block. Verified via direct module import — log line
+`"Sentry active — env=production, traces=10%"` now appears and
+`SENTRY_ACTIVE = True`.
+
+**End-to-end verified live:**
+- Sent test message via `sentry_sdk.capture_message()` →
+  `event_id: a3ba9128a4dc47f7a47d181d9edf218a` (founder can verify in
+  Sentry → Issues tab).
+- Confirmed `_SENTRY_DSN` resolves from `.env` (no shadow placeholder).
+
+Tests — 4 in `test_iter96_sentry_live.py`:
+- DSN present + correct shape (`https://...ingest...sentry.io/...`).
+- **Regression guard for the init-order bug:** asserts the file-offset
+  of `def _sentry_filter(` is LESS than the offset of
+  `sentry_sdk.init(`. If a future refactor re-introduces the ordering
+  bug, this test fails loudly.
+- After import, `main.SENTRY_ACTIVE is True`.
+- `/admin/sentry/test` endpoint registered (founder's live-validation
+  curl path).
+
+All 4 pass. Suite combined regression across iter 90-96: **38/38
+infrastructure tests green.** Total: **594 tests** (590 → 594, +4,
+zero regressions).
+
+⚠️ **Production env sync required:** Add these 3 lines to auremcto.com
+dashboard + redeploy:
+```
+SENTRY_DSN="https://3478abcff10846e53c8149658ba7463c@o4511525524471808.ingest.us.sentry.io/4511525525585920"
+SENTRY_ENV="production"
+SENTRY_RELEASE="aurem-dev@iter95"
+```
+Once redeployed, hit `POST /api/aurem-dev/admin/sentry/test` (founder
+auth required) to confirm prod Sentry is reporting — you should see
+the test event in the Sentry Issues tab within ~5s.
+
 additional steps beyond env + redeploy.

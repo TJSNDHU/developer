@@ -54,6 +54,25 @@ load_dotenv()
 # class of bugs: every unhandled exception, FastAPI request span, slow
 # requests (> 5s), MongoDB calls, and background task crashes are now
 # captured. Set SENTRY_DSN in production env to activate.
+def _sentry_filter(event, hint):
+    """Drop noisy events before sending to Sentry.
+    - 4xx HTTPExceptions are not bugs.
+    - Connection-reset on SSE streams are client-side.
+    """
+    exc_info = hint.get("exc_info") if hint else None
+    if exc_info:
+        exc_type = exc_info[0].__name__ if exc_info[0] else ""
+        exc_msg  = str(exc_info[1] or "")
+        # Skip 4xx HTTPException (we already return clean 4xx JSON)
+        if exc_type == "HTTPException":
+            status = getattr(exc_info[1], "status_code", 500)
+            if 400 <= status < 500:
+                return None
+        if "Connection lost" in exc_msg or "ClientDisconnect" in exc_msg:
+            return None
+    return event
+
+
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 SENTRY_ACTIVE = False
 if _SENTRY_DSN:
@@ -97,25 +116,6 @@ if _SENTRY_DSN:
         )
     except Exception as _se:
         logging.getLogger(__name__).warning("Sentry init failed: %r", _se)
-
-
-def _sentry_filter(event, hint):
-    """Drop noisy events before sending to Sentry.
-    - 4xx HTTPExceptions are not bugs.
-    - Connection-reset on SSE streams are client-side.
-    """
-    exc_info = hint.get("exc_info") if hint else None
-    if exc_info:
-        exc_type = exc_info[0].__name__ if exc_info[0] else ""
-        exc_msg  = str(exc_info[1] or "")
-        # Skip 4xx HTTPException (we already return clean 4xx JSON)
-        if exc_type == "HTTPException":
-            status = getattr(exc_info[1], "status_code", 500)
-            if 400 <= status < 500:
-                return None
-        if "Connection lost" in exc_msg or "ClientDisconnect" in exc_msg:
-            return None
-    return event
 
 # Iter 45 — slowapi rate limiting (per-IP). Hand-rolled to avoid
 # decorator/dep-injection collision.
