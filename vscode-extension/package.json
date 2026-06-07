@@ -7,6 +7,11 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
   "keywords": ["ai", "github", "agent", "commit", "aurem", "ora"],
+  "icon": "assets/icon.png",
+  "galleryBanner": {
+    "color": "#0a0c10",
+    "theme": "dark"
+  },
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
