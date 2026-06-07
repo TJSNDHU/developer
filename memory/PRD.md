@@ -3798,3 +3798,95 @@ green**. Total: **621 tests** (612 → 621, +9, zero regressions).
 ⚠️ **Production env sync:** No new env var needed (FX uses public
 free API). Just redeploy code/asset delta and the page goes live at
 `https://auremcto.com/admin/financials`.
+
+
+### Iter 101 — Annual Plans + Overage Billing + Referral System (Feb 2026)
+
+Three revenue/growth levers landed in one iter.
+
+**1) Annual plans LIVE on Stripe** (-20% vs monthly × 12):
+- Starter $86/yr   → `price_1Tfmwn0Exg9gU93tIkmsBhVl`
+- Pro     $182/yr  → `price_1Tfmwn0Exg9gU93tNcieFG4B`
+- Team    $470/yr  → `price_1Tfmwn0Exg9gU93tJ8Y1Deu0`
+
+Created via Stripe API on existing products. `.env` updated. New keys
+plumbed into `STRIPE_PRICES` dict in `routers/payments.py` so checkout
+accepts `plan="pro_annual"` etc. Verified live: real `cs_live_…`
+Checkout Sessions created for all 3 annual prices.
+
+**2) Overage billing — Pro+ no longer degrades past Maxx cap.**
+Previous behavior (iter 94): Pro user past 100 Maxx tasks silently fell
+back to DeepSeek. New behavior:
+- Pro / Team / Founder: KEEPS using Claude (don't damage UX).
+- Free / Starter: degrades as before (those tiers have 0 included).
+- Every Pro+ task past cap increments `cto_maxx_usage.overage_count`.
+- `get_maxx_usage()` now returns `overage_count`, `overage_cost_usd`,
+  `overage_price_usd` ($0.50/task).
+- `call_llm_with_meta()` response carries new `maxx_overage: True`
+  flag so the chat UI can render "billed at end of month" banner.
+
+End-to-end DB proof (verified live): Pre-loaded a Pro user at cap=100,
+called `incr_maxx_usage` 4 times → DB shows `used=104, overage_count=4,
+overage_cost_usd=$2.00`. Math exact.
+
+Stripe invoice creation at month-end is a follow-up — overage is
+TRACKED and accruing in Mongo right now. To bill, we'll add a cron
+job that calls `stripe.InvoiceItem.create()` per user with
+overage_count > 0 on the 1st of each month.
+
+**3) Referral system wired** (`routers/engagement.py`):
+- New `POST /referrals/track` (public, no auth) — landing page calls
+  this when visitor arrives via `?ref=<uid>`. Logs to
+  `referral_clicks` collection.
+- New `POST /referrals/attribute` (auth required) — called by signup
+  flow after account creation if there's a ref cookie. Inserts row
+  into `referrals` collection. **Rejects self-referrals** (uid ==
+  ref_code) and **duplicate attribution** (already has a referrer).
+- Existing `GET /referrals/my` extended: now returns `clicks` count
+  (raw engagement signal) + `reward_per_paid: "1 month free"` so the
+  UI can advertise the value prop.
+- Ref link changed `aurem.live/?ref=…` → `auremcto.com/?ref=…` to
+  match production domain.
+- Reward grant (extending Stripe subscription by 30 days) is still a
+  TODO — needs Stripe customer + subscription manipulation. Tracking
+  is in place; reward logic next iter.
+
+**End-to-end verified (real HTTP/curl):**
+```
+PROOF 2 — annual checkout for all 3 plans:
+  ✅ starter_annual $86/year   →  cs_live_a1lYB8sQ...
+  ✅ pro_annual     $182/year  →  cs_live_a1nDmaWn...
+  ✅ team_annual    $470/year  →  cs_live_a1ygriTN...
+
+PROOF 3 — public /referrals/track  →  {"ok": true}
+
+PROOF 4 — /referrals/my (real DB-backed):
+  {"ref_link": "https://auremcto.com/?ref=6560b900…",
+   "clicks": 0, "invites_sent": 0, "verified_signups": 0,
+   "reward_per_paid": "1 month free"}
+
+PROOF 6 — overage math (real Mongo round-trip):
+  BEFORE: used=100, capped=True, overage_count=0
+  → 3 more Maxx calls
+  AFTER:  used=103, capped=True, overage_count=3, overage_cost=$1.50
+  ✅ EXACT MATCH: 3 × $0.50 = $1.50
+```
+
+Tests — 8 in `test_iter101_annual_referral_overage.py`:
+- Annual env vars present + match real Stripe account suffix
+- `STRIPE_PRICES` dict has all 3 annual variants
+- Overage live DB round-trip (Pro user past cap → 4 × $0.50 = $2.00)
+- `call_llm_with_meta` source contains `maxx_overage` + Pro+ tier gate
+- All 3 referral routes registered
+- `/referrals/my` source includes `clicks` + `reward_per_paid`
+- `/referrals/track` accepts no auth (public endpoint)
+- Self-referral & duplicate-attribution rejected
+
+All 8 pass. Total: **629 tests** (621 → 629, +8, zero regressions).
+
+⚠️ **Production env sync — 3 new keys:**
+```
+STRIPE_STARTER_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tIkmsBhVl"
+STRIPE_PRO_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tNcieFG4B"
+STRIPE_TEAM_ANNUAL_PRICE_ID="price_1Tfmwn0Exg9gU93tJ8Y1Deu0"
+```

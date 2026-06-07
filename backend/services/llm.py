@@ -183,8 +183,13 @@ async def call_llm_with_meta(system: str, user: str,
     actual_tokens = min(max_tokens, cap_for(mode))
     wants_claude = mode in _CLAUDE_MODES and bool(_emergent_key())
 
-    # ── Iter 94: Maxx-mode budget gate ────────────────────────────────
-    maxx_capped = False
+    # ── Iter 94/101: Maxx-mode budget gate + overage tracking ────────
+    # 100-task included monthly. Past that:
+    #   • Pro tier: KEEP using Claude (don't degrade UX), track overage
+    #     for end-of-month $0.50/task invoice.
+    #   • Free/Starter: fall back to DeepSeek (tier has 0 included).
+    maxx_capped     = False        # legacy field — true only when we degraded
+    maxx_overage    = False        # iter 101 — true when this call is billable overage
     maxx_remaining: Optional[int] = None
     if wants_claude and user_id:
         try:
@@ -192,8 +197,14 @@ async def call_llm_with_meta(system: str, user: str,
             u = await get_maxx_usage(user_id)
             maxx_remaining = u.get("remaining")
             if u.get("capped"):
-                maxx_capped = True
-                wants_claude = False  # Fall back to DeepSeek silently.
+                tier = u.get("tier", "free")
+                if tier in ("pro", "team", "founder"):
+                    # Pro+: keep Claude, charge overage (real billing impact).
+                    maxx_overage = True
+                else:
+                    # Free/Starter: degrade to DeepSeek (zero overage policy).
+                    maxx_capped = True
+                    wants_claude = False
         except Exception as e:
             # Never block on the meter — fall through to whatever was
             # planned. Maxx-cap is a soft commercial guard, not a
@@ -232,6 +243,7 @@ async def call_llm_with_meta(system: str, user: str,
             "mode":         mode,
             "fallback_chain": [provider_name],
             "maxx_capped":    maxx_capped,
+            "maxx_overage":   maxx_overage,
             "maxx_remaining": maxx_remaining,
         }
     except httpx.HTTPStatusError as e:
@@ -241,6 +253,7 @@ async def call_llm_with_meta(system: str, user: str,
             "temperature": temperature, "mode": mode,
             "fallback_chain": [provider_name],
             "maxx_capped":    maxx_capped,
+            "maxx_overage":   maxx_overage,
             "maxx_remaining": maxx_remaining,
             "error": f"LLM unavailable (HTTP {e.response.status_code})",
         }
@@ -251,6 +264,7 @@ async def call_llm_with_meta(system: str, user: str,
             "temperature": temperature, "mode": mode,
             "fallback_chain": [provider_name],
             "maxx_capped":    maxx_capped,
+            "maxx_overage":   maxx_overage,
             "maxx_remaining": maxx_remaining,
             "error": f"LLM unavailable: {e}",
         }

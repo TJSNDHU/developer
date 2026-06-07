@@ -82,9 +82,13 @@ def _require_stripe() -> None:
 
 
 STRIPE_PRICES = {
-    "starter": lambda: os.environ.get("STRIPE_STARTER_PRICE_ID"),
-    "pro":     lambda: os.environ.get("STRIPE_PRO_PRICE_ID"),
-    "team":    lambda: os.environ.get("STRIPE_TEAM_PRICE_ID"),
+    "starter":         lambda: os.environ.get("STRIPE_STARTER_PRICE_ID"),
+    "pro":             lambda: os.environ.get("STRIPE_PRO_PRICE_ID"),
+    "team":            lambda: os.environ.get("STRIPE_TEAM_PRICE_ID"),
+    # Iter 101 — annual variants (20% discount, pre-paid yearly).
+    "starter_annual":  lambda: os.environ.get("STRIPE_STARTER_ANNUAL_PRICE_ID"),
+    "pro_annual":      lambda: os.environ.get("STRIPE_PRO_ANNUAL_PRICE_ID"),
+    "team_annual":     lambda: os.environ.get("STRIPE_TEAM_ANNUAL_PRICE_ID"),
 }
 
 

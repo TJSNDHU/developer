@@ -21,6 +21,60 @@ from cto_services.db import require_db
 router = APIRouter(tags=["AUREM CTO Engagement"])
 
 
+# ─── Iter 101: Public referral click tracking ────────────────────────
+@router.post("/referrals/track")
+async def track_referral_click(payload: dict) -> dict[str, Any]:
+    """Public endpoint — no auth. Called from the landing page when a
+    visitor lands via `?ref=<uid>`. We record the click so the referrer
+    sees engagement signal even before the visitor converts.
+
+    Body: {"ref_code": "<uid>", "path": "/", "user_agent": "…"} (best-effort).
+    """
+    code = (payload or {}).get("ref_code") or ""
+    if not code or len(code) > 100:
+        return {"ok": False, "reason": "invalid ref_code"}
+    db = require_db()
+    await db.referral_clicks.insert_one({
+        "ref_code":   code,
+        "path":       (payload.get("path") or "/")[:120],
+        "user_agent": (payload.get("user_agent") or "")[:200],
+        "clicked_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+@router.post("/referrals/attribute")
+async def attribute_signup_to_referrer(payload: dict,
+                                        authorization: str = Header(None)) -> dict[str, Any]:
+    """Called by the signup flow — links a NEW user account to the
+    referrer who sent them. Idempotent: only attributes the first
+    referral and refuses self-referrals.
+
+    Body: {"ref_code": "<referrer_uid>"}
+    """
+    me  = await current_dev(authorization)
+    db  = require_db()
+    new_user_id = me["user_id"]
+    ref_code = ((payload or {}).get("ref_code") or "").strip()
+    if not ref_code or ref_code == new_user_id:
+        return {"ok": False, "reason": "invalid or self-referral"}
+    # Reject if the new user already has a referrer recorded.
+    existing = await db.referrals.find_one({"new_user_id": new_user_id})
+    if existing:
+        return {"ok": False, "reason": "already attributed"}
+    # Reject if the referrer doesn't exist.
+    referrer = await db.dev_users.find_one({"user_id": ref_code}, {"_id": 0, "user_id": 1})
+    if not referrer:
+        return {"ok": False, "reason": "referrer not found"}
+    await db.referrals.insert_one({
+        "referrer_user_id": ref_code,
+        "new_user_id":      new_user_id,
+        "attributed_at":    datetime.now(timezone.utc).isoformat(),
+        "status":           "pending_paid_conversion",
+    })
+    return {"ok": True, "referrer": ref_code}
+
+
 # ─── Referrals ───────────────────────────────────────────────────────
 @router.get("/referrals/my")
 async def my_referrals(authorization: str = Header(None)) -> dict[str, Any]:
@@ -33,13 +87,17 @@ async def my_referrals(authorization: str = Header(None)) -> dict[str, Any]:
     )
     invites = await db.referrals.count_documents({"referrer_user_id": uid})
     verified = await db.verified_referrals.count_documents({"referrer_user_id": uid})
+    # Iter 101 — also count raw landing clicks for engagement signal.
+    clicks  = await db.referral_clicks.count_documents({"ref_code": uid})
     # Public referral link uses account ID as ref param.
-    link = f"https://aurem.live/?ref={uid}"
+    link = f"https://auremcto.com/?ref={uid}"
     return {
         "ref_link":         link,
         "ref_code":         uid,
+        "clicks":           clicks,
         "invites_sent":     invites,
         "verified_signups": verified,
+        "reward_per_paid":  "1 month free",
         "profile":          profile,
     }
 

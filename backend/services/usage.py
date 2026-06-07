@@ -235,27 +235,40 @@ async def get_maxx_usage(user_id: str) -> dict:
     bucket = _current_year_month()
     row = await db.cto_maxx_usage.find_one(
         {"user_id": user_id, "month": bucket},
-        {"_id": 0, "count": 1},
+        {"_id": 0, "count": 1, "overage_count": 1},
     ) or {}
     used = int(row.get("count") or 0)
+    overage = int(row.get("overage_count") or 0)
+    OVERAGE_PRICE = 0.50  # USD per Maxx task past cap (iter 101)
     return {
-        "tier":      tier,
-        "cap":       cap,
-        "used":      used,
-        "remaining": max(0, cap - used),
-        "capped":    used >= cap,
+        "tier":             tier,
+        "cap":              cap,
+        "used":             used,
+        "remaining":        max(0, cap - used),
+        "capped":           used >= cap,
+        "overage_count":    overage,
+        "overage_cost_usd": round(overage * OVERAGE_PRICE, 2),
+        "overage_price_usd": OVERAGE_PRICE,
     }
 
 
 async def incr_maxx_usage(user_id: str) -> int:
     """Atomically bump this user's Maxx counter for the current month.
-    Returns the new count. Safe to call unconditionally — Team/Founder
-    just see a meter, no enforcement triggers off the count."""
+    Returns the new count. Iter 101 — also bumps `overage_count` when
+    we're already past the cap (for end-of-month $0.50/task billing
+    of Pro+ users)."""
     db = require_db()
     bucket = _current_year_month()
+    # First, check if user is currently capped — that determines whether
+    # this call is overage or included.
+    pre = await get_maxx_usage(user_id)
+    is_overage = bool(pre.get("capped"))
+    inc = {"count": 1}
+    if is_overage:
+        inc["overage_count"] = 1
     res = await db.cto_maxx_usage.find_one_and_update(
         {"user_id": user_id, "month": bucket},
-        {"$inc": {"count": 1},
+        {"$inc": inc,
          "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True,
         return_document=True,
