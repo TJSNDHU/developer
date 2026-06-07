@@ -36,6 +36,38 @@
   const MAX_ERRORS    = 20;
   const MAX_BODY_LEN  = 500;
 
+  // Iter 105 — cold-start hardening.
+  // Cloudflare / proxy / gateway error codes that indicate transient
+  // infrastructure issues (NOT application bugs). When these arrive with
+  // an HTML body (a Cloudflare error page rather than a JSON API
+  // response), we DROP them on the floor so they never reach ORA's
+  // Mode-D debugger and produce the spammy
+  //   "Root cause: 520 origin timeout … Files to check: (unknown)"
+  // reply on a user's very first chat message.
+  const TRANSIENT_PROXY_CODES = new Set([
+    408,                                          // Request Timeout
+    502, 503, 504,                                // Bad Gateway / Service Unavailable / Gateway Timeout
+    520, 521, 522, 523, 524, 525, 526, 527, 530, // Cloudflare-specific
+  ]);
+
+  // Grace window after page load — during the first PAGELOAD_GRACE_MS
+  // any transient proxy code is skipped entirely (covers cold start).
+  const PAGELOAD_GRACE_MS = 5000;
+  const _bootTs = Date.now();
+
+  function _isTransientProxyError(status, body, contentType) {
+    if (!TRANSIENT_PROXY_CODES.has(status)) return false;
+    // During cold-start grace window — drop unconditionally.
+    if (Date.now() - _bootTs < PAGELOAD_GRACE_MS) return true;
+    // Outside the grace window — drop only if the response is an HTML
+    // error page (Cloudflare/nginx 5xx), not a real API JSON 5xx that
+    // an app actually emitted.
+    const ct = (contentType || "").toLowerCase();
+    if (ct.includes("text/html")) return true;
+    if (typeof body === "string" && /<!doctype html|<html/i.test(body)) return true;
+    return false;
+  }
+
   const store = {
     console_errors: [],
     network_errors: [],
@@ -124,7 +156,15 @@
       let body = "";
       try {
         body = await clone.text();
-      } catch (_) {}
+      } catch (_) { /* body read failed — non-fatal */ }
+
+      // Iter 105 — silently drop transient proxy/gateway errors so they
+      // never poison the first chat message with a Mode-D bailout.
+      const ct = response.headers && response.headers.get
+        ? response.headers.get("content-type") : "";
+      if (_isTransientProxyError(response.status, body, ct)) {
+        return response;
+      }
 
       store.network_errors.push({
         url:           url.slice(0, 200),
@@ -151,11 +191,19 @@
   XMLHttpRequest.prototype.send = function () {
     this.addEventListener("load", function () {
       if (this.status >= 400) {
+        // Iter 105 — same transient-proxy filter as fetch interceptor.
+        const body = this.responseText || "";
+        const ct = this.getResponseHeader
+          ? (this.getResponseHeader("content-type") || "")
+          : "";
+        if (_isTransientProxyError(this.status, body, ct)) {
+          return;
+        }
         store.network_errors.push({
           url:           (this._aurem_url || "").slice(0, 200),
           method:        (this._aurem_method || "GET").toUpperCase(),
           status:        this.status,
-          response_body: (this.responseText || "").slice(0, MAX_BODY_LEN),
+          response_body: body.slice(0, MAX_BODY_LEN),
           timestamp:     new Date().toISOString(),
         });
       }
@@ -176,7 +224,7 @@
           if (match) return match[1].slice(0, 100);
         }
       }
-    } catch (_) {}
+    } catch (_) { /* stack parse failed — fall through */ }
     return "unknown";
   }
 

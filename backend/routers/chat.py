@@ -111,10 +111,17 @@ def _f12_has_real_signal(payload: dict) -> bool:
     F12 buffer holds only noise (aborted/200 network entries, no stack
     traces, no real console.error messages).
 
+    Iter 105 — also filters out transient proxy / gateway errors with an
+    HTML body (Cloudflare 520, gateway 502/504, etc.). These fire on
+    cold-start before the origin is ready and would otherwise trigger
+    Mode D on the user's very first chat message, producing the spammy
+    "Files to check: (unknown — error context too thin)" bailout.
+
     Returns True only when the payload contains something a debugger
     can actually use:
       * A console error with a non-trivial message (>5 chars)
-      * A network error with HTTP status in 400-599 AND a real URL
+      * A network error with HTTP status in 400-599 AND a real URL AND
+        NOT a transient proxy/gateway code with an HTML body
       * Any stack trace
     """
     if not isinstance(payload, dict):
@@ -125,11 +132,46 @@ def _f12_has_real_signal(payload: dict) -> bool:
             return True
     for ne in (payload.get("network_errors") or []):
         st = ne.get("status", 0)
-        if isinstance(st, int) and 400 <= st < 600 and ne.get("url"):
-            return True
+        if not (isinstance(st, int) and 400 <= st < 600 and ne.get("url")):
+            continue
+        if _is_transient_proxy_error(st, ne.get("response_body", "")):
+            continue
+        return True
     if payload.get("stack_traces"):
         return True
     return False
+
+
+# Iter 105 — Cloudflare / proxy / gateway codes whose body is typically a
+# generic HTML error page (NOT a real application error). These get
+# dropped from F12 signal so a cold-start 520 doesn't poison ORA's
+# first-chat response.
+_TRANSIENT_PROXY_CODES = {
+    408,                                                # Request Timeout
+    502, 503, 504,                                      # Bad Gateway / SU / GT
+    520, 521, 522, 523, 524, 525, 526, 527, 530,        # Cloudflare-specific
+}
+
+
+def _is_transient_proxy_error(status: int, body) -> bool:
+    """Return True when (status, body) looks like a Cloudflare / nginx /
+    proxy-level error page rather than a real API 5xx from our backend.
+    Defensive: only treat as transient when status IS in the proxy set
+    AND body looks like HTML (or is empty — proxy edge cases)."""
+    if status not in _TRANSIENT_PROXY_CODES:
+        return False
+    b = (body or "")
+    if isinstance(b, bytes):
+        try:
+            b = b.decode("utf-8", errors="ignore")
+        except Exception:
+            b = ""
+    if not isinstance(b, str):
+        return False
+    if not b.strip():
+        return True  # empty body on a proxy code → almost certainly a proxy error
+    bl = b.lower()
+    return ("<!doctype html" in bl) or ("<html" in bl) or ("cloudflare" in bl)
 
 
 def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
