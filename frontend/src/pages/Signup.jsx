@@ -19,6 +19,7 @@ export default function Signup() {
   const rawNext = searchParams.get("next") || "";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
   const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -26,6 +27,10 @@ export default function Signup() {
 
   async function submit(e) {
     e.preventDefault();
+    if (!agreed) {
+      setError("Please agree to the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -155,11 +160,38 @@ export default function Signup() {
               </div>
             )}
 
+            <label
+              data-testid="signup-terms-label"
+              style={{
+                display: "flex", alignItems: "flex-start", gap: 8,
+                fontSize: 12, color: "var(--text-dim)",
+                cursor: "pointer", lineHeight: 1.5,
+              }}>
+              <input
+                data-testid="signup-terms-checkbox"
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                I agree to the{" "}
+                <Link to="/terms" target="_blank" rel="noopener" data-testid="signup-terms-link"
+                      style={{ color: "var(--accent)", textDecoration: "underline" }}>
+                  Terms of Service
+                </Link>{" "}and{" "}
+                <Link to="/privacy" target="_blank" rel="noopener" data-testid="signup-privacy-link"
+                      style={{ color: "var(--accent)", textDecoration: "underline" }}>
+                  Privacy Policy
+                </Link>.
+              </span>
+            </label>
+
             <button
               type="submit"
               data-testid="signup-submit"
               className="btn-primary"
-              disabled={busy}
+              disabled={busy || !agreed}
               style={{ justifyContent: "center" }}
             >
               <Rocket size={15} /> {busy ? "Creating account…" : "Create account & start"}

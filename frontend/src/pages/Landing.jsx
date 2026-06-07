@@ -344,12 +344,20 @@ export default function Landing() {
           letterSpacing: "0.05em",
         }}>
           <span>© 2026 AUREM CTO · Flat-fee AI engineering · Built for builders</span>
-          <div style={{ display: "flex", gap: 18 }}>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
             <Link to="/wall" data-testid="footer-wall"
                   style={{ color: "var(--text-faint)" }}>Ship Wall</Link>
             <Link to="/vs/cursor" data-testid="footer-vs-cursor"
                   style={{ color: "var(--text-faint)" }}>vs Cursor</Link>
             <a href="#pricing" style={{ color: "var(--text-faint)" }}>Pricing</a>
+            <Link to="/privacy" data-testid="footer-privacy"
+                  style={{ color: "var(--text-faint)" }}>Privacy</Link>
+            <Link to="/terms" data-testid="footer-terms"
+                  style={{ color: "var(--text-faint)" }}>Terms</Link>
+            <Link to="/acceptable-use" data-testid="footer-aup"
+                  style={{ color: "var(--text-faint)" }}>Acceptable Use</Link>
+            <a href="mailto:ora@aurem.live" data-testid="footer-support"
+               style={{ color: "var(--text-faint)" }}>Contact</a>
           </div>
         </footer>
       </main>

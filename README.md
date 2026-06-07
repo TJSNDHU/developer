@@ -8,7 +8,7 @@ Describe what you want. ORA reads your codebase, writes the code, runs security 
 
 [**Start free → auremcto.com**](https://auremcto.com/signup) · [**Live product**](https://auremcto.com) · [**Ship Wall**](https://auremcto.com/wall) · [**Wrapped**](https://auremcto.com/wrapped)
 
-`455 tests passing` · `Direct GitHub commit` · `Flat fee — no token billing` · `Works on mobile` · `VS Code extension`
+`604 tests passing` · `Direct GitHub commit` · `Flat fee USD — no token billing` · `Works on mobile` · `VS Code extension`
 
 </div>
 
@@ -264,11 +264,11 @@ Flat fee. No token surprises. No credit pools. Cancel anytime from Settings.
 
 | | **Free** | **Starter** | **Pro** ⭐ | **Team** |
 | :--- | :--- | :--- | :--- | :--- |
-| **Price** | $0 | **$9 / mo** | **$19 / mo** | **$35 / user / mo** |
+| **Price** | $0 | **$9 / mo USD** | **$19 / mo USD** | **$49 / mo USD** |
 | Tasks / month | 10 | 50 | Unlimited | Unlimited per user |
 | Standard ship mode | ✅ | ✅ | ✅ | ✅ |
 | Project Brain | — | ✅ | ✅ | ✅ |
-| Maxx mode (Claude review) | — | — | ✅ | ✅ |
+| Maxx mode (Claude review) | — | — | ✅ 100/mo | ✅ Unlimited |
 | Parallel agents | — | — | ✅ | ✅ |
 | Live preview pane | — | — | ✅ | ✅ |
 | Automations | — | — | ✅ | ✅ |
@@ -318,7 +318,7 @@ ext install auremcto.aurem-cto
 
 | Product | Admin (after login) | Contact |
 | :--- | :--- | :--- |
-| → [auremcto.com](https://auremcto.com) | → `/admin/overview` — system health | → support@auremcto.com |
+| → [auremcto.com](https://auremcto.com) | → `/admin/overview` — system health | → ora@aurem.live |
 | → [/wall](https://auremcto.com/wall) — ship feed | → `/admin/architecture` — code map | → Settings → Support |
 | → [/wrapped](https://auremcto.com/wrapped) — your stats | → `/admin/brain/:projectId` — brain debug | → GitHub Issues for bugs |
 | → [/signup](https://auremcto.com/signup) | → `/automations` — webhook triggers | |

@@ -3631,3 +3631,81 @@ Tests — 7 in `test_iter98_integration_health_center.py`:
 - Live (opt-in): `run_all_probes()` returns ≥10 OK, 0 missing.
 
 All 7 pass. Total: **604 tests** (597 → 604, +7, zero regressions).
+
+
+### Iter 99 — Policies + Signup Consent + Support Email Unified (Feb 2026)
+
+Founder uploaded 3 policy markdown drafts and asked:
+> "create policies... if need to change something to make more stronger
+> for our system please do it... add email support in ora@aurem.live
+> for now in future we can change it... Dev ko do: auremcto.com/terms,
+> /privacy, /acceptable-use ... Footer mein links add karo ... Signup
+> pe checkbox add karo."
+
+**1) Policies strengthened & deployed:**
+- Copied founder's 3 markdown drafts to `frontend/public/policies/`.
+- Replaced every stale support email (`privacy@auremcto.com`,
+  `support@auremcto.com`, `abuse@auremcto.com`) with the unified
+  `ora@aurem.live` so customer support traffic funnels through the
+  already-verified Resend domain (no DNS migration needed for prod).
+- Updated effective date to Feb 7 2026 (was June 7 2026 placeholder).
+- Existing strong language preserved (GDPR §33 breach notification,
+  CCPA, PIPEDA coverage, 7-year payment record retention, encrypted
+  GitHub tokens, `data_collection: deny` flag on OpenRouter, etc.).
+
+**2) Renderer:** Installed `marked@18.0.5` via yarn. New
+`pages/PolicyPage.jsx` fetches `/policies/{slug}.md` as a static
+asset and renders via `marked.parse()`. Scoped CSS so headings,
+tables, lists, links all match the dark theme. Loads in ~200ms.
+
+**3) Routes wired in `App.jsx`:**
+- `/privacy`        → PolicyPage slug="privacy"
+- `/terms`          → PolicyPage slug="terms"
+- `/acceptable-use` → PolicyPage slug="acceptable-use"
+
+**4) Landing footer updated** (`pages/Landing.jsx`): added 4 new links
+— Privacy, Terms, Acceptable Use, Contact (mailto:ora@aurem.live).
+Footer now: Ship Wall · vs Cursor · Pricing · **Privacy · Terms ·
+Acceptable Use · Contact**.
+
+**5) Signup consent gate** (`pages/Signup.jsx`):
+- New `agreed` state, defaults to `false`.
+- Hard gate in `submit()`: returns early with error
+  "Please agree to the Terms of Service and Privacy Policy" if
+  unchecked.
+- Submit button `disabled={busy || !agreed}` — visually disabled
+  until checked.
+- Checkbox label has 2 inline `<Link>`s opening
+  `/terms` + `/privacy` in `target="_blank"` so the user can review
+  without losing form state.
+
+**6) README updated:** Support email `ora@aurem.live`, test count
+604, Team tier $49 USD/mo, Maxx mode "100/mo" labelled on Pro,
+"Flat fee USD" instead of just "Flat fee."
+
+**End-to-end verified live:**
+- `GET /policies/privacy-policy.md` → HTTP 200, text/markdown.
+- `https://launch-pad-237.preview.emergentagent.com/privacy` renders
+  full Privacy Policy with section headers, tables, links — clean
+  dark-theme styling. Confirmed via Playwright screenshot.
+- `/signup` page shows the ToS checkbox + 2 underlined policy links.
+  Submit button disabled until checked. Confirmed visually.
+
+Tests — 8 in `test_iter99_policies_and_signup_consent.py`:
+- All 3 policy markdown files exist + >500 bytes each
+- Zero stale `auremcto.com` support emails leak through
+- All 3 reference `ora@aurem.live`
+- `App.jsx` wires all 3 routes + imports PolicyPage
+- Landing footer has 4 data-testid'd links (privacy/terms/aup/support)
+- Signup has `agreed` state + submit-gate check + `disabled` condition
+  + 3 data-testid'd UI elements
+- `PolicyPage.jsx` imports `marked` and fetches `/policies/`
+- README references `ora@aurem.live` + no stale `$35` price
+
+All 8 pass. Total: **612 tests** (604 → 612, +8, zero regressions).
+
+⚠️ **Production deploy: no env-var change needed** — pure code/asset
+delta. After redeploy, all 3 URLs will be live at:
+- https://auremcto.com/privacy
+- https://auremcto.com/terms
+- https://auremcto.com/acceptable-use
