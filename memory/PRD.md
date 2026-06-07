@@ -3266,6 +3266,39 @@ Tests — 5 in `test_iter90_stripe_real_prices.py`:
   `https://auremcto.com/api/aurem-dev/github/oauth/callback`.
 - `FRONTEND_URL` env var — unset. Falls back to request base_url
   which is fine in preview but should be hard-pinned to
+
+### Iter 91 — GitHub OAuth Credentials Wired (Feb 2026)
+
+Founder created an OAuth App on github.com/settings/developers and shared
+the credentials:
+- Client ID:     `Ov23liJOw6pTdH41gj2T`  (note: `Ov23li…` format is NOT
+  GitHub-App-exclusive anymore — GitHub switched OAuth Apps to this
+  format too; web-search confirmed no fixed prefix is documented).
+- Client Secret: `f97e8b69…b3b5` (40-char hex)
+- Callback URI:  `https://auremcto.com/api/aurem-dev/github/oauth/callback`
+  (already in `GITHUB_REDIRECT_URI`, no change needed)
+
+**End-to-end verified live:**
+`curl https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/github/oauth/connect?signup=1`
+returns `HTTP 307` redirecting to
+`https://github.com/login/oauth/authorize?client_id=Ov23liJOw6pTdH41gj2T&...`
+with a fresh state nonce. Sign-in-with-GitHub button is now live.
+
+Tests — 3 in `test_iter91_github_oauth_creds.py`:
+- `.env` has non-empty client_id (20 chars) + client_secret (40 hex chars)
+  + redirect_uri.
+- `redirect_uri` is https and ends with `/github/oauth/callback`.
+- `auth_url(state)` builds a valid github.com authorize URL with the real
+  client_id embedded and the state nonce passed through.
+- Full regression: **578 pass / 2 pre-existing env failures / 4 skips**
+  (575 → 578, +3 net, zero regressions in the 45-test oauth/github/auth
+  bucket).
+
+⚠️ **Production deploy reminder (same as Iter 90):** These values are in
+the preview `.env`. Founder must mirror them into the auremcto.com prod
+env vars dashboard and redeploy before "Sign in with GitHub" works on
+the live site.
+
   `https://auremcto.com` in prod for clean Stripe redirect URLs.
 - Firecrawl credits exhausted — top up at firecrawl.dev or web
   scrape will silently fall back to Tavily-only.
