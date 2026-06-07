@@ -3395,3 +3395,50 @@ STRIPE_STARTER_PRICE_ID="price_1Tfl6W0Exg9gU93tkDkSLvW6"
 STRIPE_PRO_PRICE_ID="price_1Tfl6W0Exg9gU93tdcE2bVRV"
 STRIPE_TEAM_PRICE_ID="price_1Tfl6X0Exg9gU93tgN57sGap"
 ```
+
+
+### Iter 95 — E2B Code Interpreter Sandbox LIVE (Feb 2026)
+
+Founder shared `E2B_API_KEY=e2b_97e5cec6ffa3e1360d5c6f2646586f34acc25212`.
+Closes one of the biggest competitor-differentiator gaps from
+`FOUNDER_LAUNCH_CHECKLIST.md` — ORA can now actually **execute & test**
+code in a sandbox before shipping, not just write-and-pray.
+
+Wiring:
+- `.env` updated.
+- `e2b-code-interpreter==2.8.0` + dep `e2b==2.26.0` installed; pip-freeze'd
+  into `requirements.txt`.
+- **SDK migration:** old code used `Sandbox(api_key=...)` constructor
+  which raises `TypeError` on SDK 2.x+. Rewrote
+  `services/sandbox_runner.py` (`run_python_check` +
+  `run_tests_in_sandbox`) to use the new `Sandbox.create(api_key=...)`
+  classmethod factory and the new `logs.stdout`/`logs.stderr` list
+  properties (SDK 2.x surfaced these separately from `results`).
+- All existing callers (`cto_projects.py` line 1488,
+  `validate_generated_files()`) work unchanged — API surface preserved.
+
+**End-to-end verified live:**
+- Real sandbox `it4263589wdvmetseyvhz`, executed `print(2+2)` → `"4"`,
+  killed cleanly.
+- Service wrapper: `run_python_check("x = 2 + 3...")` → `ok: True,
+  stdout: "result = 5"`.
+- Syntax error case: `def broken( :` returned `ok: False,
+  stderr: SyntaxError`.
+
+Tests — 5 in `test_iter95_e2b_sandbox_live.py`:
+- Key shape (`e2b_…`, len≥40).
+- SDK importable.
+- `sandbox_runner.py` uses `Sandbox.create(` (positive) and NOT
+  `Sandbox(api_key=` (negative — guards against SDK-1.x regression).
+- Live (opt-in): real sandbox runs `print(7*6)` → "42" in stdout.
+- Live (opt-in): real sandbox bubbles `SyntaxError` to stderr.
+
+All 5 pass with `RUN_LIVE_NETWORK_TESTS=1`. Suite total: **590 tests**
+(585 → 590, +5).
+
+⚠️ **Production env sync:** Add to auremcto.com dashboard + redeploy:
+```
+E2B_API_KEY="e2b_97e5cec6ffa3e1360d5c6f2646586f34acc25212"
+```
+The new e2b SDK propagates via `pip install -r requirements.txt`. No
+additional steps beyond env + redeploy.

@@ -27,7 +27,7 @@ async def run_python_check(code: str, filename: str = "check.py",
         return {"ok": True, "skipped": True, "reason": "E2B_API_KEY not set"}
     try:
         from e2b_code_interpreter import Sandbox          # type: ignore
-        sbx = Sandbox(api_key=_key(), timeout=timeout)
+        sbx = Sandbox.create(api_key=_key(), timeout=timeout)
         try:
             ex = sbx.run_code(code)
         finally:
@@ -36,11 +36,16 @@ async def run_python_check(code: str, filename: str = "check.py",
             except Exception:
                 pass
         has_err = bool(getattr(ex, "error", None))
-        out = "\n".join(str(r) for r in (getattr(ex, "results", None) or []))
+        # New SDK exposes logs.stdout/stderr lists separately from results.
+        logs = getattr(ex, "logs", None)
+        stdout_lines = list(getattr(logs, "stdout", None) or [])
+        stderr_lines = list(getattr(logs, "stderr", None) or [])
+        results_str = "\n".join(str(r) for r in (getattr(ex, "results", None) or []))
+        stdout = (("".join(stdout_lines)) + ("\n" + results_str if results_str else "")).strip()
         return {
             "ok":        not has_err,
-            "stdout":    out[:2000],
-            "stderr":    str(ex.error)[:1000] if has_err else "",
+            "stdout":    stdout[:2000],
+            "stderr":    (str(ex.error)[:1000] if has_err else "\n".join(stderr_lines)[:1000]),
             "exit_code": 1 if has_err else 0,
             "skipped":   False,
         }
@@ -59,7 +64,7 @@ async def run_tests_in_sandbox(test_files: dict[str, str],
         return {"ok": True, "skipped": True, "reason": "E2B_API_KEY not set"}
     try:
         from e2b_code_interpreter import Sandbox          # type: ignore
-        sbx = Sandbox(api_key=_key(), timeout=timeout)
+        sbx = Sandbox.create(api_key=_key(), timeout=timeout)
         try:
             for p, c in {**source_files, **test_files}.items():
                 sbx.files.write(p, c)
@@ -78,7 +83,10 @@ async def run_tests_in_sandbox(test_files: dict[str, str],
                 sbx.kill()
             except Exception:
                 pass
-        out = "\n".join(str(r) for r in (getattr(result, "results", None) or []))
+        logs = getattr(result, "logs", None)
+        stdout_lines = list(getattr(logs, "stdout", None) or [])
+        results_str = "\n".join(str(r) for r in (getattr(result, "results", None) or []))
+        out = ("".join(stdout_lines) + "\n" + results_str).strip()
         return {
             "ok":      " FAILED" not in out and " ERROR" not in out,
             "passed":  out.count(" PASSED"),
