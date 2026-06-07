@@ -375,6 +375,15 @@ export default function Landing() {
                   style={{ color: "var(--text-faint)" }}>Acceptable Use</Link>
             <a href="mailto:ora@aurem.live" data-testid="footer-support"
                style={{ color: "var(--text-faint)" }}>Contact</a>
+            <a href="https://x.com/aurem_live" target="_blank" rel="noopener noreferrer"
+               data-testid="footer-twitter"
+               style={{ color: "var(--text-faint)" }}>X</a>
+            <a href="https://www.linkedin.com/in/tejinder-sandhu" target="_blank" rel="noopener noreferrer"
+               data-testid="footer-linkedin"
+               style={{ color: "var(--text-faint)" }}>LinkedIn</a>
+            <a href="https://www.instagram.com/aurem_live" target="_blank" rel="noopener noreferrer"
+               data-testid="footer-instagram"
+               style={{ color: "var(--text-faint)" }}>Instagram</a>
           </div>
         </footer>
       </main>
