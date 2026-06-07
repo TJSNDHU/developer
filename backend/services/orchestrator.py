@@ -458,6 +458,91 @@ _CODE_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Iter 104 — escalation memory for repeated "who is the founder / how do I
+# contact the team" questions. The persona answers generically on the 1st
+# ask. If the user keeps asking in the same session we want to (a) suggest
+# email, then (b) eventually share the founder's public LinkedIn so they
+# don't feel stonewalled. Counting is done deterministically in Python so
+# the model can't miscount.
+_FOUNDER_ASK_RX = re.compile(
+    r'\b(founder|owner|creator|who\s+built|who\s+made|who\s+created|'
+    r'who\s+runs|who\s+owns|contact\s+(the\s+)?(founder|team|owner|ceo)|'
+    r'reach\s+(out\s+)?to\s+(the\s+)?(founder|team|owner|ceo)|'
+    r'talk\s+to\s+(the\s+)?(founder|team|owner|ceo)|'
+    r'founder\'?s?\s+(email|contact|linkedin|twitter|number|phone)|'
+    r'ceo|company\s+behind)\b',
+    re.IGNORECASE,
+)
+
+
+def _count_founder_asks(history_lines: list[str], current_prompt: str) -> int:
+    """Count how many times the USER has asked about the founder/team
+    contact in this session (including the current turn).
+
+    Only counts `[USER]` lines from prior turns + the current prompt.
+    Returns 0 if the current message doesn't match — so callers can
+    early-exit without escalation noise leaking into normal chat.
+    """
+    if not _FOUNDER_ASK_RX.search(current_prompt or ""):
+        return 0
+    count = 1  # current turn
+    for line in history_lines or []:
+        # history_lines are formatted "[USER] ..." / "[ASSISTANT] ..."
+        if not line.startswith("[USER]"):
+            continue
+        if _FOUNDER_ASK_RX.search(line):
+            count += 1
+    return count
+
+
+def _founder_escalation_note(count: int) -> str:
+    """Build a one-shot system-prompt addendum based on how many times the
+    user has pressed for founder info. Empty string = no escalation.
+
+    Thresholds (Iter 104):
+        1–2: generic answer (no escalation — handled by persona)
+        3:   share team email ora@aurem.live
+        4–5: ask the user to wait for support's reply
+        6+:  share the founder's public LinkedIn as last resort
+    """
+    if count <= 2:
+        return ""
+    if count == 3:
+        return (
+            "\n\n# RUNTIME HINT — FOUNDER ASK #3 IN THIS SESSION\n"
+            "The user has now asked about the founder/team contact 3 "
+            "times in this session. They are clearly pressing. Don't "
+            "repeat the generic 'I can't share details' line. Reply "
+            "warmly with ONE short line: 'For a direct line to the "
+            "team, please email **ora@aurem.live** — we typically reply "
+            "within 1 working day.' Then offer to help with their repo. "
+            "Do NOT share LinkedIn yet — give email a chance first."
+        )
+    if count in (4, 5):
+        return (
+            "\n\n# RUNTIME HINT — FOUNDER ASK #4–5 IN THIS SESSION\n"
+            "The user has now asked about the founder 4 or 5 times. They "
+            "already have the email (ora@aurem.live). Be patient and "
+            "honest: 'I've already shared **ora@aurem.live** — please "
+            "give the team 1 working day to reply. If you haven't sent "
+            "the email yet, that's the fastest path.' Keep it to ONE "
+            "short paragraph. Do NOT share LinkedIn yet — we want the "
+            "user to actually try email first."
+        )
+    # count >= 6
+    return (
+        "\n\n# RUNTIME HINT — FOUNDER ASK #6+ IN THIS SESSION\n"
+        "The user has asked about the founder 6+ times now. They have "
+        "the email and have waited. Time to share the founder's public "
+        "LinkedIn as a last-resort direct contact: "
+        "**https://www.linkedin.com/in/tejinder-sandhu** — say 'You can "
+        "also message the founder directly on LinkedIn: <url>. Email "
+        "(ora@aurem.live) is still the fastest route for product or "
+        "billing questions.' Keep it 1–2 lines, no biographical "
+        "fabrication, no claims about the person's role beyond 'founder'. "
+        "After this line, pivot back to their actual task."
+    )
+
 
 def _is_code_task(prompt: str, history_lines: list[str]) -> bool:
     """Heuristic — should this turn use the code model (Claude) + bigger
@@ -539,6 +624,10 @@ async def chat_with_tools(
     # context) is appended after it so the model gets persona first,
     # then specific data, then tool catalog.
     extra = system or ""
+    # Iter 104 — escalation memory for repeated founder-contact asks.
+    founder_ask_count = _count_founder_asks(history_lines, prompt)
+    if founder_ask_count >= 3:
+        extra = extra + _founder_escalation_note(founder_ask_count)
     base_system = AUREM_CTO_PERSONA + (("\n\n" + extra) if extra.strip() else "")
     enhanced_system = base_system + _TOOL_HELP_TEMPLATE + catalog_text
 
