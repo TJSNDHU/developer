@@ -31,7 +31,8 @@ def test_pro_tier_unlimited():
 def test_team_tier_priority():
     from services.subscription_tiers import can_use_feature, get_limit
     assert can_use_feature("team", "priority_queue") is True
-    assert get_limit("team", "price_monthly") == 35
+    # Iter 94 — CAD → USD migration, Team raised from $35 to $49.
+    assert get_limit("team", "price_monthly") == 49
 
 
 def test_founder_mirrors_pro():

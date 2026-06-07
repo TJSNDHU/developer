@@ -540,6 +540,7 @@ async def chat_with_tools(
         meta = await call_llm_with_meta(
             enhanced_system, transcript,
             max_tokens=token_budget, mode=llm_mode,
+            user_id=user_id,
         )
         content = meta.get("content") or ""
         final_provider = meta.get("provider") or final_provider

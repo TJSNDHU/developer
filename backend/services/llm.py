@@ -163,23 +163,60 @@ async def call_llm(messages: list, system: str = "",
 
 async def call_llm_with_meta(system: str, user: str,
                               max_tokens: int = 1500,
-                              mode: str = "chat") -> dict:
+                              mode: str = "chat",
+                              user_id: Optional[str] = None) -> dict:
     """
     Orchestrator-facing entry point.
 
     mode="code"  → Claude Sonnet (better code quality, higher token budget)
     mode="chat"  → DeepSeek (fast, cheap)
     mode=other   → DeepSeek
+
+    Iter 94 — Maxx-mode cap (Pro tier = 100/mo):
+    If `user_id` is provided and the caller would normally use Claude
+    (mode in {code, review}), we first check the user's Maxx budget.
+    Capped users transparently fall back to DeepSeek and the response
+    includes `maxx_capped=True` + `maxx_remaining=0` so the UI can show
+    an upgrade nudge.
     """
     temperature = temperature_for(mode)
     actual_tokens = min(max_tokens, cap_for(mode))
-    use_claude = mode in _CLAUDE_MODES and bool(_emergent_key())
+    wants_claude = mode in _CLAUDE_MODES and bool(_emergent_key())
 
+    # ── Iter 94: Maxx-mode budget gate ────────────────────────────────
+    maxx_capped = False
+    maxx_remaining: Optional[int] = None
+    if wants_claude and user_id:
+        try:
+            from services.usage import get_maxx_usage
+            u = await get_maxx_usage(user_id)
+            maxx_remaining = u.get("remaining")
+            if u.get("capped"):
+                maxx_capped = True
+                wants_claude = False  # Fall back to DeepSeek silently.
+        except Exception as e:
+            # Never block on the meter — fall through to whatever was
+            # planned. Maxx-cap is a soft commercial guard, not a
+            # hard correctness gate.
+            logger.warning(f"maxx budget check failed (allowing): {e!r}")
+
+    use_claude = wants_claude
     provider_name = "claude-sonnet" if use_claude else "deepseek"
 
     try:
         if use_claude:
             content = await _call_claude(system, user, actual_tokens, temperature)
+            # Count the Claude call against the user's monthly Maxx quota.
+            if user_id:
+                try:
+                    from services.usage import incr_maxx_usage, get_maxx_usage as _u
+                    await incr_maxx_usage(user_id)
+                    # Recompute remaining so the UI can show "97 left"
+                    # without a second DB hit.
+                    fresh = await _u(user_id)
+                    maxx_remaining = fresh.get("remaining")
+                except Exception as e:
+                    logger.warning(f"maxx counter incr failed: {e!r}")
         else:
             content = await _call_deepseek(
                 messages=[{"role": "user", "content": user}],
@@ -194,6 +231,8 @@ async def call_llm_with_meta(system: str, user: str,
             "temperature":  temperature,
             "mode":         mode,
             "fallback_chain": [provider_name],
+            "maxx_capped":    maxx_capped,
+            "maxx_remaining": maxx_remaining,
         }
     except httpx.HTTPStatusError as e:
         logger.error(f"LLM HTTP {e.response.status_code}: {e.response.text[:300]}")
@@ -201,6 +240,8 @@ async def call_llm_with_meta(system: str, user: str,
             "ok": False, "provider": None, "content": "",
             "temperature": temperature, "mode": mode,
             "fallback_chain": [provider_name],
+            "maxx_capped":    maxx_capped,
+            "maxx_remaining": maxx_remaining,
             "error": f"LLM unavailable (HTTP {e.response.status_code})",
         }
     except Exception as e:
@@ -209,6 +250,8 @@ async def call_llm_with_meta(system: str, user: str,
             "ok": False, "provider": None, "content": "",
             "temperature": temperature, "mode": mode,
             "fallback_chain": [provider_name],
+            "maxx_capped":    maxx_capped,
+            "maxx_remaining": maxx_remaining,
             "error": f"LLM unavailable: {e}",
         }
 

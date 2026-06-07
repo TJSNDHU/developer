@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Header
 
 from cto_services.auth import current_dev
-from services.usage import get_usage
+from services.usage import get_usage, get_maxx_usage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/usage", tags=["Usage"])
@@ -32,6 +32,23 @@ async def my_usage(authorization: Optional[str] = Header(None)):
     """
     me = await current_dev(authorization)
     return await get_usage(me["user_id"])
+
+
+# Iter 94 — Maxx-mode (Claude Sonnet) monthly counter, for the UI
+# upgrade-nudge banner once the user has used > 75% of their cap.
+@router.get("/maxx")
+async def my_maxx_usage(authorization: Optional[str] = Header(None)):
+    """Return the current user's Maxx-mode budget for this month.
+
+    Shape:
+      {
+        tier, cap, used, remaining, capped
+      }
+    cap=None means unlimited (Team/Founder). cap=0 means tier has no
+    Maxx access (Free/Starter).
+    """
+    me = await current_dev(authorization)
+    return await get_maxx_usage(me["user_id"])
 
 
 

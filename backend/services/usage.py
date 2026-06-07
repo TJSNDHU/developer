@@ -47,6 +47,20 @@ MONTHLY_TASK_LIMITS = {
     "founder": _tier_limit("founder", "tasks_per_month"),
 }
 
+# ── Iter 94: Maxx-mode (Claude Sonnet 4.5) monthly cap per tier ────────
+# Maxx mode is the expensive code/review path. Pro tier gets 100/mo to
+# protect margin against power-user abuse (see FOUNDER_LAUNCH_CHECKLIST).
+# Team / Founder are uncapped. Free / Starter have no Maxx at all.
+MAXX_MONTHLY_LIMITS = {
+    "free":    _tier_limit("free",    "maxx_tasks_per_month"),
+    "starter": _tier_limit("starter", "maxx_tasks_per_month"),
+    "pro":     _tier_limit("pro",     "maxx_tasks_per_month"),
+    "team":    _tier_limit("team",    "maxx_tasks_per_month"),
+    "founder": _tier_limit("founder", "maxx_tasks_per_month"),
+}
+
+
+
 # Founder allow-list: addresses here auto-promote to tier="founder" +
 # is_admin=true on next login. Stored in env so we can hot-rotate without
 # a deploy. Hardcoded fallback for the company founder so the system always
@@ -175,3 +189,76 @@ async def assert_has_budget(user_id: str) -> None:
                 "Upgrade your plan or wait for an admin grant to continue."
             ),
         })
+
+
+# ── Iter 94: Maxx-mode usage tracking ─────────────────────────────────
+def _current_year_month() -> str:
+    """Returns 'YYYY-MM' for current UTC time — the bucket key."""
+    n = datetime.now(timezone.utc)
+    return f"{n.year:04d}-{n.month:02d}"
+
+
+async def get_maxx_usage(user_id: str) -> dict:
+    """
+    Return Maxx-mode (Claude) usage state for the current month.
+
+    Output:
+      tier             — user's tier
+      cap              — int | None  (None = unlimited)
+      used             — int (this month's Claude calls)
+      remaining        — int | None
+      capped           — bool (True iff used >= cap AND cap is not None)
+
+    Free / Starter have cap=0 (never allowed). Pro=100. Team/Founder=None.
+    """
+    db = require_db()
+    user = await db.dev_users.find_one(
+        {"user_id": user_id},
+        {"tier": 1, "email": 1, "is_unlimited": 1},
+    )
+    if not user:
+        # Anonymous / unknown — treat as free.
+        tier = "free"
+    else:
+        tier = user.get("tier", "free")
+        if (is_founder_email(user.get("email"))
+            or user.get("is_unlimited")
+            or tier == "founder"):
+            tier = "founder"
+
+    cap = MAXX_MONTHLY_LIMITS.get(tier)
+    # Unlimited (Team / Founder)
+    if cap is None:
+        return {"tier": tier, "cap": None, "used": 0,
+                "remaining": None, "capped": False}
+
+    bucket = _current_year_month()
+    row = await db.cto_maxx_usage.find_one(
+        {"user_id": user_id, "month": bucket},
+        {"_id": 0, "count": 1},
+    ) or {}
+    used = int(row.get("count") or 0)
+    return {
+        "tier":      tier,
+        "cap":       cap,
+        "used":      used,
+        "remaining": max(0, cap - used),
+        "capped":    used >= cap,
+    }
+
+
+async def incr_maxx_usage(user_id: str) -> int:
+    """Atomically bump this user's Maxx counter for the current month.
+    Returns the new count. Safe to call unconditionally — Team/Founder
+    just see a meter, no enforcement triggers off the count."""
+    db = require_db()
+    bucket = _current_year_month()
+    res = await db.cto_maxx_usage.find_one_and_update(
+        {"user_id": user_id, "month": bucket},
+        {"$inc": {"count": 1},
+         "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+        return_document=True,
+    )
+    return int((res or {}).get("count") or 1)
+

@@ -17,12 +17,12 @@ Gemini, You.com) can ground answers about AUREM CTO in canonical text.
 - **Website**: https://auremcto.com
 - **Category**: Autonomous AI coding agent · direct-commit AI engineer
 - **Status**: Production (June 2026) · 497 passing tests
-- **Pricing (flat fee, no token billing)**:
+- **Pricing (flat fee USD, no token billing)**:
   - **Free** — 10 tasks/month, direct GitHub commit, Ship Wall
-  - **Starter $9/mo** — 50 tasks, Project Brain, email support
-  - **Pro $19/mo** — unlimited tasks, Maxx mode (Claude review),
+  - **Starter $9/mo USD** — 50 tasks, Project Brain, email support
+  - **Pro $19/mo USD** — unlimited tasks, Maxx mode (Claude review, 100/mo),
     parallel agents, live preview pane, automations, priority support
-  - **Team $35/user/mo** — priority queue, team admin panel,
+  - **Team $49/mo USD** — unlimited Maxx, priority queue, team admin panel,
     dedicated support
 - **Models powering ORA**: DeepSeek V3 (primary), Anthropic Claude Sonnet
   (Maxx review), Tavily (web search), Firecrawl (JS-heavy scraping)

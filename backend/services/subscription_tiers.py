@@ -27,6 +27,7 @@ TIER_LIMITS: dict[Tier, dict] = {
     Tier.FREE: {
         "tasks_per_month": 10,
         "maxx_mode":       False,
+        "maxx_tasks_per_month": 0,    # no Maxx for free tier
         "brain_memory":    False,
         "parallel_agents": False,
         "priority_queue":  False,
@@ -35,6 +36,7 @@ TIER_LIMITS: dict[Tier, dict] = {
     Tier.STARTER: {
         "tasks_per_month": 50,
         "maxx_mode":       False,
+        "maxx_tasks_per_month": 0,    # Starter has no Maxx access at all
         "brain_memory":    True,
         "parallel_agents": False,
         "priority_queue":  False,
@@ -43,6 +45,7 @@ TIER_LIMITS: dict[Tier, dict] = {
     Tier.PRO: {
         "tasks_per_month": None,    # unlimited
         "maxx_mode":       True,
+        "maxx_tasks_per_month": 100,  # hard cap — after this, code/review fall back to DeepSeek
         "brain_memory":    True,
         "parallel_agents": True,
         "priority_queue":  False,
@@ -51,10 +54,11 @@ TIER_LIMITS: dict[Tier, dict] = {
     Tier.TEAM: {
         "tasks_per_month": None,
         "maxx_mode":       True,
+        "maxx_tasks_per_month": None,  # unlimited Maxx for paying Team tier
         "brain_memory":    True,
         "parallel_agents": True,
         "priority_queue":  True,
-        "price_monthly":   35,
+        "price_monthly":   49,
     },
     # Internal account — never billed, mirrors Pro features so founders
     # don't get gated out of Maxx / parallel agents during eat-our-own-
@@ -62,6 +66,7 @@ TIER_LIMITS: dict[Tier, dict] = {
     Tier.FOUNDER: {
         "tasks_per_month": None,
         "maxx_mode":       True,
+        "maxx_tasks_per_month": None,  # unlimited for internal use
         "brain_memory":    True,
         "parallel_agents": True,
         "priority_queue":  True,

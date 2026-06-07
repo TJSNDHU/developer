@@ -35,7 +35,7 @@ def _dotenv_value(key: str) -> str:
 @pytest.mark.parametrize("plan, env_key, expected_amount_cents", [
     ("starter", "STRIPE_STARTER_PRICE_ID",  900),
     ("pro",     "STRIPE_PRO_PRICE_ID",     1900),
-    ("team",    "STRIPE_TEAM_PRICE_ID",    3500),
+    ("team",    "STRIPE_TEAM_PRICE_ID",    4900),   # iter 94 — CAD $35 → USD $49
 ])
 def test_real_stripe_price_ids_in_env(plan, env_key, expected_amount_cents):
     """Each plan must have a real price_* ID rooted in the aurem Stripe account."""

@@ -1,17 +1,15 @@
 /**
- * PricingCards.jsx — 4-tier flat-fee pricing display.
+ * PricingCards.jsx — 4-tier flat-fee pricing display (USD).
  *
- *   Free     0          10 tasks/month
- *   Starter  $9/mo      50 tasks, Standard mode
- *   Pro      $19/mo     Unlimited tasks, Maxx mode, Project Brain
- *   Team     $35/seat   Pro + admin + priority queue
+ *   Free     $0          10 tasks/month
+ *   Starter  $9/mo USD   50 tasks, Standard mode
+ *   Pro      $19/mo USD  Unlimited tasks, Maxx mode (100/mo), Project Brain
+ *   Team     $49/mo USD  Pro + admin + priority queue + unlimited Maxx
  *
- * Used by:
- *   - pages/Settings.jsx     (current plan + upgrade button)
- *   - pages/Landing.jsx      (public marketing version)
- *
- * Stripe checkout flow lives in routers/payments.py — we just POST
- * the tier name and redirect to the returned `url`.
+ * Iter 94 (Feb 2026) — migrated CAD → USD per founder direction, Team
+ * raised from $35 → $49 to protect margin against multi-seat teams.
+ * Pro tier now advertises the 100 Maxx-tasks/mo cap explicitly so the
+ * commercial expectation is set up-front.
  */
 import React, { useState } from "react";
 import { Check, Sparkles, ShieldCheck, Users } from "lucide-react";
@@ -39,7 +37,7 @@ export const PRICING_TIERS = [
     id: "starter",
     name: "Starter",
     price: "$9",
-    period: "/ month",
+    period: "/ month USD",
     icon: ShieldCheck,
     tagline: "For weekend builders",
     features: [
@@ -56,13 +54,13 @@ export const PRICING_TIERS = [
     id: "pro",
     name: "Pro",
     price: "$19",
-    period: "/ month",
+    period: "/ month USD",
     icon: Sparkles,
     tagline: "Most popular",
     highlight: true,
     features: [
       "Unlimited tasks",
-      "Maxx mode (Claude reviewer)",
+      "Maxx mode — 100 Claude tasks/mo",
       "Project Brain memory",
       "Parallel agents",
       "VS Code extension",
@@ -74,12 +72,13 @@ export const PRICING_TIERS = [
   {
     id: "team",
     name: "Team",
-    price: "$35",
-    period: "/ seat / month",
+    price: "$49",
+    period: "/ month USD",
     icon: Users,
     tagline: "Ship as a squad",
     features: [
       "Everything in Pro",
+      "Unlimited Maxx mode",
       "Admin dashboard + roles",
       "Priority queue",
       "Shared project brain",

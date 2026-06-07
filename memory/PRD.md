@@ -3352,3 +3352,46 @@ RESEND_API_KEY="re_PHbN4f2Z_PpCzKReQ2dgXUJCfaLLwymRs"
 RESEND_FROM_EMAIL="AUREM <ora@aurem.live>"
 DIGEST_FROM="AUREM CTO <ora@aurem.live>"
 ```
+
+
+### Iter 94 — CAD → USD Migration + Pro-Tier Maxx Cap (Feb 2026)
+
+Acting on two P0 items from `FOUNDER_LAUNCH_CHECKLIST.md`:
+
+**1) USD pricing migration** — Created 3 NEW USD prices live on Stripe
+(founder's `acct_1TKUU90Exg9gU93t`):
+- Starter → `price_1Tfl6W0Exg9gU93tkDkSLvW6` ($9 USD/mo)
+- Pro     → `price_1Tfl6W0Exg9gU93tdcE2bVRV` ($19 USD/mo)
+- Team    → `price_1Tfl6X0Exg9gU93tgN57sGap` ($49 USD/mo, raised from $35)
+
+`.env`, `subscription_tiers.py`, `PricingCards.jsx`, `llms.txt` all
+migrated. CAD prices left active on Stripe so any existing CAD
+subscribers stay grandfathered. Verified live: created real
+`cs_live_…` Checkout Sessions in all 3 USD prices.
+
+**2) Maxx-mode monthly cap** — Pro=100, Team/Founder=unlimited,
+Free/Starter=0.
+- New `maxx_tasks_per_month` field in `TIER_LIMITS`.
+- New `cto_maxx_usage` collection ({user_id, month, count}).
+- `services/usage.py`: `get_maxx_usage()`, `incr_maxx_usage()`,
+  `MAXX_MONTHLY_LIMITS`.
+- `services/llm.py::call_llm_with_meta(user_id=None)` consults the
+  meter; capped users silently fall back to DeepSeek and the meta
+  carries `maxx_capped=True` + `maxx_remaining=0` for UI nudges.
+- `orchestrator.py` forwards `user_id=user_id`.
+- New endpoint `GET /api/aurem-dev/usage/maxx`.
+
+Per Iter 92.5 economics, this turns the worst-case Pro user from
+-$19/mo loss into +$1/mo margin. Saves unit economics at scale.
+
+Tests — 7 in `test_iter94_maxx_cap_and_usd_migration.py` + 2 updates
+to existing tests. **23/23 pricing+Maxx tests pass.** Stripe live
+verified for all 3 USD plans.
+
+⚠️ **Production env sync required** — copy these to auremcto.com
+dashboard + redeploy:
+```
+STRIPE_STARTER_PRICE_ID="price_1Tfl6W0Exg9gU93tkDkSLvW6"
+STRIPE_PRO_PRICE_ID="price_1Tfl6W0Exg9gU93tdcE2bVRV"
+STRIPE_TEAM_PRICE_ID="price_1Tfl6X0Exg9gU93tgN57sGap"
+```
