@@ -3307,3 +3307,48 @@ the live site.
 - Subscription unit-economics math — deferred to next iter (will
   produce `/app/memory/FOUNDER_LAUNCH_CHECKLIST.md` with full LLM/
   Tavily/Firecrawl cost-per-tier and break-even per plan).
+
+
+### Iter 93 — Resend Email Live + `ora@aurem.live` Locked (Feb 2026)
+
+Founder activated Resend on a paid plan and asked to wire it end-to-end
+using `ora@aurem.live` as the sender (verified domain on the account).
+
+`.env` updated:
+- `RESEND_API_KEY=re_PHbN4f2…ymRs`
+- `RESEND_FROM_EMAIL="AUREM <ora@aurem.live>"`
+- `DIGEST_FROM="AUREM CTO <ora@aurem.live>"`
+
+Both pipelines confirmed reading from env:
+- `shared/providers/email_legacy.py::_DEFAULT_FROM` resolves to
+  `AUREM <ora@aurem.live>` at module import.
+- `services/daily_digest.py` reads `DIGEST_FROM` per-call → uses
+  `AUREM CTO <ora@aurem.live>`.
+
+**End-to-end verified live:** Sent a real test email via Resend API
+to `teji.ss1986@gmail.com` from `ora@aurem.live`. Resend returned
+`HTTP 200` with message id `cb0e011e-7d9f-4f80-8505-07ed3dbc7dfe`.
+
+Resend account state (live check):
+- `aurem.live` — **VERIFIED** ✅ (us-east-1)
+- `auremcto.com` — added but DNS records not configured yet
+  (`status: not_started`). Founder must add Resend's TXT/MX/DKIM
+  records to auremcto.com DNS if they ever want to send from there.
+
+Tests — 4 in `test_iter93_resend_live.py`:
+- `RESEND_API_KEY` present + `re_…` prefix + length sanity.
+- `email_legacy._RESEND_KEY` captures the same env value (load-order
+  regression guard).
+- Live (opt-in via `RUN_LIVE_NETWORK_TESTS=1`): the account has
+  `aurem.live` verified specifically (not just "some" verified domain).
+- Both `RESEND_FROM_EMAIL` and `DIGEST_FROM` use `ora@aurem.live`.
+
+Suite total: **585 tests** (581 → 585, +4, zero regressions).
+
+⚠️ **Production env sync needed:** Founder must add these 3 lines to
+the auremcto.com Emergent prod env vars dashboard and redeploy:
+```
+RESEND_API_KEY="re_PHbN4f2Z_PpCzKReQ2dgXUJCfaLLwymRs"
+RESEND_FROM_EMAIL="AUREM <ora@aurem.live>"
+DIGEST_FROM="AUREM CTO <ora@aurem.live>"
+```
