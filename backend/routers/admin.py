@@ -1320,6 +1320,37 @@ async def integrations_refresh(
         {"$set": snap},
         upsert=True,
     )
+
+
+# ── Iter 100 — Live Financial Command Center ───────────────────────────
+# Real MongoDB → metrics, editable settings, FX-aware presentation.
+@router.get("/financials")
+async def admin_financials(
+    authorization: Optional[str] = Header(None),
+):
+    """Live financial dashboard payload — pulls real user counts from
+    `dev_users`, real payments from `cto_payments`, real Maxx usage,
+    blends with editable settings and current USD→CAD FX."""
+    await _require_admin(authorization)
+    from services.financials import compute_financials
+    db = require_db()
+    return await compute_financials(db)
+
+
+@router.post("/financials/settings")
+async def admin_financials_save(
+    payload: dict,
+    authorization: Optional[str] = Header(None),
+):
+    """Persist the founder's editable financial inputs (cash on hand,
+    dev salary, manual user overrides for hypotheticals). Founder-only."""
+    await _require_admin(authorization)
+    from services.financials import save_settings, compute_financials
+    db = require_db()
+    await save_settings(db, payload or {})
+    # Return a full re-computed payload so the UI updates atomically.
+    return await compute_financials(db)
+
     # Also append to history (tiny, last 100 snapshots)
     await db.integration_health_history.insert_one({
         **snap,

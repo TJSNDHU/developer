@@ -14,6 +14,7 @@ import Projects from "./pages/Projects";
 import Admin from "./pages/Admin";
 import AdminOverview from "./pages/AdminOverview";
 import AdminIntegrations from "./pages/AdminIntegrations";
+import AdminFinancials from "./pages/AdminFinancials";
 import PolicyPage from "./pages/PolicyPage";
 import Wrapped from "./pages/Wrapped";
 import ShipWall from "./pages/ShipWall";
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/admin" element={<Admin />} />
         <Route path="/admin/overview" element={<AdminOverview />} />
         <Route path="/admin/integrations" element={<AdminIntegrations />} />
+        <Route path="/admin/financials"   element={<AdminFinancials />} />
         <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
         <Route path="/terms"          element={<PolicyPage slug="terms" />} />
         <Route path="/acceptable-use" element={<PolicyPage slug="acceptable-use" />} />

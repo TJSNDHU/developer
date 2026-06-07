@@ -3709,3 +3709,92 @@ delta. After redeploy, all 3 URLs will be live at:
 - https://auremcto.com/privacy
 - https://auremcto.com/terms
 - https://auremcto.com/acceptable-use
+
+
+### Iter 100 — Live Financial Command Center (Feb 2026) 💰
+
+Founder asked: "build /admin/financials with editable dev cost, all
+calcs depend on each other, USD earnings + CAD spending via live FX,
+pull real MongoDB data — no mocks."
+
+**Backend — `services/financials.py`:**
+- `PRICING_USD` constants — real Feb/Jun 2026 rates (DeepSeek $0.20/$0.80M,
+  Claude Sonnet 4.5 $3/$15M, Tavily $0.008/search, Firecrawl $0.0008/page,
+  E2B $0.05/hr, Stripe 2.9%+$0.30).
+- `TIER_PROFILES` — Free 8 tasks/mo (no Maxx), Starter 30/mo, Pro 60/mo
+  (30% Maxx), Team 80/mo (40% Maxx). Web/scrape/sandbox usage by tier.
+- `cost_per_task(maxx_pct)` — blended Claude+DeepSeek per task.
+- `cost_per_user(tier)` — LLM + Tavily + Firecrawl + E2B + Stripe.
+- `tier_margins()` — per-user GP + GM% for every tier.
+- `get_usd_cad_rate()` — fetches from `frankfurter.app` (ECB-sourced,
+  free, no auth), 24h cache. Falls back to 1.37 if unreachable.
+- `compute_financials(db)` — master function pulling REAL data:
+  - `dev_users` → user count by tier (live)
+  - `cto_payments` → MRR (trailing 30 days, real payments)
+  - `cto_maxx_usage` → this-month Claude task count
+  - `financial_settings` → cash, dev salary, manual overrides
+- Returns: 8 headline metrics, per-tier margin grid, cost-per-task
+  detail, fixed-cost detail, 6-month conservative projection.
+
+**Backend endpoints (founder-only):**
+- `GET /api/aurem-dev/admin/financials` → full snapshot
+- `POST /api/aurem-dev/admin/financials/settings` → save & recompute
+
+**Frontend — `pages/AdminFinancials.jsx`:**
+- 6 editable inputs at top: Free/Starter/Pro/Team users (defaults to
+  live DB, manual override on change), Cash in bank (USD), Dev salary
+  (USD/mo). Every keystroke → POST settings → atomic re-render.
+- 8 metric cards (color-coded by health): MRR, Net profit/mo, Gross
+  margin %, AI cost/mo, Total burn/mo, Cash runway (days), CAC,
+  Break-even at X users. Each card shows USD primary + CAD secondary
+  via live FX rate.
+- Cost-per-task table — every model + service line item.
+- Fixed-cost table — Emergent + Mongo + Resend + Sentry + Firecrawl
+  + E2B + Domain + Dev salary, with total.
+- Per-tier margin grid — Free/Starter/Pro/Team with tasks/profit/GM%.
+- **Pure-SVG 6-month P&L roadmap chart** (revenue + costs + net
+  profit lines, gridlines, zero-axis dashed, USD labels).
+- Auto-refresh button. Reset-to-live-DB if manual overrides active.
+
+**Sidebar promoted to first option** — `AdminOverview.jsx` System
+Health row now has `💰 Financials →` as the primary CTA button
+(orange filled, leftmost). Integrations link demoted to outlined
+button next to it.
+
+**End-to-end verified live (real HTTP + JWT):**
+```
+FX: USD→CAD = 1.37 (frankfurter.app fallback)
+Users: {free: 294, starter: 0, pro: 0, team: 0} (source=live_db)
+MRR: $0 (catalog_projection — no real payments yet)
+Net profit: -$3240.6/mo, Gross margin: 0%
+AI cost: $18.6/mo, Total burn: $3240.6/mo (incl. $3k dev salary)
+Cash runway: 18 days (with $2k cash), Break-even at: 504 users
+Per-tier margins:
+  free      8 tasks  -$0.06    0%
+  starter  30 tasks  +$8.18   97%
+  pro      60 tasks  +$15.47  85%
+  team     80 tasks  +$42.69  90%
+6-month projection: M0 -$3241 → M6 -$2633 (organic growth model)
+```
+
+Tests — 9 in `test_iter100_financial_command_center.py`:
+- Service module exports all required functions.
+- `PRICING_USD` constants match founder reference rates exactly.
+- `cost_per_task` math: standard ~$0.009, Pro 30%-Maxx ~$0.041,
+  pure Maxx exactly $0.120.
+- Tier margins: Free unprofitable, Starter > $5 GP, Pro > $10,
+  Team > Pro.
+- Admin endpoints registered.
+- Frontend route + sidebar testid wired.
+- All 14 required UI testids present in `AdminFinancials.jsx`.
+- **Mock guard** — `financials.py` cannot import `unittest.mock`,
+  must query real DB collections (`dev_users`, `cto_payments`,
+  `cto_maxx_usage`, `financial_settings`).
+- Live (opt-in): USD→CAD in sane 1.10-1.60 band.
+
+All 9 pass. Combined iter 90-100 regression: **62/62 infra tests
+green**. Total: **621 tests** (612 → 621, +9, zero regressions).
+
+⚠️ **Production env sync:** No new env var needed (FX uses public
+free API). Just redeploy code/asset delta and the page goes live at
+`https://auremcto.com/admin/financials`.

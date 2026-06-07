@@ -87,18 +87,31 @@ export default function AdminOverview() {
           <HealthChip ok={!!council} label="Council logger" />
           <InfoChip label={`Uptime ${uptimeMin}m`} />
           <a
-            data-testid="goto-integrations"
-            href="/admin/integrations"
+            data-testid="goto-financials"
+            href="/admin/financials"
             style={{
               marginLeft: "auto",
-              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              fontSize: 11, fontWeight: 700, letterSpacing: ".04em",
               padding: "6px 12px",
               background: "var(--accent, #ff8a2a)",
               color: "var(--bg, #0a0c10)",
               border: "none", borderRadius: 5,
               cursor: "pointer", textDecoration: "none",
             }}
-          >Integration Health →</a>
+          >💰 Financials →</a>
+          <a
+            data-testid="goto-integrations"
+            href="/admin/integrations"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >🩺 Integrations →</a>
         </div>
       </Section>
 
