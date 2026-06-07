@@ -3499,4 +3499,58 @@ Once redeployed, hit `POST /api/aurem-dev/admin/sentry/test` (founder
 auth required) to confirm prod Sentry is reporting — you should see
 the test event in the Sentry Issues tab within ~5s.
 
+### Iter 97 — Vercel API Token Wired (Feb 2026)
+
+Founder created a Full-Account-scope Vercel token ("AUREM CTO Dev") and
+shared it. Last P1 missing key from the launch checklist.
+
+`.env`:
+```
+VERCEL_API_TOKEN="vcp_68oJ7eE0yZ0EY3xBWyHhttu8wZNuD8YfCbczx8z3eeUpnvQfvl3ewkim"
+```
+
+**Live verified against Vercel API:**
+- `GET /v2/user` → HTTP 200, user: `polarisbuiltinc-wq`
+  (polarisbuiltinc@gmail.com — same identity as the Stripe live
+  account, confirms account ownership).
+- `GET /v2/teams` → 1 team accessible: **`aurem`** (slug=`auremcto`,
+  id=`team_qEUDGhRyRKBmiZx87pBtpfeD`). Full Account scope confirmed.
+- Vercel projects: currently 0 in both personal account & aurem team
+  (founder hasn't shipped anything via Vercel yet — fine, the token
+  is ready when customers want one-click Vercel deploys).
+
+Admin env-health panel (`/admin/env`) now surfaces
+`vercel_deploy_hook: true`.
+
+Tests — 3 in `test_iter97_vercel_api_token.py`:
+- Token present + valid shape (`vcp_…` or legacy 24-char hex).
+- `admin.py` checks `os.getenv("VERCEL_API_TOKEN")` for the health flag
+  (regression guard against renaming the env var).
+- Live (opt-in): `/v2/user` returns 200 with a real email.
+
+All 3 pass. Combined iter 90-97 regression: **40/40 infra tests green**.
+Total: **597 tests** (594 → 597, +3, zero regressions).
+
+⚠️ **Production env sync:** Add to auremcto.com dashboard + redeploy:
+```
+VERCEL_API_TOKEN="vcp_68oJ7eE0yZ0EY3xBWyHhttu8wZNuD8YfCbczx8z3eeUpnvQfvl3ewkim"
+```
+
+**🎯 LAUNCH READINESS — ALL P0/P1 KEYS NOW LIVE:**
+| Key | Iter | Status |
+|---|---|---|
+| Stripe (live + USD prices) | 90, 94 | ✅ |
+| GitHub OAuth | 91 | ✅ |
+| Firecrawl (paid) | 92 | ✅ |
+| Resend (aurem.live verified) | 93 | ✅ |
+| Pro Maxx-cap (100/mo) | 94 | ✅ |
+| E2B sandbox | 95 | ✅ |
+| Sentry (+ critical init bug fix) | 96 | ✅ |
+| Vercel | 97 | ✅ |
+
+Public launch is now technically unblocked. Just needs the prod env-var
+sync + redeploy + the 3 founder action items (CAD-prices cleanup on
+Stripe Portal, Sentry Slack alerts, demo video).
+
+
 additional steps beyond env + redeploy.
