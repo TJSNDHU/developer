@@ -2,201 +2,194 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>AUREM CTO — Logo Options</title>
+<title>AUREM CTO — 3D Logo Concepts</title>
 <style>
-  body { background: #0a0c10; color: #e8e3d3; font-family: -apple-system, system-ui, sans-serif;
-         margin: 0; padding: 40px 24px 80px; }
-  h1 { font-size: 24px; font-weight: 500; letter-spacing: -0.02em; margin: 0 0 8px; }
-  p.sub { color: #888d99; font-size: 13px; margin: 0 0 32px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 1200px; margin: 0 auto; }
-  .card { background: #0f1219; border: 1px solid rgba(255,200,120,0.16); border-radius: 12px; padding: 24px; }
-  .opt-num { font-size: 11px; color: #ff8a2a; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; }
-  .opt-name { font-size: 16px; font-weight: 600; margin: 4px 0 16px; color: #e8e3d3; }
-  .canvas { display: flex; align-items: center; justify-content: center; gap: 16px; min-height: 140px;
-            background: linear-gradient(180deg, rgba(255,138,42,0.04) 0%, rgba(0,0,0,0) 100%);
-            border-radius: 8px; margin-bottom: 12px; }
-  .canvas.light { background: #f5f0e0; }
-  .canvas svg { display: block; }
-  .opt-desc { font-size: 12px; color: #a39d8a; line-height: 1.5; }
-  .row { display: flex; gap: 24px; align-items: center; justify-content: center; margin-bottom: 12px; }
-  .row .label { font-size: 9px; color: #555c66; letter-spacing: .12em; text-transform: uppercase; margin-top: 4px; text-align: center; }
+  :root {
+    --bg: #07080b;
+    --panel: #0f1219;
+    --ink: #f3ecdc;
+    --mute: #8b8674;
+    --orange: #ff8a2a;
+    --orange-hot: #ff5e1a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -10%, rgba(255,138,42,0.10), transparent 60%) , var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Display", system-ui, sans-serif;
+    margin: 0; padding: 56px 24px 96px;
+    min-height: 100vh;
+  }
+  header { max-width: 1240px; margin: 0 auto 40px; text-align: center; }
+  h1 { font-size: 32px; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 10px;
+       background: linear-gradient(90deg, #ffd9b3, #ff8a2a 50%, #ff5e1a);
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p.sub { color: var(--mute); font-size: 14px; margin: 0; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px;
+           background: rgba(255,138,42,0.12); color: var(--orange);
+           font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+           text-transform: uppercase; margin-bottom: 14px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  .card {
+    background: linear-gradient(180deg, #11141c, #0c0f15);
+    border: 1px solid rgba(255,138,42,0.16);
+    border-radius: 18px;
+    padding: 24px;
+    transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .card:hover { transform: translateY(-4px);
+                border-color: rgba(255,138,42,0.45);
+                box-shadow: 0 30px 60px -20px rgba(255,94,26,0.35); }
+  .opt-num { font-size: 10px; color: var(--orange); letter-spacing: 0.18em;
+             font-weight: 700; text-transform: uppercase; }
+  .opt-name { font-size: 18px; font-weight: 600; margin: 6px 0 18px;
+              letter-spacing: -0.01em; }
+  .canvas {
+    aspect-ratio: 1 / 1;
+    border-radius: 14px;
+    background: #000;
+    overflow: hidden;
+    margin-bottom: 16px;
+    position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .canvas img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: transform .6s ease;
+  }
+  .card:hover .canvas img { transform: scale(1.04); }
+
+  .preview-row {
+    display: flex; align-items: center; gap: 18px;
+    padding: 14px; border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    margin-bottom: 14px;
+  }
+  .preview-row .ph-mock {
+    width: 56px; height: 56px; border-radius: 12px; overflow: hidden;
+    flex-shrink: 0; background: #1a1d26;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .preview-row .ph-mock.sm { width: 24px; height: 24px; border-radius: 6px; }
+  .preview-row .ph-mock img { width: 100%; height: 100%; object-fit: cover; }
+  .preview-row .ph-meta { flex: 1; min-width: 0; }
+  .preview-row .ph-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .preview-row .ph-tag { font-size: 11px; color: var(--mute); margin-top: 2px; }
+
+  .opt-desc { font-size: 13px; color: #b8b2a0; line-height: 1.55; margin-bottom: 14px; }
+  .actions { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; text-align: center; padding: 10px 14px;
+    border-radius: 10px; font-size: 12px; font-weight: 600;
+    text-decoration: none; letter-spacing: 0.02em;
+    border: 1px solid rgba(255,138,42,0.3);
+    color: var(--orange); background: rgba(255,138,42,0.06);
+    transition: all .2s ease;
+  }
+  .btn:hover { background: var(--orange); color: #000; border-color: var(--orange); }
+  .btn.primary {
+    background: linear-gradient(180deg, var(--orange), var(--orange-hot));
+    color: #0a0c10; border: none;
+  }
+  .btn.primary:hover { filter: brightness(1.15); }
+
+  footer { max-width: 1240px; margin: 56px auto 0; text-align: center;
+           font-size: 12px; color: var(--mute); }
+  code { color: var(--orange); background: rgba(255,138,42,0.08);
+         padding: 2px 6px; border-radius: 4px; font-size: 11px; }
 </style>
 </head>
 <body>
-  <h1>⚡ AUREM CTO — Logo Concepts</h1>
-  <p class="sub">Lightning bolt + orange (#ff8a2a). Each shown at 56px (ProductHunt thumbnail size) and 24px (favicon).</p>
 
-  <div class="grid">
+<header>
+  <div class="badge">⚡ 3D LOGO CONCEPTS</div>
+  <h1>AUREM CTO — Pick Your ProductHunt Logo</h1>
+  <p class="sub">6 bright 3D-rendered orange lightning concepts. Hover for zoom. Pick one and I'll lock favicons + PNG exports.</p>
+</header>
 
-    <!-- Option 1: Classic Solid Bolt -->
-    <div class="card">
-      <div class="opt-num">Option 1</div>
-      <div class="opt-name">Pure Bolt</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <path d="M30 4 L14 32 L25 32 L21 52 L42 22 L29 22 Z" fill="#ff8a2a"/>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <path d="M30 4 L14 32 L25 32 L21 52 L42 22 L29 22 Z" fill="#ff8a2a"/>
-          </svg>
-          <div class="label">24px</div>
-        </div>
+<div class="grid" id="grid"></div>
+
+<footer>
+  Live preview: <code>/logo-options.html</code> · Reply with the option number to lock in.<br/>
+  Generated with Nano Banana (Gemini 3 Image) · saved at <code>/public/logos/*.png</code>
+</footer>
+
+<script>
+const options = [
+  {
+    id: "01",
+    file: "01_chrome_3d_bolt.png",
+    name: "Chrome Inferno",
+    desc: "Hyper-realistic chrome bolt with vivid orange glow core. Premium tech vibe — perfect against ProductHunt's grey feed."
+  },
+  {
+    id: "02",
+    file: "02_neon_glass_bolt.png",
+    name: "Molten Glass",
+    desc: "Transparent glass bolt with lava-bright interior. Refractive, modern, ultra-glossy. Feels like a $$$ SaaS."
+  },
+  {
+    id: "03",
+    file: "03_isometric_cube_bolt.png",
+    name: "iOS Squircle",
+    desc: "Classic iOS app-icon squircle, orange gradient + embossed white bolt. Most ProductHunt-native — instant trust."
+  },
+  {
+    id: "04",
+    file: "04_lava_energy_bolt.png",
+    name: "Lava Energy",
+    desc: "Molten fire bolt with sparks & embers. Maximum energy, screams 'autonomous AI engineer'. Boldest pick."
+  },
+  {
+    id: "05",
+    file: "05_holographic_bolt.png",
+    name: "Holographic Edge",
+    desc: "Iridescent orange-gold chrome with purple rim accents. Futuristic, AI-startup coded, stands out in scroll."
+  },
+  {
+    id: "06",
+    file: "06_minimal_3d_emboss.png",
+    name: "Minimal Emboss",
+    desc: "Clean embossed orange bolt on charcoal. Subtle, premium, fintech-quality. Ages best as a brand."
+  },
+];
+
+const grid = document.getElementById("grid");
+options.forEach(o => {
+  const src = `/logos/${o.file}`;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.setAttribute("data-testid", `logo-card-${o.id}`);
+  card.innerHTML = `
+    <div class="opt-num">Option ${o.id}</div>
+    <div class="opt-name">${o.name}</div>
+    <div class="canvas"><img src="${src}" alt="${o.name}" data-testid="logo-img-${o.id}"/></div>
+    <div class="preview-row">
+      <div class="ph-mock"><img src="${src}" alt=""/></div>
+      <div class="ph-mock sm"><img src="${src}" alt=""/></div>
+      <div class="ph-meta">
+        <div class="ph-title">AUREM CTO</div>
+        <div class="ph-tag">Autonomous AI engineer · ProductHunt mock</div>
       </div>
-      <div class="opt-desc">Pure orange bolt, no container. Cleanest, scales sharp at all sizes. Most timeless.</div>
     </div>
-
-    <!-- Option 2: Bolt in Rounded Square (ProductHunt classic) -->
-    <div class="card">
-      <div class="opt-num">Option 2</div>
-      <div class="opt-name">Bolt in Rounded Square (PH style)</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="12" fill="url(#g2)"/>
-            <path d="M32 10 L17 31 L26 31 L23 46 L40 25 L30 25 Z" fill="#ffffff"/>
-            <defs>
-              <linearGradient id="g2" x1="0" y1="0" x2="56" y2="56">
-                <stop offset="0%" stop-color="#ff8a2a"/>
-                <stop offset="100%" stop-color="#ff6b2a"/>
-              </linearGradient>
-            </defs>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="12" fill="url(#g2b)"/>
-            <path d="M32 10 L17 31 L26 31 L23 46 L40 25 L30 25 Z" fill="#ffffff"/>
-            <defs>
-              <linearGradient id="g2b" x1="0" y1="0" x2="56" y2="56">
-                <stop offset="0%" stop-color="#ff8a2a"/>
-                <stop offset="100%" stop-color="#ff6b2a"/>
-              </linearGradient>
-            </defs>
-          </svg>
-          <div class="label">24px</div>
-        </div>
-      </div>
-      <div class="opt-desc">White bolt on orange-gradient rounded square. Highest contrast on ProductHunt grey background. My pick.</div>
+    <div class="opt-desc">${o.desc}</div>
+    <div class="actions">
+      <a class="btn" href="${src}" target="_blank" data-testid="view-${o.id}">View Full</a>
+      <a class="btn primary" href="${src}" download="aurem-cto-logo-${o.id}.png" data-testid="download-${o.id}">Download PNG</a>
     </div>
-
-    <!-- Option 3: Bolt in Circle -->
-    <div class="card">
-      <div class="opt-num">Option 3</div>
-      <div class="opt-name">Bolt in Circle</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <circle cx="28" cy="28" r="26" fill="#0a0c10" stroke="#ff8a2a" stroke-width="2"/>
-            <path d="M32 12 L18 31 L26 31 L23 44 L38 26 L29 26 Z" fill="#ff8a2a"/>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <circle cx="28" cy="28" r="26" fill="#0a0c10" stroke="#ff8a2a" stroke-width="3"/>
-            <path d="M32 12 L18 31 L26 31 L23 44 L38 26 L29 26 Z" fill="#ff8a2a"/>
-          </svg>
-          <div class="label">24px</div>
-        </div>
-      </div>
-      <div class="opt-desc">Dark-mode native. Bolt floats inside a thin orange ring. Mysterious, "elite tool" vibe.</div>
-    </div>
-
-    <!-- Option 4: Bolt + A monogram -->
-    <div class="card">
-      <div class="opt-num">Option 4</div>
-      <div class="opt-name">Bolt-as-A Monogram</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="12" fill="#0a0c10" stroke="#ff8a2a" stroke-width="1.5"/>
-            <path d="M28 8 L14 44 L20 44 L23 36 L33 36 L36 44 L42 44 L28 8 Z M25 30 L28 22 L31 30 Z" fill="#ff8a2a"/>
-            <path d="M28 14 L22 28 L34 28 Z" fill="#ff8a2a" opacity="0.4"/>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="12" fill="#0a0c10" stroke="#ff8a2a" stroke-width="3"/>
-            <path d="M28 8 L14 44 L20 44 L23 36 L33 36 L36 44 L42 44 L28 8 Z M25 30 L28 22 L31 30 Z" fill="#ff8a2a"/>
-          </svg>
-          <div class="label">24px</div>
-        </div>
-      </div>
-      <div class="opt-desc">Letter A with a stylized lightning notch. Branded — uniquely AUREM. Slight readability trade at 24px.</div>
-    </div>
-
-    <!-- Option 5: Bolt with Glow -->
-    <div class="card">
-      <div class="opt-num">Option 5</div>
-      <div class="opt-name">Bolt with Glow (premium feel)</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <defs>
-              <radialGradient id="glow5" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stop-color="#ff8a2a" stop-opacity="0.5"/>
-                <stop offset="100%" stop-color="#ff8a2a" stop-opacity="0"/>
-              </radialGradient>
-              <linearGradient id="bolt5" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#ffc080"/>
-                <stop offset="100%" stop-color="#ff6b2a"/>
-              </linearGradient>
-            </defs>
-            <circle cx="28" cy="28" r="26" fill="url(#glow5)"/>
-            <path d="M30 4 L14 32 L25 32 L21 52 L42 22 L29 22 Z" fill="url(#bolt5)"/>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <defs>
-              <linearGradient id="bolt5b" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#ffc080"/>
-                <stop offset="100%" stop-color="#ff6b2a"/>
-              </linearGradient>
-            </defs>
-            <path d="M30 4 L14 32 L25 32 L21 52 L42 22 L29 22 Z" fill="url(#bolt5b)"/>
-          </svg>
-          <div class="label">24px</div>
-        </div>
-      </div>
-      <div class="opt-desc">Gradient bolt with halo. "Charging" energy. Best for animated splash screens or large hero use.</div>
-    </div>
-
-    <!-- Option 6: Geometric / Sharp Cut -->
-    <div class="card">
-      <div class="opt-num">Option 6</div>
-      <div class="opt-name">Sharp Geometric Cut</div>
-      <div class="canvas">
-        <div>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="4" fill="#ff8a2a"/>
-            <path d="M28 6 L8 30 L20 30 L18 50 L48 24 L34 24 L40 6 Z" fill="#0a0c10"/>
-          </svg>
-          <div class="label">56px</div>
-        </div>
-        <div>
-          <svg width="24" height="24" viewBox="0 0 56 56" fill="none">
-            <rect x="0" y="0" width="56" height="56" rx="4" fill="#ff8a2a"/>
-            <path d="M28 6 L8 30 L20 30 L18 50 L48 24 L34 24 L40 6 Z" fill="#0a0c10"/>
-          </svg>
-          <div class="label">24px</div>
-        </div>
-      </div>
-      <div class="opt-desc">Negative-space bolt — orange tile with dark bolt cut out. Bold, brutalist, hard to miss in feed.</div>
-    </div>
-
-  </div>
-
-  <p style="text-align: center; margin-top: 48px; font-size: 12px; color: #555c66;">
-    Live URL: <code>auremcto.com/logo-options.html</code>
-    · Tell me which option to lock in & I'll export PNG + favicon set.
-  </p>
+  `;
+  grid.appendChild(card);
+});
+</script>
 </body>
 </html>
