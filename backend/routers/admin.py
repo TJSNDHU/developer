@@ -1373,3 +1373,30 @@ async def admin_run_overage_cron(
         "_id": f"snap_{int(snap['generated_at'])}",
     })
     return snap
+
+
+# ── Vanguard audit log (iter 112) ──────────────────────────────────
+@router.get("/vanguard/stats")
+async def vanguard_stats(
+    days: int = 7,
+    authorization: Optional[str] = Header(None),
+):
+    """Stats for the admin Vanguard dashboard:
+      total blocked this window, top rule, by-rule / by-project /
+      by-severity breakdowns, day-bucketed sparkline."""
+    await _require_admin(authorization)
+    db = get_db()
+    from services.vanguard_audit import weekly_stats
+    return await weekly_stats(db, since_days=max(1, min(days, 90)))
+
+
+@router.get("/vanguard/recent")
+async def vanguard_recent(
+    limit: int = 25,
+    authorization: Optional[str] = Header(None),
+):
+    """Most recent N blocked-commit rows for the table."""
+    await _require_admin(authorization)
+    db = get_db()
+    from services.vanguard_audit import recent_blocks
+    return {"rows": await recent_blocks(db, limit=max(1, min(limit, 200)))}

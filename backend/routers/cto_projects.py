@@ -1575,6 +1575,21 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _log(task_id, f"🛡️ Verify: {verify_result['summary']}",
                        "info" if verify_result["pass"] else "error")
             if not verify_result["pass"]:
+                # iter 112 — persist the blocked commit to vanguard_audit
+                try:
+                    from services.vanguard_audit import log_blocked_commit
+                    _db = get_db()
+                    if _db is not None:
+                        await log_blocked_commit(
+                            _db,
+                            user_id=str(proj.get("user_id") or "unknown"),
+                            project=f"{owner}/{repo}@{branch}",
+                            verify_result=verify_result,
+                            project_id=str(proj.get("project_id")) if proj.get("project_id") else None,
+                            task_id=task_id,
+                        )
+                except Exception as _ae:
+                    logger.warning("vanguard_audit log failed: %r", _ae)
                 # Surface up to 5 critical/high findings in the log
                 critical = [f for f in verify_result.get("findings", [])
                              if f.get("severity") in ("CRITICAL", "HIGH")][:5]
