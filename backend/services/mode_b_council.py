@@ -55,10 +55,71 @@ def is_council_request(message: str, mode: str) -> bool:
     """True when (1) classifier already picked Mode B AND (2) the
     message looks like a genuinely stuck decision (not a casual
     "should I add caching" code question, those get handled by
-    regular Mode B advice)."""
+    regular Mode B advice).
+
+    Iter 110 — strip attachment blocks (image OCR markdown, file-upload
+    excerpts) before scanning. Otherwise an OCR'd dashboard screenshot
+    that mentions phrases like "rules disabled", "stuck queue", or any
+    other coincidental match could fire the council when the user
+    actually just typed "fix" with a screenshot attached.
+    """
     if mode != "B" or not message:
         return False
-    return bool(_COUNCIL_RE.search(message))
+    text = _strip_attachment_blocks(message).strip()
+    if not text:
+        return False
+    return bool(_COUNCIL_RE.search(text))
+
+
+# Iter 110 — recognise the ChatPanel.jsx attachment markdown shape so we
+# only run council-detection on the user's ACTUAL typed text, not on
+# pasted file/image content that happens to contain trigger words.
+# ChatPanel emits attachments as separate blocks joined by "\n\n":
+#   [🖼️ file.png · 100 KB] / [📄 doc.pdf · 50 KB] / [File: foo.txt]
+# followed by the markdown body, then the user-typed text last.
+_ATTACHMENT_HEADER_RE = re.compile(
+    r"^\s*\[(?:🖼️|📄|File:)",
+    re.IGNORECASE,
+)
+
+
+def _strip_attachment_blocks(message: str) -> str:
+    """Remove attachment-markdown blocks emitted by ChatPanel.jsx so
+    only the user-typed text remains.
+
+    ChatPanel.jsx always builds the prompt as:
+        [attachment header]
+        <OCR/file body>
+
+        [attachment header]
+        <OCR/file body>
+
+        <user-typed text>      ← always LAST
+
+    Strategy: drop the leading "[Working on project: ...]" auto-context.
+    If any line then matches an attachment header, return ONLY the final
+    "\\n\\n"-separated block (the user-typed text). Otherwise return
+    the whole message unchanged."""
+    if not message:
+        return ""
+    text = re.sub(
+        r"^\[Working on project: [^\]]+\]\s*\n*",
+        "",
+        message,
+        flags=re.MULTILINE,
+    )
+    has_attachment = any(
+        _ATTACHMENT_HEADER_RE.match(ln) for ln in text.splitlines()
+    )
+    if not has_attachment:
+        return text.strip()
+    blocks = re.split(r"\n\s*\n", text)
+    # Walk backwards and take the first block that's NOT an attachment
+    # header — that's the user's typed text.
+    for block in reversed(blocks):
+        if block.strip() and not _ATTACHMENT_HEADER_RE.match(block):
+            return block.strip()
+    return ""
 
 
 _COUNCIL_SYSTEM = """You are ORA running the DECISION COUNCIL — a structured \

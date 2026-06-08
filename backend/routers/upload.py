@@ -49,7 +49,14 @@ IMAGE_MIMES = {"image/png", "image/jpeg", "image/jpg", "image/webp",
 # Vision model — Gemini Flash 1.5 via OpenRouter is cheap, fast, and
 # strong at both image description AND OCR. We pin a specific revision
 # so a silent upstream rename can't surprise us.
-_VISION_MODEL = os.getenv("AUREM_VISION_MODEL", "google/gemini-2.5-flash-lite")
+#
+# Iter 110 — production was returning "I cannot see the screenshot"
+# because OpenRouter's gemini-2.5-flash-lite intermittently returns
+# 400 "Unable to process input image" for some user screenshots.
+# We now try a chain: configured model → gpt-4o-mini (verified working).
+# Either one returning content is success.
+_PRIMARY_VISION_MODEL = os.getenv("AUREM_VISION_MODEL", "google/gemini-2.5-flash-lite")
+_FALLBACK_VISION_MODEL = os.getenv("AUREM_VISION_FALLBACK_MODEL", "openai/gpt-4o-mini")
 _VISION_PROMPT = (
     "You are part of an AI coding assistant. The user just attached an "
     "image to their chat. Produce a structured Markdown response that "
@@ -88,42 +95,59 @@ async def _describe_image_via_vision(raw: bytes, content_type: str,
     b64 = base64.b64encode(raw).decode("ascii")
     data_url = f"data:{mime};base64,{b64}"
 
-    payload = {
-        "model": _VISION_MODEL,
-        "max_tokens": 1200,
-        "temperature": 0.2,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": _VISION_PROMPT},
-                {"type": "image_url",
-                 "image_url": {"url": data_url}},
-            ],
-        }],
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://auremcto.com",
-        "X-Title": "AUREM Dev - upload/convert (image)",
-    }
-    try:
+    async def _call(model: str) -> str:
+        payload = {
+            "model": model,
+            "max_tokens": 1200,
+            "temperature": 0.2,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _VISION_PROMPT},
+                    {"type": "image_url",
+                     "image_url": {"url": data_url}},
+                ],
+            }],
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://auremcto.com",
+            "X-Title": "AUREM Dev - upload/convert (image)",
+        }
         async with httpx.AsyncClient(timeout=45.0) as c:
             r = await c.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers=headers, json=payload,
             )
             if r.status_code != 200:
-                logger.warning("vision call HTTP %s — body: %s",
-                                r.status_code, r.text[:300])
+                logger.warning("vision call HTTP %s on %s — body: %s",
+                                r.status_code, model, r.text[:300])
                 return ""
             data = r.json()
             return (data.get("choices", [{}])[0]
                         .get("message", {})
                         .get("content") or "").strip()
+
+    # Iter 110 — primary → fallback chain. First model that returns
+    # non-empty content wins. The fallback model (gpt-4o-mini) was
+    # picked because it's vision-capable, cheap, and we verified live
+    # that it succeeds on images where gemini-2.5-flash-lite returns 400.
+    try:
+        out = await _call(_PRIMARY_VISION_MODEL)
+        if out:
+            return out
+        logger.info("vision primary (%s) empty — trying fallback (%s)",
+                    _PRIMARY_VISION_MODEL, _FALLBACK_VISION_MODEL)
+        return await _call(_FALLBACK_VISION_MODEL)
     except Exception as e:
         logger.exception("vision call failed: %r", e)
-        return ""
+        # Last-chance try the fallback in case the exception was on
+        # the primary call's transport layer (e.g. rare httpx timeout).
+        try:
+            return await _call(_FALLBACK_VISION_MODEL)
+        except Exception:
+            return ""
 
 
 @router.post("/convert")
