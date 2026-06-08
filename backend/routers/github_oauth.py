@@ -67,27 +67,35 @@ async def connect(
     authorization: Optional[str] = Header(None),
     auth: Optional[str] = Query(None),
     signup: Optional[str] = Query(None),
+    intent: Optional[str] = Query(None),
 ):
     """Kick off OAuth.
 
-    Two modes:
+    Three modes:
       • **Connect** (default) — used by an already-logged-in user from
         Settings to attach GitHub to their existing AUREM account. JWT
         required (Authorization header or `?auth=` query for browser
         navigation).
-      • **Signup / Sign-in** (`?signup=1`) — true OAuth-first auth. No
-        JWT required. The callback either logs the matching user in or
-        creates a new account from the GitHub identity.
+      • **Signup** (`?signup=1`) — true OAuth-first auth from the /signup
+        page. No JWT required. Callback either logs in the matching user
+        or creates a new account from the GitHub identity.
+      • **Login** (`?signup=1&intent=login`) — same OAuth-first auth, but
+        originating from /login. On cancel we send the user back to
+        /login (not /signup) — iter 113 UX fix.
     """
     db = get_db()
     if signup in ("1", "true", "yes"):
         # Anonymous OAuth start — state nonce only, no user binding.
+        # iter 113 — encode the originating page in the state prefix so
+        # we know where to redirect on cancel. Auth behaviour is
+        # identical for both prefixes.
+        prefix = "login" if (intent or "").lower() == "login" else "signup"
         nonce = uuid.uuid4().hex
-        state = f"signup:{nonce}"
+        state = f"{prefix}:{nonce}"
         if db is not None:
             await db.oauth_states.insert_one({
                 "state":   state,
-                "mode":    "signup",
+                "mode":    prefix,
                 "user_id": None,
                 "ts":      time.time(),
             })
@@ -124,14 +132,19 @@ async def callback(
       2. Any other GitHub-side error → same friendly redirect.
     Success path: `?code=...&state=...` exchanges the code and continues.
     """
-    # Iter 109 — user-cancelled the GitHub consent screen.
+    # Iter 109/113 — user-cancelled the GitHub consent screen.
     if error or not code:
         logger.info("[oauth] callback non-success: error=%s code_present=%s state=%s",
                     error, bool(code), state)
-        # Decide where to send them: signup flow → /signup, connect flow → /settings
+        # Decide where to send them based on the state prefix:
+        #   "login:..."  → /login    (iter 113 — UX fix)
+        #   "signup:..." → /signup
+        #   any user-id prefix → /settings (connect flow)
         target_path = "/settings"
         if state and state.startswith("signup:"):
             target_path = "/signup"
+        elif state and state.startswith("login:"):
+            target_path = "/login"
         # Clean up the dangling state row so it can't be replayed.
         try:
             db = get_db()
@@ -157,7 +170,14 @@ async def callback(
     s = await db.oauth_states.find_one({"state": state})
     if not s:
         raise HTTPException(400, "Unknown OAuth state")
-    flow = s.get("mode") or ("signup" if mode_or_user == "signup" else "connect")
+    flow = s.get("mode") or (
+        "signup" if mode_or_user in ("signup", "login") else "connect"
+    )
+    # Iter 113 — both `signup:` and `login:` prefixes use the same
+    # OAuth-first auth path. The only difference is the cancel-redirect
+    # target (handled above) and where the SUCCESS path sends them on
+    # login (existing user → /dashboard either way, new user → /dashboard).
+    success_path_on_no_account = "/login" if mode_or_user == "login" else "/signup"
 
     # Exchange code → token → GitHub user (common to both flows).
     try:

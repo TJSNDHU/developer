@@ -19,6 +19,9 @@ export default function Login() {
   // Honour ?next=… for safe in-app paths only (must start with /, not //)
   const rawNext = searchParams.get("next") || "";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  // Iter 113 — friendly banner when user cancelled the GitHub OAuth flow
+  // and was sent back here.
+  const cancelled = searchParams.get("github") === "cancelled";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,6 +72,18 @@ export default function Login() {
           backdropFilter: "blur(10px)",
           border: "1px solid rgba(255,255,255,0.06)",
         }}>
+          {/* Iter 113 — friendly banner when GitHub OAuth was cancelled */}
+          {cancelled && (
+            <div data-testid="login-github-cancelled" style={{
+              padding: "10px 12px", marginBottom: 12,
+              borderRadius: 4,
+              background: "rgba(255,138,42,0.08)",
+              border: "1px solid rgba(255,138,42,0.35)",
+              color: "#ff8a2a", fontSize: 12, lineHeight: 1.5,
+            }}>
+              GitHub sign-in cancelled. You can try again or use email below.
+            </div>
+          )}
           {/* Iter 50 — GitHub OAuth-first CTA (signup-killer removed) */}
           <button
             type="button"
@@ -80,7 +95,10 @@ export default function Login() {
               // REACT_APP_BACKEND_URL here would lock us to the build-
               // time value and break across environments.
               const base = window.location.origin;
-              window.location.href = `${base}/api/aurem-dev/github/oauth/connect?signup=1`;
+              // Iter 113 — pass intent=login so backend redirects to
+              // /login (not /signup) if the user clicks Cancel on
+              // GitHub's consent screen.
+              window.location.href = `${base}/api/aurem-dev/github/oauth/connect?signup=1&intent=login`;
             }}
             style={{
               padding: "12px 14px", marginBottom: 16,
