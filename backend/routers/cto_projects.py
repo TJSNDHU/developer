@@ -1556,6 +1556,49 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         if lint_result.get("warnings"):
             await _log(task_id, f"⚠️ Linter: {len(lint_result['warnings'])} non-blocking warning(s)", "warning")
 
+        # iter 111 — VANGUARD VERIFY AGENT (separate-agent security pass)
+        # ────────────────────────────────────────────────────────────
+        # After ORA writes code but BEFORE we commit, run a SECOND
+        # independent agent (Claude Sonnet 4.5 via Emergent LLM key) that
+        # re-audits the patch for vulnerabilities. Plus if the patch
+        # contains executable Python, smoke-import it inside E2B so we
+        # catch SyntaxError / ImportError / NameError that the regex AST
+        # check can't see. Architecture mirrors Anthropic's
+        # defending-code-reference-harness "find → grader → judge"
+        # pattern. Both passes must succeed for the commit to proceed.
+        try:
+            await _log(task_id, "🛡️ Vanguard verify agent reviewing patch…")
+            from services.vanguard_verify_agent import verify_patch
+            verify_result = await verify_patch(
+                edits, repo_ctx=f"{owner}/{repo}@{branch}"
+            )
+            await _log(task_id, f"🛡️ Verify: {verify_result['summary']}",
+                       "info" if verify_result["pass"] else "error")
+            if not verify_result["pass"]:
+                # Surface up to 5 critical/high findings in the log
+                critical = [f for f in verify_result.get("findings", [])
+                             if f.get("severity") in ("CRITICAL", "HIGH")][:5]
+                for f in critical:
+                    await _log(
+                        task_id,
+                        f"  • [{f.get('severity')}] {f.get('file','?')}"
+                        f":{f.get('line','?')} — {f.get('rule', f.get('name','issue'))}"
+                        f" — {f.get('message','')[:120]}",
+                        "error",
+                    )
+                await _set_status(
+                    task_id, status="failed",
+                    error=("Vanguard verify agent blocked commit:\n"
+                           + verify_result.get("summary", ""))[:2000],
+                    completed_at=time.time(),
+                )
+                return
+        except Exception as _ve:
+            # Verify-agent infra error is NOT a security finding — fall
+            # through but log loudly so we know it isn't gating commits.
+            logger.warning("vanguard verify agent crashed: %r", _ve)
+            await _log(task_id, f"⚠️ Vanguard verify agent crashed: {type(_ve).__name__}", "warning")
+
         # 2c) TWO-AGENT MAXX (iter 40) — Claude reviews DeepSeek's edits.
         # Gated on per-task `maxx_mode`. On PASS we commit DeepSeek's
         # output as-is. On FAIL we commit Claude's corrected version.
