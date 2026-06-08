@@ -90,6 +90,8 @@ android-sdk/
 credentials.json
 *.key
 .credentials
-.env
-.env.*
-*.env
+# IMPORTANT — do NOT add .env / .env.* / *.env here.
+# Emergent deployment pipeline NEEDS the committed .env files to inject
+# production values at build time. Re-adding these patterns BREAKS
+# deployment with "connection refused" because backend boots without
+# MONGO_URL / EMERGENT_LLM_KEY etc. (See iter 108 deployment_agent report.)
