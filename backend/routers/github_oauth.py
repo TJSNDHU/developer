@@ -109,9 +109,43 @@ async def connect(
 
 
 @router.get("/callback")
-async def callback(code: str = Query(...), state: str = Query(...)):
-    """GitHub redirects here after user authorises. We exchange + store."""
-    if ":" not in state:
+async def callback(
+    code: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    error: Optional[str] = Query(default=None),
+    error_description: Optional[str] = Query(default=None),
+):
+    """GitHub redirects here after the user finishes the consent flow.
+
+    Two non-success paths to handle gracefully (without 422):
+      1. User clicked **Cancel** on GitHub → `?error=access_denied&...`
+         (no `code` present). We redirect to the frontend with a friendly
+         "github=cancelled" message instead of FastAPI's stock 422.
+      2. Any other GitHub-side error → same friendly redirect.
+    Success path: `?code=...&state=...` exchanges the code and continues.
+    """
+    # Iter 109 — user-cancelled the GitHub consent screen.
+    if error or not code:
+        logger.info("[oauth] callback non-success: error=%s code_present=%s state=%s",
+                    error, bool(code), state)
+        # Decide where to send them: signup flow → /signup, connect flow → /settings
+        target_path = "/settings"
+        if state and state.startswith("signup:"):
+            target_path = "/signup"
+        # Clean up the dangling state row so it can't be replayed.
+        try:
+            db = get_db()
+            if db is not None and state:
+                await db.oauth_states.delete_one({"state": state})
+        except Exception:
+            pass
+        reason = error or "missing_code"
+        # Keep the redirect URL short — frontend reads ?github=cancelled
+        return RedirectResponse(
+            url=_frontend_url(target_path, f"github=cancelled&reason={reason}")
+        )
+
+    if not state or ":" not in state:
         raise HTTPException(400, "Invalid state")
     mode_or_user, _, _ = state.partition(":")
 
