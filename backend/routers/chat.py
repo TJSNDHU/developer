@@ -1089,10 +1089,19 @@ async def chat_stream(
                         await q.put({"type": "result", "result": result})
                         return
                     except _HTTPExc as ora_err:
-                        logger.info(
-                            "ora upstream unavailable (%s) — falling back to AUREM",
-                            getattr(ora_err, "status_code", "?"),
-                        )
+                        # Iter 107 — log the FIRST trip at INFO, but once
+                        # the circuit-breaker is open (status 503 from
+                        # ora_client without an HTTP call), drop to DEBUG
+                        # to silence production log spam.
+                        _ora_status = getattr(ora_err, "status_code", 0)
+                        _ora_detail = str(getattr(ora_err, "detail", "")).lower()
+                        if _ora_status == 503 and "circuit" in _ora_detail:
+                            logger.debug("ora upstream circuit-open — using AUREM")
+                        else:
+                            logger.info(
+                                "ora upstream unavailable (%s) — falling back to AUREM",
+                                _ora_status or "?",
+                            )
                         activity["label"] = "ORA unavailable — switching to AUREM CTO…"
                         # Fall through to the AUREM/orchestrator path below.
 
