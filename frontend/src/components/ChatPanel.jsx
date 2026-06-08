@@ -1022,6 +1022,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             onClick={togglePreview}
             Icon={Eye}
             active={previewOpen}
+            className="chat-preview-tool"
           />
           <span style={{ flex: 1 }} />
           {/* Iter 38: agent selector — appears only when >1 agent is
@@ -1118,13 +1119,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   );
 }
 
-function ToolButton({ testid, title, onClick, Icon, active }) {
+function ToolButton({ testid, title, onClick, Icon, active, className }) {
   return (
     <button
       type="button"
       data-testid={testid}
       title={title}
       onClick={onClick}
+      className={className}
       style={{
         width: 34, height: 34, borderRadius: 4,
         background: active ? "var(--accent-soft)" : "transparent",

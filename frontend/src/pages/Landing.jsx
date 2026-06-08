@@ -71,8 +71,8 @@ export default function Landing() {
           fontWeight: 600, fontSize: 14, letterSpacing: "0.08em",
         }}>AUREM CTO</Link>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <a href="#pricing" data-testid="nav-pricing" className="btn-ghost">Pricing</a>
-          <Link to="/wall" data-testid="nav-wall" className="btn-ghost">Ship Wall</Link>
+          <a href="#pricing" data-testid="nav-pricing" className="btn-ghost nav-mobile-hide">Pricing</a>
+          <Link to="/wall" data-testid="nav-wall" className="btn-ghost nav-mobile-hide">Ship Wall</Link>
           <Link to="/login" data-testid="nav-login" className="btn-ghost">Sign in</Link>
           <Link to="/signup" data-testid="nav-signup" className="btn-primary">
             Get started <ArrowRight size={14} />

@@ -134,6 +134,7 @@ function DashboardBody() {
           data-testid="preview-toggle"
           onClick={togglePreview}
           title={showPreview ? "Hide preview pane" : "Show live preview pane"}
+          className="preview-toggle-btn"
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             fontSize: 11, padding: "5px 10px",

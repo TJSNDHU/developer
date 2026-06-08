@@ -404,16 +404,27 @@ table { max-width: 100%; }
     backdrop-filter: blur(2px);
   }
   .aurem-mobile-menu-btn {
-    position: fixed; top: 14px; left: 14px; z-index: 75;
-    width: 38px; height: 38px;
+    /* Iter 108 — moved from top-left to mid-left edge so it sits on the
+       SIDE of the screen (not on top), per founder feedback. Looks like
+       a pill tab clipped to the left edge — easier to thumb-reach. */
+    position: fixed; top: 50%; left: 0; transform: translateY(-50%);
+    z-index: 75;
+    width: 32px; height: 56px;
     display: inline-flex; align-items: center; justify-content: center;
-    background: rgba(13, 16, 24, 0.7);
+    background: rgba(13, 16, 24, 0.78);
     backdrop-filter: blur(8px);
     border: 1px solid var(--border-strong);
-    border-radius: 8px;
+    border-left: none;
+    border-radius: 0 10px 10px 0;
     color: var(--accent-2);
     cursor: pointer;
+    box-shadow: 4px 0 14px rgba(0,0,0,0.35);
   }
+  /* Iter 108 — landing nav: hide marketing links on mobile, keep auth CTAs */
+  .nav-mobile-hide { display: none !important; }
+  /* Iter 108 — chat preview controls: hide on mobile (no room for split pane) */
+  [data-testid="preview-toggle"].preview-toggle-btn,
+  .chat-preview-tool { display: none !important; }
 }
 @media (min-width: 901px) {
   .aurem-mobile-backdrop, .aurem-mobile-menu-btn { display: none !important; }
