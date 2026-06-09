@@ -253,6 +253,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Iter 114 — clear the live-task popup whenever the chat session
   // changes (user clicked "New chat" / switched sessions). The popup
   // belongs to the previous task lineage; carrying it over is wrong.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLivePopupTaskId(null); }, [sessionId]);
 
   // Iter 115 — debug/QA hook. Adding `?ltp=<task_id>` to the URL mounts
@@ -262,9 +263,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     try {
       const params = new URLSearchParams(window.location.search);
       const t = params.get("ltp");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (t) setLivePopupTaskId(t);
     } catch { /* ignore */ }
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
   const exhausted = !!usage?.is_exhausted;
@@ -306,6 +309,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (!latestAssistant) return;
     const blocks = extractCodeBlocks(latestAssistant.content);
     if (blocks.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewBlocks(blocks);
     // Auto-open the panel on first code reply (don't override if user closed it manually mid-session)
     if (!localStorage.getItem(PREVIEW_KEY)) {
@@ -318,6 +322,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   useEffect(() => {
     if (!activeProject?.preview_url) return;
     if (localStorage.getItem(PREVIEW_KEY) === "0") return; // user explicitly closed
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewOpen(true);
   }, [activeProject?.preview_url, activeProject?.project_id]);
 
@@ -325,6 +330,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingHistory(true);
     api
       .get(`/chat/history`, { params: { session_id: sessionId } })
@@ -837,8 +843,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               Mode {modeAmbiguous.detected}
             </strong>{" "}
             ({Math.round(modeAmbiguous.confidence * 100)}% confident). If
-            that's wrong, cancel and rephrase — e.g. start with
-            "debug …" for D, "add …" for C, "should I …" for B.
+            that&apos;s wrong, cancel and rephrase — e.g. start with
+            &quot;debug …&quot; for D, &quot;add …&quot; for C, &quot;should I …&quot; for B.
           </span>
           <button
             type="button"
