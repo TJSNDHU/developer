@@ -95,3 +95,6 @@ credentials.json
 # production values at build time. Re-adding these patterns BREAKS
 # deployment with "connection refused" because backend boots without
 # MONGO_URL / EMERGENT_LLM_KEY etc. (See iter 108 deployment_agent report.)
+.env
+.env.*
+*.env
