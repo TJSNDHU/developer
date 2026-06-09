@@ -254,6 +254,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // changes (user clicked "New chat" / switched sessions). The popup
   // belongs to the previous task lineage; carrying it over is wrong.
   useEffect(() => { setLivePopupTaskId(null); }, [sessionId]);
+
+  // Iter 115 — debug/QA hook. Adding `?ltp=<task_id>` to the URL mounts
+  // the popup for that task without going through a real chat handoff.
+  // Useful for visual smoke tests + first-time user demos.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get("ltp");
+      if (t) setLivePopupTaskId(t);
+    } catch { /* ignore */ }
+  }, []);
   useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
   const exhausted = !!usage?.is_exhausted;
