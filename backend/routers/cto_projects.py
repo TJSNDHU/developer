@@ -1041,6 +1041,12 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 # When user didn't specify files, keep first 4 hits
                 if not files and len(contents) >= 4:
                     break
+        # iter 114 — persist files_read for the live popup
+        try:
+            from services.task_diff import build_files_read
+            await _set_status(task_id, files_read=build_files_read(contents))
+        except Exception:
+            pass
 
         # 2) AI codegen — augment the user message with the cached
         # repo index so AUREM sees the project's overall shape, not
@@ -1764,10 +1770,33 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
         await _set_status(task_id, status="done", result=summary,
                           commit_sha=sha,
-                          files_changed=list(edits.keys()),
+                          files_changed_simple=list(edits.keys()),
                           edits=_frontend_subset(edits),
                           verified=True,
                           completed_at=time.time())
+        # iter 114 — rich diff + popup data
+        try:
+            from services.task_diff import build_files_changed, shape_vanguard_findings
+            rich_changes = build_files_changed(contents, edits)
+            findings_clean = shape_vanguard_findings(
+                (verify_result.get("findings", []) if "verify_result" in locals() else []),
+                status=("blocked" if "verify_result" in locals()
+                        and not verify_result.get("pass", True)
+                        else "fixed"),
+            )
+            _started = (await db.cto_tasks.find_one(
+                {"task_id": task_id}, {"started_at": 1, "_id": 0}
+            )) or {}
+            elapsed = max(0, int(time.time() - (_started.get("started_at") or time.time())))
+            await _set_status(
+                task_id,
+                files_changed=rich_changes,
+                vanguard_findings=findings_clean,
+                time_taken_seconds=elapsed,
+                github_url=f"https://github.com/{owner}/{repo}/commit/{commit_full_sha}",
+            )
+        except Exception as _diff_e:
+            logger.warning("task_diff/popup persistence failed: %r", _diff_e)
         await _emit(task_id, f"Done — {sha[:7]}", kind="done", pct=100)
         db = get_db()
         if db is not None:

@@ -21,6 +21,7 @@ import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
 import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
+import LiveTaskPopup from "./LiveTaskPopup";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
@@ -234,6 +235,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   //  markdown: string, error?: string}
   const [attachments, setAttachments] = useState([]);
   const [dragOver, setDragOver] = useState(false);
+  // Iter 114 — Live task popup state. Set when a CTO task is dispatched
+  // (onTaskHandoff). Auto-dismisses on success after 5s, persists on
+  // failure until the user closes it manually, vanishes immediately on
+  // session change (new chat).
+  const [livePopupTaskId, setLivePopupTaskId] = useState(null);
 
   // Load token usage on mount + every time a turn is saved (so the banner
   // reflects fresh consumption right after a chat reply / CTO task).
@@ -243,6 +249,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       setUsage(r.data);
     } catch (_) { /* non-fatal */ }
   }, []);
+
+  // Iter 114 — clear the live-task popup whenever the chat session
+  // changes (user clicked "New chat" / switched sessions). The popup
+  // belongs to the previous task lineage; carrying it over is wrong.
+  useEffect(() => { setLivePopupTaskId(null); }, [sessionId]);
   useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
   const exhausted = !!usage?.is_exhausted;
@@ -550,6 +561,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           }
           return copy;
         });
+        // Iter 114 — open the floating live-status popup for this task
+        setLivePopupTaskId(p.task_id || null);
         // Fire a global hook so the right-side <PreviewPane /> can latch
         // onto the new task without prop-drilling through Shell.
         try {
@@ -1115,6 +1128,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           />
         );
       })()}
+      {/* Iter 114 — floating live-task popup, only one ever mounted.
+          key={livePopupTaskId} forces a clean remount per task so its
+          internal poll/dismiss timers start fresh — no stale state. */}
+      <LiveTaskPopup
+        key={livePopupTaskId || "none"}
+        taskId={livePopupTaskId}
+        onClose={() => setLivePopupTaskId(null)}
+      />
     </div>
   );
 }
