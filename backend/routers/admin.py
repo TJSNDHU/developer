@@ -1397,6 +1397,62 @@ async def vanguard_recent(
 ):
     """Most recent N blocked-commit rows for the table."""
     await _require_admin(authorization)
+
+# ── DB health (iter 117) ───────────────────────────────────────────
+@router.get("/db-health")
+async def db_health(authorization: Optional[str] = Header(None)):
+    """Live DB health snapshot — verifies all required collections are
+    materialised + the documented indexes exist. Reads the bootstrap
+    state from the last init_prod_collections() run + re-checks the
+    current collection set right now."""
+    await _require_admin(authorization)
+    from scripts.init_prod_collections import (
+        get_last_bootstrap, _BOOTSTRAP_SPEC,
+    )
+    db = get_db()
+    required = [name for name, _ in _BOOTSTRAP_SPEC]
+    present: list[str] = []
+    missing: list[str] = list(required)
+    indexes_ok = True
+    if db is not None:
+        try:
+            existing = set(await db.list_collection_names())
+            present = [n for n in required if n in existing]
+            missing = [n for n in required if n not in existing]
+            # Spot-check: each required collection should have at least
+            # one secondary index (beyond the default _id one). If any
+            # collection has only _id, the boot script didn't run cleanly.
+            for name, idx_specs in _BOOTSTRAP_SPEC:
+                if name not in existing or not idx_specs:
+                    continue
+                idx = await db[name].list_indexes().to_list(length=50)
+                if len(idx) < 1 + 1:  # _id_ + at least one user index
+                    indexes_ok = False
+                    break
+        except Exception as e:
+            return {
+                "ok": False,
+                "collections_present": 0,
+                "last_bootstrap": None,
+                "missing": required,
+                "indexes_ok": False,
+                "error": str(e)[:200],
+            }
+    last = get_last_bootstrap()
+    return {
+        "ok": True,
+        "collections_present": len(present),
+        "collections_expected": len(required),
+        "last_bootstrap":        (last or {}).get("ts"),
+        "last_bootstrap_summary": {
+            "created":      (last or {}).get("created", []),
+            "indexed_count": len((last or {}).get("indexed", [])),
+            "errors":       (last or {}).get("errors", []),
+        },
+        "missing":    missing,
+        "indexes_ok": indexes_ok and not missing,
+    }
+
     db = get_db()
     from services.vanguard_audit import recent_blocks
     return {"rows": await recent_blocks(db, limit=max(1, min(limit, 200)))}

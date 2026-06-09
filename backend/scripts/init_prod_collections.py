@@ -114,11 +114,23 @@ async def _ensure_indexes(db, name: str,
     return n
 
 
+_LAST_BOOTSTRAP: dict | None = None
+
+
+def get_last_bootstrap() -> dict | None:
+    """Return the result of the most recent init_prod_collections call,
+    or None if it hasn't been called yet this process."""
+    return _LAST_BOOTSTRAP
+
+
 async def init_prod_collections(db) -> dict:
     """Idempotent bootstrap. Safe to call on every boot."""
-    out = {"created": [], "indexed": [], "errors": []}
+    from datetime import datetime, timezone
+    out = {"created": [], "indexed": [], "errors": [], "ts": datetime.now(timezone.utc).isoformat()}
     if db is None:
         out["errors"].append("db is None")
+        global _LAST_BOOTSTRAP
+        _LAST_BOOTSTRAP = out
         return out
     for name, idx_specs in _BOOTSTRAP_SPEC:
         try:
@@ -132,4 +144,5 @@ async def init_prod_collections(db) -> dict:
             logger.warning("init_prod_collections %s failed: %r", name, e)
     logger.info("init_prod_collections done — created=%d, indexed=%d, errors=%d",
                 len(out["created"]), len(out["indexed"]), len(out["errors"]))
+    _LAST_BOOTSTRAP = out
     return out
