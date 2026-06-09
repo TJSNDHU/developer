@@ -157,6 +157,20 @@ async def lifespan(app: FastAPI):
         await _ora_idx()
     except Exception as _e:
         logger.warning(f"ora council index ensure failed: {_e}")
+    # Iter 116 — Idempotent collection bootstrap. Fresh Atlas DB on
+    # production deploy doesn't auto-create collections; admin endpoints
+    # that READ them (cto_payments / vanguard_audit / referrals / etc.)
+    # would otherwise return empty until first write. This creates each
+    # collection + its indexes on every boot. Safe to re-run.
+    try:
+        from scripts.init_prod_collections import init_prod_collections
+        result = await init_prod_collections(app.state.db)
+        if result.get("created"):
+            logger.info("📦 collections created on boot: %s", result["created"])
+        if result.get("errors"):
+            logger.warning("init_prod_collections errors: %s", result["errors"])
+    except Exception as _e:
+        logger.warning(f"init_prod_collections failed: {_e}")
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
