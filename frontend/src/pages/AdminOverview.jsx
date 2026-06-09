@@ -54,7 +54,6 @@ export default function AdminOverview() {
     run();
     const t = setInterval(run, 60_000);
     return () => { cancelled = true; clearInterval(t); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) return (
@@ -205,7 +204,7 @@ export default function AdminOverview() {
       </Section>
 
       {/* ── Features checklist ──────────────────────────────── */}
-      <Section title="Features — live status (Iter 73-74)">
+      <Section title="Features — live status (Iter 73-119)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
           <FeatureRow name="Two-Agent Maxx"          status="live"    note="DeepSeek + Claude review" />
           <FeatureRow name="Project Brain"           status="live"    note="Per-repo memory + commit SHAs" />
@@ -218,7 +217,7 @@ export default function AdminOverview() {
           <FeatureRow name="Rate limiting"           status="live"    note="30/min chat, OOM-proof" />
           <FeatureRow name="SSE task streamer"       status="live"    note="task_handoff + task_state frames" />
           <FeatureRow name="ORA council logger"      status="live"    note="A/B only" />
-          <FeatureRow name="Sentry monitoring"       status="needs-dsn" note="SDK wired, set SENTRY_DSN" />
+          <FeatureRow name="Sentry monitoring"       status="live"    note="DSN set — full coverage on (Iter 48)" />
           <FeatureRow name="GitHub OAuth"            status="live"    note="Inline in NewUserWizard step 1" />
           <FeatureRow name="Public stats strip"      status="live"    note="Real /usage/public/stats" />
           <FeatureRow name="Ship Wall"               status="live"    note="auremcto.com/wall" />
@@ -226,19 +225,18 @@ export default function AdminOverview() {
           <FeatureRow name="VS Code extension"       status="live"    note="aurem-cto-0.1.0.vsix shipped (Iter 72)" />
           <FeatureRow name="OpsRecipes runbook"      status="live"    note="/admin/ops — 5 ops recipes (Iter 73)" />
           <FeatureRow name="Live worker tape"        status="live"    note="Terminal-feed SSE in chat (Iter 73)" />
-          <FeatureRow name="task_state per-file"     status="live"    note="Writing N/M files mini-bar (Iter 74 f/u)" />
+          <FeatureRow name="task_state per-file"     status="live"    note="Writing N/M files mini-bar (Iter 74)" />
           <FeatureRow name="NewUserWizard"           status="live"    note="3-step onboarding w/ inline OAuth (Iter 73)" />
           <FeatureRow name="Parallel sub-tapes"      status="live"    note="Per-agent mini progress bars (Iter 73)" />
           <FeatureRow name="Semantic code search"    status="live"    note="GitHub Code Search tool (Iter 74)" />
           <FeatureRow name="get_commit_diff tool"    status="live"    note="ORA studies past commits (Iter 74)" />
           <FeatureRow name="Python AST gate"         status="live"    note="ast.parse + node --check (Iter 74)" />
           <FeatureRow name="Multi-file checklist"    status="live"    note="[ ] → [x] TaskManagementPanel (Iter 74)" />
-          <FeatureRow name="Brain Show-diff buttons" status="live"    note="Per-commit pattern recall (Iter 74 f/u)" />
+          <FeatureRow name="Brain Show-diff buttons" status="live"    note="Per-commit pattern recall (Iter 74)" />
           <FeatureRow name="4-tier pricing"          status="live"    note="Free/Starter/Pro/Team + Stripe (Iter 75)" />
           <FeatureRow name="Mode classifier telemetry" status="live"  note="/admin/mode-telemetry (Iter 70)" />
           <FeatureRow name="Brain replay sandbox"    status="live"    note="/admin/brain/{pid}/replay (Iter 70)" />
-          <FeatureRow name="SWE-bench score"         status="pending" note="Run benchmark" />
-          <FeatureRow name="e2b sandbox runner"      status="needs-key" note="services/sandbox_runner.py — set E2B_API_KEY (Iter 75)" />
+          <FeatureRow name="e2b sandbox runner"      status="live"    note="E2B_API_KEY set — Vanguard verify gate (Iter 110)" />
           <FeatureRow name="TF-IDF search fallback"  status="live"    note="GitHub Code Search + local index (Iter 75)" />
           <FeatureRow name="esbuild JSX gate"        status="live"    note="esbuild → node --check fallback (Iter 75)" />
           <FeatureRow name="MULTI-FILE CONTRACT"     status="live"    note="Structural retry if files missing (Iter 75)" />
@@ -248,7 +246,23 @@ export default function AdminOverview() {
           <FeatureRow name="Milestone share toast"   status="live"    note="10/25/50 task auto-prompt → /wrapped (Iter 77)" />
           <FeatureRow name="Settings Wrapped embed"  status="live"    note="Plan + activity on one screen (Iter 77)" />
           <FeatureRow name="Subscription tiers"      status="live"    note="services/subscription_tiers.py SSOT (Iter 75)" />
-          <FeatureRow name="Stripe webhook"          status="needs-key" note="POST /payments/webhook — set price IDs (Iter 75)" />
+          <FeatureRow name="Stripe webhook + Maxx"   status="live"    note="POST /payments/webhook + overage cron (Iter 102)" />
+          {/* Iter 100-119 batch */}
+          <FeatureRow name="Mobile UX polish"        status="live"    note="Responsive layout pass (Iter 103)" />
+          <FeatureRow name="Cold-start 520 fix"      status="live"    note="No more LLM cold-start hallucinations (Iter 104)" />
+          <FeatureRow name="ORA URL refusal fix"     status="live"    note="External URL handling + 500 circuit breaker (Iter 105)" />
+          <FeatureRow name="OAuth cancel redirect"   status="live"    note="Intent separation on OAuth abort (Iter 106)" />
+          <FeatureRow name="Vision API fallback"     status="live"    note="GPT-4o → Claude → Gemini chain (Iter 107)" />
+          <FeatureRow name="Decision Council regex"  status="live"    note="Mode B classifier robustness (Iter 108)" />
+          <FeatureRow name="Vanguard Verify Agent"   status="live"    note="Claude Sonnet 4.5 pre-commit gate (Iter 110-112)" />
+          <FeatureRow name="Vanguard Audit Log"      status="live"    note="/admin/vanguard — block history + counts (Iter 113)" />
+          <FeatureRow name="Live Task Popup"         status="live"    note="LiveTaskPopup.jsx — real CTO tasks only (Iter 114-115)" />
+          <FeatureRow name="DB collection bootstrap" status="live"    note="Idempotent init_prod_collections on boot (Iter 116)" />
+          <FeatureRow name="DB Health endpoint"      status="live"    note="GET /admin/db-health → green card above (Iter 117)" />
+          <FeatureRow name="Route cache middleware"  status="live"    note="60s/30s TTL, 5 polling routes, X-Cache header (Iter 118)" />
+          <FeatureRow name="Citation chips"          status="live"    note="🌐 chips in chat — Tavily/Firecrawl/fetch_url (Iter 119)" />
+          <FeatureRow name="Token enforcement tests" status="live"    note="conftest .env loader + throwaway-user pattern (Iter 119)" />
+          <FeatureRow name=".gitignore policy lock"  status="live"    note="Option B — secrets via deploy dashboard (Iter 119)" />
         </div>
         <div style={{
           marginTop: 14, fontSize: 11, color: "var(--text-dim)",
@@ -257,8 +271,8 @@ export default function AdminOverview() {
           border: "1px solid rgba(109,212,161,0.22)",
           borderRadius: 5,
         }}>
-          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>452 passing</strong>
-          {" "}/ 14 pre-existing env failures / 9 skips. Build hash above ↑.
+          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>657 passing</strong>
+          {" "}/ 0 failures / 9 skips (iter 119). Build hash above ↑.
         </div>
       </Section>
 

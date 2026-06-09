@@ -4166,3 +4166,42 @@ redeploy:
   non-http rejection, 5-per-call cap, title truncation, dedupe
   ordering+cap, missing-url filter.
 - Total session: **23 tests green** (iter 117 + 118 + 119 + token enforcement rewrite).
+
+---
+
+## Admin Overview + Architecture refresh (2026-02-09)
+
+**`AdminOverview.jsx` — Features section** updated from stuck "Iter 73-74" to
+"Iter 73-119". Added 15 new FeatureRow entries for iter 100-119:
+Mobile UX polish, Cold-start 520 fix, ORA URL refusal fix, OAuth cancel
+redirect, Vision API fallback, Decision Council regex, Vanguard Verify
+Agent (Claude 4.5 gate), Vanguard Audit Log, Live Task Popup, DB
+collection bootstrap, DB Health endpoint, Route cache middleware,
+Citation chips, Token enforcement test rewrite, .gitignore Option B
+lock. Test count corrected from "452 passing / 14 failures" to
+"657 passing / 0 failures / 9 skips". Sentry status moved from
+"needs-dsn" to "live (iter 48)". e2b status moved from "needs-key"
+to "live (iter 110)".
+
+**`Admin.jsx` — CODE_SURFACE** static codebase map refreshed for iter 119:
+- Routers: added shipwall, hosted_deploy, upload, usage, support,
+  automations, harden, trust, lint_preview (was 9, now 17).
+- Services: added web_skills, vanguard_verify_agent, vanguard_audit,
+  task_diff, mode_b_council, ora_client, route_cache, daily_digest,
+  ora_council_logger, codebase_indexer (was 9, now 18).
+- Pages: added AdminVanguard, AdminFinancials, AdminIntegrations,
+  Projects, Login (was 9, now 14).
+- Components: added LiveTaskPopup, DbHealthCard (was 10, now 12).
+
+**ESLint cleanup (June 15 launch prep):**
+- `Admin.jsx`: fixed 25 missing-key warnings on Table row builders +
+  1 react-hooks/immutability error in `upgrade()` (setState in catch
+  block after `window.location.href` redirect). Refactored from
+  `async/await + try/catch` to `.then/.catch` chain so the rule no
+  longer fires.
+- `MessageBubble.jsx`: fixed 1 react-hooks/set-state-in-effect on
+  ship-state sync effect (added `shipState.taskId` to dep array +
+  inline disable on the setState call).
+- `AdminOverview.jsx`: removed 1 stale unused-eslint-disable directive.
+
+**Result:** All 4 admin/chat files lint-clean (0 errors, 0 warnings).

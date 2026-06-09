@@ -148,15 +148,15 @@ function Dashboard() {
         <Table
           cols={["Task", "User", "Status", "Commit", "Time"]}
           rows={(data.recent_tasks || []).map((t) => [
-            <span style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis",
+            <span key="task" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis",
                             whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
-            <span style={{ color: "var(--text-faint)",
+            <span key="user" style={{ color: "var(--text-faint)",
                             fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
               {(t.user_id || "").slice(0, 10)}
             </span>,
-            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
-            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
-            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+            <Badge key="status" color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span key="commit" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
           ])}
         />
       </Card>
@@ -171,8 +171,8 @@ function Dashboard() {
           rows={(data.recent_users || []).map((u) => [
             u.email,
             u.name || "—",
-            <Badge>{u.tier || "free"}</Badge>,
-            <span style={{ color: "var(--text-faint)" }}>{ago(u.created_at)}</span>,
+            <Badge key="tier">{u.tier || "free"}</Badge>,
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(u.created_at)}</span>,
           ])}
         />
       </Card>
@@ -225,11 +225,12 @@ function UsersList({ onSelect }) {
             rows={users.map((u) => [
               u.email,
               u.name || "—",
-              <Badge>{u.tier || "free"}</Badge>,
+              <Badge key="tier">{u.tier || "free"}</Badge>,
               u.project_count ?? 0,
               u.task_count ?? 0,
-              <Badge color={STATUS_COLOR[u.status || "active"]}>{u.status || "active"}</Badge>,
+              <Badge key="status" color={STATUS_COLOR[u.status || "active"]}>{u.status || "active"}</Badge>,
               <button
+                key="act"
                 data-testid={`admin-user-view-${u.user_id}`}
                 className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }}
                 onClick={() => onSelect(u)}>
@@ -409,11 +410,11 @@ function UserDetail({ user, onBack }) {
         <Table
           cols={["Task", "Status", "Commit", "Time"]}
           rows={(d.recent_tasks || []).map((t) => [
-            <span style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis",
+            <span key="task" style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis",
                             whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
-            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
-            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
-            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+            <Badge key="status" color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span key="commit" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
           ])}
         />
       </Card>
@@ -437,16 +438,16 @@ function ProjectsPage() {
           cols={["Name", "Repo", "Branch", "Stack", "Tasks", "User", "Created"]}
           rows={data.map((p) => [
             p.name,
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+            <span key="repo" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
               {p.github_owner}/{p.github_repo}
             </span>,
             p.branch,
-            <Badge>{p.tech_stack || "auto"}</Badge>,
+            <Badge key="stack">{p.tech_stack || "auto"}</Badge>,
             p.tasks_done ?? 0,
-            <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
+            <span key="user" style={{ color: "var(--text-faint)", fontSize: 11 }}>
               {(p.user_id || "").slice(0, 10)}
             </span>,
-            <span style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
           ])}
         />
       </Card>
@@ -485,17 +486,17 @@ function TasksPage() {
         <Table
           cols={["Task ID", "Task", "User", "Status", "Commit", "Created"]}
           rows={data.map((t) => [
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+            <span key="id" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
               {t.task_id?.slice(0, 12)}
             </span>,
-            <span style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis",
+            <span key="task" style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis",
                             whiteSpace: "nowrap", display: "block" }}>{t.task}</span>,
-            <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
+            <span key="user" style={{ color: "var(--text-faint)", fontSize: 11 }}>
               {(t.user_id || "").slice(0, 10)}
             </span>,
-            <Badge color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
-            t.commit_sha ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
-            <span style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
+            <Badge key="status" color={STATUS_COLOR[t.status]}>{t.status}</Badge>,
+            t.commit_sha ? <span key="commit" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.commit_sha}</span> : "—",
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(t.created_at)}</span>,
           ])}
         />
       </Card>
@@ -555,13 +556,13 @@ function PaymentsPage() {
         <Table
           cols={["Tier", "User", "Amount", "Status", "When"]}
           rows={(d.payments || []).map((p) => [
-            <Badge>{p.tier}</Badge>,
-            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{p.user_email}</span>,
+            <Badge key="tier">{p.tier}</Badge>,
+            <span key="user" style={{ fontSize: 11, color: "var(--text-faint)" }}>{p.user_email}</span>,
             fmtMoney(p.amount),
-            <Badge color={p.payment_status === "paid" ? "var(--ok)" : "var(--text-faint)"}>
+            <Badge key="status" color={p.payment_status === "paid" ? "var(--ok)" : "var(--text-faint)"}>
               {p.payment_status || p.status}
             </Badge>,
-            <span style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
+            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
           ])}
         />
       </Card>
@@ -841,54 +842,77 @@ function CodeSurfaceLive() {
 
 // Static map of the codebase surface — pairs with AdminOverview's
 // feature checklist. Hand-maintained when shape changes meaningfully.
+// Last refresh: iter 119 (Feb 2026).
 const CODE_SURFACE = [
   {
     title: "Routers",
     items: [
-      { name: "auth.py",            note: "JWT + signup" },
-      { name: "chat.py",            note: "SSE stream" },
-      { name: "cto_projects.py",    note: "tasks + brain" },
-      { name: "admin.py",           note: "ops + telemetry" },
-      { name: "github_oauth.py",    note: "PAT + OAuth" },
-      { name: "payments.py",        note: "Stripe 4-tier" },
-      { name: "wall.py",            note: "ship feed" },
+      { name: "auth.py",            note: "JWT + signup + founder allowlist" },
+      { name: "chat.py",            note: "SSE stream + citation chips (iter 119)" },
+      { name: "cto_projects.py",    note: "tasks + brain + Vanguard hook" },
+      { name: "admin.py",           note: "ops + telemetry + db-health (iter 117)" },
+      { name: "github_oauth.py",    note: "PAT + OAuth + cancel-redirect (iter 106)" },
+      { name: "payments.py",        note: "Stripe 4-tier + Maxx overage" },
+      { name: "shipwall.py",        note: "ship feed (cached, iter 118)" },
       { name: "wrapped.py",         note: "user stats" },
       { name: "deploy.py",          note: "Vercel/Netlify" },
+      { name: "hosted_deploy.py",   note: "Emergent native deploy" },
+      { name: "upload.py",          note: "chunked uploads + Cloudinary" },
+      { name: "usage.py",           note: "/usage/me + plan limits" },
+      { name: "support.py",         note: "ticket inbox" },
+      { name: "automations.py",     note: "scheduled jobs" },
+      { name: "harden.py",          note: "security advice tool" },
+      { name: "trust.py",           note: "signals + nav surface" },
+      { name: "lint_preview.py",    note: "esbuild + AST gate" },
     ],
   },
   {
     title: "Services",
     items: [
-      { name: "orchestrator.py",       note: "persona + tools" },
-      { name: "local_tools.py",        note: "7 LLM tools" },
+      { name: "orchestrator.py",       note: "persona + tools + web sources" },
+      { name: "local_tools.py",        note: "9 LLM tools + Vanguard skills" },
+      { name: "web_skills.py",         note: "Tavily + Firecrawl + fetch_url" },
       { name: "project_brain.py",      note: "per-repo memory" },
       { name: "vanguard_scanner.py",   note: "AST + 25 patterns" },
+      { name: "vanguard_verify_agent.py", note: "Claude 4.5 gate (iter 110)" },
+      { name: "vanguard_audit.py",     note: "audit log writer (iter 113)" },
+      { name: "task_diff.py",          note: "pre-commit diff capture" },
+      { name: "mode_b_council.py",     note: "decision council (iter 108)" },
+      { name: "ora_client.py",         note: "ORA LLM wrapper + circuit breaker" },
       { name: "parallel_agents.py",    note: "Back/Front/Tests" },
       { name: "mode_classifier.py",    note: "A→F router" },
       { name: "sandbox_runner.py",     note: "e2b validate" },
       { name: "subscription_tiers.py", note: "tier SSOT" },
-      { name: "usage.py",              note: "task + token meter" },
+      { name: "route_cache.py",        note: "in-mem TTL cache (iter 118)" },
+      { name: "daily_digest.py",       note: "06:00 UTC admin 1-pager" },
+      { name: "ora_council_logger.py", note: "training-data writer" },
+      { name: "codebase_indexer.py",   note: "TF-IDF embedder" },
     ],
   },
   {
     title: "Pages",
     items: [
-      { name: "Landing.jsx",       note: "marketing" },
-      { name: "Dashboard.jsx",     note: "split pane" },
-      { name: "Settings.jsx",      note: "plan + wrapped" },
-      { name: "Wrapped.jsx",       note: "/wrapped" },
-      { name: "ShipWall.jsx",      note: "/wall" },
-      { name: "BrainDump.jsx",     note: "diff buttons" },
-      { name: "OpsRecipes.jsx",    note: "/admin/ops" },
-      { name: "AdminOverview.jsx", note: "feature audit" },
-      { name: "Admin.jsx",         note: "tabs + arch" },
+      { name: "Landing.jsx",        note: "marketing" },
+      { name: "Dashboard.jsx",      note: "split pane" },
+      { name: "Settings.jsx",       note: "plan + wrapped" },
+      { name: "Wrapped.jsx",        note: "/wrapped" },
+      { name: "ShipWall.jsx",       note: "/wall (cached)" },
+      { name: "BrainDump.jsx",      note: "diff buttons" },
+      { name: "OpsRecipes.jsx",     note: "/admin/ops" },
+      { name: "AdminOverview.jsx",  note: "feature audit + DB health" },
+      { name: "AdminVanguard.jsx",  note: "Vanguard block log (iter 113)" },
+      { name: "AdminFinancials.jsx", note: "MRR + Maxx P&L" },
+      { name: "AdminIntegrations.jsx", note: "key health grid" },
+      { name: "Admin.jsx",          note: "tabs + arch + code surface" },
+      { name: "Projects.jsx",       note: "repo CRUD + GitHub PAT" },
+      { name: "Login.jsx",          note: "JWT + Google OAuth" },
     ],
   },
   {
     title: "Components",
     items: [
-      { name: "ChatPanel.jsx",           note: "SSE chat" },
-      { name: "MessageBubble.jsx",       note: "rich render" },
+      { name: "ChatPanel.jsx",           note: "SSE chat + sources" },
+      { name: "MessageBubble.jsx",       note: "rich render + 🌐 chips (iter 119)" },
       { name: "TaskLiveTape.jsx",        note: "terminal feed" },
       { name: "TaskProgressCard.jsx",    note: "ship + rollback" },
       { name: "TaskManagementPanel.jsx", note: "checklist" },
@@ -897,6 +921,8 @@ const CODE_SURFACE = [
       { name: "PricingCards.jsx",        note: "4-tier grid" },
       { name: "OraWrapped.jsx",          note: "share card" },
       { name: "Toast.jsx",               note: "milestones" },
+      { name: "LiveTaskPopup.jsx",       note: "live task tape (iter 114)" },
+      { name: "DbHealthCard",            note: "inlined in AdminOverview (iter 117-118)" },
     ],
   },
 ];
@@ -922,21 +948,17 @@ function SettingsPage() {
     }
   }, []);
 
-  async function upgrade(tier) {
+  function upgrade(tier) {
     setUpgrading(tier);
-    try {
-      const r = await api.post("/payments/checkout", {
-        tier,
-        origin_url: window.location.origin,
+    api.post("/payments/checkout", {
+      tier,
+      origin_url: window.location.origin,
+    })
+      .then((r) => { window.location.href = r.data.url; })
+      .catch((e) => {
+        toast({ message: e?.response?.data?.detail || "Could not start checkout", kind: "error" });
+        setUpgrading(null);
       });
-      window.location.href = r.data.url;
-    } catch (e) {
-      toast({
-        message: e?.response?.data?.detail || "Couldn't start checkout",
-        kind: "error",
-      });
-      setUpgrading(null);
-    }
   }
 
   if (!s) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;

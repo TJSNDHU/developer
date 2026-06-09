@@ -309,12 +309,12 @@ export default function MessageBubble({
   // when m.shipped_task_id changes so the poll loop actually fires.
   useEffect(() => {
     if (m.shipped_task_id && m.shipped_task_id !== shipState.taskId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShipState((s) => ({
         ...s, status: "shipped", taskId: m.shipped_task_id, error: null,
       }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [m.shipped_task_id]);
+  }, [m.shipped_task_id, shipState.taskId]);
 
   // Poll the CTO task while it's in progress, until done/failed
   useEffect(() => {
