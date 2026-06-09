@@ -84,7 +84,11 @@ async def get_usd_cad_rate() -> dict:
         }
     try:
         async with httpx.AsyncClient(timeout=8) as c:
-            r = await c.get("https://api.frankfurter.app/latest", params={"from": "USD", "to": "CAD"})
+            # Iter 115 — frankfurter migrated from .app → .dev/v1/ on
+            # 2026-06. The old URL returns a 301 redirect that httpx
+            # doesn't auto-follow when redirects are off, so we hit the
+            # new endpoint directly.
+            r = await c.get("https://api.frankfurter.dev/v1/latest", params={"from": "USD", "to": "CAD"})
             r.raise_for_status()
             rate = float(r.json()["rates"]["CAD"])
             _fx_cache.update({
