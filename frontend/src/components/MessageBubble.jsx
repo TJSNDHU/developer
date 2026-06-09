@@ -654,6 +654,65 @@ export default function MessageBubble({
           </div>
         )}
 
+        {/* Iter 119 — Web citation chips (Tavily / Firecrawl / fetch_url).
+            Shows the user where ORA actually fetched external info from.
+            One-click verifiable; no chip means no web read this turn. */}
+        {m.role === "assistant"
+          && !m.streaming
+          && Array.isArray(m.webSources)
+          && m.webSources.length > 0 && (
+          <div data-testid={`citation-chips-${idx}`} style={{
+            marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6,
+            alignItems: "center", paddingLeft: 4,
+          }}>
+            <span style={{
+              fontSize: 10, color: "var(--text-faint)",
+              letterSpacing: ".06em", textTransform: "uppercase",
+              marginRight: 4,
+            }}>
+              Web sources
+            </span>
+            {m.webSources.map((src, ci) => {
+              let domain = "";
+              try { domain = new URL(src.url).hostname.replace(/^www\./, ""); }
+              catch { domain = src.url; }
+              return (
+                <a
+                  key={ci}
+                  data-testid={`citation-chip-${idx}-${ci}`}
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  title={src.title || src.url}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px",
+                    background: "var(--panel-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999,
+                    fontSize: 11, lineHeight: 1.4,
+                    color: "var(--text-dim)",
+                    textDecoration: "none",
+                    fontFamily: "ui-monospace, Menlo, monospace",
+                    transition: "border-color .12s, color .12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "var(--accent)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.color = "var(--text-dim)";
+                  }}
+                >
+                  <span style={{ fontSize: 10 }}>🌐</span>
+                  <span>{domain}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
+
         {/* Watchdog pending */}
         {m.role === "assistant" && m.watchdogPending && (
           <div data-testid={`watchdog-pending-${idx}`} style={{

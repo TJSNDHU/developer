@@ -24,6 +24,65 @@ from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
 logger = logging.getLogger(__name__)
 
 
+# Iter 119 — citation chip support.
+# Web tools that produce external URLs the LLM cited. We surface them
+# to the UI as 🌐 chips so users can verify claims.
+_WEB_TOOLS = {
+    "web_search", "web_search_and_summarize",
+    "fetch_url", "firecrawl_scrape", "firecrawl_crawl_site",
+}
+
+
+def _extract_web_sources(tool_name: str, args: dict, res: dict) -> list[dict]:
+    """Pull a flat list of {url, title, tool} from a web-tool result.
+    Defensive: returns [] for any non-web tool, non-200 result, or
+    unexpected shape. Capped at 5 sources per call."""
+    if tool_name not in _WEB_TOOLS or not res or not res.get("ok"):
+        return []
+    out: list[dict] = []
+
+    def _push(url: str, title: str = "") -> None:
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return
+        out.append({"url": url, "title": (title or "")[:140], "tool": tool_name})
+
+    if tool_name == "web_search":
+        for row in (res.get("results") or [])[:5]:
+            _push(row.get("url", ""), row.get("title", ""))
+    elif tool_name == "web_search_and_summarize":
+        for row in (res.get("citations") or [])[:5]:
+            _push(row.get("url", ""), row.get("title", ""))
+    elif tool_name == "fetch_url":
+        for row in (res.get("results") or [])[:5]:
+            _push(row.get("url", ""), row.get("title", ""))
+    elif tool_name == "firecrawl_scrape":
+        # Source URL comes from args; firecrawl returns content separately.
+        _push((args or {}).get("url", ""), "")
+    elif tool_name == "firecrawl_crawl_site":
+        for row in (res.get("pages") or res.get("results") or [])[:5]:
+            if isinstance(row, dict):
+                _push(row.get("url", ""), row.get("title", ""))
+            elif isinstance(row, str):
+                _push(row, "")
+    return out
+
+
+def _dedupe_sources(all_sources: list[dict]) -> list[dict]:
+    """De-dupe by URL while preserving first-seen order. Cap at 8 so
+    the UI doesn't get a wall of chips."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for s in all_sources:
+        u = s.get("url")
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        out.append(s)
+        if len(out) >= 8:
+            break
+    return out
+
+
 def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
     """Build a human-readable closing message when we hit `max_iters`.
 
@@ -728,6 +787,9 @@ async def chat_with_tools(
                     "tool_invocations": invocations,
                     "mode": llm_mode,
                     "tool_loop_break": True,
+                    "web_sources": _dedupe_sources(
+                        [s for inv in invocations for s in (inv.get("web_sources") or [])]
+                    ),
                 }
 
         if not calls:
@@ -777,6 +839,9 @@ async def chat_with_tools(
                 # fabricated citation cannot render Ship via CTO.
                 "verified_paths": sorted(tool_paths_read),
                 "mode": llm_mode,
+                "web_sources": _dedupe_sources(
+                    [s for inv in invocations for s in (inv.get("web_sources") or [])]
+                ),
             }
 
         # iter 33: PARALLEL tool execution via asyncio.gather.
@@ -803,6 +868,8 @@ async def chat_with_tools(
                 "ok":         res.get("ok"),
                 "elapsed_ms": res.get("elapsed_ms"),
                 "error":      res.get("error"),
+                # Iter 119 — web sources for citation chip
+                "web_sources": _extract_web_sources(tool_name, tool_args, res),
             })
             return {"tool": tool_name, "result": res}
 
@@ -873,4 +940,7 @@ async def chat_with_tools(
         "verified_paths": sorted(_max_iter_paths),
         "mode": llm_mode,
         "max_iters_hit": True,
+        "web_sources": _dedupe_sources(
+            [s for inv in invocations for s in (inv.get("web_sources") or [])]
+        ),
     }

@@ -4113,3 +4113,56 @@ redeploy:
 - `.gitignore` re-blocked `.env` again — removed (3rd recurrence).
 - Single uvicorn worker assumed; if we scale to N workers, swap dict
   for redis (TTL semantics already match).
+
+---
+
+## Iter 119 — Token enforcement fix + Citation chips (2026-02-09)
+
+### Part 1 — Token enforcement tests (E)
+
+**Root causes found:**
+1. `pytest` didn't auto-load `.env` → `KeyError: 'MONGO_URL'`.
+2. Tests assumed `test@aurem.dev` is a free-tier (1000-token) user,
+   but iter 30 added that email to the founder allow-list so it's now
+   `tier=founder`, `is_unlimited=true`. Founders bypass the budget
+   entirely, so exhaustion assertions could never trigger.
+
+**Fixes:**
+- New `/app/backend/tests/conftest.py` loads `/app/backend/.env` for
+  every test process (manual parser, no python-dotenv dep needed).
+- Rewrote `test_token_enforcement.py` to create a fresh throwaway
+  free-tier user via `/auth/signup` for each test, run the assertions
+  against THAT user, then purge. Founder account is used only as the
+  ADMIN issuing the grant in the recovery test.
+
+**Result:** 4/4 tests green (was 2/4).
+
+### Part 2 — Citation chips (A)
+
+**Backend (`services/orchestrator.py` + `routers/chat.py`):**
+- New helpers `_extract_web_sources()` and `_dedupe_sources()`.
+  Supported tools: `web_search`, `web_search_and_summarize`,
+  `fetch_url`, `firecrawl_scrape`, `firecrawl_crawl_site`.
+- Each `tool_invocation` now carries `web_sources: [{url, title, tool}]`.
+- All 3 orchestrator return paths (success, no-tool-call, max-iters
+  break) include a top-level `web_sources` flat list (deduped by URL,
+  capped at 8, http/https only).
+- SSE `done` event in chat now includes `web_sources`.
+
+**Frontend (`components/ChatPanel.jsx` + `components/MessageBubble.jsx`):**
+- `ChatPanel` reads `d.web_sources` from the done event and pins it
+  onto the assistant message as `webSources`.
+- `MessageBubble` renders a horizontal chip row above the watchdog
+  section when `webSources.length > 0`:
+  - small monospace pill, 🌐 + domain text, hover-glow on accent
+  - `target="_blank" rel="noopener noreferrer nofollow"`
+  - `data-testid="citation-chip-{idx}-{ci}"` for testing
+- Falsy / streaming / non-assistant messages get nothing — zero
+  visual noise when no web read happened.
+
+### Tests
+- `/app/backend/tests/test_iter119_citation_chips.py` — 10 tests covering:
+  extractor for each web tool, non-web skip, failed-result skip,
+  non-http rejection, 5-per-call cap, title truncation, dedupe
+  ordering+cap, missing-url filter.
+- Total session: **23 tests green** (iter 117 + 118 + 119 + token enforcement rewrite).

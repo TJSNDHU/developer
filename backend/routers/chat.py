@@ -1340,6 +1340,11 @@ async def chat_stream(
             # this set is a fabricated citation, so the Ship button is
             # suppressed.
             "verified_paths": result.get("verified_paths") or [],
+            # Iter 119 — web sources (URLs the model actually fetched via
+            # Tavily / Firecrawl / fetch_url). Frontend renders these as
+            # 🌐 citation chips below the assistant message so users can
+            # one-click verify external claims.
+            "web_sources": result.get("web_sources") or [],
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 

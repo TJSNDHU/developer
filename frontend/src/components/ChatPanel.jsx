@@ -662,6 +662,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               verifiedPaths: Array.isArray(d.verified_paths)
                 ? d.verified_paths
                 : [],
+              // Iter 119 — citation chips from Tavily / Firecrawl /
+              // fetch_url. Rendered as 🌐 chips below the message.
+              webSources: Array.isArray(d.web_sources)
+                ? d.web_sources
+                : [],
             };
           }
           return copy;
