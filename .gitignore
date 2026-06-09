@@ -84,17 +84,21 @@ ora_training_data/
 
 # Mobile development
 android-sdk/
-# NOTE: .env files MUST be committed for Emergent deployment to inject
-# production values. Do NOT re-block them. Sensitive secrets should
-# live ONLY in the deployment dashboard env config, not in committed files.
+# ───────────────────────────────────────────────────────────────────
+# Secrets policy (Option B — confirmed by founder, 2026-02-09):
+# All production secrets live in the EMERGENT DEPLOYMENT DASHBOARD,
+# NOT in committed .env files. So .env MUST stay ignored — this
+# prevents accidental `git add .` from leaking Stripe / Mongo /
+# JWT_SECRET / etc. to the GitHub repo.
+#
+# DO NOT remove these lines. The platform auto-re-adds them anyway
+# because they are correct. The previous "iter 108 deploy failure"
+# was caused by MISSING dashboard env vars, NOT by a committed
+# .env file.
+# ───────────────────────────────────────────────────────────────────
 credentials.json
 *.key
 .credentials
-# IMPORTANT — do NOT add .env / .env.* / *.env here.
-# Emergent deployment pipeline NEEDS the committed .env files to inject
-# production values at build time. Re-adding these patterns BREAKS
-# deployment with "connection refused" because backend boots without
-# MONGO_URL / EMERGENT_LLM_KEY etc. (See iter 108 deployment_agent report.)
 .env
 .env.*
 *.env

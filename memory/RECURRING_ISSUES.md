@@ -219,3 +219,32 @@ request after pattern recurrence in Pillar 4 / command_hub work._
 | #6 — Stale browser cache | **FIXED** (Iter 63) — admin panel "🧹 Purge & hard-refresh" button. | `frontend/src/pages/AdminOverview.jsx` |
 
 Regression-locked by `backend/tests/test_iter67_recurring_pattern_fixes.py` (3 tests).
+
+---
+
+## Iter 118 — `.gitignore` `.env` auto-reblock pattern (RESOLVED, not a bug)
+
+**Symptom:** After every fork/session, `.env`, `.env.*`, `*.env` lines
+reappear in `/app/.gitignore`. Previous agents repeatedly removed them
+believing this blocked deployment.
+
+**Root cause:** Earlier handoff was WRONG. The platform auto-protect
+re-adds these patterns because they SHOULD be there. The actual deploy
+failures (iter 108) were caused by **missing dashboard env vars**, not
+by an ignored .env file.
+
+**Confirmed policy (founder, 2026-02-09 — Option B):**
+- ALL production secrets live in the **Emergent Deployment Dashboard**
+  (`Settings → Environment Variables`).
+- `.env` files MUST be gitignored to prevent accidental leaks via
+  `git add .` or "Save to GitHub".
+- The local preview `/app/backend/.env` is platform-protected and only
+  used for the preview environment.
+
+**Action for future agents:** DO NOT remove `.env`/`.env.*`/`*.env`
+from `.gitignore`. If a deploy fails with "connection refused" or
+similar, the fix is to check the dashboard env vars — not to commit
+the .env file.
+
+**Comment block left in `.gitignore` (lines 87-101)** explaining this
+to prevent re-recurrence.
