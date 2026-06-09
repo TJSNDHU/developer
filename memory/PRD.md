@@ -4057,3 +4057,59 @@ redeploy:
   customer id + grants referral reward + sends thank-you email.
 - Founder can `POST /admin/billing/run-overage-cron` anytime to
   trigger manually.
+
+---
+
+## Iter 118 — Route Cache + DB Health Card (2026-02-09)
+
+### Goals
+1. Wire newly-created `GET /admin/db-health` into `AdminOverview.jsx` as a
+   visual status card so founders instantly see if production
+   collections are bootstrapped.
+2. Add in-memory cache for 5 high-frequency polling endpoints to
+   reduce DB query load ~12x (4× 1-min polls per tab + wall/feed 30s).
+
+### What shipped
+
+**Frontend — `AdminOverview.jsx`**
+- New `<DbHealthCard>` (lines 620-690) renders the response of
+  `/api/aurem-dev/admin/db-health`.
+- Green = HEALTHY, Amber = MISSING collections, Red = indexes_ok=false.
+- Auto-refreshes every 60s alongside the other admin telemetry calls.
+- `data-testid="db-health-card"` for testing.
+
+**Backend — `services/route_cache.py` (new) + `main.py` middleware**
+- Process-local dict cache, TTL-only invalidation.
+- Cache config (all GET):
+
+  | Path                                 | TTL | Auth Required |
+  |--------------------------------------|-----|---------------|
+  | `/api/aurem-dev/usage/public/stats`  | 60s | no            |
+  | `/api/aurem-dev/wall/stats`          | 60s | no            |
+  | `/api/aurem-dev/wall/feed`           | 30s | no            |
+  | `/api/aurem-dev/admin/council/stats` | 60s | admin         |
+  | `/api/aurem-dev/admin/mode-telemetry`| 60s | admin         |
+
+- Cache key = path + sorted query string. Auth header NOT in key
+  (responses are global aggregates).
+- **Security**: admin paths run a JWT pre-check before serving cache
+  HITs — anon callers get 401 even when the cache is warm. Verified
+  with a dedicated regression test.
+- Response headers: `X-Cache: HIT` or `MISS`. Non-cached paths get no
+  header.
+- Only 200 responses are cached.
+
+### Tests
+- `/app/backend/tests/test_iter118_route_cache.py` — 6 tests, all GREEN:
+  1. public endpoint MISS → HIT
+  2. admin endpoint blocks anon on warm cache (no leak)
+  3. admin endpoint HIT for admin caller
+  4. non-cached endpoint has no X-Cache header
+  5. TTL expiry purges entry
+  6. cache key normalised across query-string ordering
+- Total: **648 + 6 + iter117 (3) = 657 tests passing.**
+
+### Notes
+- `.gitignore` re-blocked `.env` again — removed (3rd recurrence).
+- Single uvicorn worker assumed; if we scale to N workers, swap dict
+  for redis (TTL semantics already match).

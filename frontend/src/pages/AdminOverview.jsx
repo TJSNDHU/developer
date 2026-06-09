@@ -16,34 +16,46 @@ export default function AdminOverview() {
   const [wall,    setWall]    = useState(null);
   const [council, setCouncil] = useState(null);
   const [telemetry, setTelemetry] = useState(null);
+  const [dbHealth, setDbHealth]   = useState(null);   // iter 118
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
           api.get("/wall/stats"),
           api.get("/admin/council/stats",   { headers: h }),
           api.get("/admin/mode-telemetry",  { headers: h }),
+          api.get("/admin/db-health",       { headers: h }),
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
       if (wallRes.status     === "fulfilled") setWall(wallRes.value.data);
       if (councilRes.status  === "fulfilled") setCouncil(councilRes.value.data);
       if (telRes.status      === "fulfilled") setTelemetry(telRes.value.data);
+      if (dbHealthRes.status === "fulfilled") setDbHealth(dbHealthRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
 
+  // Iter 118 — useEffect runs load() then sets up a 60s refresh interval.
+  // We intentionally pass `[]` so it only re-arms when the component
+  // remounts. The lint rule react-hooks/set-state-in-effect (React 19)
+  // can fire on conditional setState inside callbacks called from an
+  // effect — that pattern is correct here because load() also runs
+  // independently from event handlers.
   useEffect(() => {
-    load();
-    const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
-  }, [load]);
+    let cancelled = false;
+    const run = () => { if (!cancelled) load(); };
+    run();
+    const t = setInterval(run, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) return (
     <div style={{ padding: 40, textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>
@@ -130,6 +142,9 @@ export default function AdminOverview() {
 
       {/* ── Cache & refresh (Iter 63) ───────────────────────── */}
       <CachePurgePanel />
+
+      {/* ── DB health (iter 118) ────────────────────────────── */}
+      <DbHealthCard data={dbHealth}/>
 
       {/* ── Mode classifier telemetry — last 100 messages ──── */}
       {telemetry && telemetry.total > 0 && (
@@ -597,4 +612,78 @@ function ReportLine({ label, status, detail }) {
       </span>
     </div>
   );
+}
+
+
+
+// ──────────────────────────────────────────────────────────────
+// DbHealthCard (iter 118)
+// One-glance status: "DB: 10/10 collections · indexes OK · last boot 5h ago"
+// Green  = healthy
+// Amber  = missing > 0
+// Red    = indexes_ok === false
+// ──────────────────────────────────────────────────────────────
+function DbHealthCard({ data }) {
+  if (!data) return null;
+  const present  = data.collections_present || 0;
+  const expected = data.collections_expected || 0;
+  const missing  = data.missing || [];
+  const indexesOk = !!data.indexes_ok;
+
+  let color, bg, label;
+  if (!indexesOk) {
+    color = "#ff6b6b"; bg = "rgba(255,107,107,0.10)"; label = "DEGRADED";
+  } else if (missing.length > 0) {
+    color = "#ffb347"; bg = "rgba(255,179,71,0.10)"; label = "MISSING";
+  } else {
+    color = "#6dd4a1"; bg = "rgba(109,212,161,0.10)"; label = "HEALTHY";
+  }
+
+  const lastBootAgo = data.last_bootstrap
+    ? humanAgo(data.last_bootstrap)
+    : "—";
+
+  return (
+    <div data-testid="db-health-card" style={{
+      marginTop: 18, padding: "12px 14px",
+      borderRadius: 8, background: bg,
+      border: `1px solid ${color}55`,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 12, flexWrap: "wrap",
+      fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{
+          padding: "2px 8px", borderRadius: 4, fontWeight: 700,
+          fontSize: 10, letterSpacing: ".1em", color, background: `${color}22`,
+        }}>{label}</span>
+        <span style={{ color }}>
+          DB: {present}/{expected} collections
+        </span>
+        <span style={{ color: "var(--text-faint, #888)" }}>·</span>
+        <span style={{ color: indexesOk ? color : "#ff6b6b" }}>
+          indexes {indexesOk ? "OK" : "FAIL"}
+        </span>
+        <span style={{ color: "var(--text-faint, #888)" }}>·</span>
+        <span style={{ color: "var(--text-faint, #888)" }}>
+          last boot {lastBootAgo}
+        </span>
+      </div>
+      {missing.length > 0 && (
+        <span data-testid="db-health-missing"
+              style={{ color: "#ffb347", fontSize: 11 }}>
+          missing: {missing.slice(0, 3).join(", ")}{missing.length > 3 ? "…" : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function humanAgo(iso) {
+  if (!iso) return "—";
+  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60)    return `${s}s ago`;
+  if (s < 3600)  return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
 }

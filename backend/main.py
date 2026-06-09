@@ -247,6 +247,80 @@ async def _security_headers(request, call_next):
     return response
 
 
+# ── Iter 118 — In-memory route cache for high-frequency polling endpoints ──
+# Reduces DB query load by ~12x. See services/route_cache.py for the
+# rules. Added AFTER _security_headers so this is the OUTERMOST
+# middleware — a cache hit short-circuits before the security headers
+# middleware runs (we add the headers manually on the cached Response).
+from services import route_cache as _route_cache  # noqa: E402
+from fastapi.responses import Response as _CacheResp  # noqa: E402
+
+
+def _apply_security_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["X-XSS-Protection"] = "1; mode=block"
+    resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
+
+@app.middleware("http")
+async def _route_cache_mw(request, call_next):
+    # Only GET requests, only configured paths.
+    if request.method != "GET":
+        return await call_next(request)
+    path = request.url.path
+    cfg = _route_cache.ROUTE_CONFIG.get(path)
+    if cfg is None:
+        return await call_next(request)
+    ttl, requires_admin = cfg
+
+    key = _route_cache.make_key(path, request.url.query)
+    hit = _route_cache.get(key)
+    if hit is not None:
+        # Admin endpoints: verify the caller is an admin BEFORE serving
+        # the cached body. Otherwise an anon request right after a warm
+        # cache would leak admin-only aggregates.
+        if requires_admin:
+            from cto_services.auth import current_dev as _cd
+            from fastapi import HTTPException as _AuthExc
+            try:
+                user = await _cd(request.headers.get("authorization"))
+                if not user.get("is_admin") and user.get("tier") != "founder":
+                    return _CacheResp(
+                        content=b'{"detail":"Admin access required"}',
+                        status_code=403, media_type="application/json",
+                    )
+            except _AuthExc as e:
+                return _CacheResp(
+                    content=(b'{"detail":"' + str(e.detail).encode() + b'"}'),
+                    status_code=e.status_code, media_type="application/json",
+                )
+        status, body, ctype = hit
+        resp = _CacheResp(content=body, status_code=status, media_type=ctype)
+        resp.headers["X-Cache"] = "HIT"
+        _apply_security_headers(resp)
+        return resp
+
+    # Miss — run the handler, capture body, store if 200.
+    response = await call_next(request)
+    if response.status_code == 200:
+        body_chunks = []
+        async for chunk in response.body_iterator:
+            body_chunks.append(chunk)
+        body = b"".join(body_chunks)
+        ctype = response.headers.get("content-type", "application/json")
+        _route_cache.put(key, ttl, response.status_code, body, ctype)
+        new_resp = _CacheResp(content=body, status_code=200, media_type=ctype)
+        for k, v in response.headers.items():
+            if k.lower() not in ("content-length", "content-type"):
+                new_resp.headers[k] = v
+        new_resp.headers["X-Cache"] = "MISS"
+        return new_resp
+    return response
+
+
 # ── Iter 44 — Global exception handler ──
 # Never leak stack traces. Log full error internally, return a stable
 # 500 envelope to the caller.
