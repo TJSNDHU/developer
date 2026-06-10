@@ -8,7 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -424,6 +424,64 @@ async def health():
 @app.get("/api/healthz")
 async def healthz():
     return {"ok": True}
+
+
+# Iter 122 — memory diagnostic endpoint for restart-loop debugging.
+# Admin-only. Returns RSS + tracemalloc top allocations so we can SEE
+# what's eating memory between restarts. Read-only; safe in prod.
+import tracemalloc as _tm  # noqa: E402
+try:
+    if not _tm.is_tracing():
+        _tm.start(10)        # keep 10 frames per snapshot
+except Exception:
+    pass
+
+
+@app.get("/api/_diag/memory")
+async def diag_memory(authorization: str | None = Header(None)):
+    # Reuse the existing admin auth check from cto_services.auth
+    from cto_services.auth import current_dev
+    user = await current_dev(authorization)
+    if not (user.get("is_admin") or user.get("tier") == "founder"):
+        raise HTTPException(403, "admin only")
+
+    # RSS in MB (best-effort; /proc may not exist in some runtimes)
+    rss_mb = None
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    rss_mb = int(line.split()[1]) / 1024.0
+                    break
+    except Exception:
+        pass
+
+    out = {
+        "rss_mb": round(rss_mb, 1) if rss_mb is not None else None,
+        "uptime_s": round(time.time() - START_TIME, 1),
+        "tracemalloc_active": _tm.is_tracing(),
+        "route_cache_size": None,
+        "top": [],
+    }
+
+    # Route cache footprint (iter 118)
+    try:
+        from services import route_cache as _rc
+        out["route_cache_size"] = _rc.size()
+    except Exception:
+        pass
+
+    # Top 10 allocations grouped by filename
+    if _tm.is_tracing():
+        snap = _tm.take_snapshot()
+        stats = snap.statistics("filename")[:10]
+        out["top"] = [
+            {"file": str(s.traceback[0].filename).replace("/app/", "") if s.traceback else "?",
+             "size_kb": round(s.size / 1024, 1),
+             "count":   s.count}
+            for s in stats
+        ]
+    return out
 
 # ── Routers ──
 app.include_router(deploy_router,       prefix="/api/aurem-dev")
