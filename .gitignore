@@ -85,16 +85,25 @@ ora_training_data/
 # Mobile development
 android-sdk/
 # ───────────────────────────────────────────────────────────────────
-# Secrets policy (Option B — confirmed by founder, 2026-02-09):
-# All production secrets live in the EMERGENT DEPLOYMENT DASHBOARD,
-# NOT in committed .env files. So .env MUST stay ignored — this
-# prevents accidental `git add .` from leaking Stripe / Mongo /
-# JWT_SECRET / etc. to the GitHub repo.
+# Secrets policy (Hybrid — confirmed by founder, 2026-02-10):
 #
-# DO NOT remove these lines. The platform auto-re-adds them anyway
-# because they are correct. The previous "iter 108 deploy failure"
-# was caused by MISSING dashboard env vars, NOT by a committed
-# .env file.
+# 1. backend/.env STAYS ignored. It holds 38 production secrets
+#    (STRIPE_API_KEY, JWT_SECRET, AUREM_MASTER_KEY, MONGO_URL, etc).
+#    All backend secrets live in the EMERGENT DEPLOYMENT DASHBOARD.
+#    The container reads them at runtime from the K8s env.
+#
+# 2. frontend/.env IS committed via the `!frontend/.env` exception
+#    below. It's a build-time file (Vite inlines REACT_APP_*
+#    at compile time). Contains zero secrets:
+#       - REACT_APP_BACKEND_URL  (the build's default; the dashboard
+#         value overrides this for production deploys)
+#       - WDS_SOCKET_PORT
+#       - ENABLE_HEALTH_CHECK
+#    Emergent Support flagged that without this file the production
+#    bundle was failing CORS against auremcto.com.
+#
+# DO NOT remove the .env patterns. DO NOT remove the !frontend/.env
+# exception. Both are intentional.
 # ───────────────────────────────────────────────────────────────────
 credentials.json
 *.key
@@ -102,3 +111,4 @@ credentials.json
 .env
 .env.*
 *.env
+!frontend/.env

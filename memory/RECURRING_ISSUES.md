@@ -248,3 +248,47 @@ the .env file.
 
 **Comment block left in `.gitignore` (lines 87-101)** explaining this
 to prevent re-recurrence.
+
+---
+
+## Iter 121 — `.gitignore` `.env` policy: FINAL (Hybrid, founder + Support confirmed)
+
+**Permanent rule. Do NOT change this without explicit founder approval.**
+
+The `/app/.gitignore` policy block (lines 87-114) is FINAL. It says:
+
+```
+.env
+.env.*
+*.env
+!frontend/.env
+```
+
+Translation:
+- ❌ `backend/.env` — gitignored. Contains 38 production secrets
+  (STRIPE_API_KEY, JWT_SECRET, AUREM_MASTER_KEY, MONGO_URL, etc).
+  All backend secrets are configured in the Emergent Deployment
+  Dashboard at runtime. NEVER commit this file.
+- ✅ `frontend/.env` — committed via `!frontend/.env` exception.
+  Contains only build-time vars (REACT_APP_BACKEND_URL,
+  WDS_SOCKET_PORT, ENABLE_HEALTH_CHECK). Zero secrets.
+  Required because Vite inlines REACT_APP_* at compile time.
+  The committed value (preview URL) is the default; the deployment
+  dashboard's REACT_APP_BACKEND_URL overrides for production
+  builds.
+
+**Why this is the correct policy:**
+- Initial guess (Option B — both ignored) failed production deploys
+  because the frontend bundle couldn't bake a URL → CORS errors on
+  auremcto.com.
+- Naive fix (commit both) would have leaked 38 secrets including
+  AUREM_MASTER_KEY (vault encryption master). Catastrophic.
+- Hybrid satisfies the build-time need without leaking runtime
+  secrets.
+
+**If a future agent / platform process re-adds the `.env` line
+without `!frontend/.env` below it: that is a regression. Fix it.**
+
+**If a future agent suggests committing `backend/.env`: STOP.
+Ask the founder to confirm in writing. Old commits are immutable —
+even one mistake is forever.**
