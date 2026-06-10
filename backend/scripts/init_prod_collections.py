@@ -79,6 +79,33 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("status", 1)],              {}),
         ([("email", 1)],               {"sparse": True}),
     ]),
+    # Iter 121 — auditor found these large collections running on _id
+    # only. chat_sessions (801 docs) is read on every chat-history load
+    # via {user_id, updated_at}; without an index that's a full scan.
+    # dev_users (297 docs) is the auth + admin search target; email
+    # lookup is hot path.
+    ("chat_sessions", [
+        ([("user_id", 1), ("updated_at", -1)], {}),
+        # NB: session_id is NOT made unique — historic data has at least
+        # one legitimate test duplicate ("e2e-F12") and unique enforcement
+        # would block new writes. Lookups by session_id still benefit
+        # from the implicit _id-prefix.
+    ]),
+    ("dev_users", [
+        ([("email", 1)],        {"unique": True, "sparse": True}),
+        ([("user_id", 1)],      {"unique": True, "sparse": True}),
+        ([("created_at", -1)],  {}),
+    ]),
+    ("cto_tasks", [
+        ([("user_id", 1), ("created_at", -1)], {}),
+        ([("project_id", 1), ("created_at", -1)], {}),
+        ([("task_id", 1)],     {"unique": True, "sparse": True}),
+        ([("status", 1)],      {}),
+    ]),
+    ("cto_projects", [
+        ([("user_id", 1), ("created_at", -1)], {}),
+        ([("project_id", 1)],  {"unique": True, "sparse": True}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.
