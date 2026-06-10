@@ -160,11 +160,31 @@ async def list_users(
         query, {"_id": 0, "password_hash": 0, "github.access_token": 0}
     ).sort("created_at", -1).limit(100).to_list(100)
 
+    # Iter 120 — flatten 300 round-trips (3 count_documents per user) into
+    # 3 grouped aggregations. Critical for /admin/users responsiveness
+    # under load; the old pattern was an N+1 hotspot flagged by the
+    # deployment agent and a candidate cause for OOM/timeout on Atlas
+    # free tier where connection slots are limited.
+    uids = [u.get("user_id", "") for u in users]
+    if uids:
+        async def _counts(coll_name: str) -> dict:
+            coll = getattr(db, coll_name)
+            cur = coll.aggregate([
+                {"$match": {"user_id": {"$in": uids}}},
+                {"$group": {"_id": "$user_id", "n": {"$sum": 1}}},
+            ])
+            return {row["_id"]: row["n"] async for row in cur}
+        proj_counts = await _counts("cto_projects")
+        task_counts = await _counts("cto_tasks")
+        sess_counts = await _counts("chat_sessions")
+    else:
+        proj_counts = task_counts = sess_counts = {}
+
     for u in users:
         uid = u.get("user_id", "")
-        u["project_count"] = await db.cto_projects.count_documents({"user_id": uid})
-        u["task_count"] = await db.cto_tasks.count_documents({"user_id": uid})
-        u["session_count"] = await db.chat_sessions.count_documents({"user_id": uid})
+        u["project_count"] = proj_counts.get(uid, 0)
+        u["task_count"]    = task_counts.get(uid, 0)
+        u["session_count"] = sess_counts.get(uid, 0)
     return {"users": users}
 
 

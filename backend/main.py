@@ -416,6 +416,15 @@ async def health():
         "env": os.getenv("ENVIRONMENT", "production"),
     }
 
+
+# Iter 120 — Fast probe endpoint for Kubernetes liveness/readiness.
+# No DB lookup, no lifespan dependency — must NEVER hang. If this
+# endpoint can't answer within 1s, K8s should rightfully restart the
+# pod. Production probes should be configured to hit /api/healthz.
+@app.get("/api/healthz")
+async def healthz():
+    return {"ok": True}
+
 # ── Routers ──
 app.include_router(deploy_router,       prefix="/api/aurem-dev")
 app.include_router(vault_router,        prefix="/api/aurem-dev")
