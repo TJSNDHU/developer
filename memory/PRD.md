@@ -4378,3 +4378,51 @@ DB collection count: **15/15 indexed** (was 14 — proves iter 123b `ora_skill_u
 - `frontend/src/pages/AdminOverview.jsx` (+11 feature rows; replaced 8-item action list)
 - `backend/tests/test_iter123d_code_surface_live.py` (NEW — 5 tests)
 
+
+---
+
+## Iter 123e — CORS Regex for Production Routing Layers (Feb 11, 2026)
+
+### Why
+Deployment agent flagged that `allow_origin_regex` in `main.py` only covered preview pods (`*.preview.emergentagent.com`) but NOT Emergent's production routing layer. Confirmed in the iter 123c production nginx log: upstream was `launch-pad-237.cluster-8.deploy.emergentcf.cloud`. Without the regex extension, CORS preflight from the production K8s ingress would fail intermittently while DNS/Cloudflare cuts over to `auremcto.com`.
+
+### What changed
+`/app/backend/main.py` — extended `allow_origin_regex` from one pattern to three:
+
+**Before:**
+```python
+allow_origin_regex=r"^https://.*\.preview\.emergentagent\.com$"
+```
+
+**After:**
+```python
+allow_origin_regex=(
+    r"^https://.*\.("
+    r"preview\.emergentagent\.com"
+    r"|emergent\.host"
+    r"|deploy\.emergentcf\.cloud"
+    r")$"
+),
+```
+
+`https://auremcto.com` and `https://www.auremcto.com` remain in the explicit `_ALLOWED_ORIGINS` list — unchanged.
+
+### Tests — `test_iter123e_cors_production_domains.py`
+**2 tests passing:**
+- Regex matches all 3 representative origins (preview pod, `*.emergent.host`, `*.deploy.emergentcf.cloud`) and rejects untrusted origins
+- Explicit `auremcto.com` (apex + www) still in `_ALLOWED_ORIGINS` list
+
+### Deployment agent status
+- **First scan (pre-fix):** ⚠️ WARN — CORS regex missing production routing patterns
+- **Second scan (post-fix):** ✅ PASS — production-ready, no blockers
+
+### Production deploy log analysis
+The 03:13:51 connection-refused was the **normal 1m22s pod-swap window** during a rolling deploy:
+- `03:12:47` — OLD code boot (`indexed=14`)
+- `03:13:51` — nginx → upstream not yet listening (pod swap)
+- `03:14:09` — NEW code boot (`indexed=15`, `created=1` — `ora_skill_usage` collection seeded ✅)
+
+Iter 123b code DID land successfully. No deployment blocker.
+
+### Combined Iter 123 + 123b + 123d + 123e: 49 tests green in 2.75s
+
