@@ -42,6 +42,7 @@ from routers.lint_preview import router as lint_preview_router
 from routers.shipwall import router as shipwall_router
 from routers.wrapped import router as wrapped_router
 from routers.hosted_deploy import router as hosted_deploy_router
+from routers.github_deploy import router as github_deploy_router   # iter 123
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -171,6 +172,22 @@ async def lifespan(app: FastAPI):
             logger.warning("init_prod_collections errors: %s", result["errors"])
     except Exception as _e:
         logger.warning(f"init_prod_collections failed: {_e}")
+
+    # Iter 123 — wire deploy_logger. Records a single `deploy_events`
+    # doc per (commit_sha × boot_id) so the founder timeline can render
+    # "View commit" links and we can audit which builds went live.
+    # Safe — idempotent for trigger=boot, swallows its own failures.
+    try:
+        from services.deploy_logger import log_deploy_event
+        evt = await log_deploy_event(app.state.db, trigger="boot")
+        if evt:
+            logger.info(
+                "📌 deploy recorded: %s %s",
+                evt.get("commit_sha", "")[:7],
+                evt.get("branch", ""),
+            )
+    except Exception as _e:
+        logger.warning(f"log_deploy_event failed: {_e}")
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
@@ -510,3 +527,4 @@ app.include_router(shipwall_router,      prefix="/api/aurem-dev")
 app.include_router(wrapped_router,       prefix="/api/aurem-dev")
 app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
+app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123

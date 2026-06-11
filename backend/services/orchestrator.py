@@ -1,7 +1,7 @@
 """
 Tool-call loop orchestrator — sovereign LLM + tools_bridge.
-Mirrors /app/backend/services/llm_gateway.py:call_llm_with_tools() but
-self-contained (no upstream import; HTTP-proxies tool execution).
+Self-contained (HTTP-proxies tool execution; no upstream gateway dep).
+Iter 123: removed stale reference to deleted services/llm_gateway.py.
 
 Returns: {ok, content, provider, iterations, tool_calls_run,
           tool_invocations, max_iters_hit}.
