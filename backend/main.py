@@ -46,6 +46,36 @@ from routers.github_deploy import router as github_deploy_router   # iter 123
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
+
+
+async def _schedule_daily_evals() -> None:
+    """Iter 124g — once-per-day persona quality eval at EVAL_HOUR_UTC.
+    Writes one row into ora_eval_runs; the admin tile + 30-day trend
+    chart light up automatically. Swallows all failures so a transient
+    LLM outage never crashes the boot loop."""
+    import asyncio as _aio
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    target = int(os.environ.get("EVAL_HOUR_UTC", "3"))
+    while True:
+        now = _dt.now(_tz.utc)
+        nxt = now.replace(hour=target, minute=0, second=0, microsecond=0)
+        if nxt <= now:
+            nxt = nxt + _td(days=1)
+        await _aio.sleep((nxt - now).total_seconds())
+        try:
+            from evals.runner import run as _run_evals
+            r = await _run_evals(quick=False)
+            s = r.get("summary") or {}
+            logger.info(
+                f"🧪 daily eval: ok={r.get('ok')} "
+                f"passed={s.get('passed')}/{s.get('total')} "
+                f"hard_fails={s.get('hard_fails')}"
+            )
+        except Exception as e:
+            logger.warning(f"daily eval cron failed: {e!r}")
+            await _aio.sleep(3600)   # avoid tight loop on persistent failure
+
+
 load_dotenv()
 
 # Iter 45 + 48 — Sentry (full-coverage error monitoring). Opt-in via SENTRY_DSN.
@@ -152,6 +182,9 @@ async def lifespan(app: FastAPI):
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     import asyncio as _asyncio
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+    # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC (default 03:00).
+    # Auto-populates the Persona Quality Score tile so drift is caught in 24h.
+    app.state.eval_task = _asyncio.create_task(_schedule_daily_evals())
     # Iter 40 — ORA council logs indexes (idempotent, safe to re-run)
     try:
         from services.ora_council_logger import ensure_indexes as _ora_idx
