@@ -20,7 +20,9 @@ Privacy:
 """
 from __future__ import annotations
 import os
+import asyncio
 import logging
+import random
 from typing import Optional
 
 import httpx
@@ -28,6 +30,30 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Iter 124 — retry policy for transient upstream failures (rate limit / 5xx).
+# Exponential backoff with full jitter so concurrent callers don't sync up.
+_RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
+_MAX_RETRIES = 3      # 1 original + up to 3 retries = 4 attempts total
+_BASE_DELAY_S = 0.8   # 0.8 → 1.6 → 3.2 (with jitter)
+
+
+def _retryable(exc: Exception) -> tuple[bool, int | None]:
+    """Return (should_retry, http_status). Status is None for non-HTTP errors."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return (exc.response.status_code in _RETRY_STATUS,
+                exc.response.status_code)
+    # Network / timeout — transient by default
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError,
+                        httpx.ReadError, httpx.RemoteProtocolError)):
+        return (True, None)
+    return (False, None)
+
+
+def _retry_delay(attempt: int) -> float:
+    """Full-jitter exponential backoff. attempt is 1-indexed."""
+    cap = _BASE_DELAY_S * (2 ** (attempt - 1))
+    return random.uniform(0, cap)
 
 # Token caps per mode
 MAX_TOKENS = {
@@ -101,9 +127,27 @@ async def _call_deepseek(messages: list, system: str = "",
         },
     }
     async with httpx.AsyncClient(timeout=60.0) as c:
-        r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
+        for attempt in range(1, _MAX_RETRIES + 2):  # 1..4
+            try:
+                r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
+                r.raise_for_status()
+                data = r.json()
+                break
+            except Exception as e:
+                retryable, status = _retryable(e)
+                if not retryable or attempt > _MAX_RETRIES:
+                    logger.error(
+                        "OpenRouter call failed (attempt %d, status=%s, retryable=%s): %r",
+                        attempt, status, retryable, e,
+                    )
+                    raise
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "OpenRouter transient failure (status=%s, attempt %d/%d) — "
+                    "retrying in %.2fs: %r",
+                    status, attempt, _MAX_RETRIES + 1, delay, e,
+                )
+                await asyncio.sleep(delay)
     try:
         return data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
@@ -140,8 +184,32 @@ async def _call_claude(system: str, user: str,
             .with_model("anthropic", "claude-sonnet-4-5-20250929")
             .with_params(max_tokens=max_tokens, temperature=temperature)
         )
-        result = await chat.send_message(UserMessage(text=user))
-        return result or ""
+        # Iter 124 — retry on transient errors (rate limit / 5xx / timeout).
+        # emergentintegrations surfaces upstream as plain Exceptions, so we
+        # sniff the message for known transient markers.
+        _TRANSIENT_MARKERS = (
+            "429", "rate limit", "rate_limit", "overloaded", "timeout",
+            "timed out", "502", "503", "504", "temporarily unavailable",
+        )
+        last_exc: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES + 2):  # 1..4
+            try:
+                result = await chat.send_message(UserMessage(text=user))
+                return result or ""
+            except Exception as e:
+                last_exc = e
+                msg = str(e).lower()
+                transient = any(m in msg for m in _TRANSIENT_MARKERS)
+                if not transient or attempt > _MAX_RETRIES:
+                    raise
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "Claude transient failure (attempt %d/%d) — retrying in %.2fs: %r",
+                    attempt, _MAX_RETRIES + 1, delay, e,
+                )
+                await asyncio.sleep(delay)
+        # Should never reach here, but satisfy type checker.
+        raise last_exc or RuntimeError("Claude call exhausted retries")
     except Exception as e:
         logger.warning(f"Claude call failed, falling back to DeepSeek: {e!r}")
         return await _call_deepseek(
@@ -247,7 +315,18 @@ async def call_llm_with_meta(system: str, user: str,
             "maxx_remaining": maxx_remaining,
         }
     except httpx.HTTPStatusError as e:
-        logger.error(f"LLM HTTP {e.response.status_code}: {e.response.text[:300]}")
+        status = e.response.status_code
+        logger.error(f"LLM HTTP {status}: {e.response.text[:300]}")
+        # Iter 124 — surface a friendly, specific message for rate limits
+        # so the UI doesn't say a generic 'API rate limits' line.
+        if status == 429:
+            err_msg = ("Upstream model is rate-limited right now — I retried "
+                       "but couldn't get a slot. Try again in ~10 seconds.")
+        elif status in (502, 503, 504):
+            err_msg = (f"Upstream model is briefly unavailable (HTTP {status}) "
+                       "— try again in a moment.")
+        else:
+            err_msg = f"LLM unavailable (HTTP {status})"
         return {
             "ok": False, "provider": None, "content": "",
             "temperature": temperature, "mode": mode,
@@ -255,7 +334,7 @@ async def call_llm_with_meta(system: str, user: str,
             "maxx_capped":    maxx_capped,
             "maxx_overage":   maxx_overage,
             "maxx_remaining": maxx_remaining,
-            "error": f"LLM unavailable (HTTP {e.response.status_code})",
+            "error": err_msg,
         }
     except Exception as e:
         logger.error(f"LLM call failed: {e!r}")
