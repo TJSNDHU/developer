@@ -725,6 +725,7 @@ function Architecture() {
   );
   return (
     <div style={{ padding: 24 }}>
+      <PersonaQualityTile />
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>External services</h3>
       <div style={{
@@ -778,6 +779,57 @@ function Architecture() {
     </div>
   );
 }
+
+function PersonaQualityTile() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/eval-quality").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return null;
+  const t = d.totals || {};
+  const latest = d.latest || {};
+  const score = latest.total
+    ? Math.round(100 * (latest.passed / latest.total))
+    : null;
+  const blocked = (latest.hard_fails || 0) > 0;
+  const color = blocked ? "var(--danger)"
+              : score == null ? "var(--text-faint)"
+              : score >= 90 ? "var(--ok)"
+              : score >= 75 ? "var(--warn, #ffc560)"
+              : "var(--danger)";
+  return (
+    <div data-testid="persona-quality-tile" style={{ marginBottom: 18 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em",
+        textTransform: "uppercase", color: "var(--text-faint)",
+        margin: "0 0 8px" }}>Persona Quality Score · last 30 days</h3>
+      <Card style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 30, fontWeight: 700, color, fontFamily: "'JetBrains Mono', monospace" }}>
+            {score == null ? "—" : `${score}/100`}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+            latest: {latest.passed ?? 0}/{latest.total ?? 0} pass ·
+            hard fails {latest.hard_fails ?? 0} · runs {t.runs ?? 0}
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 3, alignItems: "flex-end", height: 22 }}>
+            {(d.trend || []).slice(-30).map((p, i) => (
+              <div key={i} title={`${p.ts} — ${p.score}/100 · ${p.hard_fails} hard fail(s)`}
+                style={{
+                  width: 5,
+                  height: Math.max(3, Math.round((p.score / 100) * 22)),
+                  background: p.hard_fails > 0 ? "var(--danger)"
+                            : p.score >= 90 ? "var(--ok)"
+                            : "var(--warn, #ffc560)",
+                  borderRadius: 1,
+                }} />
+            ))}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 
 function CodeSurfaceLive() {
   const [data, setData] = useState(null);

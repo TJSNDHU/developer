@@ -288,6 +288,29 @@ async def run(quick: bool = False) -> dict:
     summary["finished_at"] = datetime.now(timezone.utc).isoformat()
     report["summary"] = summary
     report["ok"] = not summary["blocked"]
+
+    # Iter 124g — persist this run so the admin "Persona Quality Score"
+    # tile can render a 30-day trend. Fire-and-forget: a Mongo write
+    # failure must NEVER fail the eval gate.
+    try:
+        from cto_services.db import get_db
+        db = get_db()
+        if db is not None:
+            await db.ora_eval_runs.insert_one({
+                "ts":             summary["finished_at"],
+                "started_at":     report["started_at"],
+                "ok":             report["ok"],
+                "total":          summary.get("total", 0),
+                "passed":         summary.get("passed", 0),
+                "soft_fails":     summary.get("soft_fails", 0),
+                "hard_fails":     summary.get("hard_fails", 0),
+                "partials":       summary.get("partials", 0),
+                "llm_calls_used": summary.get("llm_calls_used", 0),
+                "quick":          bool(quick),
+            })
+    except Exception as e:
+        report["persist_warning"] = f"{type(e).__name__}: {e}"
+
     return report
 
 

@@ -990,6 +990,47 @@ async def skill_status(authorization: Optional[str] = Header(None)):
     }
 
 
+# ── Persona Quality Score (Iter 124g) ────────────────────────────────
+# Surfaces the eval-as-CI history so the admin tile + customers (later
+# via a public trust-badge) see real ORA quality over time.
+@router.get("/eval-quality")
+async def eval_quality(authorization: Optional[str] = Header(None)):
+    """Last 30 days of eval runs (from `ora_eval_runs`). Returns:
+       latest      — most recent run summary (None if no runs yet)
+       trend       — chronological score list [{ts, score, hard_fails}]
+       totals      — { runs, hard_fail_runs, avg_score, last30d_runs }
+    Read-only, admin only, no external calls."""
+    await _require_admin(authorization)
+    db = get_db()
+    if db is None:
+        return {"latest": None, "trend": [], "totals": {"runs": 0}}
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    docs = await db.ora_eval_runs.find(
+        {"ts": {"$gte": cutoff}}, {"_id": 0},
+    ).sort("ts", 1).to_list(length=200)
+    trend = [{
+        "ts":         d.get("ts"),
+        "score":      round(100 * (d.get("passed", 0) / max(d.get("total", 1), 1))),
+        "hard_fails": d.get("hard_fails", 0),
+        "ok":         bool(d.get("ok")),
+    } for d in docs]
+    latest = docs[-1] if docs else None
+    avg_score = round(sum(t["score"] for t in trend) / len(trend)) if trend else None
+    return {
+        "latest": latest,
+        "trend":  trend,
+        "totals": {
+            "runs":           len(docs),
+            "hard_fail_runs": sum(1 for d in docs if d.get("hard_fails", 0) > 0),
+            "avg_score":      avg_score,
+            "last30d_runs":   len(docs),
+        },
+    }
+
+
+
+
 # ── Architecture health report (Iter 86) ──────────────────────────────
 # Surfaces the static-analysis health signal in /admin/architecture so
 # the next 1952-line file is caught at 320, not 2000. Read-only, admin
