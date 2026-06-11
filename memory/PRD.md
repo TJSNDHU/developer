@@ -4508,3 +4508,42 @@ Adding a new external dep going forward: ONE entry in `external_services_registr
 - NEW: `backend/tests/test_iter123f_external_services_registry.py` (12 tests)
 - EDIT: `memory/PRD.md` — Iter 123f entry
 
+
+
+### Iter 124 — ORA Repo-First Answers + Rate-Limit Retry (Jun 11, 2026)
+
+**Problem reported:**
+- ORA was too passive on repo-connected sessions. Asked "how many tools working
+  in backend" with repo connected → got a GENERIC framework list instead of
+  reading the actual `requirements.txt` / `package.json`.
+- First reply hit "API rate limits" with no retry — surfaced raw provider error.
+
+**Fixes shipped:**
+1. `backend/services/orchestrator.py` — added two persona sections:
+   - **REPO-CONNECTED MODE** — when a repo is connected and the user asks about
+     tools/backend/deps/stack/frameworks, ORA MUST call `get_dependencies` +
+     `detect_framework` (plus optional `get_env_vars`, `list_repo_files`) THIS
+     TURN and answer with real data. No generic textbook lists.
+   - **NEVER** — extended: forbidden to ask permission for ANY read-only op
+     (read_repo_file, list_repo_files, get_dependencies, detect_framework,
+     get_env_vars, semantic_search_repo, etc.). Permission-asking is for
+     WRITES only.
+2. `backend/services/llm.py` — added retry-with-jitter for transient upstream
+   failures (HTTP 408 / 425 / 429 / 5xx + httpx network errors):
+   - Base delay 0.8s, full-jitter exponential backoff, up to 3 retries
+     (4 total attempts).
+   - Applies to BOTH DeepSeek/OpenRouter and Claude/Emergent paths.
+   - On total exhaustion the user-facing error becomes a friendly:
+     "Upstream model is rate-limited right now — I retried but couldn't get
+     a slot. Try again in ~10 seconds."
+
+**Tests:** `backend/tests/test_iter124_repo_first_and_retry.py` — 8 tests:
+persona contains REPO-CONNECTED MODE block, lists inventory triggers, prohibits
+permission-asking on reads; deepseek retries on 429 then succeeds; gives up
+after _MAX_RETRIES; does NOT retry on 400; surfaces friendly 429 message;
+backoff stays bounded. All 8 green.
+
+**Files touched**
+- EDIT: `backend/services/orchestrator.py` (+47 lines in persona)
+- EDIT: `backend/services/llm.py` (retry helpers + DeepSeek/Claude retry loops)
+- NEW : `backend/tests/test_iter124_repo_first_and_retry.py` (8 tests)
