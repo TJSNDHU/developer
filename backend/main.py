@@ -247,6 +247,16 @@ app.add_middleware(
 )
 
 
+# Iter 123g — GZip compression for every non-trivial response.
+# JSON payloads (admin endpoints, /usage/me, /shipwall, code-surface)
+# shrink 5–10× on the wire. minimum_size=512 skips tiny responses where
+# the gzip-header overhead would be worse than the savings.
+# SSE streams are excluded by Starlette automatically because they use
+# StreamingResponse without Content-Length.
+from starlette.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=5)
+
+
 # ── Iter 44 — Security headers (Vanguard hardening) ──
 # Drop these on every response. Cheap, zero functional impact.
 @app.middleware("http")
