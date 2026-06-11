@@ -781,18 +781,34 @@ function Architecture() {
 
 function CodeSurfaceLive() {
   const [data, setData] = useState(null);
+  const [err, setErr]   = useState(null);
   useEffect(() => {
     api.get("/admin/code-surface")
       .then((r) => setData(r.data))
-      .catch(() => setData(null));
+      .catch((e) => setErr(e?.response?.data?.detail || e?.message || "unreachable"));
   }, []);
-  // Fall back to the static map if the endpoint isn't reachable (e.g.
-  // running against a build that pre-dates the endpoint).
-  const surface = data?.surface || Object.fromEntries(
-    CODE_SURFACE.map((c) => [c.title.toLowerCase(), c.items.map((i) => ({
-      file: i.name, desc: i.note, lines: 0,
-    }))]),
-  );
+  if (err) {
+    return (
+      <div data-testid="arch-code-surface-error" style={{
+        padding: 14,
+        border: "1px solid rgba(226,75,74,0.3)",
+        background: "rgba(226,75,74,0.08)",
+        borderRadius: 8,
+        color: "var(--text-dim)",
+        fontSize: 12,
+      }}>
+        Code surface unreachable: <code>{err}</code>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div style={{ padding: 14, color: "var(--text-faint)", fontSize: 12 }}>
+        Loading code surface…
+      </div>
+    );
+  }
+  const surface = data.surface || {};
   const columns = [
     { key: "routers",    title: "Routers" },
     { key: "services",   title: "Services" },
@@ -800,132 +816,56 @@ function CodeSurfaceLive() {
     { key: "components", title: "Components" },
   ];
   return (
-    <div data-testid="arch-code-surface" style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-      gap: 12,
-    }}>
-      {columns.map((col) => {
-        const items = surface[col.key] || [];
-        return (
-          <Card key={col.key} style={{ padding: 14 }}>
-            <div style={{
-              fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase",
-              color: "var(--accent-2, #ffb347)", marginBottom: 8,
-              fontWeight: 600,
-            }}>{col.title} · {items.length}</div>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0,
-                          display: "grid", gap: 4 }}>
-              {items.map((it) => (
-                <li key={it.file || it.name} style={{
-                  fontSize: 11.5, color: "var(--text-dim)",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  display: "flex", justifyContent: "space-between",
-                  gap: 8,
-                }}>
-                  <span style={{ overflowWrap: "anywhere" }}>{it.file || it.name}</span>
-                  {(it.lines > 0 || it.desc) && (
-                    <span style={{
-                      color: "var(--text-faint)", fontSize: 10,
-                      whiteSpace: "nowrap", flexShrink: 0,
-                    }}>{it.lines > 0 ? `${it.lines}L` : (it.desc || it.note || "")}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        );
-      })}
-    </div>
+    <>
+      <div style={{
+        fontSize: 11, color: "var(--text-faint)", marginBottom: 10,
+      }}>
+        Live · {data.total_files} files across 4 surfaces · auto-walked from disk
+        {" · "}drift-proof (no hand-maintained list)
+      </div>
+      <div data-testid="arch-code-surface" style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gap: 12,
+      }}>
+        {columns.map((col) => {
+          const items = surface[col.key] || [];
+          return (
+            <Card key={col.key} style={{ padding: 14 }}>
+              <div style={{
+                fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase",
+                color: "var(--accent-2, #ffb347)", marginBottom: 8,
+                fontWeight: 600,
+              }}>{col.title} · {items.length}</div>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0,
+                            display: "grid", gap: 4,
+                            maxHeight: 360, overflowY: "auto" }}>
+                {items.map((it) => (
+                  <li key={it.file || it.name}
+                      title={it.desc || ""}
+                      style={{
+                    fontSize: 11.5, color: "var(--text-dim)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    display: "flex", justifyContent: "space-between",
+                    gap: 8,
+                  }}>
+                    <span style={{ overflowWrap: "anywhere" }}>{it.file || it.name}</span>
+                    {it.lines > 0 && (
+                      <span style={{
+                        color: "var(--text-faint)", fontSize: 10,
+                        whiteSpace: "nowrap", flexShrink: 0,
+                      }}>{it.lines}L</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          );
+        })}
+      </div>
+    </>
   );
 }
-
-// Static map of the codebase surface — pairs with AdminOverview's
-// feature checklist. Hand-maintained when shape changes meaningfully.
-// Last refresh: iter 119 (Feb 2026).
-const CODE_SURFACE = [
-  {
-    title: "Routers",
-    items: [
-      { name: "auth.py",            note: "JWT + signup + founder allowlist" },
-      { name: "chat.py",            note: "SSE stream + citation chips (iter 119)" },
-      { name: "cto_projects.py",    note: "tasks + brain + Vanguard hook" },
-      { name: "admin.py",           note: "ops + telemetry + db-health (iter 117)" },
-      { name: "github_oauth.py",    note: "PAT + OAuth + cancel-redirect (iter 106)" },
-      { name: "payments.py",        note: "Stripe 4-tier + Maxx overage" },
-      { name: "shipwall.py",        note: "ship feed (cached, iter 118)" },
-      { name: "wrapped.py",         note: "user stats" },
-      { name: "deploy.py",          note: "Vercel/Netlify" },
-      { name: "hosted_deploy.py",   note: "Emergent native deploy" },
-      { name: "upload.py",          note: "chunked uploads + Cloudinary" },
-      { name: "usage.py",           note: "/usage/me + plan limits" },
-      { name: "support.py",         note: "ticket inbox" },
-      { name: "automations.py",     note: "scheduled jobs" },
-      { name: "harden.py",          note: "security advice tool" },
-      { name: "trust.py",           note: "signals + nav surface" },
-      { name: "lint_preview.py",    note: "esbuild + AST gate" },
-    ],
-  },
-  {
-    title: "Services",
-    items: [
-      { name: "orchestrator.py",       note: "persona + tools + web sources" },
-      { name: "local_tools.py",        note: "9 LLM tools + Vanguard skills" },
-      { name: "web_skills.py",         note: "Tavily + Firecrawl + fetch_url" },
-      { name: "project_brain.py",      note: "per-repo memory" },
-      { name: "vanguard_scanner.py",   note: "AST + 25 patterns" },
-      { name: "vanguard_verify_agent.py", note: "Claude 4.5 gate (iter 110)" },
-      { name: "vanguard_audit.py",     note: "audit log writer (iter 113)" },
-      { name: "task_diff.py",          note: "pre-commit diff capture" },
-      { name: "mode_b_council.py",     note: "decision council (iter 108)" },
-      { name: "ora_client.py",         note: "ORA LLM wrapper + circuit breaker" },
-      { name: "parallel_agents.py",    note: "Back/Front/Tests" },
-      { name: "mode_classifier.py",    note: "A→F router" },
-      { name: "sandbox_runner.py",     note: "e2b validate" },
-      { name: "subscription_tiers.py", note: "tier SSOT" },
-      { name: "route_cache.py",        note: "in-mem TTL cache (iter 118)" },
-      { name: "daily_digest.py",       note: "06:00 UTC admin 1-pager" },
-      { name: "ora_council_logger.py", note: "training-data writer" },
-      { name: "codebase_indexer.py",   note: "TF-IDF embedder" },
-    ],
-  },
-  {
-    title: "Pages",
-    items: [
-      { name: "Landing.jsx",        note: "marketing" },
-      { name: "Dashboard.jsx",      note: "split pane" },
-      { name: "Settings.jsx",       note: "plan + wrapped" },
-      { name: "Wrapped.jsx",        note: "/wrapped" },
-      { name: "ShipWall.jsx",       note: "/wall (cached)" },
-      { name: "BrainDump.jsx",      note: "diff buttons" },
-      { name: "OpsRecipes.jsx",     note: "/admin/ops" },
-      { name: "AdminOverview.jsx",  note: "feature audit + DB health" },
-      { name: "AdminVanguard.jsx",  note: "Vanguard block log (iter 113)" },
-      { name: "AdminFinancials.jsx", note: "MRR + Maxx P&L" },
-      { name: "AdminIntegrations.jsx", note: "key health grid" },
-      { name: "Admin.jsx",          note: "tabs + arch + code surface" },
-      { name: "Projects.jsx",       note: "repo CRUD + GitHub PAT" },
-      { name: "Login.jsx",          note: "JWT + Google OAuth" },
-    ],
-  },
-  {
-    title: "Components",
-    items: [
-      { name: "ChatPanel.jsx",           note: "SSE chat + sources" },
-      { name: "MessageBubble.jsx",       note: "rich render + 🌐 chips (iter 119)" },
-      { name: "TaskLiveTape.jsx",        note: "terminal feed" },
-      { name: "TaskProgressCard.jsx",    note: "ship + rollback" },
-      { name: "TaskManagementPanel.jsx", note: "checklist" },
-      { name: "PreviewPane.jsx",         note: "iframe blob" },
-      { name: "NewUserWizard.jsx",       note: "onboarding" },
-      { name: "PricingCards.jsx",        note: "4-tier grid" },
-      { name: "OraWrapped.jsx",          note: "share card" },
-      { name: "Toast.jsx",               note: "milestones" },
-      { name: "LiveTaskPopup.jsx",       note: "live task tape (iter 114)" },
-      { name: "DbHealthCard",            note: "inlined in AdminOverview (iter 117-118)" },
-    ],
-  },
-];
 
 function SettingsPage() {
   const [s, setS] = useState(null);

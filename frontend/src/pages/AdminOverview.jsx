@@ -204,7 +204,7 @@ export default function AdminOverview() {
       </Section>
 
       {/* ── Features checklist ──────────────────────────────── */}
-      <Section title="Features — live status (Iter 73-119)">
+      <Section title="Features — live status (Iter 73-123)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
           <FeatureRow name="Two-Agent Maxx"          status="live"    note="DeepSeek + Claude review" />
           <FeatureRow name="Project Brain"           status="live"    note="Per-repo memory + commit SHAs" />
@@ -263,6 +263,18 @@ export default function AdminOverview() {
           <FeatureRow name="Citation chips"          status="live"    note="🌐 chips in chat — Tavily/Firecrawl/fetch_url (Iter 119)" />
           <FeatureRow name="Token enforcement tests" status="live"    note="conftest .env loader + throwaway-user pattern (Iter 119)" />
           <FeatureRow name=".gitignore policy lock"  status="live"    note="Option B — secrets via deploy dashboard (Iter 119)" />
+          {/* Iter 120-123 batch — performance + skill pack */}
+          <FeatureRow name="Admin users N+1 fix"     status="live"    note="300 → 3 queries on /admin/users (Iter 120)" />
+          <FeatureRow name="K8s healthz probe"       status="live"    note="GET /api/healthz — DB-free liveness (Iter 120)" />
+          <FeatureRow name="DB critical indexes"     status="live"    note="cto_tasks/dev_users/payments composites (Iter 121)" />
+          <FeatureRow name="Orphan cleanup script"   status="live"    note="scripts/cleanup_orphans.py — dry-run safe (Iter 121)" />
+          <FeatureRow name="Memory diagnostics"      status="live"    note="GET /_diag/memory via tracemalloc (Iter 122)" />
+          <FeatureRow name="github_deploy_service"   status="live"    note="PR-based fix deploys — connect/push-fix/report (Iter 123)" />
+          <FeatureRow name="deploy_logger"           status="live"    note="boot + commit SHA tracking in deploy_events (Iter 123)" />
+          <FeatureRow name="22 ORA skills (industry ceiling)" status="live" note="12 audited + 10 new: find_usages, get_deps, validate_syntax, e2b… (Iter 123)" />
+          <FeatureRow name="Tool catalog grouped"    status="live"    note="READING/INTEL/GITHUB/WEB/VALIDATE + selection rules (Iter 123)" />
+          <FeatureRow name="ora_skill_usage analytics" status="live"  note="fire-and-forget telemetry → /admin/skills-usage (Iter 123b)" />
+          <FeatureRow name="OOM blocker resolved"    status="live"    note="tier_0 (512MB) → tier_1 (2GB) + ENABLE_HEALTH_CHECK (Iter 123c)" />
         </div>
         <div style={{
           marginTop: 14, fontSize: 11, color: "var(--text-dim)",
@@ -271,8 +283,8 @@ export default function AdminOverview() {
           border: "1px solid rgba(109,212,161,0.22)",
           borderRadius: 5,
         }}>
-          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>657 passing</strong>
-          {" "}/ 0 failures / 9 skips (iter 119). Build hash above ↑.
+          Backend test suite: <strong style={{ color: "var(--ok, #6dd4a1)" }}>700+ passing</strong>
+          {" "}/ 0 failures / 9 skips (iter 123 + 123b adds 42 tests). Build hash above ↑.
         </div>
       </Section>
 
@@ -303,42 +315,38 @@ export default function AdminOverview() {
       )}
 
       {/* ── Next actions ────────────────────────────────────── */}
-      <Section title="Next actions — pending on you">
+      <Section title="Next actions — pending on you (Iter 123 → June 15 launch)">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <ActionRow
             urgent
-            title="Redeploy production"
-            detail="Iter 53–60 saari changes preview pe live hain — production redeploy karke 8 iterations of fixes + features push karo (post-commit wrap-up, Ship Wall, Wrapped, Admin Overview, tool_call leak fix, OAuth origin, repo scan + brain memory, tree-truncation rescue, upload vision OCR, hosted deploy, Mode F Engage)."
+            title="🔴 Tier upgrade + redeploy production"
+            detail="Emergent Deploy Panel → tier_0 → tier_1 (2GB RAM) + env var ENABLE_HEALTH_CHECK=true → redeploy. Logs should show 'indexed=15' (was 14) and 'deploy recorded: <sha> main' on boot."
           />
           <ActionRow
             urgent
-            title="Set production env vars"
-            detail="Emergent dashboard → env vars: SENTRY_DSN, GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, ALLOWED_ORIGINS=https://auremcto.com,https://www.auremcto.com"
+            title="🔴 LIVE ORA chain test post-deploy"
+            detail="Chat mein type karo: 'Find all places where verify_exp is used and check if any imports are missing'. ORA should auto-pick find_usages → read_repo_files → validate_syntax in one response. Live popup mein 3 tool invocations visible."
           />
           <ActionRow
             urgent
-            title="Create GitHub OAuth App"
-            detail="github.com/settings/developers → OAuth Apps → callback: auremcto.com/api/aurem-dev/github/oauth/callback"
+            title="🟡 PH Hunter DM (June 13 deadline — 3 din!)"
+            detail="Product Hunt hunter ko DM karke June 15 launch ki schedule lock karo. Wait for confirmation before going live."
           />
           <ActionRow
-            title="Connect a deploy hook to your demo project"
-            detail="Vercel → Project → Settings → Git → Deploy Hooks → Create → paste URL into AUREM project's 'Connect deploy'. Now 'Ship to Live' works end-to-end."
+            title="📊 Wait 2 weeks → prune ORA skills via /admin/skills-usage"
+            detail="Industry ceiling 18 hai, hum 22 pe hain. After 2 weeks of live traffic, query GET /admin/skills-usage?days=14 — dead_weight=true rows hain prune candidates. Drop bottom 4 to hit optimal catalog size."
           />
           <ActionRow
-            title="Record 60-second demo video"
-            detail="Type a task → AUREM ships → click 'Ship to Live' → URL goes live. One bubble, prompt to production. Post on X."
+            title="🎯 Citation chip live e2e test"
+            detail="Send a query that requires Tavily (e.g. 'latest FastAPI version'). Verify 🌐 chip appears in MessageBubble with real source URL."
           />
           <ActionRow
-            title="Find 5 beta developers"
-            detail="Real repos, no hand-holding. Ask 3 of your 29 signups why they haven't shipped yet."
+            title="🛠 CODE_SURFACE auto-sync (done — verified)"
+            detail="Architecture tab now reads /admin/code-surface live. Static fallback array deleted. Drift-proof for future iters."
           />
           <ActionRow
-            title="Publish VS Code extension"
-            detail="marketplace.visualstudio.com — code is done, needs publisher account + vsce publish"
-          />
-          <ActionRow
-            title="Per-step SSE task_progress frames"
-            detail="Replace 2s polling with real-time worker tape — chat bubble updates instantly on each tool call."
+            title="🎨 Optional: skills-usage dashboard card"
+            detail="80 lines React + Recharts (already in package.json) — horizontal bar chart with dead_weight skills in red. Founder ko visual prune candidates."
           />
         </div>
       </Section>

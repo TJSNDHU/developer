@@ -4328,3 +4328,53 @@ Industry research says <18 skills is optimal. We're at 22. After 2 weeks of live
 
 **`tracemalloc` diagnostic endpoint from iter 122 stays in place** — useful even at tier_1 for catching memory regressions before they trip the new (higher) ceiling.
 
+
+---
+
+## Iter 123d — Architecture Tab + AdminOverview Refresh (Feb 11, 2026)
+
+### Why
+The Architecture tab (`/admin/architecture`) and AdminOverview (`/admin/overview`) had drifted from reality:
+- Static `CODE_SURFACE` constant in `Admin.jsx` was last refreshed iter 119 — missing all iter 120-123 work (github_deploy_service, dev_skills, deploy_logger, skill_usage analytics, 9 new services).
+- AdminOverview section title said "Iter 73-119"; test count said "657 passing".
+- "Next actions" list was completely stale — recommending iter 53-60 redeploys + GitHub OAuth setup (long since done).
+
+### What changed
+**Admin.jsx Architecture tab:**
+- Deleted the 130+ line static `CODE_SURFACE` fallback array — was hand-maintained and always stale within 2-3 iterations.
+- `CodeSurfaceLive` now reads exclusively from live `/admin/code-surface` endpoint (which auto-walks `/app/backend/routers`, `/app/backend/services`, `/app/frontend/src/pages`, `/app/frontend/src/components`).
+- Added explicit error UI (`arch-code-surface-error` testid) for endpoint failures — no more silent stale-fallback lying to founder.
+- Added header strip showing `total_files · auto-walked · drift-proof`.
+- Each column now scrollable (max-height 360px) and tooltip-on-hover shows `desc` from file docstring.
+
+**AdminOverview.jsx:**
+- Section title bumped from "Iter 73-119" → "Iter 73-123".
+- Added 11 new feature rows for iter 120-123 (N+1 fix, healthz probe, DB indexes, orphan cleanup, tracemalloc, github_deploy_service, deploy_logger, 22 ORA skills, tool catalog grouped, ora_skill_usage analytics, OOM resolved).
+- Test count footnote: "657 passing (iter 119)" → "700+ passing (iter 123 + 123b adds 42 tests)".
+- **"Next actions" list completely replaced** — was 8 stale items, now 7 launch-focused items: tier upgrade + redeploy, live ORA chain test, PH Hunter DM, 2-week skill prune workflow, citation chip e2e, CODE_SURFACE auto-sync (done), optional skills dashboard.
+
+### Live endpoint verification (preview env)
+Authenticated `GET /api/aurem-dev/admin/code-surface` returns:
+- **122 total files** across 4 surfaces, auto-walked from disk
+- routers: **26** (matches audit)
+- services: **46** (matches audit; was 18 in stale static)
+- pages: **23** (was 14)
+- components: **27** (was 12)
+
+DB collection count: **15/15 indexed** (was 14 — proves iter 123b `ora_skill_usage` bootstrap working).
+
+### Tests — `test_iter123d_code_surface_live.py`
+**5 tests, 100% passing:**
+- `/admin/code-surface` requires admin (401)
+- Live counts match audit (>=26 routers, >=46 services, >=23 pages, >=27 components)
+- Static CODE_SURFACE fallback DELETED from Admin.jsx (drift-proof going forward)
+- AdminOverview iter range bumped to 73-123 + all new feature rows present
+- Next actions list refreshed (stale items removed, new ones added)
+
+### Combined Iter 123 + 123b + 123d: 47 tests green in 3.0s
+
+### Files touched
+- `frontend/src/pages/Admin.jsx` (-130 lines stale static fallback; +30 lines live render with error UI)
+- `frontend/src/pages/AdminOverview.jsx` (+11 feature rows; replaced 8-item action list)
+- `backend/tests/test_iter123d_code_surface_live.py` (NEW — 5 tests)
+
