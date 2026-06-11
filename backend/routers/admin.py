@@ -606,6 +606,7 @@ async def get_digest(authorization: Optional[str] = Header(None)):
 @router.get("/architecture")
 async def get_architecture(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
+    import asyncio
     import httpx
     from services.external_services_registry import (
         REGISTRY, is_configured, should_probe,
@@ -615,16 +616,15 @@ async def get_architecture(authorization: Optional[str] = Header(None)):
         "status": "live" if db is not None else "down",
         "latency_ms": 0,
     }}
-    # Iter 123f — drift-proof: probe targets are now driven by the
-    # registry, not a hand-maintained list. Adding a new external dep
-    # = ONE entry in services/external_services_registry.py.
-    # Services with no configured env_keys are SKIPPED (their dashboard
-    # tile would just say "unreachable" otherwise — noise, not signal).
-    for svc in REGISTRY:
-        if not should_probe(svc):
-            continue
+    # Iter 124 — PARALLEL probes (was sequential — worst case 8 svcs × 4s = 32s
+    # which is enough to trip Cloudflare 524 under cold-start CPU contention).
+    # Now total wall-clock = slowest single probe ≈ 4s cap.
+    probe_targets = [svc for svc in REGISTRY if should_probe(svc)]
+
+    async def _probe_one(svc):
         try:
             t0 = time.time()
+            # Per-call client so a hung connect doesn't share state with peers.
             async with httpx.AsyncClient(timeout=4.0) as c:
                 r = await c.get(
                     svc.probe_url,
@@ -632,19 +632,37 @@ async def get_architecture(authorization: Optional[str] = Header(None)):
                 )
             elapsed_ms = round((time.time() - t0) * 1000)
             if r.status_code < 500:
-                services[svc.display_name] = {
+                return svc.display_name, {
                     "status": "live", "latency_ms": elapsed_ms,
                 }
-            else:
-                services[svc.display_name] = {
-                    "status": "degraded", "latency_ms": elapsed_ms,
-                    "note": f"HTTP {r.status_code}",
-                }
+            return svc.display_name, {
+                "status": "degraded", "latency_ms": elapsed_ms,
+                "note": f"HTTP {r.status_code}",
+            }
         except Exception as e:
-            services[svc.display_name] = {
+            return svc.display_name, {
                 "status": "unreachable", "latency_ms": 0,
                 "note": str(e)[:80],
             }
+
+    if probe_targets:
+        # asyncio.gather with timeout guard — even if every probe somehow
+        # exceeds its own 4s budget, we never let the whole endpoint hang.
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*(_probe_one(s) for s in probe_targets),
+                               return_exceptions=False),
+                timeout=8.0,
+            )
+            for name, info in results:
+                services[name] = info
+        except asyncio.TimeoutError:
+            # Mark anything missing as "unreachable" — never crash the page.
+            for svc in probe_targets:
+                services.setdefault(svc.display_name, {
+                    "status": "unreachable", "latency_ms": 0,
+                    "note": "probe timed out",
+                })
 
     # Iter 123f — integrations grid is also generated from the registry.
     # `mongodb` is special-cased because there's no env key for it (the
