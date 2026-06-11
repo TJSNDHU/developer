@@ -20,6 +20,7 @@ from .tools_bridge import (
     strip_tool_calls, detect_unsourced_citations,
 )
 from .local_tools import TOOL_SPECS as LOCAL_TOOL_SPECS, invoke_local_tool
+from .skill_usage import log_skill_use
 
 logger = logging.getLogger(__name__)
 
@@ -897,6 +898,16 @@ async def chat_with_tools(
                 # Iter 119 — web sources for citation chip
                 "web_sources": _extract_web_sources(tool_name, tool_args, res),
             })
+            # Iter 123b — fire-and-forget skill usage telemetry. Never awaited.
+            log_skill_use(
+                tool=tool_name,
+                ok=bool(res.get("ok")),
+                elapsed_ms=res.get("elapsed_ms"),
+                error=res.get("error"),
+                user_id=user_id,
+                project_id=project_id,
+                session_id=session_id,
+            )
             return {"tool": tool_name, "result": res}
 
         results_for_llm = await asyncio.gather(*[_run_one(c) for c in calls])

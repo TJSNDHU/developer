@@ -106,6 +106,14 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("user_id", 1), ("created_at", -1)], {}),
         ([("project_id", 1)],  {"unique": True, "sparse": True}),
     ]),
+    # Iter 123b — ORA skill usage analytics. The aggregation pipeline
+    # in /admin/skills-usage groups by `tool` and filters by `ts`, so
+    # both fields are indexed. Writes are fire-and-forget so the
+    # workload is heavily write-skewed — keep indexes minimal.
+    ("ora_skill_usage", [
+        ([("ts", -1)],              {}),
+        ([("tool", 1), ("ts", -1)], {}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.

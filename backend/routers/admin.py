@@ -1476,3 +1476,68 @@ async def db_health(authorization: Optional[str] = Header(None)):
     db = get_db()
     from services.vanguard_audit import recent_blocks
     return {"rows": await recent_blocks(db, limit=max(1, min(limit, 200)))}
+
+
+
+# ── Iter 123b — ORA skill usage analytics ────────────────────────────
+# Industry research says <18 skills is optimal. We're at 22. After
+# 2 weeks of live traffic this endpoint surfaces which skills are
+# pulling weight so the founder can prune confidently.
+
+@router.get("/skills-usage")
+async def skills_usage(
+    days: int = 14,
+    authorization: Optional[str] = Header(None),
+):
+    """Aggregate ora_skill_usage over the last N days.
+
+    Returns per-skill: call count, success rate, p50/p95 elapsed_ms.
+    Use to identify dead-weight skills (<2% of calls) for pruning.
+    """
+    await _require_admin(authorization)
+    db = require_db()
+
+    days = max(1, min(int(days or 14), 90))
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    pipeline = [
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {
+            "_id":       "$tool",
+            "count":     {"$sum": 1},
+            "ok_count":  {"$sum": {"$cond": ["$ok", 1, 0]}},
+            "elapsed":   {"$push": "$elapsed_ms"},
+        }},
+        {"$sort": {"count": -1}},
+    ]
+    rows = []
+    total = 0
+    async for r in db.ora_skill_usage.aggregate(pipeline):
+        # p50/p95 in Python — collection is small (<100k entries even at scale)
+        elapsed = sorted(e for e in (r.get("elapsed") or []) if isinstance(e, (int, float)))
+        def _pct(arr, p):
+            if not arr:
+                return None
+            i = max(0, min(len(arr) - 1, int(len(arr) * p) - 1))
+            return arr[i]
+        rows.append({
+            "tool":     r["_id"],
+            "count":    r["count"],
+            "ok_rate":  round(r["ok_count"] / r["count"], 3) if r["count"] else 0,
+            "p50_ms":   _pct(elapsed, 0.50),
+            "p95_ms":   _pct(elapsed, 0.95),
+        })
+        total += r["count"]
+
+    # Annotate share so the founder can see at-a-glance which skills < 2%
+    for row in rows:
+        row["share"] = round(row["count"] / total, 3) if total else 0
+        row["dead_weight"] = row["share"] < 0.02   # the prune threshold
+
+    return {
+        "window_days": days,
+        "total_calls": total,
+        "skills":      rows,
+        "hint":        "skills with share<0.02 are prune candidates (industry ceiling target: 18 skills)",
+    }

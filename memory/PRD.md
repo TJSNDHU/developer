@@ -4274,3 +4274,57 @@ TOTAL SKILLS BEFORE: 12 (7 code + 5 web)
 TOTAL SKILLS AFTER:  22 (12 existing + 10 new)
 MOCKS FIXED: 0 — audit found zero mocks in existing skills
 SKILLS DELETED: 0 — all existing skills already real
+
+---
+
+## Iter 123b — ORA Skill Usage Analytics (Feb 11, 2026)
+
+### Why
+Industry research says <18 skills is optimal. We're at 22. After 2 weeks of live traffic, this analytics layer tells us — with data, not gut — which skills are pulling weight and which to prune.
+
+### Implementation (~70 LOC across 4 files)
+**New:** `services/skill_usage.py` (~70 lines) — `log_skill_use()` fire-and-forget Mongo writer. Schedules `asyncio.create_task` so the orchestrator never waits. Failure-tolerant: every error is swallowed and logged.
+
+**Wired into:** `services/orchestrator.py` `_run_one` — every tool call now logs `{tool, ok, elapsed_ms, error_kind, user_id, project_id, session_id, ts}` to `ora_skill_usage` collection.
+
+**Admin endpoint:** `GET /api/aurem-dev/admin/skills-usage?days=14` — returns per-skill aggregates: count, ok_rate, p50_ms, p95_ms, share, dead_weight flag (share < 2%).
+
+**Indexed:** `init_prod_collections.py` adds `ora_skill_usage` collection with `(ts, -1)` + `(tool, 1, ts, -1)` indexes. Boot log now shows `indexed=15` (was 14).
+
+### Tests — `/app/backend/tests/test_iter123b_skill_usage_analytics.py`
+**8 tests, 100% passing:**
+- log_skill_use writes a doc with expected schema
+- error_kind truncated to 80 chars
+- Fails silently when no DB registered
+- Orchestrator imports + calls log_skill_use
+- Admin endpoint requires admin (401 unauth)
+- Admin route is mounted
+- Aggregation pipeline produces correct counts + dead_weight threshold (<2%)
+- Bootstrap spec includes ora_skill_usage with both required indexes
+
+### Combined Iter 123 + 123b: 42 tests green in 2.7s
+
+### How to use the analytics (founder workflow)
+1. Wait 2 weeks of real traffic.
+2. `curl /api/aurem-dev/admin/skills-usage?days=14` with admin JWT.
+3. Sort by `share` ascending — anything with `dead_weight: true` is a prune candidate.
+4. Manually evaluate the prune list (some low-share skills are critical for niche flows — e.g. `get_pr_comments` is rare but high-value).
+5. Remove the bottom 4 from `LOCAL_TOOLS` to hit the industry ceiling of 18.
+
+---
+
+## Iter 123c — Production OOM Resolved (Feb 11, 2026)
+
+**Root cause:** Not a code OOM. Emergent's `tier_0` pod cap was 512MB, clamping the configured 1Gi memory limit. App's actual RSS at boot is 172MB — code was never the problem.
+
+**Resolution path (founder action, not code):**
+1. Emergent Deployment Panel → upgrade tier_0 → tier_1 (2GB ceiling)
+2. Set env var `ENABLE_HEALTH_CHECK=true`
+3. Redeploy
+
+**Status:** Removed from blocked list. Verify post-deploy:
+- `curl https://auremcto.com/api/healthz` returns `{"ok": true}` consistently
+- `curl https://auremcto.com/api/_diag/memory` shows 2GB ceiling
+
+**`tracemalloc` diagnostic endpoint from iter 122 stays in place** — useful even at tier_1 for catching memory regressions before they trip the new (higher) ceiling.
+
