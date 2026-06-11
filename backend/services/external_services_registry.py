@@ -83,7 +83,11 @@ REGISTRY: tuple[Service, ...] = (
     Service(
         display_name="Stripe API",
         integration_id="stripe",
-        env_keys=("STRIPE_SECRET_KEY",),
+        # Codebase reads either STRIPE_API_KEY or STRIPE_SECRET_KEY (see
+        # _stripe_key() in routers/payments.py — preserves backwards-compat
+        # with older deploys). Treat the integration as "configured" iff
+        # EITHER is set to a real (non-placeholder) value.
+        env_keys=("STRIPE_API_KEY",),
         probe_url="https://api.stripe.com/v1/",
     ),
     Service(
