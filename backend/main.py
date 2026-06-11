@@ -228,7 +228,19 @@ if _frontend_url and _frontend_url not in _ALLOWED_ORIGINS:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https://.*\.preview\.emergentagent\.com$",
+    # Wildcard regex covers BOTH preview pods AND Emergent's production
+    # routing layer. The production K8s ingress lands on either
+    # *.emergent.host (default) or *.deploy.emergentcf.cloud (per the
+    # nginx upstream we saw in iter 123c logs). Customers reach us via
+    # the explicit https://auremcto.com domain in allow_origins above —
+    # this regex is the fallback while DNS / Cloudflare cuts over.
+    allow_origin_regex=(
+        r"^https://.*\.("
+        r"preview\.emergentagent\.com"
+        r"|emergent\.host"
+        r"|deploy\.emergentcf\.cloud"
+        r")$"
+    ),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
