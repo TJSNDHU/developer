@@ -606,62 +606,52 @@ async def get_digest(authorization: Optional[str] = Header(None)):
 @router.get("/architecture")
 async def get_architecture(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
-    import os
     import httpx
+    from services.external_services_registry import (
+        REGISTRY, is_configured, should_probe,
+    )
     db = get_db()
     services: dict = {"MongoDB": {
         "status": "live" if db is not None else "down",
         "latency_ms": 0,
     }}
-    # Iter 64 — expand probed services to match the real surface area.
-    # Probes are best-effort; any 5xx / network error → unreachable.
-    probe_targets = [
-        ("GitHub API",        "https://api.github.com"),
-        ("OpenRouter",        "https://openrouter.ai/api/v1/models"),
-        ("Cloudflare API",    "https://api.cloudflare.com/client/v4/user/tokens/verify"),
-        ("Vercel API",        "https://api.vercel.com/v2/user"),
-        ("Anthropic API",     "https://api.anthropic.com/v1/messages"),
-        ("Sentry ingest",     "https://sentry.io/api/0/"),
-        ("Stripe API",        "https://api.stripe.com/v1/"),
-    ]
-    for name, url in probe_targets:
+    # Iter 123f — drift-proof: probe targets are now driven by the
+    # registry, not a hand-maintained list. Adding a new external dep
+    # = ONE entry in services/external_services_registry.py.
+    # Services with no configured env_keys are SKIPPED (their dashboard
+    # tile would just say "unreachable" otherwise — noise, not signal).
+    for svc in REGISTRY:
+        if not should_probe(svc):
+            continue
         try:
             t0 = time.time()
             async with httpx.AsyncClient(timeout=4.0) as c:
-                # HEAD/GET unauth ping — we only care if the host is reachable
-                r = await c.get(url, headers={"User-Agent": "AUREM-arch-probe/1.0"})
-            # 2xx/3xx/4xx all mean "host alive" — 5xx is degraded.
+                r = await c.get(
+                    svc.probe_url,
+                    headers={"User-Agent": "AUREM-arch-probe/1.0"},
+                )
+            elapsed_ms = round((time.time() - t0) * 1000)
             if r.status_code < 500:
-                services[name] = {
-                    "status": "live",
-                    "latency_ms": round((time.time() - t0) * 1000),
+                services[svc.display_name] = {
+                    "status": "live", "latency_ms": elapsed_ms,
                 }
             else:
-                services[name] = {
-                    "status": "degraded",
-                    "latency_ms": round((time.time() - t0) * 1000),
+                services[svc.display_name] = {
+                    "status": "degraded", "latency_ms": elapsed_ms,
                     "note": f"HTTP {r.status_code}",
                 }
         except Exception as e:
-            services[name] = {
+            services[svc.display_name] = {
                 "status": "unreachable", "latency_ms": 0,
                 "note": str(e)[:80],
             }
 
-    integrations = {
-        "openrouter (deepseek)":    bool(os.getenv("OPENROUTER_API_KEY")),
-        "emergent_llm (maxx)":      bool(os.getenv("EMERGENT_LLM_KEY")),
-        "anthropic (claude maxx)":  bool(os.getenv("ANTHROPIC_API_KEY")),
-        "github_oauth":             bool(os.getenv("GITHUB_OAUTH_CLIENT_ID")),
-        "github_oauth_secret":      bool(os.getenv("GITHUB_OAUTH_CLIENT_SECRET")),
-        "cloudflare_purge":         bool(os.getenv("CLOUDFLARE_API_TOKEN") and
-                                         os.getenv("CLOUDFLARE_ZONE_ID")),
-        "vercel_deploy_hook":       bool(os.getenv("VERCEL_API_TOKEN")),
-        "sentry_dsn":               bool(os.getenv("SENTRY_DSN")),
-        "stripe":                   bool(os.getenv("STRIPE_SECRET_KEY")),
-        "mongodb":                  db is not None,
-        "resend (email)":           bool(os.getenv("RESEND_API_KEY")),
-    }
+    # Iter 123f — integrations grid is also generated from the registry.
+    # `mongodb` is special-cased because there's no env key for it (the
+    # db handle itself is the truth).
+    integrations: dict[str, bool] = {"mongodb": db is not None}
+    for svc in REGISTRY:
+        integrations[svc.integration_id] = is_configured(svc)
 
     missing = [k for k, v in integrations.items() if not v]
     note = (

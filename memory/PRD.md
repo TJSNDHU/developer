@@ -4426,3 +4426,85 @@ Iter 123b code DID land successfully. No deployment blocker.
 
 ### Combined Iter 123 + 123b + 123d + 123e: 49 tests green in 2.75s
 
+
+---
+
+## Iter 123f — External Services Registry (drift-proof) (Feb 11, 2026)
+
+### Why
+Architecture tab had TWO hand-maintained lists in `routers/admin.py`:
+- `probe_targets` — 7 hardcoded `(name, url)` tuples (line 618-626)
+- `integrations` — 11 hardcoded `os.getenv(...)` lookups (line 651-664)
+
+Adding a new external dep required 2 edits across this file. Founder's complaint: "the External services card was the only part of /admin/architecture still drifting."
+
+### Solution
+New module `services/external_services_registry.py` — single source of truth:
+
+```python
+@dataclass(frozen=True)
+class Service:
+    display_name:   str
+    integration_id: str
+    env_keys:       tuple[str, ...]     # all must be set for "configured"
+    probe_url:      str | None          # None → skip probing
+    always_probe:   bool                # True for public APIs
+```
+
+12 entries in `REGISTRY` tuple. Two helper fns:
+- `is_configured(svc)` — True iff every env_key is set
+- `should_probe(svc)` — True if probe_url AND (always_probe OR configured)
+
+### Router wired to consume registry
+`routers/admin.py` `/architecture` endpoint:
+- Probes loop = `for svc in REGISTRY: if should_probe(svc): ...`
+- Integrations dict = built from `{svc.integration_id: is_configured(svc)}`
+- MongoDB still special-cased (no env key — db handle IS the truth)
+
+### Auto-discovery in action
+**Before** (preview env): 7 services always probed, even when no key configured → 4s × 3 missing = 12s wasted on every page load + ugly "unreachable" tiles.
+
+**After** (preview env, smoke test confirmed):
+```
+=== Services probed: 5 ===           # was 7
+  MongoDB              live         0ms
+  GitHub API           live         158ms
+  OpenRouter           live         198ms
+  Vercel API           live         236ms
+  Sentry ingest        live          87ms
+  # ↑ Cloudflare/Anthropic/Stripe SKIPPED — no keys → no noise
+
+=== Integrations: 13 ===              # was 11
+  ... github_oauth OK, openrouter OK, ...
+  tavily (web search)            OK   # ← NEW: registry surfaced these
+  firecrawl (web scrape)         OK
+  e2b (code exec)                OK
+```
+
+13 integration cards (was 11) — registry surfaced 3 services that were already in `.env` but the old hardcoded list never reported.
+
+### Tests — `test_iter123f_external_services_registry.py`
+**12/12 passing in 0.04s:**
+- Registry structural invariants (3): tuple-of-Service, no dup names, no dup ids
+- Auto-discovery rules (5): is_configured / should_probe edge cases
+- UI-key preservation (1): existing chip slugs (`stripe`, `github_oauth`, etc.) preserved
+- Router wiring (1): hardcoded `probe_targets = [` and inline `integrations = {` literals GONE
+- Critical integrations sanity (1): stripe, github_oauth, openrouter all present
+- Public-API exception (1): GitHub-style `always_probe=True` works without keys
+- No-probe-url path (1): internal services like Resend/Tavily/e2b correctly skip probing
+
+### Combined Iter 123 + 123b + 123d + 123e + 123f: 61 tests green in 2.67s
+
+### Architecture tab is now 100% drift-proof
+- **Code surface** (4 columns) — auto-walks disk (iter 123d)
+- **External services** — auto-discovers from `REGISTRY` + env keys (iter 123f)
+- **Integrations** — same registry, no hand-maintained dict
+
+Adding a new external dep going forward: ONE entry in `external_services_registry.py`. Done.
+
+### Files touched
+- NEW: `backend/services/external_services_registry.py` (~115 lines)
+- EDIT: `backend/routers/admin.py` — replaced 60 lines of hand-maintained probe + integrations with 30 lines that iterate the registry
+- NEW: `backend/tests/test_iter123f_external_services_registry.py` (12 tests)
+- EDIT: `memory/PRD.md` — Iter 123f entry
+
