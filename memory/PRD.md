@@ -4205,3 +4205,72 @@ to "live (iter 110)".
 - `AdminOverview.jsx`: removed 1 stale unused-eslint-disable directive.
 
 **Result:** All 4 admin/chat files lint-clean (0 errors, 0 warnings).
+
+---
+
+## Iter 123 — Full Skills Audit + 10 New Senior-Dev Skills (Feb 11, 2026)
+
+### GitHub Deploy Service (P0 — completed)
+- `services/github_deploy_service.py` (390 lines, no mocks) — connect_github, push_fix, ship_auto_deploy_workflow, record_customer_deploy_report all live with real GitHub API + tenant token vault
+- `routers/github_deploy.py` (6 endpoints) registered at `/api/aurem-dev/github-deploy/*`: connect, status, push-fix, pr-status, install-workflow, report (api_key-auth for CI runners)
+- `set_db()` wired into `main.py` lifespan (no more `server.db` fallback)
+- `.github/workflows/auto_deploy.yml` template shipped for customer repos
+
+### Skills Audit Findings
+- **12 existing skills, all REAL, zero mocks/TODOs**: 7 code reading (read_repo_file, read_repo_files, list_repo_files, search_repo, semantic_search_repo, get_commit_diff, get_repo_info) + 5 web (web_search, fetch_url, web_search_and_summarize, firecrawl_scrape, firecrawl_crawl_site)
+- Sandbox runner existed (`sandbox_runner.py` with E2B) but NOT exposed as ORA skill — fixed.
+
+### 10 New Skills Built (`services/dev_skills.py`)
+1. **find_usages** — every caller/reference of a symbol (GitHub code search + tree grep fallback)
+2. **get_dependencies** — package.json + requirements.txt + pyproject.toml across root/backend/frontend
+3. **get_env_vars** — discovers expected env vars from .env.example/.env.sample/.env.template
+4. **detect_framework** — auto-detects tech stack (Next/Vite/React/FastAPI/Django/Flask/MongoDB/Postgres/Redis)
+5. **get_commit_history** — recent commits with sha/message/author/date/URL
+6. **list_issues** — open/closed GitHub issues with labels
+7. **get_pr_comments** — issue + review-thread comments on a PR
+8. **find_package_docs** — live npm + PyPI registry metadata + latest version
+9. **validate_syntax** — Python AST check (no execution, deterministic)
+10. **e2b_run_code** — wraps sandbox_runner for snippet execution
+
+All wired into `LOCAL_TOOLS` dispatch table + `TOOL_SPECS` catalog (now 22 total skills).
+
+### Tool-Help Template Restructure (industry pattern)
+Per Claude Code / Cursor / Windsurf research — ORA's tool catalog now grouped:
+- **READING** (5): semantic_search_repo, read_repo_file, read_repo_files, list_repo_files, search_repo
+- **INTEL** (5): find_usages, get_dependencies, get_env_vars, detect_framework, get_repo_info
+- **GITHUB** (4): get_commit_history, get_commit_diff, list_issues, get_pr_comments
+- **WEB** (6): web_search, web_search_and_summarize, fetch_url, firecrawl_scrape, firecrawl_crawl_site, find_package_docs
+- **VALIDATE** (2): validate_syntax, e2b_run_code
+
+Plus SELECTION RULES section to disambiguate overlapping pairs (search_repo vs semantic_search_repo vs find_usages; validate_syntax vs e2b_run_code).
+
+### Skills Architecture Decisions
+- **Skipped** (architectural): write_file, edit_file, rename_file, delete_file, batch_edit — these belong to the worker / `aurem-handoff` ship pipeline, NOT ORA. ORA is read+plan, worker is write.
+- **Skipped** (already supported): read_file_range (use `read_repo_file` with `lines=[start,end]` arg), find_function (use `search_repo` or `semantic_search_repo`), search_docs (use `web_search` + `fetch_url`).
+- **22-skill ceiling enforced**: per industry research (Claude Code 18, Cursor 12-18), more tools = ORA picks the wrong one. Future capabilities should be pipeline stages (Vanguard-style), not new ORA tools.
+
+### Tests — `/app/backend/tests/test_iter123_dev_skills.py`
+**34 tests, 100% passing:**
+- 3 github_deploy router wiring (mounted, schema validation, set_db exists)
+- 4 catalog completeness (dispatch parity, 22+ count, all new skills registered, all specs valid)
+- 4 validate_syntax (good/bad python, missing code, unsupported lang)
+- 3 find_package_docs (live PyPI, live npm, invalid package)
+- 8 per-skill error-path tests (find_usages × 2, get_dependencies, get_env_vars, detect_framework, get_commit_history, list_issues × 2, get_pr_comments × 2, e2b_run_code × 2 + happy)
+- 2 tool-help template (grouped headers, selection rules)
+- 3 no-mocks/TODOs scan (dev_skills, local_tools, web_skills)
+- 1 dispatch shape (all coroutines)
+
+### Files touched
+- `services/dev_skills.py` (NEW — 600 lines, 10 skills)
+- `services/local_tools.py` (+8 lines — import + dispatch merge)
+- `services/orchestrator.py` (tool-help template restructured into 5 groups + selection rules)
+- `routers/github_deploy.py` (verified, already complete from prior session)
+- `services/github_deploy_service.py` (verified, no mocks)
+- `main.py` (+5 lines — set_db for github_deploy_service)
+- `tests/test_iter123_dev_skills.py` (NEW — 34 tests)
+
+### Skill Catalog Summary
+TOTAL SKILLS BEFORE: 12 (7 code + 5 web)
+TOTAL SKILLS AFTER:  22 (12 existing + 10 new)
+MOCKS FIXED: 0 — audit found zero mocks in existing skills
+SKILLS DELETED: 0 — all existing skills already real

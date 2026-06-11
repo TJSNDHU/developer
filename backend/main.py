@@ -188,6 +188,14 @@ async def lifespan(app: FastAPI):
             )
     except Exception as _e:
         logger.warning(f"log_deploy_event failed: {_e}")
+
+    # Iter 123 — wire github_deploy_service DB so it doesn't depend on
+    # legacy `server.db` fallback. Service handles connect/push-fix PRs.
+    try:
+        from services import github_deploy_service as _gh
+        _gh.set_db(app.state.db)
+    except Exception as _e:
+        logger.warning(f"github_deploy_service.set_db failed: {_e}")
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()

@@ -30,6 +30,10 @@ from .web_skills import (
     WEB_TOOLS as _WEB_TOOLS,
     WEB_TOOL_SPECS as _WEB_TOOL_SPECS,
 )
+from .dev_skills import (
+    DEV_TOOLS as _DEV_TOOLS,
+    DEV_TOOL_SPECS as _DEV_TOOL_SPECS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -818,7 +822,7 @@ TOOL_SPECS: list[dict] = [
         ),
         "args_spec": {},
     },
-] + _WEB_TOOL_SPECS
+] + _WEB_TOOL_SPECS + _DEV_TOOL_SPECS
 
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
@@ -831,6 +835,7 @@ LOCAL_TOOLS: dict[str, callable] = {
     "get_commit_diff":      get_commit_diff,
     "get_repo_info":        get_repo_info,
     **_WEB_TOOLS,
+    **_DEV_TOOLS,
 }
 
 
