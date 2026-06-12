@@ -9,6 +9,7 @@ Mounted under /api/aurem-dev/usage/* by main.py.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Header
@@ -18,6 +19,16 @@ from services.usage import get_usage, get_maxx_usage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/usage", tags=["Usage"])
+
+# Iter 124j — /public/stats was polled by every landing-page visitor and
+# ran 6 sequential Mongo count_documents() on each call. After ~42 min of
+# sustained load this exhausted the Atlas connection pool / liveness probe
+# budget and K8s killed the pod (production CrashLoopBackOff, 42-min cadence).
+# Cache the response in-memory for 60 s and use the cheaper
+# estimated_document_count() for unfiltered totals — counts don't need to
+# be real-time on a marketing tile.
+_PUBLIC_STATS_CACHE: dict = {"ts": 0.0, "data": None}
+_PUBLIC_STATS_TTL_S = 60
 
 
 @router.get("/me")
@@ -58,18 +69,30 @@ async def my_maxx_usage(authorization: Optional[str] = Header(None)):
 # NO PII — only aggregate counters from ora_council_logs.
 @router.get("/public/stats")
 async def public_stats():
+    """Public marketing tile. 60-second in-memory cache to keep Atlas
+    load O(1) regardless of visitor traffic."""
+    now = time.time()
+    if _PUBLIC_STATS_CACHE["data"] is not None and \
+            now - _PUBLIC_STATS_CACHE["ts"] < _PUBLIC_STATS_TTL_S:
+        return _PUBLIC_STATS_CACHE["data"]
+
     from cto_services.db import get_db
     db = get_db()
     if db is None:
         return {"available": False}
     try:
-        total = await db.ora_council_logs.count_documents({})
+        # estimated_document_count uses collection metadata — O(1) instead
+        # of scanning. Acceptable trade-off for an unfiltered total on a
+        # marketing tile.
+        total = await db.ora_council_logs.estimated_document_count()
+        users = await db.dev_users.estimated_document_count()
+        # Filtered counts still need count_documents — but capped at 1
+        # call per minute by the cache above.
         code = await db.ora_council_logs.count_documents({"mode": "C"})
         corrections = await db.ora_council_logs.count_documents({"correction_applied": True})
         lint_blocks = await db.ora_council_logs.count_documents({"lint_blocked": True})
         tasks = await db.cto_tasks.count_documents({"status": "done"})
-        users = await db.dev_users.count_documents({})
-        return {
+        data = {
             "available": True,
             "users": users,
             "tasks_shipped": tasks,
@@ -78,7 +101,14 @@ async def public_stats():
             "claude_corrections": corrections,
             "correction_rate_pct": round((corrections / max(code, 1)) * 100, 1) if code else 0.0,
             "lint_blocks_caught": lint_blocks,
+            "cached_at": int(now),
         }
+        _PUBLIC_STATS_CACHE["data"] = data
+        _PUBLIC_STATS_CACHE["ts"] = now
+        return data
     except Exception as e:
         logger.warning("public stats failed: %r", e)
+        # Serve stale cache if available — better than 500 for a marketing tile.
+        if _PUBLIC_STATS_CACHE["data"] is not None:
+            return _PUBLIC_STATS_CACHE["data"]
         return {"available": False}

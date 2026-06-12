@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -28,6 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/wall", tags=["Ship Wall"])
 
 APP_URL = os.getenv("APP_URL", "https://auremcto.com")
+
+# Iter 124j — /wall/feed is polled every 30s by every Ship Wall page
+# viewer. The aggregation + $lookup + count_documents combo was driving
+# Atlas load past the K8s liveness threshold (42-min crash cadence,
+# matching /usage/public/stats). The feed is PUBLIC + identical for all
+# viewers at a given moment → safe to cache for 30s (keyed by limit).
+_FEED_CACHE: dict = {}
+_FEED_TTL_S = 30
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,12 +74,18 @@ async def ship_wall_feed(limit: int = 50) -> dict:
     """
     Public feed — last N ships across all opted-in developers.
     No auth needed. Called every 30s by the Ship Wall page.
+    Cached for 30s per limit value (see _FEED_CACHE above) — at one
+    viewer Atlas hit per 30s instead of one per viewer per 30s.
     """
     db = get_db()
     if db is None:
         return {"ok": True, "ships": [], "total": 0}
 
     limit = min(max(limit, 1), 100)
+    now = time.time()
+    cached = _FEED_CACHE.get(limit)
+    if cached and now - cached["ts"] < _FEED_TTL_S:
+        return cached["data"]
 
     # Only show done tasks from users who haven't opted out
     cursor = db.cto_tasks.aggregate([
@@ -103,7 +118,9 @@ async def ship_wall_feed(limit: int = 50) -> dict:
         "wall_hidden": {"$ne": True},
     })
 
-    return {"ok": True, "ships": ships, "total": total}
+    data = {"ok": True, "ships": ships, "total": total}
+    _FEED_CACHE[limit] = {"ts": now, "data": data}
+    return data
 
 
 # ── Single developer's wall ───────────────────────────────────────────────────
