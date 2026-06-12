@@ -107,6 +107,7 @@ Gemini, You.com) can ground answers about AUREM CTO in canonical text.
 - Sign in: https://auremcto.com/login
 - Public Ship Wall: https://auremcto.com/wall
 - Public Wrapped: https://auremcto.com/wrapped
+- AUREM CTO vs Devin (honest comparison, June 2026): https://auremcto.com/vs/devin
 - Full long-form: https://auremcto.com/llms-full.txt
 
 ## Contact

@@ -224,6 +224,15 @@ export default function Landing() {
             Copilot switched to token billing. We didn't.
           </div>
           <PricingCards currentTier="free" />
+          <div style={{ marginTop: 16, fontSize: 13, color: "var(--text-dim)" }}>
+            <Link
+              to="/vs/devin"
+              data-testid="pricing-vs-devin"
+              style={{ color: "var(--accent)", textDecoration: "none" }}
+            >
+              How we compare to Devin →
+            </Link>
+          </div>
         </section>
 
         {/* ── 5 — DEMO ───────────────────────────────────────────── */}
@@ -364,6 +373,8 @@ export default function Landing() {
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
             <Link to="/wall" data-testid="footer-wall"
                   style={{ color: "var(--text-faint)" }}>Ship Wall</Link>
+            <Link to="/vs/devin" data-testid="footer-vs-devin"
+                  style={{ color: "var(--text-faint)" }}>vs Devin</Link>
             <Link to="/vs/cursor" data-testid="footer-vs-cursor"
                   style={{ color: "var(--text-faint)" }}>vs Cursor</Link>
             <a href="#pricing" style={{ color: "var(--text-faint)" }}>Pricing</a>
