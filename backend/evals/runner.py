@@ -50,6 +50,10 @@ from evals.prompts_security import SECURITY_PROMPTS  # noqa: E402
 
 
 MAX_LLM_CALLS = int(os.getenv("EVALS_MAX_LLM_CALLS", "25"))
+# Iter 124i — per-prompt wall-clock cap. Without this a runaway LLM call
+# (tool fan-out, slow upstream) blocks the rest of the battery and made
+# the lifespan task hang for ~45 minutes on first prod fire.
+PROMPT_TIMEOUT_S = float(os.getenv("EVAL_PROMPT_TIMEOUT_S", "30"))
 
 
 # ── Scorer dispatcher ───────────────────────────────────────────────────
@@ -112,12 +116,24 @@ async def _run_prompt(prompt_spec: dict, budget: CallBudget) -> dict:
 
     t0 = time.perf_counter()
     try:
-        resp = await chat_with_tools(
-            prompt=prompt_spec["prompt"],
-            jwt_token="",
-            system=system,
-            max_iters=2,                # cap iterations to bound cost
+        resp = await asyncio.wait_for(
+            chat_with_tools(
+                prompt=prompt_spec["prompt"],
+                jwt_token="",
+                system=system,
+                max_iters=2,                # cap iterations to bound cost
+            ),
+            timeout=PROMPT_TIMEOUT_S,
         )
+    except asyncio.TimeoutError:
+        return {
+            "id": prompt_spec["id"],
+            "category": prompt_spec.get("category") or prompt_spec.get("attack"),
+            "prompt": prompt_spec["prompt"][:160],
+            "error": f"timed out after {PROMPT_TIMEOUT_S}s",
+            "scorers": [],
+            "hard_fails": 0, "soft_fails": 0,
+        }
     except Exception as e:
         return {
             "id": prompt_spec["id"],

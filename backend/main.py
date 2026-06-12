@@ -52,10 +52,16 @@ async def _schedule_daily_evals() -> None:
     """Iter 124g — once-per-day persona quality eval at EVAL_HOUR_UTC.
     Writes one row into ora_eval_runs; the admin tile + 30-day trend
     chart light up automatically. Swallows all failures so a transient
-    LLM outage never crashes the boot loop."""
+    LLM outage never crashes the boot loop.
+
+    Iter 124i — hard 12-minute wall cap on the whole battery + the
+    runner respects EVAL_PROMPT_TIMEOUT_S (default 30s) per prompt.
+    These two guards together make the cron incapable of pegging the
+    pod (was OOM-killed / liveness-probe-killed at iter 124g first fire)."""
     import asyncio as _aio
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     target = int(os.environ.get("EVAL_HOUR_UTC", "3"))
+    cron_budget = float(os.environ.get("EVAL_TOTAL_BUDGET_S", "720"))  # 12 min
     while True:
         now = _dt.now(_tz.utc)
         nxt = now.replace(hour=target, minute=0, second=0, microsecond=0)
@@ -64,13 +70,18 @@ async def _schedule_daily_evals() -> None:
         await _aio.sleep((nxt - now).total_seconds())
         try:
             from evals.runner import run as _run_evals
-            r = await _run_evals(quick=False)
+            r = await _aio.wait_for(_run_evals(quick=False), timeout=cron_budget)
             s = r.get("summary") or {}
             logger.info(
                 f"🧪 daily eval: ok={r.get('ok')} "
                 f"passed={s.get('passed')}/{s.get('total')} "
                 f"hard_fails={s.get('hard_fails')}"
             )
+        except _aio.TimeoutError:
+            logger.warning(
+                f"daily eval cron exceeded total budget ({cron_budget}s) — aborted"
+            )
+            await _aio.sleep(3600)
         except Exception as e:
             logger.warning(f"daily eval cron failed: {e!r}")
             await _aio.sleep(3600)   # avoid tight loop on persistent failure
@@ -182,9 +193,22 @@ async def lifespan(app: FastAPI):
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     import asyncio as _asyncio
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
-    # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC (default 03:00).
-    # Auto-populates the Persona Quality Score tile so drift is caught in 24h.
-    app.state.eval_task = _asyncio.create_task(_schedule_daily_evals())
+    # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC.
+    # OPT-IN via ENABLE_EVAL_CRON=1 env var. When the cron fired at 03:00
+    # UTC on prod (Iter 124g initial deploy), 22 sequential LLM calls
+    # combined with the project-scoping Mongo round-trips ran the pod for
+    # ~45 minutes and tripped either the K8s liveness probe or the memory
+    # limit, sending the pod into a CrashLoopBackOff. Disabled by default
+    # until we move the heavy battery into a separate cron-only sidecar
+    # or chunk the prompts across several wakes. The /admin/eval-quality
+    # endpoint still works — operators populate the tile by running
+    # `python backend/scripts/run_evals.py` from a worker pod.
+    if os.environ.get("ENABLE_EVAL_CRON", "").lower() in ("1", "true", "yes"):
+        app.state.eval_task = _asyncio.create_task(_schedule_daily_evals())
+        logger.info("🧪 daily persona-eval cron enabled (ENABLE_EVAL_CRON=1)")
+    else:
+        app.state.eval_task = None
+        logger.info("🧪 daily persona-eval cron disabled (set ENABLE_EVAL_CRON=1 to enable)")
     # Iter 40 — ORA council logs indexes (idempotent, safe to re-run)
     try:
         from services.ora_council_logger import ensure_indexes as _ora_idx
@@ -232,6 +256,8 @@ async def lifespan(app: FastAPI):
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
+    if getattr(app.state, "eval_task", None):
+        app.state.eval_task.cancel()
     if app.state.mongo:
         app.state.mongo.close()
     logger.info("AUREM Dev shutdown")
