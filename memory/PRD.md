@@ -4637,3 +4637,68 @@ viewport (800px), no overflow below the fold.
 **Deployment note:** This is a CSS/layout fix only. User reported the
 bug on production (auremcto.com); they need to redeploy from preview
 to ship the fix to prod.
+
+---
+
+## Iter 127 — Production deploy CrashLoopBackOff: lifespan blocked uvicorn for 19s (BUG FIX, 2026-06-13)
+
+**User report:** Deployment to production (auremcto.com) failing.
+nginx upstream logs showing repeated `connect() failed (111: Connection
+refused) while connecting to upstream 127.0.0.1:8001` for ~19 s on
+every pod start, K8s liveness probe killing the pod → CrashLoopBackOff.
+
+**Root cause:** FastAPI `lifespan.startup` blocked uvicorn from binding
+port 8001 because it `await`ed:
+1. `app.state.mongo.admin.command("ping")` — cold Atlas TLS + SRV
+   lookup takes 15-17 s the first time the pod connects
+2. `services.ora_council_logger.ensure_indexes()` — sequential index
+   creation
+3. `scripts.init_prod_collections.init_prod_collections()` — 15
+   indexes created sequentially
+4. `services.deploy_logger.log_deploy_event()` — DB write
+5. `services.github_deploy_service.set_db()` — module init
+
+Total: ~19 s before uvicorn bound the port. nginx forwarded incoming
+traffic into the void and the liveness probe killed the pod before
+startup even completed. Repeated forever → no successful boot.
+
+**Fix shipped:**
+`backend/main.py` — lifespan now does ONLY the cheap, synchronous-feeling
+work: instantiate the Motor client (`AsyncIOMotorClient(...)`) and call
+`set_db()`. That client is lazy — it doesn't open a connection until the
+first query. Lifespan yields in <200 ms; uvicorn binds the port
+immediately; nginx connects successfully on the first request.
+
+A new `_bg_bootstrap` task (scheduled via `asyncio.create_task`) runs in
+the background AFTER the listener is bound and does:
+- MongoDB ping (logged, non-fatal — if Atlas is slow it doesn't block traffic)
+- ora_council index ensure
+- init_prod_collections
+- deploy_event log
+- github_deploy_service db wire
+
+Each step logs its own success/failure so operators can still audit
+boot health from the log stream.
+
+**Tests:**
+`backend/tests/test_iter127_lifespan_nonblocking.py` — 3 source-level
+guards:
+1. The Atlas ping is NOT awaited inline in lifespan.
+2. ora_council index ensure / init_prod_collections / log_deploy_event
+   are NOT awaited inline.
+3. The `_bg_bootstrap` task IS scheduled via `asyncio.create_task`.
+
+All 3 green. Local sanity: lifespan completes in 151 ms (was ~19 s);
+`GET /api/aurem-dev/usage/public/stats` returns 200 in 106 ms.
+
+**Files touched**
+- EDIT: `backend/main.py` (lifespan body — ~70 lines restructured)
+- NEW : `backend/tests/test_iter127_lifespan_nonblocking.py` (3 tests)
+
+**Deployment note:** This is a backend-only fix. User needs to
+redeploy from preview → prod for the fix to land on auremcto.com.
+After redeploy, pod boot logs should show:
+1. "AUREM Dev starting…"
+2. "✅ MongoDB client created (lazy connect)" (instant)
+3. "Application startup complete." (within ~200 ms of start)
+4. Then background: "✅ MongoDB ping OK", index/collection/deploy logs
