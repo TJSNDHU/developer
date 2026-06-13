@@ -243,6 +243,41 @@ def extract_tool_calls(text: str) -> list[dict]:
         if args_dict or not _re.search(r'\w+\s*=', raw_args):
             calls.append({"tool": fn_name, "args": args_dict})
 
+    # Shape 5 — Natural language tool intent detection
+    # Handles phrases like:
+    # "let me read frontend/src/App.jsx"
+    # "I'll fetch backend/routers/auth.py"
+    # "checking frontend/src/pages/Dashboard.jsx"
+    import re as _re5
+
+    # Only trigger if no tools found yet
+    if not calls:
+        _NL_PATTERNS = [
+            # "read X", "fetch X", "check X", "look at X"
+            (r'(?:read|fetch|check|look\s+at|examine|open|load|get)\s+'
+             r'([a-zA-Z0-9_./-]+\.(?:py|jsx?|tsx?|md|json|ya?ml|css|html?))',
+             "read_repo_file", "path"),
+            # "search for X in repo"
+            (r'(?:search|grep|find)\s+(?:for\s+)?["\']?([^"\']+?)["\']?\s+'
+             r'(?:in|across|through)\s+(?:the\s+)?repo',
+             "search_repo", "pattern"),
+            # "list files in X"
+            (r'(?:list|show)\s+(?:files?\s+)?(?:in\s+)?'
+             r'([a-zA-Z0-9_/-]+(?:/[a-zA-Z0-9_/-]*)?)',
+             "list_repo_files", "path"),
+        ]
+
+        for pattern, tool_name, arg_name in _NL_PATTERNS:
+            m = _re5.search(pattern, text, _re5.IGNORECASE)
+            if m:
+                value = m.group(1).strip().strip("'\"")
+                if value and len(value) > 2:
+                    calls.append({
+                        "tool": tool_name,
+                        "args": {arg_name: value}
+                    })
+                    break  # one NL extraction per turn
+
     return calls
 
 
