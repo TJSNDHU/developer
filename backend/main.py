@@ -180,18 +180,33 @@ START_TIME = time.time()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AUREM Dev starting...")
+    # Iter 127 — cold-start fix. uvicorn doesn't bind port 8001 until the
+    # lifespan.startup phase completes, so any awaited work here blocks
+    # the entire HTTP listener. The previous flow ran a synchronous
+    # `mongo.admin.command("ping")` (~15-17 s of TLS + SRV lookup on
+    # cold Atlas connections) followed by ~3-4 more awaits (index
+    # ensure, collection bootstrap, deploy event log). Net effect:
+    # nginx upstream got 111/ECONNREFUSED for ~19 s every deploy and
+    # the pod was killed by the liveness probe → CrashLoopBackOff.
+    #
+    # The fix: create the Motor client (cheap, non-blocking — it
+    # connects lazily on first query) and offload ALL the
+    # nice-to-have boot work into background tasks. Lifespan now
+    # returns in <50 ms; uvicorn binds the port immediately; the
+    # background tasks finish on their own time and log their result.
     try:
         app.state.mongo = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=5000)
-        await app.state.mongo.admin.command("ping")
         app.state.db = app.state.mongo[DB_NAME]
         set_db(app.state.db)
-        logger.info("✅ MongoDB connected")
+        logger.info("✅ MongoDB client created (lazy connect)")
     except Exception as e:
-        logger.warning(f"⚠️  MongoDB unreachable: {e}")
+        logger.warning(f"⚠️  MongoDB client init failed: {e}")
         app.state.mongo = None
         app.state.db    = None
-    # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
+
     import asyncio as _asyncio
+
+    # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
     # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC.
     # OPT-IN via ENABLE_EVAL_CRON=1 env var. When the cron fired at 03:00
@@ -200,64 +215,69 @@ async def lifespan(app: FastAPI):
     # ~45 minutes and tripped either the K8s liveness probe or the memory
     # limit, sending the pod into a CrashLoopBackOff. Disabled by default
     # until we move the heavy battery into a separate cron-only sidecar
-    # or chunk the prompts across several wakes. The /admin/eval-quality
-    # endpoint still works — operators populate the tile by running
-    # `python backend/scripts/run_evals.py` from a worker pod.
+    # or chunk the prompts across several wakes.
     if os.environ.get("ENABLE_EVAL_CRON", "").lower() in ("1", "true", "yes"):
         app.state.eval_task = _asyncio.create_task(_schedule_daily_evals())
         logger.info("🧪 daily persona-eval cron enabled (ENABLE_EVAL_CRON=1)")
     else:
         app.state.eval_task = None
         logger.info("🧪 daily persona-eval cron disabled (set ENABLE_EVAL_CRON=1 to enable)")
-    # Iter 40 — ORA council logs indexes (idempotent, safe to re-run)
-    try:
-        from services.ora_council_logger import ensure_indexes as _ora_idx
-        await _ora_idx()
-    except Exception as _e:
-        logger.warning(f"ora council index ensure failed: {_e}")
-    # Iter 116 — Idempotent collection bootstrap. Fresh Atlas DB on
-    # production deploy doesn't auto-create collections; admin endpoints
-    # that READ them (cto_payments / vanguard_audit / referrals / etc.)
-    # would otherwise return empty until first write. This creates each
-    # collection + its indexes on every boot. Safe to re-run.
-    try:
-        from scripts.init_prod_collections import init_prod_collections
-        result = await init_prod_collections(app.state.db)
-        if result.get("created"):
-            logger.info("📦 collections created on boot: %s", result["created"])
-        if result.get("errors"):
-            logger.warning("init_prod_collections errors: %s", result["errors"])
-    except Exception as _e:
-        logger.warning(f"init_prod_collections failed: {_e}")
 
-    # Iter 123 — wire deploy_logger. Records a single `deploy_events`
-    # doc per (commit_sha × boot_id) so the founder timeline can render
-    # "View commit" links and we can audit which builds went live.
-    # Safe — idempotent for trigger=boot, swallows its own failures.
-    try:
-        from services.deploy_logger import log_deploy_event
-        evt = await log_deploy_event(app.state.db, trigger="boot")
-        if evt:
-            logger.info(
-                "📌 deploy recorded: %s %s",
-                evt.get("commit_sha", "")[:7],
-                evt.get("branch", ""),
-            )
-    except Exception as _e:
-        logger.warning(f"log_deploy_event failed: {_e}")
+    # Iter 127 — background bootstrap. None of this blocks the HTTP
+    # listener. Each step logs its own success/failure so operators can
+    # still audit boot health from the log stream.
+    async def _bg_bootstrap():
+        # Verify Mongo connectivity (1 ping). Logged but not fatal.
+        if app.state.mongo is not None:
+            try:
+                await app.state.mongo.admin.command("ping")
+                logger.info("✅ MongoDB ping OK")
+            except Exception as _e:
+                logger.warning(f"⚠️  MongoDB ping failed (will retry on demand): {_e}")
+        # Iter 40 — ORA council logs indexes (idempotent, safe to re-run)
+        try:
+            from services.ora_council_logger import ensure_indexes as _ora_idx
+            await _ora_idx()
+        except Exception as _e:
+            logger.warning(f"ora council index ensure failed: {_e}")
+        # Iter 116 — Idempotent collection bootstrap.
+        try:
+            from scripts.init_prod_collections import init_prod_collections
+            result = await init_prod_collections(app.state.db)
+            if result.get("created"):
+                logger.info("📦 collections created on boot: %s", result["created"])
+            if result.get("errors"):
+                logger.warning("init_prod_collections errors: %s", result["errors"])
+        except Exception as _e:
+            logger.warning(f"init_prod_collections failed: {_e}")
+        # Iter 123 — wire deploy_logger.
+        try:
+            from services.deploy_logger import log_deploy_event
+            evt = await log_deploy_event(app.state.db, trigger="boot")
+            if evt:
+                logger.info(
+                    "📌 deploy recorded: %s %s",
+                    evt.get("commit_sha", "")[:7],
+                    evt.get("branch", ""),
+                )
+        except Exception as _e:
+            logger.warning(f"log_deploy_event failed: {_e}")
+        # Iter 123 — wire github_deploy_service DB so it doesn't depend on
+        # legacy `server.db` fallback. Service handles connect/push-fix PRs.
+        try:
+            from services import github_deploy_service as _gh
+            _gh.set_db(app.state.db)
+        except Exception as _e:
+            logger.warning(f"github_deploy_service.set_db failed: {_e}")
 
-    # Iter 123 — wire github_deploy_service DB so it doesn't depend on
-    # legacy `server.db` fallback. Service handles connect/push-fix PRs.
-    try:
-        from services import github_deploy_service as _gh
-        _gh.set_db(app.state.db)
-    except Exception as _e:
-        logger.warning(f"github_deploy_service.set_db failed: {_e}")
+    app.state.bootstrap_task = _asyncio.create_task(_bg_bootstrap())
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
     if getattr(app.state, "eval_task", None):
         app.state.eval_task.cancel()
+    if getattr(app.state, "bootstrap_task", None):
+        app.state.bootstrap_task.cancel()
     if app.state.mongo:
         app.state.mongo.close()
     logger.info("AUREM Dev shutdown")
