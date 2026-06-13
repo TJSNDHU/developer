@@ -503,6 +503,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       abortRef.current = null;
     }
     setBusy(false);
+    // Iter 134 — clean up orphan "thinking…" bubbles when the user
+    // clicks Stop. Previously this only cancelled the SSE network call;
+    // any assistant placeholders with streaming:true stayed in
+    // `messages`, so MessageBubble kept rendering the Loader2 spinner
+    // forever (visible bug: two stuck "thinking…" bubbles after Stop).
+    // We sweep every streaming assistant turn — usually one, but old
+    // interrupted sessions may have leaked multiple — and finalise them
+    // with a clear "Stopped" marker so the user knows the click worked.
+    setMessages((msgs) =>
+      msgs.map((m) => {
+        if (m.role !== "assistant" || !m.streaming) return m;
+        return {
+          ...m,
+          streaming: false,
+          stopped: true,
+          content: m.content || "⏹ Stopped",
+        };
+      })
+    );
   }, []);
 
   async function handleFiles(fileList) {
