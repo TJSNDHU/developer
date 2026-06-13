@@ -45,6 +45,54 @@ const HIDE_OLDER_THRESHOLD = 10;
 
 const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
 
+// Iter 132 — quick-reply suggestion extractor.
+//
+// ORA frequently signs off with a CTA like:
+//   "_3 of these can be auto-fixed. Say **\"fix the critical issues\"**
+//   and I'll ship them via Mode C._"
+//
+// Instead of asking the user to retype that phrase, we surface it as
+// a one-click chip below the bubble. The regex captures phrases
+// introduced by Say / Reply / Type / Respond followed by an optional
+// markdown wrapper (`**`, `*`, or backtick) and a quoted literal.
+//
+// Match window is 2-80 chars so we don't accidentally chip out a
+// paragraph and we don't chip out a single-character noise match.
+const SUGGESTION_RX = new RegExp(
+  // intro verb
+  "\\b(?:say|reply|respond(?:\\s+with)?|type)\\s+" +
+  // optional opening md wrapper
+  "(?:\\*\\*|\\*|`)?" +
+  // opening quote: " or ' or `
+  "[\"'`]" +
+  // capture: 2-80 chars, no quote/newline
+  "([^\"'`\\n]{2,80})" +
+  // closing quote
+  "[\"'`]" +
+  // optional closing md wrapper
+  "(?:\\*\\*|\\*|`)?",
+  "gi",
+);
+
+function extractSuggestions(content) {
+  if (!content || typeof content !== "string") return [];
+  const seen = new Set();
+  const out = [];
+  let m;
+  // Reset lastIndex (global regex shared across calls).
+  SUGGESTION_RX.lastIndex = 0;
+  while ((m = SUGGESTION_RX.exec(content)) !== null) {
+    const phrase = (m[1] || "").trim();
+    if (!phrase) continue;
+    const key = phrase.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(phrase);
+    if (out.length >= 4) break; // cap chips per bubble to 4
+  }
+  return out;
+}
+
 function extractCodeBlocks(content) {
   if (!content) return [];
   const blocks = [];
@@ -360,6 +408,29 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       setClearingChat(false);
     }
   }, [clearingChat, sessionId]);
+
+  // Iter 132 — quick-reply chip click.
+  //
+  // The chip below an assistant bubble is essentially a pre-filled
+  // send. We fill the textarea (so the user sees what's being sent
+  // and can still abort with cmd+. or by clicking Stop) and then
+  // request the form's submit on the next tick. We don't bypass the
+  // existing send() pipeline because that owns mode detection,
+  // attachment merging, project-context augmentation, busy gating,
+  // and the SSE streaming wire-up — duplicating all of that would
+  // be a regression magnet.
+  const sendSuggestion = useCallback((text) => {
+    if (!text || busy || !sessionId) return;
+    setInput(text);
+    // setInput is async — schedule the submit after React flushes
+    // the new state into the textarea. `requestSubmit` on the form
+    // fires the same onSubmit handler the user would by pressing
+    // Enter, so all downstream logic is identical.
+    setTimeout(() => {
+      const form = document.querySelector('form[data-testid="chat-form"]');
+      if (form) form.requestSubmit();
+    }, 0);
+  }, [busy, sessionId]);
 
   // Auto-extract code blocks from the latest *completed* assistant reply
   const latestAssistant = useMemo(() => {
@@ -960,18 +1031,85 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             .slice(0, i + 1)
             .filter((mm) => mm.provider !== "system")
             .length - 1;
+          // Iter 132 — quick-reply chips render below the LAST
+          // assistant bubble only. Chips on every historical bubble
+          // would be noisy AND stale (suggestions in old turns may
+          // no longer be relevant). The "is last assistant" guard:
+          // the message is assistant, not the WELCOME, not still
+          // streaming, and no user message comes after it.
+          const isLastAssistant = (
+            m.role === "assistant" &&
+            !m.streaming &&
+            m.provider !== "system" &&
+            i === messages.length - 1
+          );
+          const suggestions = isLastAssistant
+            ? extractSuggestions(m.content)
+            : [];
           return (
-            <MessageBubble
-              key={i}
-              idx={i}
-              dbTurnIndex={dbTurnIndex}
-              m={m}
-              onRegenerate={regenerate}
-              sessionId={sessionId}
-              activeProject={activeProject}
-              exhausted={exhausted}
-              onTaskCompleted={triggerTaskFollowup}
-            />
+            <React.Fragment key={i}>
+              <MessageBubble
+                idx={i}
+                dbTurnIndex={dbTurnIndex}
+                m={m}
+                onRegenerate={regenerate}
+                sessionId={sessionId}
+                activeProject={activeProject}
+                exhausted={exhausted}
+                onTaskCompleted={triggerTaskFollowup}
+              />
+              {suggestions.length > 0 && (
+                <div
+                  data-testid="chat-suggestion-chips"
+                  style={{
+                    display: "flex", flexWrap: "wrap", gap: 8,
+                    marginTop: -8, marginLeft: 4,
+                  }}
+                >
+                  {suggestions.map((phrase) => (
+                    <button
+                      key={phrase}
+                      type="button"
+                      data-testid={`chat-suggestion-chip-${phrase.slice(0, 24).replace(/\s+/g, "-").toLowerCase()}`}
+                      onClick={() => sendSuggestion(phrase)}
+                      disabled={busy || exhausted}
+                      title={`Send: ${phrase}`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "6px 12px",
+                        borderRadius: 999,
+                        border: "1px solid var(--accent, #f59e0b)",
+                        background: "var(--accent-soft, rgba(245,158,11,0.08))",
+                        color: "var(--accent, #f59e0b)",
+                        fontSize: 12, fontWeight: 500,
+                        cursor: (busy || exhausted) ? "not-allowed" : "pointer",
+                        opacity: (busy || exhausted) ? 0.5 : 1,
+                        transition: "background 120ms, transform 60ms",
+                        maxWidth: "100%",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (busy || exhausted) return;
+                        e.currentTarget.style.background = "var(--accent, #f59e0b)";
+                        e.currentTarget.style.color = "#fff";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "var(--accent-soft, rgba(245,158,11,0.08))";
+                        e.currentTarget.style.color = "var(--accent, #f59e0b)";
+                      }}
+                    >
+                      <Send size={11} />
+                      <span style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 280,
+                      }}>{phrase}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
           );
         })}
         <div ref={endRef} />
@@ -1050,6 +1188,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       )}
 
       <form
+        data-testid="chat-form"
         onSubmit={send}
         className="glass-composer"
         // Iter 59 — drag-and-drop attachment support directly on the

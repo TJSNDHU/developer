@@ -5047,3 +5047,86 @@ Full battery: **56 / 56 PASSED** across Iters 124, 125, 127, 128,
 
 **Deployment note:** Ship with the rest of the iters. Backend is
 backwards compatible — old frontends just won't see the toolbar.
+
+---
+
+## Iter 132 — One-click suggestion chips (FEATURE, 2026-06-13)
+
+**User requirement (Hinglish):** "CAN you do something like these
+type of responses … must comes in one click past in chat like if
+user want that suggestion to do just click on that suggestion and
+our system automaticaly start working on that" — screenshot showed
+ORA's audit reply ending with `Say **"fix the critical issues"** and
+I'll ship them via Mode C.`
+
+**What shipped:**
+
+1. **`extractSuggestions(text)` parser** in
+   `frontend/src/components/ChatPanel.jsx`:
+   - Regex captures `(Say|Reply|Type|Respond with) [md-wrapper] "phrase" [md-wrapper]`
+   - Supports `"`, `'`, `` ` `` quotes
+   - Supports `**`, `*`, `` ` `` markdown wrappers
+   - Captures 2-80 char phrases; case-insensitive dedupe
+   - Caps at 4 chips per bubble (prevents noise on giant replies)
+
+2. **`sendSuggestion(text)` callback** wires the chip into the
+   existing send pipeline. We do NOT bypass `send()` — chip click
+   calls `setInput(text)` then `requestSubmit()` on the next tick
+   so attachments, project context, busy-gating, exhaustion checks,
+   and the SSE streaming wire-up are all preserved.
+
+3. **Chip rendering** below the LAST assistant bubble only:
+   - Sticky-amber pill (`var(--accent, #f59e0b)`)
+   - Send icon + truncated phrase
+   - Hover fills to solid amber
+   - Disabled state when `busy || exhausted`
+   - `data-testid="chat-suggestion-chips"` (container) +
+     `chat-suggestion-chip-{slug}` (each chip)
+
+**E2E proof (real backend, real DB seed, real frontend):**
+
+```
+SEEDED  session with assistant message ending in:
+        Say **"fix the critical issues"** and I'll ship them via Mode C.
+
+BEFORE  chip click — amber pill rendered:
+        ▶ fix the critical issues
+        chip count: 1, text: "fix the critical issues"
+
+AFTER   chip click —
+        - Input value cleared (so the input now reflects the sent message)
+        - New user bubble "fix the critical issues" appended
+        - "thinking…" status indicator showing
+        - POST /chat/stream fired
+        - Chip gone (no longer the last assistant message)
+```
+
+**Tests:** `frontend/src/components/__tests__/extractSuggestions.test.js`
+— 12 vitest cases, all PASSED:
+- null / empty / non-string safety
+- Exact ORA pattern from the user's screenshot
+- Plain Say/Reply/Type/Respond with double-quotes
+- Single quotes + backticks
+- Markdown bold / italic / backtick wrappers
+- Case-insensitive dedupe
+- Cap at 4 chips
+- Reject 1-char + >80-char phrases
+- Don't match verb without quoted phrase
+- Multiple distinct suggestions in one message
+- Reject quoted phrases without an intro verb (so "the error was \"X\"" isn't chipped)
+- Newlines between paragraphs don't break detection
+
+**Files touched**
+- EDIT: `frontend/src/components/ChatPanel.jsx`
+  - `SUGGESTION_RX` + `extractSuggestions(content)` (module scope)
+  - `sendSuggestion(text)` useCallback
+  - `data-testid="chat-form"` on the form (for requestSubmit)
+  - Wrapped `<MessageBubble>` in `<React.Fragment>` and appended a
+    chip row when the bubble is the LAST assistant turn and the
+    content has detectable suggestions
+- NEW : `frontend/src/components/__tests__/extractSuggestions.test.js`
+
+**Deployment note:** Ship with the rest of the iters. Backend
+unchanged for this feature — frontend-only addition. Old chat
+sessions with suggestion-shaped content will immediately surface
+chips once the new frontend loads.
