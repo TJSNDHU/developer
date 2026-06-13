@@ -485,6 +485,8 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
 
     # Stream a small confirmation turn and queue the task.
     async def _stream():
+        import time as _t
+        t_start = _t.monotonic()
         meta = {
             "meta": True,
             "session_id": body.session_id,
@@ -496,6 +498,29 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
             "ship_shortcut": True,
         }
         yield f"data: {json.dumps(meta)}\n\n"
+
+        # Iter 132 — Mode C ship shortcut tick emission. Without periodic
+        # tick frames the chat UI shows "Thinking…" with no elapsed timer
+        # while _enqueue_cto_task runs (GitHub repo checks, etc. — can take
+        # several seconds). We run the heavy work as a background task and
+        # interleave {thinking:true, elapsed_s, activity} frames every 0.5s
+        # so MessageBubble.jsx renders the live counter exactly like the
+        # normal chat_with_tools path.
+        stop_event = asyncio.Event()
+        activity = {"label": "queueing ship task…"}
+
+        def _emit_tick() -> str:
+            elapsed = round(_t.monotonic() - t_start, 1)
+            return (
+                "data: " + json.dumps({
+                    "thinking":  True,
+                    "elapsed_s": elapsed,
+                    "activity":  activity["label"],
+                }) + "\n\n"
+            )
+
+        # First tick immediately so the UI swaps "…" → "0.0s" instantly.
+        yield _emit_tick()
 
         # Default to the user's current/last project — if none we can't
         # actually queue, so degrade gracefully with a clear message.
@@ -510,12 +535,30 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
             yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
             return
 
+        # Run the heavy work (DB fetch + GitHub validation + enqueue) in a
+        # background task while we yield tick frames every 0.5 s.
+        async def _do_enqueue():
+            try:
+                from routers.cto_projects import _enqueue_cto_task
+                return ("ok", await _enqueue_cto_task(
+                    user_id=user_id, project_id=project_id, task_text=brief,
+                ))
+            except Exception as e:
+                return ("error", e)
+
+        enqueue_t = asyncio.create_task(_do_enqueue())
         try:
-            from routers.cto_projects import _enqueue_cto_task
-            res = await _enqueue_cto_task(
-                user_id=user_id, project_id=project_id, task_text=brief,
-            )
-        except Exception as e:
+            while not enqueue_t.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(enqueue_t), timeout=0.5)
+                except asyncio.TimeoutError:
+                    yield _emit_tick()
+            kind, payload = enqueue_t.result()
+        finally:
+            stop_event.set()
+
+        if kind == "error":
+            e = payload
             content = (
                 f"🚢 Ship-shortcut failed to queue: {type(e).__name__}: {e}. "
                 "Try again, or run the task from a fresh prompt."
@@ -525,6 +568,7 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
             yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
             return
 
+        res = payload
         if not res.get("ok"):
             reason = res.get("reason", "unknown")
             content = (

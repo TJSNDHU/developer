@@ -5130,3 +5130,52 @@ AFTER   chip click —
 unchanged for this feature — frontend-only addition. Old chat
 sessions with suggestion-shaped content will immediately surface
 chips once the new frontend loads.
+
+---
+
+## Iter 132 — Mode C "Ship" Shortcut: Live Thinking Timer Fix (Feb 2026)
+
+**Bug:** User reported "our system not fixing just thinking thinking
+and also not showing time tooo". The chat bubble was stuck on
+"Thinking…" with no elapsed counter whenever Mode C was triggered
+via the ship-shortcut (prompts like "ship", "do it", "go" after an
+`aurem-handoff` fence).
+
+**Root cause:** `_maybe_ship_shortcut` in `backend/routers/chat.py`
+bypassed the `_ticker()` task that the normal `chat_with_tools`
+path uses. While `_enqueue_cto_task` ran (GitHub repo validation
++ Mongo writes — often 1-3s on cold cache), NO SSE frames were
+emitted. The frontend `MessageBubble.jsx` only renders the timer
+when `m.elapsedS` is a number, which only updates via `onThinking`
+which is only fired on `{thinking:true, elapsed_s, activity}`
+frames.
+
+**Fix:** Refactored `_maybe_ship_shortcut._stream()` to:
+1. Emit an initial tick (`elapsed_s=0.0`) right after meta so the
+   UI swaps "…" → "0.0s" instantly.
+2. Run the enqueue as a background `asyncio.Task` and interleave
+   `{thinking:true, elapsed_s, activity:"queueing ship task…"}`
+   frames every 0.5s via `asyncio.wait_for(asyncio.shield(...), 0.5)`.
+3. Once the enqueue resolves, drain the result and continue with
+   `task_handoff` + token streaming as before (iter 125 frame
+   ordering preserved).
+
+**Tests:**
+- NEW: `backend/tests/test_iter132_ship_shortcut_tick_emission.py`
+  - Stubs a slow `_enqueue_cto_task` (1.6s sleep) and asserts the
+    SSE stream contains ≥2 `thinking:true` frames between meta
+    and done.
+  - Validates `elapsed_s` is numeric and monotonically increasing.
+  - Re-checks iter 125 `task_handoff` frame still present.
+- All 45 iter125–132 regression tests pass.
+
+**Files touched**
+- EDIT: `backend/routers/chat.py` (`_maybe_ship_shortcut._stream`)
+- NEW : `backend/tests/test_iter132_ship_shortcut_tick_emission.py`
+
+**Pending tasks (priority order)**
+- P1: Dynamic SEO/GEO Compare Hub integration (files in `/tmp/seo_geo/`)
+- P1: Security tooling (pip-audit, npm audit, Semgrep) — needs user confirm
+- P2: pgvector / Qdrant vector DB
+- P2: Fast-AUREM marketing repo
+- Refactor: `ChatPanel.jsx` (1500+ lines) → split into custom hooks
