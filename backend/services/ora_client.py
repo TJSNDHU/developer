@@ -35,9 +35,12 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 # ── Circuit breaker config ────────────────────────────────────
-# 1 hour cool-down — long enough to avoid spam, short enough to auto-recover
-# without redeploying once aurem.live is fixed upstream.
-_BREAKER_COOLDOWN_SECS = 3600
+# Iter 141 — default lowered from 3600s → 600s (10 min) and made
+# env-configurable. The "model unavailable for free" failure mode is a
+# config-side issue on the aurem.live upstream that an operator fixes
+# manually; 10 minutes is enough to silence the retry storm without
+# stranding the app for an hour. Override via ORA_BREAKER_COOLDOWN_S.
+_BREAKER_COOLDOWN_SECS = int(os.getenv("ORA_BREAKER_COOLDOWN_S", "600"))
 _BREAKER_FILE = Path("/tmp/aurem_ora_circuit_open")
 
 # Substrings of upstream errors that are NEVER going to fix themselves via
