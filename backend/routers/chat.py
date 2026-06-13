@@ -537,6 +537,19 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
             return
 
         task_id = res["task_id"]
+        # Iter 125 — emit the same `task_handoff` SSE frame the Mode D→C
+        # path uses so the floating LiveTaskPopup mounts immediately. The
+        # shortcut path previously only stuffed task_id in the `done`
+        # payload, which `onDone` doesn't read — so the popup never
+        # appeared on ship shortcuts (the most common Mode C trigger).
+        yield (
+            "data: " + json.dumps({
+                "type": "task_handoff",
+                "task_id": task_id,
+                "project_id": res.get("project_id") or project_id,
+                "source": "ship_shortcut",
+            }) + "\n\n"
+        )
         content = (
             f"🚢 **Shipped via shortcut** — task `{task_id}` queued from the "
             f"previous handoff brief. The worker will commit directly to "

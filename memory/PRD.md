@@ -4547,3 +4547,52 @@ backoff stays bounded. All 8 green.
 - EDIT: `backend/services/orchestrator.py` (+47 lines in persona)
 - EDIT: `backend/services/llm.py` (retry helpers + DeepSeek/Claude retry loops)
 - NEW : `backend/tests/test_iter124_repo_first_and_retry.py` (8 tests)
+
+---
+
+## Iter 125 — LiveTaskPopup not firing on ship-shortcut Mode C (BUG FIX, 2026-06-13)
+
+**User report (Hinglish):** "jbb code touch krega koi bhe tool to popup
+window show hogi jisma coad show onga vo window popup nhi ho rhi" —
+the bottom-right LiveTaskPopup that shows live ORA commit/PR progress
+(steps, file diffs, Vanguard findings) wasn't appearing. Confirmed
+expectation: popup should fire on Mode C GitHub commit/PR only.
+
+**Root cause:** Two distinct bugs combined.
+
+1. **Backend — ship-shortcut path skipped the SSE `task_handoff` frame.**
+   `routers/chat.py::_maybe_ship_shortcut._stream()` enqueues a real
+   Mode C task on `ship` / `do it` / `go` after an `aurem-handoff`
+   fence, but only stuffed `task_id` into the final `done` payload.
+   The frontend `onDone` handler updates the message bubble but never
+   calls `setLivePopupTaskId(...)` — only `onTaskHandoff` does. So
+   the most common Mode C trigger silently bypassed the popup.
+
+2. **Frontend — `useEffect([sessionId])` clobbered popups set during
+   initial mount.** `ChatPanel.jsx` reset `livePopupTaskId` to null
+   every time `sessionId` changed, including the async null→value
+   transition on mount. The `?ltp=` debug hook and any popup set
+   during initial render were unmounted ~immediately by the boot
+   transition.
+
+**Fixes shipped:**
+1. `backend/routers/chat.py` — ship-shortcut now yields a
+   `data: {"type":"task_handoff","task_id":...,"project_id":...,
+   "source":"ship_shortcut"}` SSE frame BEFORE streaming the
+   confirmation tokens, matching the Mode D→C handoff convention.
+2. `frontend/src/components/ChatPanel.jsx` — sessionId reset effect
+   now uses a `useRef` to track the prior sessionId and only clears
+   the popup on a genuine USER-INITIATED switch (`prev && next &&
+   prev !== next`). Skips null→value (boot) and value→null (logout).
+
+**Tests:**
+- `backend/tests/test_iter125_ship_shortcut_task_handoff.py` —
+  pins the SSE frame order (task_handoff BEFORE token streaming) so
+  this regression cannot recur silently.
+- Visual smoke test via `?ltp=test-task-debug-4` confirmed popup
+  mounts and survives the async session load (screenshot in chat).
+
+**Files touched**
+- EDIT: `backend/routers/chat.py` (+13 lines, task_handoff frame in shortcut)
+- EDIT: `frontend/src/components/ChatPanel.jsx` (sessionId reset via prev-ref)
+- NEW : `backend/tests/test_iter125_ship_shortcut_task_handoff.py`

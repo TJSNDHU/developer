@@ -253,8 +253,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Iter 114 — clear the live-task popup whenever the chat session
   // changes (user clicked "New chat" / switched sessions). The popup
   // belongs to the previous task lineage; carrying it over is wrong.
+  // Iter 125 — only clear on a genuine session SWITCH (prev + new both
+  // truthy and different). Skips null→value (initial load) and
+  // value→null (logout) so the `?ltp=` debug hook and `task_handoff`
+  // SSE-set popups aren't clobbered by the async session boot.
+  const sessionIdPrevRef = useRef(sessionId);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setLivePopupTaskId(null); }, [sessionId]);
+  useEffect(() => {
+    const prev = sessionIdPrevRef.current;
+    sessionIdPrevRef.current = sessionId;
+    if (prev && sessionId && prev !== sessionId) {
+      setLivePopupTaskId(null);
+    }
+  }, [sessionId]);
 
   // Iter 115 — debug/QA hook. Adding `?ltp=<task_id>` to the URL mounts
   // the popup for that task without going through a real chat handoff.
