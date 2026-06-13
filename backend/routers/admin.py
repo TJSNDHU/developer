@@ -1138,6 +1138,276 @@ async def mode_telemetry(
     }
 
 
+# ── Product analytics — DAU/WAU/MAU, mode usage, task success, token burn ────
+@router.get("/product-analytics")
+async def product_analytics(
+    days: int = 30,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Real product analytics — DAU, MAU, mode usage, feature adoption,
+    task success rate, token burn, top users.
+
+    Iter 139 — replaces the previous "Analytics" page that only showed
+    Mode-Council debate logs. This endpoint hits the same collections
+    the rest of the platform writes to, so every number is sourced
+    from real user activity (no estimates, no stubs).
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    import time
+    from datetime import datetime, timezone
+
+    # Iter 139 — clamp window so a malicious client can't probe with
+    # days=10**12 and DoS the aggregation pipeline.
+    days = max(1, min(int(days or 30), 365))
+    now = time.time()
+    window_start = now - (days * 86400)
+    day_ago = now - 86400
+    week_ago = now - (7 * 86400)
+
+    async def _first_or_zero(coll, pipe: list, field: str) -> int:
+        async for r in coll.aggregate(pipe):
+            return int(r.get(field, 0) or 0)
+        return 0
+
+    # DAU — unique users who sent a chat message today
+    dau = await _first_or_zero(
+        db.chat_sessions,
+        [
+            {"$match": {"updated_at": {"$gte": day_ago}}},
+            {"$group": {"_id": "$user_id"}},
+            {"$count": "dau"},
+        ],
+        "dau",
+    )
+
+    # WAU — unique users active this week
+    wau = await _first_or_zero(
+        db.chat_sessions,
+        [
+            {"$match": {"updated_at": {"$gte": week_ago}}},
+            {"$group": {"_id": "$user_id"}},
+            {"$count": "wau"},
+        ],
+        "wau",
+    )
+
+    # MAU — unique users active this month
+    mau = await _first_or_zero(
+        db.chat_sessions,
+        [
+            {"$match": {"updated_at": {"$gte": window_start}}},
+            {"$group": {"_id": "$user_id"}},
+            {"$count": "mau"},
+        ],
+        "mau",
+    )
+
+    # Total users
+    total_users = await db.dev_users.estimated_document_count()
+
+    # New users this week
+    new_users_week = await db.dev_users.count_documents(
+        {"created_at": {"$gte": week_ago}}
+    )
+
+    # Task stats
+    tasks_total = await db.cto_tasks.count_documents(
+        {"created_at": {"$gte": window_start}}
+    )
+    tasks_done = await db.cto_tasks.count_documents(
+        {"created_at": {"$gte": window_start}, "status": "done"}
+    )
+    tasks_failed = await db.cto_tasks.count_documents(
+        {"created_at": {"$gte": window_start}, "status": "failed"}
+    )
+    success_rate = (
+        round((tasks_done / tasks_total * 100), 1) if tasks_total else 0
+    )
+
+    # Mode distribution (A/B/C/D/E/F) from ora_council_logs
+    mode_dist: dict = {}
+    async for r in db.ora_council_logs.aggregate(
+        [
+            {"$match": {"ts": {"$gte": window_start}}},
+            {"$group": {"_id": "$mode", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]
+    ):
+        mid = r.get("_id")
+        if mid:
+            mode_dist[mid] = int(r.get("count", 0))
+
+    # Daily active users trend (last 14 days)
+    dau_trend = []
+    for i in range(13, -1, -1):
+        day_start = now - ((i + 1) * 86400)
+        day_end = now - (i * 86400)
+        day_count = await _first_or_zero(
+            db.chat_sessions,
+            [
+                {"$match": {"updated_at": {"$gte": day_start, "$lt": day_end}}},
+                {"$group": {"_id": "$user_id"}},
+                {"$count": "c"},
+            ],
+            "c",
+        )
+        label = datetime.fromtimestamp(day_end, tz=timezone.utc).strftime("%b %d")
+        dau_trend.append({"date": label, "users": day_count})
+
+    # Top features used (by chat mode)
+    feature_labels = {
+        "C": "Code Ship", "D": "Debug", "B": "Advice",
+        "A": "Chat", "E": "Audit", "F": "Engage",
+    }
+    top_features = [
+        {"mode": k, "label": feature_labels.get(k, k), "count": v}
+        for k, v in sorted(mode_dist.items(), key=lambda x: -x[1])
+    ]
+
+    # Token burn (last N days)
+    tokens_burned = await _first_or_zero(
+        db.cto_tasks,
+        [
+            {"$match": {"created_at": {"$gte": window_start}, "status": "done"}},
+            {"$group": {"_id": None, "total": {"$sum": "$tokens_used"}}},
+        ],
+        "total",
+    )
+
+    # Tier breakdown
+    tier_breakdown: dict = {}
+    async for r in db.dev_users.aggregate(
+        [
+            {"$group": {"_id": "$tier", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]
+    ):
+        tier_breakdown[r.get("_id") or "unknown"] = int(r.get("count", 0))
+
+    # Maxx mode usage
+    maxx_tasks = await db.cto_tasks.count_documents(
+        {"created_at": {"$gte": window_start}, "maxx_mode": True}
+    )
+
+    return {
+        "ok": True,
+        "period_days": days,
+        "users": {
+            "total": total_users,
+            "dau": dau,
+            "wau": wau,
+            "mau": mau,
+            "new_this_week": new_users_week,
+            "by_tier": tier_breakdown,
+        },
+        "tasks": {
+            "total": tasks_total,
+            "done": tasks_done,
+            "failed": tasks_failed,
+            "success_rate_pct": success_rate,
+            "maxx_mode": maxx_tasks,
+            "tokens_burned": tokens_burned,
+        },
+        "modes": {
+            "distribution": mode_dist,
+            "top_features": top_features,
+        },
+        "trend": {
+            "dau_14d": dau_trend,
+        },
+    }
+
+
+# ── Cache stats — observability for in-memory route cache ─────────────
+@router.get("/cache/stats")
+async def cache_stats(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Iter 140 — in-memory route cache observability. Returns the
+    configured routes and currently-live entries with their remaining
+    TTLs. Helps validate cache hit rates from the admin dashboard
+    without scraping logs."""
+    await _require_admin(authorization)
+    from services.route_cache import _CACHE, ROUTE_CONFIG
+    import time as _t
+    now = _t.time()
+    entries = []
+    for key, (expires_at, status, body, _ctype) in list(_CACHE.items()):
+        ttl_remaining = max(0, expires_at - now)
+        entries.append({
+            "key": key[:80],
+            "ttl_remaining_s": round(ttl_remaining, 1),
+            "size_bytes": len(body),
+            "status": status,
+        })
+    return {
+        "ok": True,
+        "cached_routes": len(ROUTE_CONFIG),
+        "live_entries": len(entries),
+        "entries": sorted(entries, key=lambda x: -x["ttl_remaining_s"]),
+    }
+
+
+# ── Feature flags — MongoDB-backed kill switches / canaries ───────────
+@router.get("/feature-flags")
+async def list_feature_flags(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """List all feature flags and their status."""
+    await _require_admin(authorization)
+    from services.feature_flags import get_all_flags as _get_all_flags
+    flags = await _get_all_flags()
+    return {"ok": True, "flags": flags}
+
+
+@router.post("/feature-flags/{flag}/toggle")
+async def toggle_feature_flag(
+    flag: str,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Flip a feature flag's `enabled` boolean."""
+    await _require_admin(authorization)
+    db = require_db()
+    doc = await db.feature_flags.find_one({"flag": flag})
+    if not doc:
+        raise HTTPException(404, f"Flag '{flag}' not found")
+    new_state = not doc.get("enabled", False)
+    await db.feature_flags.update_one(
+        {"flag": flag}, {"$set": {"enabled": new_state}}
+    )
+    from services.feature_flags import invalidate_cache as _ff_invalidate
+    _ff_invalidate()
+    return {"ok": True, "flag": flag, "enabled": new_state}
+
+
+@router.post("/feature-flags")
+async def create_feature_flag(
+    body: dict,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Create or update a feature flag (idempotent upsert)."""
+    await _require_admin(authorization)
+    db = require_db()
+    flag = (body.get("flag") or "").strip()
+    if not flag:
+        raise HTTPException(400, "flag name required")
+    await db.feature_flags.update_one(
+        {"flag": flag},
+        {"$set": {
+            "flag": flag,
+            "enabled": bool(body.get("enabled", False)),
+            "tier_allowlist": list(body.get("tier_allowlist") or []),
+            "user_allowlist": list(body.get("user_allowlist") or []),
+            "description": str(body.get("description") or ""),
+        }},
+        upsert=True,
+    )
+    from services.feature_flags import invalidate_cache as _ff_invalidate
+    _ff_invalidate()
+    return {"ok": True, "flag": flag}
+
+
 # ── Brain replay — sandbox "what would ORA say" without committing ───
 @router.post("/brain/{project_id}/replay")
 async def admin_brain_replay(

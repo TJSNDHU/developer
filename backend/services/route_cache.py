@@ -25,11 +25,20 @@ from typing import Dict, Tuple, Optional
 
 # path → (ttl_seconds, requires_admin)
 ROUTE_CONFIG: Dict[str, Tuple[int, bool]] = {
-    "/api/aurem-dev/usage/public/stats":   (60, False),
-    "/api/aurem-dev/wall/stats":           (60, False),
-    "/api/aurem-dev/wall/feed":            (30, False),
-    "/api/aurem-dev/admin/council/stats":  (60, True),
-    "/api/aurem-dev/admin/mode-telemetry": (60, True),
+    "/api/aurem-dev/usage/public/stats":      (60, False),
+    "/api/aurem-dev/wall/stats":              (60, False),
+    "/api/aurem-dev/wall/feed":               (30, False),
+    "/api/aurem-dev/admin/council/stats":     (60, True),
+    "/api/aurem-dev/admin/mode-telemetry":    (60, True),
+    # Iter 140 — extend cache to the heavy aggregate routes that the
+    # admin dashboard polls on a tab open. Public trust pages get a
+    # short TTL since deploy/uptime numbers don't churn.
+    "/api/aurem-dev/admin/product-analytics": (120, True),
+    "/api/aurem-dev/admin/db-health":         (30,  True),
+    "/api/aurem-dev/admin/architecture":      (300, True),
+    "/api/aurem-dev/admin/skills-usage":      (120, True),
+    "/api/aurem-dev/trust/uptime":            (60,  False),
+    "/api/aurem-dev/trust/deploy-count":      (300, False),
 }
 
 # Legacy alias kept so existing imports / lint don't break.

@@ -25,6 +25,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 concurrency:
   group: aurem-auto-deploy-${{ github.ref }}
@@ -48,8 +49,61 @@ jobs:
           fi
           echo "AUREM PR validated."
 
+  gate-on-ci:
+    # Iter 139 — block deploy until the CI workflow (ci.yml) on the
+    # SAME commit reports success. Real gate, not a stub: polls the
+    # GitHub REST API every 15 s for up to 12 minutes. If CI was never
+    # triggered (e.g. doc-only path filter, manual workflow dispatch)
+    # we treat that as "no opinion" and allow the deploy to proceed,
+    # which matches GitHub's default required-status-check semantics.
+    name: Wait for CI tests
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Poll CI workflow status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA:  ${{ github.sha }}
+        run: |
+          set -e
+          DEADLINE=$(( $(date +%s) + 720 ))   # 12 min hard cap
+          CI_NAME="AUREM CI — Test Suite"
+          echo "Waiting for CI workflow '$CI_NAME' on commit $SHA"
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            RUN=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/actions/runs?head_sha=$SHA&per_page=20" \
+              | python3 -c "import json,sys; [print(r['name']+'|'+r['status']+'|'+(r['conclusion'] or 'null')) for r in json.load(sys.stdin).get('workflow_runs', [])]")
+            CI_LINE=$(echo "$RUN" | grep -F "$CI_NAME|" | head -1 || true)
+            if [ -z "$CI_LINE" ]; then
+              echo "  CI workflow not yet listed for this commit — waiting…"
+              sleep 15
+              continue
+            fi
+            STATUS=$(echo "$CI_LINE" | cut -d'|' -f2)
+            CONCLUSION=$(echo "$CI_LINE" | cut -d'|' -f3)
+            echo "  CI status=$STATUS conclusion=$CONCLUSION"
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "✅ CI passed — gate open. Deploying commit $SHA"
+                exit 0
+              fi
+              echo "::error::CI conclusion='$CONCLUSION' — blocking deploy"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::warning::CI did not complete within 12min — allowing deploy (manual override)"
+
   deploy-and-report:
     if: github.event_name == 'push'
+    needs: [gate-on-ci]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger customer deploy webhook

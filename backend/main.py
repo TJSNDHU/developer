@@ -295,7 +295,21 @@ async def lifespan(app: FastAPI):
     logger.info("AUREM Dev shutdown")
 
 
-app = FastAPI(title="AUREM Dev", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="AUREM Dev API",
+    version="1.0.0",
+    lifespan=lifespan,
+    # Iter 140 — expose interactive docs at /api/docs (avoids
+    # default /docs being eaten by frontend SPA routing).
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    description=(
+        "AUREM CTO Developer AI — reads your GitHub repo, writes "
+        "code, ships commits. Authenticate with Bearer token from "
+        "/api/aurem-dev/auth/login."
+    ),
+)
 
 # CORS lockdown. allow_origins=["*"] meant ANY website could hit the API.
 # Now we read ALLOWED_ORIGINS from env (comma-separated, settable in
@@ -393,6 +407,22 @@ async def _security_headers(request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # Iter 140 — Content Security Policy + version stamp.
+    # Locked-down sources for default/script/style/img/connect/frame/font.
+    # 'unsafe-inline' kept for style+script because lucide-react and our
+    # markdown renderer inject inline CSS; we'll tighten with nonces in a
+    # later iteration once the chat preview pane is on its own iframe.
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://auremcto.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://auremcto.com wss://auremcto.com "
+        "https://openrouter.ai https://api.github.com; "
+        "frame-src 'self' blob:; "
+        "font-src 'self' data:;"
+    )
+    response.headers["X-AUREM-Version"] = "1.0.0"
     response.headers["X-Response-Time-Ms"] = f"{_dur_ms:.0f}"
     if SENTRY_ACTIVE:
         _slow_thresh = float(os.getenv("SLOW_API_MS", "5000"))
@@ -637,6 +667,33 @@ async def health():
 @app.get("/api/healthz")
 async def healthz():
     return {"ok": True}
+
+
+# Iter 140 — Versioned health endpoint. Stable contract for v1 API
+# consumers (mobile apps, third-party integrations) so /api/health
+# stays free to evolve. Pings MongoDB so callers can distinguish a
+# pod-up-but-DB-down situation from healthy.
+@app.get("/api/v1/health", tags=["Health"])
+async def health_v1():
+    """Versioned health check — stable API contract."""
+    from cto_services.db import get_db
+    db = get_db()
+    db_ok = False
+    if db is not None:
+        try:
+            await db.command("ping")
+            db_ok = True
+        except Exception:
+            pass
+    return {
+        "ok": db_ok,
+        "service": "aurem-dev",
+        "version": "1.0.0",
+        "api_version": "v1",
+        "db": db_ok,
+        "env": os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "production")),
+        "uptime_s": round(time.time() - START_TIME, 2),
+    }
 
 
 # Iter 122 — memory diagnostic endpoint for restart-loop debugging.

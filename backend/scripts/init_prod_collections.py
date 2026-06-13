@@ -114,6 +114,13 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("ts", -1)],              {}),
         ([("tool", 1), ("ts", -1)], {}),
     ]),
+    # Iter 140 — Feature flags (kill switches + canaries). Lookup
+    # path is always by `flag` and the value is small, so a single
+    # unique index covers all queries.
+    ("feature_flags", [
+        ([("flag", 1)],    {"unique": True}),
+        ([("enabled", 1)], {}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.
@@ -177,6 +184,30 @@ async def init_prod_collections(db) -> dict:
         except Exception as e:
             out["errors"].append(f"{name}: {type(e).__name__}: {e}")
             logger.warning("init_prod_collections %s failed: %r", name, e)
+    # Iter 140 — seed default feature flags if the collection is empty.
+    # Idempotent: only runs once per fresh DB.
+    try:
+        if await db.feature_flags.count_documents({}) == 0:
+            await db.feature_flags.insert_many([
+                {"flag": "new_analytics_v2", "enabled": True,
+                 "tier_allowlist": [], "user_allowlist": [],
+                 "description": "New product analytics dashboard"},
+                {"flag": "maxx_mode_beta", "enabled": True,
+                 "tier_allowlist": ["pro", "team", "founder"],
+                 "user_allowlist": [],
+                 "description": "Maxx dual-model review mode"},
+                {"flag": "parallel_agents", "enabled": True,
+                 "tier_allowlist": ["pro", "team", "founder"],
+                 "user_allowlist": [],
+                 "description": "3-agent parallel task execution"},
+                {"flag": "chrome_extension_beta", "enabled": False,
+                 "tier_allowlist": [], "user_allowlist": [],
+                 "description": "Chrome extension side panel (beta)"},
+            ])
+            out["created"].append("feature_flags:seeded(4)")
+    except Exception as e:
+        out["errors"].append(f"feature_flags seed: {type(e).__name__}: {e}")
+        logger.warning("feature_flags seed failed: %r", e)
     logger.info("init_prod_collections done — created=%d, indexed=%d, errors=%d",
                 len(out["created"]), len(out["indexed"]), len(out["errors"]))
     _LAST_BOOTSTRAP = out

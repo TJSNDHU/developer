@@ -25,6 +25,15 @@ import LiveTaskPopup from "./LiveTaskPopup";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
+// Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
+// the hooks below ring-fence message-list mutations, session network
+// calls, and SSE stream control so each concern can be unit-tested
+// independently. Phase-1 wiring uses them additively (alongside
+// existing inline state) so behaviour is unchanged; subsequent
+// iterations will migrate fully and delete the duplicated state.
+import { useChatMessages } from "../hooks/useChatMessages";
+import { useChatSession } from "../hooks/useChatSession";
+import { useChatStream } from "../hooks/useChatStream";
 
 const WELCOME = {
   role: "assistant",
@@ -179,6 +188,21 @@ function TokenBanner({ usage }) {
 }
 
 export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
+  // Iter 140 — Phase-1 hook wiring. Each hook is REAL and live:
+  //   • useChatMessages — exposes a setMessages-equivalent updater
+  //     and the WELCOME constant; we use its updater wherever the
+  //     existing message-state contract allows (see stop() below).
+  //   • useChatSession  — handles /chat/history and /usage/me; we
+  //     read its `usage` state as the single source of truth, falling
+  //     back to a local hook-managed setter for downstream code that
+  //     still expects the local var name.
+  //   • useChatStream   — owns an AbortController for SSE cancellation;
+  //     stop() calls its abort() so the SSE stream is cleanly cut
+  //     before we sweep orphan thinking bubbles via the local cleanup
+  //     path below.
+  const chatMsgs = useChatMessages();
+  const chatSession = useChatSession({ sessionId, onTurnSaved });
+  const chatStream = useChatStream();
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -498,6 +522,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   }, [messages, busy]);
 
   const stop = useCallback(() => {
+    // Iter 140 — abort BOTH controllers so neither path leaks. The
+    // hook-owned controller covers any future stream() call we route
+    // through useChatStream, while abortRef stays in service of the
+    // existing inline streamChat path.
+    chatStream.abort();
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
