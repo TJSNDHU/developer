@@ -4702,3 +4702,69 @@ After redeploy, pod boot logs should show:
 2. "✅ MongoDB client created (lazy connect)" (instant)
 3. "Application startup complete." (within ~200 ms of start)
 4. Then background: "✅ MongoDB ping OK", index/collection/deploy logs
+
+---
+
+## Iter 128 — Sentry auto-discovery added 3 s to cold-start imports (BUG FIX, 2026-06-13)
+
+**User report:** Production redeploy STILL showed
+`connect() failed (111: Connection refused)` even after Iter 127 (which
+fixed the lifespan block). Logs:
+- `2026-06-13 03:11:23` — nginx ECONNREFUSED on `/api/aurem-dev/auth/tokens`
+- `2026-06-13 03:11:35` — `init_prod_collections done` (background task)
+
+**Root cause (compounding Iter 127):** Iter 127 made `lifespan.startup`
+fast (<200 ms), but the actual import of `backend/main.py` itself
+still took ~4 s on cold pod — uvicorn can't even print "Started
+server process" until that completes, so the port stays unbound.
+
+Profiling (`python -X importtime`) showed the worst offenders weren't
+our code, they were `sentry_sdk.init()`'s **auto-enabling integration
+probe**. With `auto_enabling_integrations=True` (Sentry's default),
+init walks the integration registry and IMPORTS every dependency it
+finds installed:
+- `google.genai` — 285 ms
+- `openai` — 185 ms
+- `huggingface_hub` — 97 ms
+- plus celery, botocore, chalice, clickhouse, cohere, django, flask,
+  falcon, gql, …
+
+Total: ~3 s of useless cold imports on the critical path. Combined
+with the 4 s of legit imports and (pre-Iter 127) the 17-19 s lifespan
+ping, that's how the pod ended up unreachable for ≥20 s on boot.
+
+**Fix shipped:**
+`backend/main.py` — added `auto_enabling_integrations=False` to
+`sentry_sdk.init(...)`. We don't use any of the auto-discovered
+frameworks. The four integrations we DO need (FastApi, Starlette,
+Asyncio, PyMongo) are already wired explicitly and they don't go
+through the auto-probe path.
+
+**Measured impact** (local, `SENTRY_DSN` set):
+- Module import time: **3.95 s → 2.83 s** (-28 %, ~1.1 s saved)
+- google.genai / openai / huggingface_hub no longer imported at all
+- Backend restart confirmed: lifespan completes in 146 ms, first
+  request served in 112 ms
+
+Combined Iter 127 + Iter 128 cold-start budget on prod:
+- BEFORE: ~4 s imports + ~17 s Mongo ping + ~2 s sequential awaits ≈ **23 s** before port bind
+- AFTER:  ~2.83 s imports + ~0.15 s lifespan ≈ **<3 s** before port bind
+
+→ K8s readiness probe (typical 5-10 s grace) now passes easily, no
+more ECONNREFUSED loop, no more CrashLoopBackOff.
+
+**Tests:**
+`backend/tests/test_iter128_sentry_no_auto_integrations.py` — 2
+guards:
+1. `auto_enabling_integrations=False` is present in `sentry_sdk.init`.
+2. The four explicit integrations (FastApi/Starlette/Asyncio/PyMongo)
+   are still wired (regression guard against a careless cleanup).
+
+All 6 deploy-stability tests pass (Iter 125 + 127 + 128).
+
+**Files touched**
+- EDIT: `backend/main.py` (`sentry_sdk.init` — added 1 kwarg + comment)
+- NEW : `backend/tests/test_iter128_sentry_no_auto_integrations.py`
+
+**Deployment note:** Same redeploy as Iter 127 — user pushes preview
+→ prod and the boot loop should finally clear.

@@ -135,6 +135,18 @@ if _SENTRY_DSN:
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             send_default_pii=False,
             attach_stacktrace=True,
+            # Iter 128 — disable Sentry's auto-discovery of integrations.
+            # With it ON (default), sentry_sdk.init() probes EVERY known
+            # integration target (django, flask, celery, aws_lambda,
+            # clickhouse, cohere, google.genai, openai, huggingface_hub,
+            # falcon, gql, …) and IMPORTS each one whose package is
+            # installed. In our case that pulled ~3 s of cold imports
+            # (google.genai alone is 285 ms, openai 185 ms, etc.) onto
+            # the critical path BEFORE uvicorn could bind port 8001 —
+            # nginx upstream saw connection refused and the K8s
+            # readiness probe killed the pod. We don't use any of
+            # those frameworks; only the four below are real.
+            auto_enabling_integrations=False,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
                 StarletteIntegration(transaction_style="endpoint"),
