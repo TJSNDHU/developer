@@ -1,6 +1,13 @@
 """
 AUREM Commercial Platform - Services Package
 Multi-tenant SaaS infrastructure for AI-powered communication platform
+
+Iter 133 — Defensive imports. Modules below were referenced before the
+matching files were added to this slice of the codebase. Wrapping them
+in best-effort try/except keeps `import shared.commercial` from
+crashing on hard ImportError. Anything not present is set to None and
+will surface as a clean AttributeError at the call site, not a package-
+wide crash.
 """
 
 from .encryption_service import EncryptionService, get_encryption_service
@@ -15,7 +22,11 @@ from .workspace_service import (
 )
 from .consent_service import ConsentTracker, ConsentType, ConsentStatus, get_consent_tracker
 from .billing_service import BillingService, PaymentStatus, get_billing_service
-from .gmail_service import GmailService, get_gmail_service
+try:
+    from .gmail_service import GmailService, get_gmail_service
+except ImportError:
+    GmailService = None
+    def get_gmail_service(*a, **kw): raise RuntimeError("gmail_service not available in this build")
 from .redis_memory import AuremRedisMemory, get_aurem_memory
 from .semantic_cache import AuremSemanticCache, get_semantic_cache
 from .rate_limiter import AuremRateLimiter, get_rate_limiter, PLAN_LIMITS as RATE_PLAN_LIMITS
@@ -27,11 +38,42 @@ from .action_engine import ActionEngine, get_action_engine
 from .key_service import AuremKeyService, get_aurem_key_service, KeyStatus
 from .llm_proxy import AuremLLMProxy, get_llm_proxy
 from .brain_orchestrator import AuremBrainOrchestrator, get_brain_orchestrator, IntentType, BrainPhase
-from .unified_inbox_service import UnifiedInboxService, get_unified_inbox_service, ChannelType, MessageStatus
-from .whatsapp_service import WhatsAppService, get_whatsapp_service, WhatsAppConnectionStatus
-from .voice_service import AuremVoiceService, get_voice_service, CallStatus, PersonaType, CustomerTier
-from .date_parser import AuremDateParser, get_date_parser, parse_date, parse_date_for_tool, DateConfidence
-from .agent_reach import AgentReachService, get_reach_service, ReachTool, REACH_TOOL_DEFINITIONS
+try:
+    from .unified_inbox_service import UnifiedInboxService, get_unified_inbox_service, ChannelType, MessageStatus
+except ImportError:
+    UnifiedInboxService = None
+    ChannelType = None
+    MessageStatus = None
+    def get_unified_inbox_service(*a, **kw): raise RuntimeError("unified_inbox_service not available in this build")
+try:
+    from .whatsapp_service import WhatsAppService, get_whatsapp_service, WhatsAppConnectionStatus
+except ImportError:
+    WhatsAppService = None
+    WhatsAppConnectionStatus = None
+    def get_whatsapp_service(*a, **kw): raise RuntimeError("whatsapp_service not available in this build")
+try:
+    from .voice_service import AuremVoiceService, get_voice_service, CallStatus, PersonaType, CustomerTier
+except ImportError:
+    AuremVoiceService = None
+    CallStatus = None
+    PersonaType = None
+    CustomerTier = None
+    def get_voice_service(*a, **kw): raise RuntimeError("voice_service not available in this build")
+try:
+    from .date_parser import AuremDateParser, get_date_parser, parse_date, parse_date_for_tool, DateConfidence
+except ImportError:
+    AuremDateParser = None
+    DateConfidence = None
+    def get_date_parser(*a, **kw): raise RuntimeError("date_parser not available in this build")
+    def parse_date(*a, **kw): raise RuntimeError("date_parser not available in this build")
+    def parse_date_for_tool(*a, **kw): raise RuntimeError("date_parser not available in this build")
+try:
+    from .agent_reach import AgentReachService, get_reach_service, ReachTool, REACH_TOOL_DEFINITIONS
+except ImportError:
+    AgentReachService = None
+    ReachTool = None
+    REACH_TOOL_DEFINITIONS = []
+    def get_reach_service(*a, **kw): raise RuntimeError("agent_reach not available in this build")
 
 __all__ = [
     # Encryption
