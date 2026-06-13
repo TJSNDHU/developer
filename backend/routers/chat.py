@@ -547,11 +547,35 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
                 return ("error", e)
 
         enqueue_t = asyncio.create_task(_do_enqueue())
+        # Iter 136 — hard ceiling on the enqueue so a hung GitHub /
+        # Mongo call can never strand the user on "thinking…" forever.
+        # 60 s is conservative — a healthy enqueue completes in <3 s.
+        _SHIP_ENQUEUE_TIMEOUT_S = float(os.getenv("SHIP_ENQUEUE_TIMEOUT_S", "60"))
+        _ship_start = _t.monotonic()
         try:
             while not enqueue_t.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(enqueue_t), timeout=0.5)
                 except asyncio.TimeoutError:
+                    if _t.monotonic() - _ship_start > _SHIP_ENQUEUE_TIMEOUT_S:
+                        enqueue_t.cancel()
+                        content = (
+                            f"🚢 Ship-shortcut timed out after "
+                            f"{int(_SHIP_ENQUEUE_TIMEOUT_S)}s — GitHub / Mongo "
+                            "did not respond. Please retry the prompt."
+                        )
+                        for i in range(0, len(content), 16):
+                            yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
+                        yield (
+                            "data: " + json.dumps({
+                                "done": True,
+                                "session_id": body.session_id,
+                                "provider": "aurem-ship-shortcut",
+                                "verified_paths": [],
+                                "timed_out": True,
+                            }) + "\n\n"
+                        )
+                        return
                     yield _emit_tick()
             kind, payload = enqueue_t.result()
         finally:
@@ -1203,6 +1227,18 @@ async def chat_stream(
                     q.get(), timeout=max(0.1, deadline_at - _t.monotonic()),
                 )
             except asyncio.TimeoutError:
+                ev = None  # synthetic timeout — handled below
+            # Iter 136 — explicit deadline check.
+            # The `_ticker()` task fires every 0.6s and feeds the queue, so
+            # wait_for(q.get(), ...) almost always returns before the
+            # configured timeout. Result: HARD_TIMEOUT_S was never being
+            # enforced — users saw "thinking · 500s" past the 150s budget.
+            # Now we treat ANY tick that arrives past the deadline as a
+            # timeout, but DON'T throw away a real `result` / `mode` / `error`
+            # event just because it raced past the cut-off by a few ms.
+            _past_deadline = _t.monotonic() >= deadline_at
+            _is_tick = isinstance(ev, dict) and ev.get("type") == "tick"
+            if ev is None or (_past_deadline and _is_tick):
                 # Wall-clock blown. Cancel everything but emit a USEFUL
                 # message instead of just an "error" payload — the
                 # frontend used to render that red and the user saw

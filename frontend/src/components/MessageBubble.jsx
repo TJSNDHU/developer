@@ -574,19 +574,66 @@ export default function MessageBubble({
             ) : null;
           })()}
           {m.streaming && !m.content && (
-            <span data-testid="chat-thinking" style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              color: "var(--text-faint)", fontStyle: "italic", fontSize: 13,
-              fontFamily: "'JetBrains Mono', monospace",
+            <div data-testid="chat-thinking-wrap" style={{
+              display: "inline-flex", flexDirection: "column",
+              gap: 6, minWidth: 220,
             }}>
-              <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
-              {/* iter 35/36: live elapsed + activity label so the user
-                  always sees WHAT AUREM is doing, not just THAT it is */}
-              <span>
-                {m.activity || "thinking"}
-                {` · ${displayElapsedS.toFixed(1)}s`}
+              {/* Iter 136 — Top-of-bubble progress line.
+                 Animates from yellow (start) → green (done) as the
+                 LLM produces tokens. Uses an asymptotic curve so it
+                 ramps fast at first then slows, capping at 95% until
+                 streaming flips off (then snaps to 100%). Gives the
+                 user a visceral sense of "how close are we" even
+                 when the model doesn't expose token-by-token progress. */}
+              {(() => {
+                const t = displayElapsedS;
+                // Asymptotic fake progress — fast ramp, capped at 95%
+                // until streaming ends.
+                const raw = 1 - Math.exp(-t / 8);
+                const pct = Math.min(0.95, Math.max(0, raw));
+                // Yellow (255,197,96) → Green (109,212,161)
+                const r = Math.round(255 + (109 - 255) * pct);
+                const g = Math.round(197 + (212 - 197) * pct);
+                const b = Math.round(96 + (161 - 96) * pct);
+                const colour = `rgb(${r}, ${g}, ${b})`;
+                return (
+                  <div
+                    data-testid="chat-thinking-progress"
+                    aria-label={`generating reply — ${Math.round(pct * 100)}%`}
+                    style={{
+                      width: "100%",
+                      height: 3,
+                      background: "rgba(255,255,255,0.06)",
+                      borderRadius: 999,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct * 100}%`,
+                        height: "100%",
+                        background: colour,
+                        boxShadow: `0 0 6px ${colour}`,
+                        transition: "width 200ms linear, background-color 200ms linear, box-shadow 200ms linear",
+                      }}
+                    />
+                  </div>
+                );
+              })()}
+              <span data-testid="chat-thinking" style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                color: "var(--text-faint)", fontStyle: "italic", fontSize: 13,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}>
+                <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+                {/* iter 35/36: live elapsed + activity label so the user
+                    always sees WHAT AUREM is doing, not just THAT it is */}
+                <span>
+                  {m.activity || "thinking"}
+                  {` · ${displayElapsedS.toFixed(1)}s`}
+                </span>
               </span>
-            </span>
+            </div>
           )}
           {m.streaming && m.content && (
             <>
