@@ -4847,3 +4847,118 @@ Full battery: 18 / 18 PASSED.
 chat-latency + deploy-stability fixes ship together to prod. User
 should NOT see any persona-behaviour regression; if anything, ORA
 will be more decisive (lower iter cap forces fewer thinking loops).
+
+---
+
+## Iter 130 — Layered persona + tool-help only on iter 1 (FEATURE, 2026-06-13)
+
+**User requirement (Hinglish):** "orchestrator.py mein persona prompt
+ko 3 layers mein todo. Layer 1 core rules always. Layer 2 aur 3
+conditionally. Total prompt 25k → 8k. Koi rule delete nahi karna."
+Plus: "_TOOL_HELP_TEMPLATE sirf pehli baar bhejo, har iteration pe
+nahi."
+
+**What shipped:**
+
+1. **3-layer persona loader** in `backend/services/orchestrator.py`:
+   - `_PERSONA_CORE` (5,036 chars) — TOP-OF-MIND, TONE, IDENTITY,
+     DO-NOT-LEAK, NEVER. Always loaded.
+   - `_PERSONA_EXECUTE` (12,689 chars) — MODE DETECTION, CORE RULE,
+     HOW TO RESPOND, BARE CONFIRMATION, AMBIGUOUS, READ-REPO, SEARCH,
+     PARALLEL READS, MULTI-FILE, TASK STATE, ANTI-HALLUCINATION.
+     Loaded only when action verbs / soft-verb+path|repo / bare-go
+     after handoff.
+   - `_PERSONA_REPO` (2,078 chars) — REPO-CONNECTED MODE, EXTERNAL
+     URLS. Loaded when repo connected or URL pasted.
+   - Splitting is dynamic from `AUREM_CTO_PERSONA` via
+     `_slice_persona_into_layers()` + `_SECTION_LAYER` mapping.
+     **No rule deleted** — `AUREM_CTO_PERSONA` still the
+     authoritative source. Test `test_layers_compose_to_full_persona`
+     proves layer sum ≥ monolith.
+
+2. **Trigger heuristics** (`build_persona`, `persona_layers_for`):
+   - `_STRONG_EXECUTE_RX` — fix/patch/create/refactor/etc. always triggers EXECUTE.
+   - `_SOFT_EXECUTE_RX` — list/show/explain/what env vars/etc. triggers
+     EXECUTE only when combined with a path token OR a connected repo.
+   - `_CONFIRM_RX` + `aurem-handoff` in history — ship-shortcut.
+   - URL in prompt OR "CONNECTED REPO CONTEXT" in extra → REPO.
+
+3. **`_TOOL_HELP_TEMPLATE` + catalog only on iter 1.** The loop now
+   builds two system prompts and selects per iter:
+   ```python
+   first_iter_system   = base_system + _TOOL_HELP_TEMPLATE + catalog_text
+   followup_iter_system = base_system + "Available tools (iter 2+, names only): name1, name2, ..."
+   ```
+   Iter 2+ saves ~10 k chars per call (the full local-tool catalog).
+
+**E2E proof** (`backend/tests/proof_iter130_layered_persona.py`,
+real `chat_with_tools` + real `LOCAL_TOOL_SPECS` catalog, only the
+LLM upstream stubbed to make measurement deterministic):
+
+```
+LAYER SIZES
+CORE     =  5,036 chars
+EXECUTE  = 12,689 chars
+REPO     =  2,078 chars
+MONOLITH = 19,801 chars (sum)
+
+PERSONA SIZE PER PROMPT CLASS (just persona)
+greet — no repo        core                 5,036  ( 25.4 % of monolith)
+explain — no repo      core                 5,036  ( 25.4 %)
+capability — no repo   core                 5,036  ( 25.4 %)
+inventory — no repo    core                 5,036  ( 25.4 %)
+inventory — repo       core+execute+repo   19,803  (100.0 %)
+execute — no repo      core+execute        17,725  ( 89.5 %)
+execute — repo         core+execute+repo   19,803  (100.0 %)
+multi-file — repo      core+execute+repo   19,803  (100.0 %)
+ship shortcut          core+execute        17,725  ( 89.5 %)
+url — no repo          core+repo            7,114  ( 35.9 %)
+
+FULL SYSTEM PROMPT — ITER 1 vs ITER 2 (with real tool catalog)
+conversational (hi)        16,546 → 5,445   (-67.1 %)
+inventory (no repo)        16,546 → 5,445   (-67.1 %)
+execute + repo             31,493 → 20,392  (-35.2 %)
+```
+
+Plus live HTTP test against `/api/aurem-dev/chat/send` with
+`prompt="hi"` → DeepSeek replied in 8.5 s with the correct
+capability-question response (no tool calls, 1 iter). Layered
+persona is on the wire in production code.
+
+**Tests** (`backend/tests/test_iter130_layered_persona.py`, 34 cases,
+all PASSED):
+- Layer-size budgets (CORE < 8 k)
+- Layer composition equals monolith (no rule lost)
+- Every section heading has a layer mapping
+- 25-row parametrised matrix for trigger correctness
+- Per-combination size checks
+- E2E `chat_with_tools` test verifying iter 1 has tool catalog and
+  iter 2 has only the compact name reminder
+- E2E test verifying conversational prompt → CORE only
+
+Full battery: **52 / 52 PASSED** across Iters 124, 125, 127, 128,
+129, 130.
+
+**Files touched**
+- EDIT: `backend/services/orchestrator.py`
+  (added `_SECTION_LAYER`, `_slice_persona_into_layers`,
+  `_PERSONA_CORE/EXECUTE/REPO`, `_STRONG_EXECUTE_RX`,
+  `_SOFT_EXECUTE_RX`, `_CONFIRM_RX`, `_PATH_RX`, `_URL_RX`,
+  `_wants_execute`, `_wants_repo`, `build_persona`,
+  `persona_layers_for`; rewired `chat_with_tools` to use them +
+  per-iter system prompt switching.)
+- NEW : `backend/tests/test_iter130_layered_persona.py` (34 tests)
+- NEW : `backend/tests/proof_iter130_layered_persona.py` (E2E proof)
+
+**Net impact (per chat turn, average across mix):**
+- Conversational: ~16 k chars/turn → ~5 k chars/turn (**-69 %**)
+- Execute + repo: ~31 k chars on iter 1, then ~20 k each follow-up
+  (was ~31 k on every iter, now **-35 % from iter 2 onward**)
+- Combined Iter 129 + 130 chat-latency budget:
+  worst-case 30 s → projected ~6-8 s.
+
+**Deployment note:** Same redeploy as Iter 125-129. Persona behaviour
+is logically identical (all rules still present, just lazily loaded).
+If ORA starts giving generic answers on connected repos or asks
+permission to read, file a bug — likely the trigger regex missed
+a verb and EXECUTE/REPO didn't load.

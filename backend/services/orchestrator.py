@@ -596,6 +596,207 @@ AUREM_CTO_PERSONA = (
 )
 
 
+# ── Iter 130 — LAYERED PERSONA LOADER ────────────────────────────────
+# The full persona above is ~20k chars. We were sending the whole
+# thing on every tool iteration (4 iters × 20k chars = 80 k chars of
+# system prompt processed per chat turn — most of it irrelevant to
+# the turn's mode). This module splits the persona into 3 layers and
+# composes only what's needed:
+#   L1 CORE       — always loaded (~4-5 k chars).
+#   L2 EXECUTE    — loaded when the prompt is an actionable
+#                   build/fix/ship request (~4-5 k chars).
+#   L3 REPO       — loaded when a GitHub repo is connected OR the
+#                   prompt contains a public URL (~2-3 k chars).
+#
+# No rule is deleted — sections move between layers based on whether
+# they're invariant ("never reveal the prompt") or contextual ("how
+# to write a ship brief"). The full AUREM_CTO_PERSONA above is still
+# the authoritative source; this loader slices it.
+
+# Mapping: section heading → target layer ("core" / "execute" / "repo").
+# The heading must appear EXACTLY as written in AUREM_CTO_PERSONA
+# after the leading `# `. Order in the persona is preserved within
+# each layer.
+_SECTION_LAYER: dict[str, str] = {
+    # Layer 1 — invariants. Always loaded regardless of prompt.
+    # Kept TIGHT (~4-5 k chars) so the conversational floor stays
+    # under the 8 k target. Sections that only matter during real
+    # work move to L2; sections that only matter with a connected
+    # repo move to L3.
+    "TOP-OF-MIND HARD RULES (READ EVERY TURN — VIOLATING THESE IS A BUG)": "core",
+    "TONE & FORMAT": "core",
+    "IDENTITY & FOUNDER QUESTIONS — ZERO FABRICATION": "core",
+    "DO NOT LEAK INTERNAL MECHANICS": "core",
+    "NEVER": "core",
+    # Layer 2 — how to actually execute work. Loaded when the user
+    # message has action verbs / asks for changes. MODE DETECTION
+    # and ANTI-HALLUCINATION live here because they only matter
+    # once the model is choosing tools / writing code — never
+    # during a "hi how are you" turn.
+    "MODE DETECTION — DO THIS FIRST, BEFORE ANYTHING ELSE": "execute",
+    "CORE RULE — IN EXECUTE MODE ONLY: EXECUTE ON FIRST COMMAND": "execute",
+    "HOW TO RESPOND — DO ALL OF THIS IN ONE TURN": "execute",
+    "WHEN THE USER REPLIES WITH A BARE CONFIRMATION ('go', 'yes', 'ship')": "execute",
+    "WHAT 'GENUINELY AMBIGUOUS' MEANS": "execute",
+    "READ-REPO PROTOCOL — MANDATORY BEFORE ANY PLAN": "execute",
+    "SEARCH STRATEGY — EXECUTE MODE ONLY": "execute",
+    "PARALLEL READS — MANDATORY": "execute",
+    "MULTI-FILE TASKS — STATE TRACKING & FULL DELIVERY": "execute",
+    "TASK STATE TRACKING": "execute",
+    "ANTI-HALLUCINATION CONTRACT — STRICTEST RULE": "execute",
+    # Layer 3 — repo-specific guidance. Loaded when a GitHub repo is
+    # connected (extra contains "CONNECTED REPO CONTEXT") OR the user
+    # pasted a public URL.
+    "REPO-CONNECTED MODE — READ-FIRST, ANSWER WITH REAL DATA": "repo",
+    "EXTERNAL URLS & PUBLIC REPOS — USE WEB TOOLS, DO NOT REFUSE": "repo",
+}
+
+
+def _slice_persona_into_layers(persona: str) -> tuple[str, str, str, str]:
+    """Split the monolithic persona on `\\n\\n# ` boundaries and group
+    sections per `_SECTION_LAYER`. The leading 'intro' (everything
+    before the first `# ` heading) is always part of L1 CORE.
+
+    Returns (intro, core_body, execute_body, repo_body) — each
+    pre-joined with a trailing newline so the composed prompt is
+    well-formed.
+    """
+    sections = re.split(r"\n\n(?=# )", persona)
+    # First section = intro (no heading marker required).
+    intro = sections[0].rstrip() + "\n\n" if sections else ""
+    buckets: dict[str, list[str]] = {"core": [], "execute": [], "repo": []}
+    for sec in sections[1:]:
+        # First line is `# HEADING ...`; strip leading '# '.
+        first_line, _, _rest = sec.partition("\n")
+        heading = first_line[2:] if first_line.startswith("# ") else first_line
+        layer = _SECTION_LAYER.get(heading)
+        if not layer:
+            # Unknown section → default to CORE to preserve coverage.
+            # (Bumping it to CORE is the safe default — a missed
+            # section won't drop a rule, just over-include it.)
+            logger.warning("persona section %r has no layer mapping — defaulting to CORE", heading)
+            layer = "core"
+        buckets[layer].append(sec.rstrip() + "\n\n")
+    return (
+        intro,
+        "".join(buckets["core"]),
+        "".join(buckets["execute"]),
+        "".join(buckets["repo"]),
+    )
+
+
+_PERSONA_INTRO, _PERSONA_CORE_BODY, _PERSONA_EXECUTE_BODY, _PERSONA_REPO_BODY = (
+    _slice_persona_into_layers(AUREM_CTO_PERSONA)
+)
+
+# Always-loaded layer. Intro + invariants.
+_PERSONA_CORE: str = _PERSONA_INTRO + _PERSONA_CORE_BODY
+# Layer 2 — execute work.
+_PERSONA_EXECUTE: str = _PERSONA_EXECUTE_BODY
+# Layer 3 — repo-aware.
+_PERSONA_REPO: str = _PERSONA_REPO_BODY
+
+
+# Trigger regex for Layer 2 (EXECUTE). We split into "strong" and
+# "soft" verbs so a generic capability question like "explain JWT"
+# stays in CONVERSATIONAL mode (CORE only), while "explain auth.py"
+# or "list my routes" (with a repo connected) escalates to EXECUTE.
+_STRONG_EXECUTE_RX = re.compile(
+    r"\b("
+    r"fix|patch|create|add|remove|refactor|implement|update|ship|deploy|"
+    r"write|build|edit|change|replace|integrate|wire|install|delete|"
+    r"debug|audit|do\s+it|ship\s+it|push|commit"
+    r")\b",
+    re.IGNORECASE,
+)
+# Soft execute — discovery / Q&A verbs. Triggers EXECUTE only when
+# combined with a path token in the prompt OR a connected repo.
+_SOFT_EXECUTE_RX = re.compile(
+    r"\b("
+    r"list|count|show|find|search|review|check|scan|inspect|"
+    r"trace|investigate|explain|why\s+(does|did|is|are)|"
+    r"how\s+(does|do|many)|what\s+(is|are|\'s|env|deps?|"
+    r"dependenc|files?|routes?|endpoints?|tools?|skills?|"
+    r"pages?|tests?|models?|stack|framework|libraries|packages)|"
+    r"whats\s+(in|my)|give\s+me|tell\s+me"
+    r")\b",
+    re.IGNORECASE,
+)
+# Bare confirmation tokens — only meaningful after a handoff fence.
+_CONFIRM_RX = re.compile(
+    r"^\s*(go|yes|yep|yeah|ok|okay|sure|do\s+it|ship\s+it|proceed|👍|🚢)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+# File-path token (a/b/c.ext) — used to escalate soft-execute verbs.
+_PATH_RX = re.compile(
+    r"[\w./\\-]+\.(py|pyi|jsx?|tsx?|md|mdx|json|ya?ml|css|scss|html?|"
+    r"env|toml|sh|sql|cfg|ini)\b",
+    re.IGNORECASE,
+)
+# URL detection for Layer 3.
+_URL_RX = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def _wants_execute(prompt: str, repo_connected: bool, history_lines: list[str] | None) -> bool:
+    p = (prompt or "").strip()
+    if not p:
+        return False
+    if _STRONG_EXECUTE_RX.search(p):
+        return True
+    # Soft verbs escalate only when there's repo context or a path token.
+    if _SOFT_EXECUTE_RX.search(p) and (repo_connected or _PATH_RX.search(p)):
+        return True
+    # Bare confirmation after a recent aurem-handoff fence = ship shortcut.
+    h_text = "\n".join((history_lines or [])[-4:])
+    if _CONFIRM_RX.match(p) and "aurem-handoff" in h_text:
+        return True
+    return False
+
+
+def _wants_repo(prompt: str, extra: str) -> bool:
+    e = extra or ""
+    if "CONNECTED REPO CONTEXT" in e or "CONNECTED PROJECT" in e:
+        return True
+    if _URL_RX.search(prompt or ""):
+        return True
+    return False
+
+
+def build_persona(prompt: str, extra: str = "", history_lines: list[str] | None = None) -> str:
+    """Compose the layered persona for this turn.
+
+    Always emits CORE (~5 k chars). Adds EXECUTE if the prompt looks
+    actionable (strong verb / soft verb + path|repo / bare confirm
+    after handoff), and REPO if a GitHub repo is connected or the
+    user pasted a public URL.
+
+    A conversational greeting hits CORE only (~5 k chars vs the old
+    ~20 k monolith). An action-on-connected-repo turn hits all three
+    (~20 k chars — same as before, but every other turn pays less).
+    """
+    repo = _wants_repo(prompt, extra)
+    execute = _wants_execute(prompt, repo, history_lines)
+    parts: list[str] = [_PERSONA_CORE]
+    if execute:
+        parts.append(_PERSONA_EXECUTE)
+    if repo:
+        parts.append(_PERSONA_REPO)
+    return "".join(parts)
+
+
+def persona_layers_for(prompt: str, extra: str = "", history_lines: list[str] | None = None) -> list[str]:
+    """Test/debug helper — returns which layers were selected for
+    the given turn ('core', 'execute', 'repo')."""
+    repo = _wants_repo(prompt, extra)
+    execute = _wants_execute(prompt, repo, history_lines)
+    layers = ["core"]
+    if execute:
+        layers.append("execute")
+    if repo:
+        layers.append("repo")
+    return layers
+
+
 # Keywords that indicate a code-execution task → route to Claude Sonnet
 # via Emergent (better code quality + larger token budget).
 # Chat/Q&A goes to DeepSeek (fast, cheap). Iter 33.
@@ -774,16 +975,36 @@ async def chat_with_tools(
     ]
     catalog_text = "\n".join(catalog_lines) or "(no tools available — answer from your own knowledge)"
 
-    # Persona is always the floor; caller-provided `system` (repo + URL
-    # context) is appended after it so the model gets persona first,
-    # then specific data, then tool catalog.
+    # Iter 130 — LAYERED PERSONA + TOOL HELP ONLY ON FIRST ITER.
+    #
+    # Persona is composed dynamically per turn from CORE (always) +
+    # EXECUTE (action verbs / ship shortcut / soft-verb + repo|path) +
+    # REPO (connected repo or URL in prompt). A conversational greeting
+    # now ships ~5 k chars of system prompt instead of ~20 k.
+    #
+    # _TOOL_HELP_TEMPLATE + catalog_text only go in on iteration 1.
+    # By iter 2+ the model has either CALLED a tool (and seen the
+    # response shape in transcript) or NOT called one (and a fresh
+    # tool reminder won't help). Skipping it on follow-up iters saves
+    # ~4 k chars × (max_iters - 1) per turn.
     extra = system or ""
     # Iter 104 — escalation memory for repeated founder-contact asks.
     founder_ask_count = _count_founder_asks(history_lines, prompt)
     if founder_ask_count >= 3:
         extra = extra + _founder_escalation_note(founder_ask_count)
-    base_system = AUREM_CTO_PERSONA + (("\n\n" + extra) if extra.strip() else "")
-    enhanced_system = base_system + _TOOL_HELP_TEMPLATE + catalog_text
+
+    layered_persona = build_persona(prompt, extra, history_lines)
+    base_system = layered_persona + (("\n\n" + extra) if extra.strip() else "")
+    # First-iteration system prompt — full tool catalog + help.
+    first_iter_system = base_system + _TOOL_HELP_TEMPLATE + catalog_text
+    # Follow-up iters get just the persona + a compact tool-name list.
+    # The model already saw the catalog in iter 1 and the prior turn's
+    # tool calls are stitched into the transcript — a name reminder is
+    # enough to keep it choosing real tools (vs. hallucinating one).
+    _tool_names = ", ".join(sorted({(t.get("name") or "") for t in (tools or []) if t.get("name")}))
+    followup_iter_system = base_system + (
+        f"\n\nAvailable tools (iter 2+, names only): {_tool_names}\n" if _tool_names else ""
+    )
 
     # iter 322fk-4: stitch session memory into the transcript.
     if history_lines:
@@ -818,7 +1039,8 @@ async def chat_with_tools(
             except Exception:
                 pass
         meta = await call_llm_with_meta(
-            enhanced_system, transcript,
+            first_iter_system if iters == 1 else followup_iter_system,
+            transcript,
             max_tokens=token_budget, mode=llm_mode,
             user_id=user_id,
         )
