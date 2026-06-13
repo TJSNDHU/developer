@@ -21,6 +21,7 @@ Privacy:
 from __future__ import annotations
 import os
 import asyncio
+import json
 import logging
 import random
 from typing import Optional
@@ -157,7 +158,27 @@ async def _call_deepseek(messages: list, system: str = "",
                 )
                 await asyncio.sleep(delay)
     try:
-        return data["choices"][0]["message"]["content"] or ""
+        msg = data["choices"][0]["message"]
+        # If DeepSeek returned native tool_calls, serialize them back to
+        # markdown fence so extract_tool_calls() in tools_bridge.py can
+        # parse them with its existing Shape-1/2/3 logic.
+        tool_calls = msg.get("tool_calls") or []
+        if tool_calls and not msg.get("content"):
+            parts = []
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+                parts.append(
+                    "```tool_call\n"
+                    + json.dumps({"tool": name, "args": args})
+                    + "\n```"
+                )
+            return "\n".join(parts)
+        return msg.get("content") or ""
     except (KeyError, IndexError, TypeError) as e:
         raise RuntimeError(f"OpenRouter malformed response: {e}: {data!r}")
 
