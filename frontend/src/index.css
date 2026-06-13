@@ -441,11 +441,17 @@ table { max-width: 100%; }
    grow to ChatPanel's natural height and the whole window would scroll,
    hiding the sticky top tab bar AND the Send button at the bottom.
    By forcing the main to exactly the viewport height, ChatPanel's
-   internal `chat-messages` overflow:auto is the ONLY thing that scrolls. */
+   internal `chat-messages` overflow:auto is the ONLY thing that scrolls.
+   Iter 126 — switched to 100dvh on mobile so iOS/Android browser
+   toolbars don't push the chat input + bottom of message list below
+   the fold (root cause of "can't scroll up to see old messages" on
+   mobile — the touch hit area for scroll was below Safari's bottom bar). */
 .aurem-main-padded.is-chat {
   padding: 0;
   height: 100vh;
+  height: 100dvh;
   max-height: 100vh;
+  max-height: 100dvh;
   overflow: hidden;
   min-height: 0;
 }

@@ -4596,3 +4596,44 @@ expectation: popup should fire on Mode C GitHub commit/PR only.
 - EDIT: `backend/routers/chat.py` (+13 lines, task_handoff frame in shortcut)
 - EDIT: `frontend/src/components/ChatPanel.jsx` (sessionId reset via prev-ref)
 - NEW : `backend/tests/test_iter125_ship_shortcut_task_handoff.py`
+
+---
+
+## Iter 126 — Mobile: can't scroll up to see old chat messages (BUG FIX, 2026-06-13)
+
+**User report (Hinglish, production / auremcto.com):** "mobile view main
+chat history nhi show hoti" → clarified: current chat ke purane messages
+scroll-up nahi hote on mobile.
+
+**Root cause:** Chat container CSS used `height: 100vh` / `max-height:
+100vh` on `.aurem-main-padded.is-chat`. On iOS Safari and Android Chrome
+`100vh` includes the browser's URL bar and bottom toolbar, so the chat
+area becomes taller than the actually-visible viewport. The chat input
++ bottom of the messages list sit BELOW the dynamic toolbar, and the
+touch hit-area for inertial scroll inside `chat-messages` gets eaten by
+the browser chrome — user can't grab the scroll surface to drag old
+messages into view. Same root cause as the wider iOS `100vh` issue.
+
+**Fix shipped:**
+1. `frontend/src/index.css` — `.aurem-main-padded.is-chat` switched to
+   `100dvh` (dynamic viewport height) with a `100vh` fallback for very
+   old browsers (`height: 100vh; height: 100dvh;`). `dvh` excludes
+   browser chrome on mobile so the chat fits the truly-visible area
+   and the internal `overflow-y: auto` on `chat-messages` becomes
+   reachable via touch.
+2. `frontend/src/pages/Dashboard.jsx` — outer wrapper from
+   `height: "100vh"` to `height: "100%"` so it inherits the corrected
+   `100dvh` height from the parent `<main>` instead of double-locking
+   to the buggy `100vh`.
+
+**Smoke test:** Mobile viewport (390x800) confirmed via Playwright —
+main height matches innerHeight, send box bottom (732px) sits within
+viewport (800px), no overflow below the fold.
+
+**Files touched**
+- EDIT: `frontend/src/index.css` (.aurem-main-padded.is-chat: 100vh → 100dvh)
+- EDIT: `frontend/src/pages/Dashboard.jsx` (outer 100vh → 100%)
+
+**Deployment note:** This is a CSS/layout fix only. User reported the
+bug on production (auremcto.com); they need to redeploy from preview
+to ship the fix to prod.

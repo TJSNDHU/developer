@@ -125,7 +125,10 @@ function DashboardBody() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div
+      data-testid="dashboard-root"
+      style={{ display: "flex", flexDirection: "column", height: "100%" }}
+    >
       <div style={{ display: "flex", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <TabBar />
