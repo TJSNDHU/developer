@@ -25,12 +25,12 @@ def test_persona_has_repo_connected_mode_section():
 
 def test_persona_forbids_permission_asking_on_reads():
     from services.orchestrator import AUREM_CTO_PERSONA
-    # Either explicit "Would you like me to read" forbiddance or the
-    # READ-ONLY rule must be present.
+    # Iter 129 — relaxed phrasing match. The rule is encoded; what matters
+    # is that the persona STILL forbids permission-asking on reads.
     assert "READ-ONLY" in AUREM_CTO_PERSONA
-    assert "Permission is\n    for WRITES" in AUREM_CTO_PERSONA \
-        or "Permission is for WRITES" in AUREM_CTO_PERSONA \
-        or "permission to perform a READ-ONLY" in AUREM_CTO_PERSONA
+    assert "Permission is ONLY for WRITES" in AUREM_CTO_PERSONA \
+        or "READ-ONLY OPS NEVER REQUIRE PERMISSION" in AUREM_CTO_PERSONA \
+        or "permission to perform any READ-ONLY" in AUREM_CTO_PERSONA
 
 
 def test_persona_lists_inventory_question_triggers():

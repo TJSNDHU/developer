@@ -34,8 +34,16 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Iter 124 — retry policy for transient upstream failures (rate limit / 5xx).
 # Exponential backoff with full jitter so concurrent callers don't sync up.
 _RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
-_MAX_RETRIES = 3      # 1 original + up to 3 retries = 4 attempts total
-_BASE_DELAY_S = 0.8   # 0.8 → 1.6 → 3.2 (with jitter)
+_MAX_RETRIES = 1      # Iter 129 — was 3. 4 attempts × 5.6s of backoff
+                      # was killing chat latency under load (every 429
+                      # cascade burned ~10 s of wall time for no
+                      # behavioural win — LLM rate limits are STICKY,
+                      # repeated retries hit the same wall). 1 retry
+                      # catches the flapping-network case and surfaces
+                      # genuine outages to the user fast.
+_BASE_DELAY_S = 0.4   # Iter 129 — was 0.8. Halves the worst-case
+                      # delay window. With _MAX_RETRIES=1 this is the
+                      # ONLY backoff that fires.
 
 
 def _retryable(exc: Exception) -> tuple[bool, int | None]:

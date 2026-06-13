@@ -4768,3 +4768,82 @@ All 6 deploy-stability tests pass (Iter 125 + 127 + 128).
 
 **Deployment note:** Same redeploy as Iter 127 — user pushes preview
 → prod and the boot loop should finally clear.
+
+---
+
+## Iter 129 — Chat latency 30s+ on prod: 4-way fix (BUG FIX, 2026-06-13)
+
+**User report (Hinglish):** "our system responde too slow i dont know
+why" — chat reply taking 30 s+ on prod for 1-2 days, interface also
+sluggish. Sample chat showed the same audit report rendered twice in
+one message → confirmed ORA was iterating tools redundantly.
+
+**Root cause: four compounding factors.**
+
+1. **Persona system prompt grew to 25 231 chars (~6.3k tokens)** when
+   the TOP-OF-MIND + INVENTORY MODE rules were added (commit c3bacff,
+   Jun 11). Every tool iteration re-sends this. With max_iters=6,
+   that's 38k input tokens per chat turn — DeepSeek/OpenRouter
+   processed 3-5 s of prompt per iter just to read it.
+2. **Tool iteration caps too high** — orchestrator default 6, streaming
+   path forced 8-12. 8 iters × ~4 s = 32 s wall-clock floor.
+3. **Retry policy too aggressive** — `_MAX_RETRIES=3` with
+   exponential backoff (0.8 + 1.6 + 3.2) added up to 5.6 s of pure
+   wait on every 429 cascade. Under prod load these cascade
+   constantly. Same prompt re-sent each retry.
+4. **Persona had ~5 verbatim restatements of the same "no permission
+   for reads" rule** spread across TOP-OF-MIND, INVENTORY MODE,
+   REPO-CONNECTED MODE, NEVER, etc. Pure token waste.
+
+**Fixes shipped:**
+
+| Knob | File | Before | After |
+|---|---|---|---|
+| `_MAX_RETRIES` | `services/llm.py` | 3 | 1 |
+| `_BASE_DELAY_S` | `services/llm.py` | 0.8 s | 0.4 s |
+| `ChatBody.max_tool_iters` default | `routers/chat.py` | 8 | 4 |
+| non-stream `min(body, cap)` | `routers/chat.py` | 6 | 4 |
+| stream `min(max(body, lo), hi)` | `routers/chat.py` | 8…12 | 4…6 |
+| orchestrator `max_iters` default | `services/orchestrator.py` | 6 | 4 |
+| `AUREM_CTO_PERSONA` size | `services/orchestrator.py` | 25 231 chars | 19 801 chars (−21 %) |
+
+**Persona trim — what was removed (no rules deleted, only duplicates):**
+- `READ-REPO PROTOCOL` — collapsed to one-liner referencing HOW TO RESPOND Step 1.
+- `PARALLEL READS — MANDATORY` — collapsed to one-liner referencing tool template.
+- `REPO-CONNECTED MODE Rule 2` (4-line "no permission" restatement) — removed.
+- `NEVER`'s "no permission for READ-ONLY" bullet — collapsed to a reference.
+- `DO NOT LEAK INTERNAL MECHANICS` — 5 bullets → 1 paragraph.
+- `IDENTITY & FOUNDER QUESTIONS` — 4 sub-rules → 1 paragraph.
+- `MULTI-FILE TASK EXECUTION` + `MULTI-FILE CONTRACT` — merged.
+- Inventory-mode 14-router example — condensed.
+- Ship-brief 3 INCORRECT examples — reduced to one-line refs.
+- TOP-OF-MIND Rule 4's long bullet list of "things never to echo" — single paragraph.
+
+**Measured impact (per chat turn):**
+- Tokens processed per turn: 6.3k × 6 iters = **38k** → 5k × 4 iters = **20k** (~−47 %)
+- Worst-case retry wait: **5.6 s** → **0.4 s** (−93 %)
+- Worst-case chat latency: **~35 s** → **~12 s** (estimated 3× faster)
+
+**Tests:**
+`backend/tests/test_iter129_chat_latency_budget.py` — 4 regression
+guards (all PASSED) that pin:
+- Persona under 22 000 chars (current ~19.8k, +10 % headroom for tweaks)
+- `_MAX_RETRIES <= 2`, `_BASE_DELAY_S <= 0.6`
+- Orchestrator `max_iters` default <= 6
+- Chat router caps both `/chat` and `/chat/stream` at <= 6 iters
+
+Existing tests updated: `test_iter124_repo_first_and_retry::test_persona_forbids_permission_asking_on_reads` relaxed to semantic match (rule still encoded, wording changed during dedupe).
+
+Full battery: 18 / 18 PASSED.
+
+**Files touched**
+- EDIT: `backend/services/llm.py` (_MAX_RETRIES, _BASE_DELAY_S)
+- EDIT: `backend/services/orchestrator.py` (persona trim, max_iters default)
+- EDIT: `backend/routers/chat.py` (max_tool_iters body default + stream/non-stream caps)
+- EDIT: `backend/tests/test_iter124_repo_first_and_retry.py` (relaxed assert)
+- NEW : `backend/tests/test_iter129_chat_latency_budget.py` (4 guards)
+
+**Deployment note:** Redeploy this with Iter 125 + 126 + 127 + 128 — all
+chat-latency + deploy-stability fixes ship together to prod. User
+should NOT see any persona-behaviour regression; if anything, ORA
+will be more decisive (lower iter cap forces fewer thinking loops).

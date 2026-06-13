@@ -63,7 +63,7 @@ class ChatBody(BaseModel):
     # downstream cap_for() context windows.
     prompt: str = Field(..., min_length=1, max_length=20000)
     session_id: Optional[str] = Field(None, max_length=128)
-    max_tool_iters: int = Field(8, ge=0, le=12)
+    max_tool_iters: int = Field(4, ge=0, le=12)
     maxx_mode: bool = False
     project_id: Optional[str] = Field(None, max_length=128)
     # Iter 38: agent selector. "auto" routes via existing model-routing
@@ -360,7 +360,7 @@ async def chat_send(
         prompt=body.prompt,
         jwt_token=jwt_token,
         system=(extra_sys + "\n\n" if extra_sys else None),
-        max_iters=min(body.max_tool_iters, 6),
+        max_iters=min(body.max_tool_iters, 4),
         session_id=body.session_id,
         mongo_client=None,
         user_id=user["user_id"],
@@ -1130,7 +1130,7 @@ async def chat_stream(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
                     system=(extra_sys + "\n\n" if extra_sys else None),
-                    max_iters=min(max(body.max_tool_iters, 8), 12),
+                    max_iters=min(max(body.max_tool_iters, 4), 6),
                     session_id=body.session_id,
                     mongo_client=None,
                     user_id=user_id,
