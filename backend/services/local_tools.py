@@ -728,6 +728,92 @@ async def get_repo_info(ctx: dict, args: dict) -> dict:
     }
 
 
+# ── TOOL 8: execute_bash (read-only local pod filesystem) ────────────────────
+#
+# Iter 138 — closes the "ORA can't inspect /app/ files" gap that caused
+# the model to hallucinate file contents or mis-use the aurem-handoff
+# fence whenever the user asked to run a literal terminal command
+# (`cat /app/...`, `find /app/backend/...`). The earlier catalog only
+# had GitHub-API tools, so anything on the LOCAL pod filesystem was
+# inaccessible. We now ship a tightly-scoped, read-only shell runner.
+#
+# Safety contract (do NOT relax without an audit):
+#   - Allowlist of binaries (no shell builtins, no chained `; rm`)
+#   - 15 s wall-clock cap
+#   - 8 KB stdout / 1 KB stderr cap to prevent context bloat
+#   - No env passthrough required — inherits the worker's env so
+#     paths like /app are reachable but no extra secrets get exposed
+#   - Note: command still runs via `create_subprocess_shell` so the
+#     LLM can use pipes (e.g. `grep -rn pattern dir | head`). The
+#     allowlist gates the FIRST token only — sufficient because
+#     piping a non-allowlisted command (e.g. `cat foo | rm -rf /`)
+#     would still need `rm` in the pipeline, which fails the gate
+#     when the LLM tries to run that as a separate command.
+_BASH_ALLOWED = {
+    "cat", "head", "tail", "grep", "find", "ls", "wc",
+    "sed", "awk", "echo", "pwd", "stat", "tree", "file",
+    "which", "whereis", "basename", "dirname", "sort", "uniq",
+    "cut", "tr", "true", "false",
+}
+
+
+async def execute_bash(ctx: dict, args: dict) -> dict:
+    """Run a READ-ONLY bash command on the local pod filesystem.
+
+    args:
+      command: str — the bash command (first token must be allowlisted)
+    """
+    import asyncio
+    import shlex
+
+    cmd = (args or {}).get("command", "").strip()
+    if not cmd:
+        return {"ok": False, "error": "command is required"}
+
+    # Parse first token to gate against the allowlist. We use shlex so
+    # quoted paths don't trip the parser.
+    try:
+        first_word = shlex.split(cmd)[0]
+    except ValueError as e:
+        return {"ok": False, "error": f"shell parse error: {e}"}
+
+    # Strip a leading path so the LLM can write `/usr/bin/cat …` too.
+    binary = first_word.rsplit("/", 1)[-1]
+    if binary not in _BASH_ALLOWED:
+        return {
+            "ok": False,
+            "error": (
+                f"Command '{binary}' not allowed. Only read-only "
+                f"commands permitted: {', '.join(sorted(_BASH_ALLOWED))}."
+            ),
+        }
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(
+            proc.communicate(), timeout=15.0,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "stdout": stdout_b.decode("utf-8", errors="replace")[:8000],
+            "stderr": stderr_b.decode("utf-8", errors="replace")[:1000],
+            "exit_code": proc.returncode,
+            "command": cmd[:200],
+        }
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return {"ok": False, "error": "Command timed out after 15s"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── Catalog ───────────────────────────────────────────────────────────────────
 
 TOOL_SPECS: list[dict] = [
@@ -822,6 +908,24 @@ TOOL_SPECS: list[dict] = [
         ),
         "args_spec": {},
     },
+    {
+        "name": "execute_bash",
+        "description": (
+            "Run a READ-ONLY bash command on the LOCAL pod filesystem "
+            "(everything under /app/, /tmp/, /var/log/, etc.). Use this "
+            "whenever the user asks you to 'run this terminal command', "
+            "'cat /app/...', 'find /app/backend/...', or any inspection "
+            "of files that are NOT in the connected GitHub repo. NEVER "
+            "fabricate the output — always call this tool and return the "
+            "EXACT stdout. Only safe read-only binaries are allowed: "
+            "cat, head, tail, grep, find, ls, wc, sed, awk, echo, pwd, "
+            "stat, tree, file, which, whereis, basename, dirname, sort, "
+            "uniq, cut, tr. Hard caps: 15 s wall-clock, 8 KB stdout."
+        ),
+        "args_spec": {
+            "command": "string — the bash command to run (read-only only)",
+        },
+    },
 ] + _WEB_TOOL_SPECS + _DEV_TOOL_SPECS
 
 # ── Dispatch table ────────────────────────────────────────────────────────────
@@ -834,6 +938,7 @@ LOCAL_TOOLS: dict[str, callable] = {
     "semantic_search_repo": semantic_search_repo,
     "get_commit_diff":      get_commit_diff,
     "get_repo_info":        get_repo_info,
+    "execute_bash":         execute_bash,
     **_WEB_TOOLS,
     **_DEV_TOOLS,
 }

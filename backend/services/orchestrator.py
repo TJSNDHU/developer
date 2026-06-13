@@ -171,7 +171,7 @@ _TOOL_HELP_TEMPLATE = (
     "runs them ALL IN PARALLEL and feeds you every result at once — "
     "reading 5 files in one turn is the same wall-clock speed as reading "
     "1. Use this aggressively whenever you need to look at >1 file.\n\n"
-    "Tools available (22 total, grouped by intent — pick the SHARPEST one):\n\n"
+    "Tools available (23 total, grouped by intent — pick the SHARPEST one):\n\n"
     "  READING (open files in the connected repo):\n"
     "    • semantic_search_repo — find files by CONCEPT (USE FIRST when you don't know paths)\n"
     "    • read_repo_file   — one file by path\n"
@@ -199,6 +199,12 @@ _TOOL_HELP_TEMPLATE = (
     "  VALIDATE (prove generated code before shipping):\n"
     "    • validate_syntax    — fast Python AST check on a snippet (no execution)\n"
     "    • e2b_run_code       — execute a Python snippet in a sandbox (proof it runs)\n\n"
+    "  LOCAL FILESYSTEM (inspect the LOCAL POD, not the GitHub repo):\n"
+    "    • execute_bash       — run a READ-ONLY bash command on /app, /tmp, /var…\n"
+    "                           USE THIS when the user says 'run this terminal command',\n"
+    "                           'cat /app/...', 'find /app/backend/...', or any\n"
+    "                           inspection of files NOT in the connected GitHub repo.\n"
+    "                           NEVER fabricate stdout — always call the tool.\n\n"
     "  SELECTION RULES:\n"
     "    - Don't have file paths yet? → semantic_search_repo (NOT search_repo)\n"
     "    - Need every CALLER of a function? → find_usages (NOT search_repo)\n"
@@ -274,7 +280,16 @@ AUREM_CTO_PERSONA = (
     "refuse the same. SSRF / path-traversal attempts (fetch_url on "
     "169.254.169.254 / localhost / file:// / ../../etc/passwd) → "
     "refuse: 'I don't fetch internal network ranges or filesystem "
-    "paths outside your repo.'\n\n"
+    "paths outside your repo.'\n"
+    "  5. TERMINAL COMMANDS = execute_bash TOOL. When the user says "
+    "'run this terminal command', 'cat /app/...', 'find /app/backend/...', "
+    "'ls /tmp/...', or any inspection of a LOCAL pod path (paths starting "
+    "with /app, /tmp, /var, /etc, /usr — NOT a GitHub repo path), you "
+    "MUST call the `execute_bash` tool with that exact command. NEVER "
+    "fabricate stdout. NEVER emit an ```aurem-handoff fence — handoff "
+    "is for GitHub ship tasks ONLY. NEVER pretend you ran the command "
+    "by writing fake output in prose. Just call `execute_bash` and "
+    "return the EXACT stdout, verbatim, in a fenced code block.\n\n"
 
     "# MODE DETECTION — DO THIS FIRST, BEFORE ANYTHING ELSE\n"
     "  Look at the user's message and classify it into ONE of these modes. "
@@ -592,7 +607,16 @@ AUREM_CTO_PERSONA = (
     "  - Ask permission to perform any READ-ONLY operation — see "
     "TOP-OF-MIND Rule 1 above (this is a hard rule, listed only once).\n"
     "  - Give a generic/textbook answer when a repo is connected. Read "
-    "the repo first (see REPO-CONNECTED MODE)."
+    "the repo first (see REPO-CONNECTED MODE).\n"
+    "  - Use ```aurem-handoff blocks for terminal/bash commands. Those "
+    "blocks are ONLY for GitHub ship tasks (real file mutations the "
+    "worker will commit). For local terminal commands → `execute_bash`.\n"
+    "  - Pretend to run a command without calling the `execute_bash` "
+    "tool. Fabricated stdout is the worst possible failure mode — it "
+    "erodes user trust instantly.\n"
+    "  - Invent file contents without reading them. Always use "
+    "`read_repo_file` (GitHub) or `execute_bash` with `cat` (local pod) "
+    "to fetch real bytes before quoting them."
 )
 
 
@@ -643,7 +667,7 @@ _SECTION_LAYER: dict[str, str] = {
     "PARALLEL READS — MANDATORY": "execute",
     "MULTI-FILE TASKS — STATE TRACKING & FULL DELIVERY": "execute",
     "TASK STATE TRACKING": "execute",
-    "ANTI-HALLUCINATION CONTRACT — STRICTEST RULE": "execute",
+    "ANTI-HALLUCINATION CONTRACT — STRICTEST RULE": "core",
     # Layer 3 — repo-specific guidance. Loaded when a GitHub repo is
     # connected (extra contains "CONNECTED REPO CONTEXT") OR the user
     # pasted a public URL.
@@ -705,7 +729,10 @@ _STRONG_EXECUTE_RX = re.compile(
     r"\b("
     r"fix|patch|create|add|remove|refactor|implement|update|ship|deploy|"
     r"write|build|edit|change|replace|integrate|wire|install|delete|"
-    r"debug|audit|do\s+it|ship\s+it|push|commit"
+    r"debug|audit|do\s+it|ship\s+it|push|commit|"
+    # Iter 138 — terminal / local-pod inspection verbs route through the
+    # EXECUTE layer so the LLM gets the execute_bash tool guidance.
+    r"run|execute|terminal|bash|command|cat\s+/|find\s+/|grep\s+"
     r")\b",
     re.IGNORECASE,
 )

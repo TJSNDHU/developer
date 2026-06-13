@@ -10,6 +10,7 @@ Set DISABLE_UPSTREAM_TOOLS=1 to skip the HTTP calls entirely.
 import os
 import re
 import json
+import time
 import httpx
 import logging
 
@@ -19,9 +20,38 @@ UPSTREAM_URL = os.getenv("AUREM_UPSTREAM_URL", "https://aurem.live")
 _UPSTREAM_DISABLED = os.getenv("DISABLE_UPSTREAM_TOOLS", "").lower() in (
     "1", "true", "yes"
 )
-# Once the upstream returns 401/403 the first time, stop retrying for the
-# lifetime of this process — saves bandwidth and silences log spam.
-_upstream_giving_up = False
+# Iter 138 — once the upstream returns 401/403 we back off, but ONLY
+# for a cooldown window (default 5 min). Previously we set
+# `_upstream_giving_up=True` permanently for the lifetime of the
+# process — which meant a transient upstream outage at boot
+# permanently disabled the entire upstream tools catalog until the
+# pod restarted. Now we still skip the call during the cooldown, but
+# automatically reopen the circuit when the window expires.
+_upstream_giving_up: bool = False
+_upstream_giving_up_until: float = 0.0  # monotonic timestamp
+_UPSTREAM_COOLDOWN_S = float(os.getenv("UPSTREAM_TOOLS_COOLDOWN_S", "300"))
+
+
+def _upstream_blocked() -> bool:
+    """Return True if upstream calls should be skipped right now."""
+    global _upstream_giving_up, _upstream_giving_up_until
+    if _UPSTREAM_DISABLED:
+        return True
+    if _upstream_giving_up:
+        if time.monotonic() >= _upstream_giving_up_until:
+            # Cooldown expired — reopen the circuit and try again.
+            _upstream_giving_up = False
+            return False
+        return True
+    return False
+
+
+def _open_upstream_cooldown() -> None:
+    """Block upstream calls for the cooldown window."""
+    global _upstream_giving_up, _upstream_giving_up_until
+    _upstream_giving_up = True
+    _upstream_giving_up_until = time.monotonic() + _UPSTREAM_COOLDOWN_S
+
 
 # Same regex as upstream gateway for tool call extraction
 _TOOL_CALL_RE = re.compile(
@@ -33,8 +63,7 @@ _TOOL_CALL_RE = re.compile(
 async def list_tools(jwt_token: str) -> list[dict]:
     """GET upstream /api/ora-tools/list → returns tool catalog.
     Returns [] silently if upstream is disabled / unauthorized / unreachable."""
-    global _upstream_giving_up
-    if _UPSTREAM_DISABLED or _upstream_giving_up:
+    if _upstream_blocked():
         return []
     url = f"{UPSTREAM_URL}/api/ora-tools/list"
     headers = {"Authorization": f"Bearer {jwt_token}"}
@@ -49,10 +78,11 @@ async def list_tools(jwt_token: str) -> list[dict]:
         status = e.response.status_code
         if status in (401, 403, 404):
             # Expected when this deployment isn't tied to an aurem.live account
-            _upstream_giving_up = True
+            _open_upstream_cooldown()
             logger.info(
                 f"upstream tools disabled (HTTP {status} from {UPSTREAM_URL}). "
-                "Continuing with built-in capabilities only."
+                f"Continuing with built-in capabilities only. "
+                f"Will retry in {int(_UPSTREAM_COOLDOWN_S)}s."
             )
         else:
             logger.warning(f"list_tools upstream HTTP {status}")
@@ -65,8 +95,7 @@ async def list_tools(jwt_token: str) -> list[dict]:
 async def invoke_tool(name: str, args: dict, jwt_token: str) -> dict:
     """POST upstream /api/ora-tools/execute → returns tool result dict.
     Short-circuits when upstream is known-unavailable."""
-    global _upstream_giving_up
-    if _UPSTREAM_DISABLED or _upstream_giving_up:
+    if _upstream_blocked():
         return {"ok": False, "error": "upstream tools unavailable", "tool": name}
     url = f"{UPSTREAM_URL}/api/ora-tools/execute"
     headers = {
@@ -83,8 +112,11 @@ async def invoke_tool(name: str, args: dict, jwt_token: str) -> dict:
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status in (401, 403):
-            _upstream_giving_up = True
-            logger.info(f"upstream tools disabled (HTTP {status})")
+            _open_upstream_cooldown()
+            logger.info(
+                f"upstream tools temporarily disabled (HTTP {status}); "
+                f"will retry in {int(_UPSTREAM_COOLDOWN_S)}s"
+            )
         else:
             logger.warning(f"invoke_tool {name} HTTP {status}")
         return {"ok": False, "error": f"HTTP {status}", "tool": name}
