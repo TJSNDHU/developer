@@ -357,7 +357,35 @@ async def _security_headers(request, call_next):
     # Sentry only fires when slow.
     import time as _t
     _start = _t.perf_counter()
-    response = await call_next(request)
+    # Iter 137 — defensive guard. FastAPI's BaseHTTPMiddleware (which
+    # @app.middleware("http") wraps) has a well-known interaction bug
+    # with StreamingResponse + client disconnects: when the SSE
+    # generator is cancelled because the browser tab closed, no
+    # response is "returned" and Starlette panics with
+    # `RuntimeError: No response returned.` We surface a plain 499
+    # (client closed request) instead of letting that bubble into
+    # prod logs as a 500 storm.
+    try:
+        response = await call_next(request)
+    except Exception as _mw_exc:
+        # Cancellations / disconnects on long SSE streams are normal;
+        # log at INFO so we still see real 500s, then return a quiet
+        # placeholder response so Starlette has SOMETHING to send.
+        import asyncio as _aio
+        if isinstance(_mw_exc, _aio.CancelledError):
+            logger.info(
+                "client disconnected mid-stream: %s %s",
+                request.method, request.url.path,
+            )
+        else:
+            logger.exception(
+                "middleware caught unhandled exception on %s %s",
+                request.method, request.url.path,
+            )
+        return JSONResponse(
+            status_code=499,
+            content={"detail": "client disconnected or upstream error"},
+        )
     _dur_ms = (_t.perf_counter() - _start) * 1000.0
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -442,12 +470,41 @@ async def _route_cache_mw(request, call_next):
         return resp
 
     # Miss — run the handler, capture body, store if 200.
-    response = await call_next(request)
+    # Iter 137 — defensive against (a) call_next raising on
+    # client-disconnect, (b) body_iterator yielding before erroring
+    # mid-stream, (c) StreamingResponse types whose body is too large /
+    # not idempotent to cache. Any failure mode falls through to a
+    # plain proxy of whatever the handler produced.
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "route-cache: call_next failed on %s %s",
+            request.method, request.url.path,
+        )
+        # Re-raise so the outer _security_headers + global exception
+        # handler can serialise a proper error envelope.
+        raise
+
+    # StreamingResponse has its own body protocol — buffering the
+    # whole thing into memory would defeat the cache and could OOM the
+    # pod on a slow client. Skip caching for these.
+    from starlette.responses import StreamingResponse as _StreamResp
+    if isinstance(response, _StreamResp):
+        return response
+
     if response.status_code == 200:
-        body_chunks = []
-        async for chunk in response.body_iterator:
-            body_chunks.append(chunk)
-        body = b"".join(body_chunks)
+        try:
+            body_chunks = []
+            async for chunk in response.body_iterator:
+                body_chunks.append(chunk)
+            body = b"".join(body_chunks)
+        except Exception:
+            logger.exception(
+                "route-cache: body_iterator failed on %s — passing through",
+                request.url.path,
+            )
+            return response
         ctype = response.headers.get("content-type", "application/json")
         _route_cache.put(key, ttl, response.status_code, body, ctype)
         new_resp = _CacheResp(content=body, status_code=200, media_type=ctype)
@@ -475,23 +532,41 @@ async def _global_exc_handler(request: _FastReq, exc: Exception):
             status_code=exc.status_code,
             content={"detail": exc.detail},
         )
-    logger.error(
-        "unhandled exception on %s %s",
-        request.method, request.url.path, exc_info=True,
-    )
-    # Iter 48 — defensive Sentry capture (FastApiIntegration usually
-    # catches this automatically, but the global handler may intercept
-    # before the integration sees it).
-    if SENTRY_ACTIVE:
-        try:
-            import sentry_sdk
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("kind", "unhandled_500")
-                scope.set_tag("path", request.url.path)
-                scope.set_tag("method", request.method)
-                sentry_sdk.capture_exception(exc)
-        except Exception:
-            pass
+    # Iter 137 — ALSO short-circuit asyncio cancellations so a
+    # client-disconnect on /chat/stream doesn't escalate into a 500.
+    import asyncio as _aio
+    if isinstance(exc, _aio.CancelledError):
+        logger.info(
+            "request cancelled (client disconnect) on %s %s",
+            request.method, request.url.path,
+        )
+        return _JsonResp(
+            status_code=499,
+            content={"detail": "client disconnected"},
+        )
+    try:
+        logger.error(
+            "unhandled exception on %s %s",
+            request.method, request.url.path, exc_info=True,
+        )
+        # Iter 48 — defensive Sentry capture (FastApiIntegration usually
+        # catches this automatically, but the global handler may intercept
+        # before the integration sees it).
+        if SENTRY_ACTIVE:
+            try:
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("kind", "unhandled_500")
+                    scope.set_tag("path", request.url.path)
+                    scope.set_tag("method", request.method)
+                    sentry_sdk.capture_exception(exc)
+            except Exception:
+                pass
+    except Exception:
+        # Iter 137 — if logging itself fails (e.g. Sentry SDK crashed
+        # because of a quota or config issue), we MUST still return a
+        # Response or Starlette panics with "No response returned."
+        pass
     return _JsonResp(
         status_code=500,
         content={"detail": "An internal error occurred. Please try again."},
