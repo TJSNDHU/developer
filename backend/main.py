@@ -4,6 +4,7 @@ Clean FastAPI entry point — wired to all routers from aurem_cto
 """
 import os
 import time
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -461,15 +462,59 @@ def _apply_security_headers(resp):
     resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
 
 
+async def _safe_call_next(request, call_next):
+    """Iter 142 — Harden the cancellation race between Sentry's ASGI
+    wrapper and our route-cache middleware. Starlette's
+    BaseHTTPMiddleware will surface a confusing
+    `RuntimeError("No response returned.")` whenever the inner task
+    is cancelled (client disconnect) or the upstream wrapper short-
+    circuits before producing a response. We catch all three known
+    failure modes and return a deterministic envelope instead of a
+    500.
+    """
+    try:
+        response = await call_next(request)
+        if response is None:
+            logger.error(
+                "middleware: no response returned on %s %s",
+                request.method, request.url.path,
+            )
+            return JSONResponse(
+                {"ok": False, "error": "Internal routing error"},
+                status_code=500,
+            )
+        return response
+    except asyncio.CancelledError:
+        logger.warning(
+            "middleware: request cancelled on %s %s",
+            request.method, request.url.path,
+        )
+        return JSONResponse(
+            {"ok": False, "error": "Request cancelled"},
+            status_code=499,
+        )
+    except RuntimeError as e:
+        if "No response returned" in str(e):
+            logger.error(
+                "middleware: RuntimeError on %s %s: %s",
+                request.method, request.url.path, e,
+            )
+            return JSONResponse(
+                {"ok": False, "error": "Service temporarily unavailable"},
+                status_code=503,
+            )
+        raise
+
+
 @app.middleware("http")
 async def _route_cache_mw(request, call_next):
     # Only GET requests, only configured paths.
     if request.method != "GET":
-        return await call_next(request)
+        return await _safe_call_next(request, call_next)
     path = request.url.path
     cfg = _route_cache.ROUTE_CONFIG.get(path)
     if cfg is None:
-        return await call_next(request)
+        return await _safe_call_next(request, call_next)
     ttl, requires_admin = cfg
 
     key = _route_cache.make_key(path, request.url.query)
@@ -505,8 +550,11 @@ async def _route_cache_mw(request, call_next):
     # mid-stream, (c) StreamingResponse types whose body is too large /
     # not idempotent to cache. Any failure mode falls through to a
     # plain proxy of whatever the handler produced.
+    # Iter 142 — route through _safe_call_next so the
+    # `No response returned` race with the Sentry ASGI wrapper is
+    # absorbed deterministically instead of escalating to a 500.
     try:
-        response = await call_next(request)
+        response = await _safe_call_next(request, call_next)
     except Exception:
         logger.exception(
             "route-cache: call_next failed on %s %s",
