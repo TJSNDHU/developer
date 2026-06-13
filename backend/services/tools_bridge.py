@@ -127,13 +127,17 @@ async def invoke_tool(name: str, args: dict, jwt_token: str) -> dict:
 
 def extract_tool_calls(text: str) -> list[dict]:
     """
-    Parse tool calls from LLM output. Supports 3 emission shapes:
+    Parse tool calls from LLM output. Supports 4 emission shapes:
       1. ```tool_call / ```json fenced JSON (primary — Groq llama-3.3)
       2. Bare {"tool": "...", "args": {...}} with no fence (qwen/Haiku)
       3. Bare {"name": "...", "parameters": {...}} (OpenAI-style)
+      4. Python function-call syntax (DeepSeek REPL-mimic fallback)
 
     iter 323ad — added shapes 2 & 3 to stop the "raw JSON dikh raha hai"
     bug where the parser missed unfenced emissions.
+    iter 143 — added shape 4 to catch DeepSeek's occasional Python-style
+    emissions like read_repo_file(path='x.py'); these were previously
+    printed verbatim to the user instead of running the tool.
     """
     calls: list[dict] = []
     seen_blocks: set[str] = set()
@@ -186,6 +190,58 @@ def extract_tool_calls(text: str) -> list[dict]:
             except json.JSONDecodeError:
                 tool_args = {}
         calls.append({"tool": tool_name, "args": tool_args})
+
+    if calls:
+        return calls
+
+    # Shape 4 — Python function-call syntax
+    # Handles: read_repo_file(path='x') or
+    #          tool_name(arg1='val', arg2=['a','b'])
+    # ORA sometimes emits this when DeepSeek mimics
+    # Python REPL style instead of JSON fence.
+    import re as _re
+    _PY_CALL_RE = _re.compile(
+        r'(\w+)\s*\(\s*(.*?)\s*\)',
+        _re.DOTALL
+    )
+    _KNOWN_TOOLS = {
+        "read_repo_file", "read_repo_files", "list_repo_files",
+        "search_repo", "semantic_search_repo", "get_commit_diff",
+        "get_repo_info", "find_usages", "get_dependencies",
+        "get_env_vars", "detect_framework", "get_commit_history",
+        "list_issues", "get_pr_comments", "find_package_docs",
+        "validate_syntax", "e2b_run_code", "execute_bash",
+        "web_search", "fetch_url", "web_search_and_summarize",
+        "firecrawl_scrape", "firecrawl_crawl_site",
+    }
+    for match in _PY_CALL_RE.finditer(text):
+        fn_name = match.group(1).strip()
+        if fn_name not in _KNOWN_TOOLS:
+            continue
+        raw_args = match.group(2).strip()
+        if not raw_args:
+            calls.append({"tool": fn_name, "args": {}})
+            continue
+        # Parse keyword args: key='val' or key=["a","b"]
+        args_dict = {}
+        kw_re = _re.compile(
+            r"(\w+)\s*=\s*("
+            r"'[^']*'|\"[^\"]*\"|"     # single/double quoted string
+            r"\[[^\]]*\]|"              # list
+            r"\d+|True|False|None"      # primitives
+            r")"
+        )
+        for kw in kw_re.finditer(raw_args):
+            k = kw.group(1)
+            v_raw = kw.group(2)
+            try:
+                import ast as _ast
+                v = _ast.literal_eval(v_raw)
+            except Exception:
+                v = v_raw.strip("'\"")
+            args_dict[k] = v
+        if args_dict or not _re.search(r'\w+\s*=', raw_args):
+            calls.append({"tool": fn_name, "args": args_dict})
 
     return calls
 
