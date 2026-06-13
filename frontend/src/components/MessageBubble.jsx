@@ -12,7 +12,7 @@
  *
  * Iter 62: extracted from ChatPanel.jsx as part of the P1 split.
  */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   User, Bot, Loader2, ShieldCheck, AlertTriangle, RefreshCw,
   Copy as CopyIcon, ThumbsUp, ThumbsDown, Zap,
@@ -304,6 +304,39 @@ export default function MessageBubble({
   // Live task progress (polled while shipped task is in-flight)
   const [taskInfo, setTaskInfo] = useState(null);
 
+  // Iter 135 — Client-side fallback elapsed counter.
+  // Backend emits `tick` SSE frames every 0.5-0.6s with the canonical
+  // elapsed_s (see chat.py `_ticker` / `_maybe_ship_shortcut`). Before
+  // the FIRST tick lands the bubble used to show "thinking…" with no
+  // number, which made users think the system was hung. We now run a
+  // local 100ms timer the moment `m.streaming` flips on. Display logic
+  // uses `Math.max(local, backend)` so backend ticks remain
+  // authoritative and the counter is always monotonic — never goes
+  // backwards when backend updates jump ahead of local.
+  const streamStartRef = useRef(null);
+  const [localElapsedS, setLocalElapsedS] = useState(0);
+  useEffect(() => {
+    if (!m.streaming) {
+      streamStartRef.current = null;
+      setLocalElapsedS(0);
+      return undefined;
+    }
+    if (streamStartRef.current === null) {
+      streamStartRef.current = Date.now();
+    }
+    const id = setInterval(() => {
+      if (streamStartRef.current !== null) {
+        setLocalElapsedS((Date.now() - streamStartRef.current) / 1000);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [m.streaming]);
+
+  const displayElapsedS = Math.max(
+    typeof m.elapsedS === "number" ? m.elapsedS : 0,
+    localElapsedS,
+  );
+
   // Iter 51 — when the server emits `task_handoff` mid-stream the parent
   // patches m.shipped_task_id but shipState was frozen at mount. Sync
   // when m.shipped_task_id changes so the poll loop actually fires.
@@ -551,9 +584,7 @@ export default function MessageBubble({
                   always sees WHAT AUREM is doing, not just THAT it is */}
               <span>
                 {m.activity || "thinking"}
-                {typeof m.elapsedS === "number"
-                  ? ` · ${m.elapsedS.toFixed(1)}s`
-                  : "…"}
+                {` · ${displayElapsedS.toFixed(1)}s`}
               </span>
             </span>
           )}
@@ -565,13 +596,13 @@ export default function MessageBubble({
                 verticalAlign: "middle",
                 animation: "blink 0.9s steps(1) infinite",
               }} />
-              {typeof m.elapsedS === "number" && m.elapsedS > 1.5 && (
+              {displayElapsedS > 1.5 && (
                 <div style={{
                   marginTop: 6, fontSize: 10,
                   color: "var(--text-faint)",
                   fontFamily: "'JetBrains Mono', monospace",
                 }}>
-                  · {m.elapsedS.toFixed(1)}s
+                  · {displayElapsedS.toFixed(1)}s
                 </div>
               )}
             </>
