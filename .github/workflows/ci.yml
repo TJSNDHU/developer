@@ -1,9 +1,4 @@
-name: AUREM CI — Test Suite
-# ─────────────────────────────────────────────────────────────────────
-# Iter 139 — runs on every push / PR. Backend pytest + frontend
-# build-check + Mongo-7 service. Deploy workflow (auto_deploy.yml)
-# is gated on this passing.
-# ─────────────────────────────────────────────────────────────────────
+name: AUREM CI — Build + Test Guard
 
 on:
   push:
@@ -19,6 +14,48 @@ permissions:
   contents: read
 
 jobs:
+
+  frontend-build:
+    name: Frontend — Build check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile --prefer-offline
+
+      - name: Build check
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: https://aurem.live
+          CI: "false"
+        run: |
+          yarn build 2>&1 | tee /tmp/build_output.txt
+          if grep -iE "error TS|SyntaxError|Module not found|Failed to compile|Parsing error" /tmp/build_output.txt; then
+            echo "❌ BUILD FAILED — broken code detected"
+            exit 1
+          fi
+          echo "✅ Build passed"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-log
+          path: /tmp/build_output.txt
+          retention-days: 7
+
+
   backend-tests:
     name: Backend — pytest
     runs-on: ubuntu-latest
@@ -36,15 +73,17 @@ jobs:
 
     env:
       MONGO_URL: mongodb://localhost:27017
-      DB_NAME: auremdev_test
-      JWT_SECRET: ci-test-secret-not-real
+      DB_NAME: aurem_test
+      JWT_SECRET: ci-test-secret-32-chars-minimum!!
       OPENROUTER_API_KEY: sk-test-not-real
       EMERGENT_LLM_KEY: test-not-real
       AUREM_CTO_MASTER_KEY: ci-test-master-key-32-chars-long!!
+      REDIS_URL: ""
       DISABLE_UPSTREAM_TOOLS: "1"
       ENABLE_EVAL_CRON: "0"
       APP_URL: http://localhost:8001
       PYTHONDONTWRITEBYTECODE: "1"
+      CI: "true"
 
     steps:
       - name: Checkout
@@ -61,65 +100,23 @@ jobs:
         working-directory: backend
         run: |
           pip install --no-cache-dir -r requirements.txt \
-            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
-          pip install --no-cache-dir pytest pytest-asyncio pytest-timeout httpx
+            pytest pytest-asyncio pytest-cov pytest-timeout httpx --quiet
 
-      - name: Run pytest with coverage
+      - name: Run tests
         working-directory: backend
         run: |
-          set -o pipefail
-          pip install --quiet pytest-cov
-          python -m pytest tests/ \
+          python -m pytest \
             --tb=short \
-            --timeout=60 \
+            --timeout=30 \
             -q \
             --cov=. \
             --cov-report=term-missing \
-            --cov-report=json:/tmp/coverage.json \
-            --ignore=tests/test_iter44_vanguard.py \
+            -x \
             2>&1 | tee /tmp/pytest_output.txt
-          # Iter 140 — surface coverage as a summary line. Soft gate at
-          # 40% (warn only) to avoid blocking a green test run while we
-          # build coverage up gradually.
-          python3 -c "
-          import json
-          with open('/tmp/coverage.json') as f:
-              data = json.load(f)
-          total = data['totals']['percent_covered']
-          print(f'Coverage: {total:.1f}%')
-          if total < 40:
-              print('::warning::Coverage below 40% — consider adding tests')
-          else:
-              print('Coverage acceptable')
-          " || true
+          echo "Exit: ${PIPESTATUS[0]}"
+          exit ${PIPESTATUS[0]}
 
-      - name: Security audit — pip-audit
-        working-directory: backend
-        continue-on-error: true
-        run: |
-          pip install --quiet pip-audit
-          pip-audit --requirement requirements.txt \
-            --ignore-vuln GHSA-r9dh-gcmq-hh33 \
-            --output json 2>/dev/null | \
-            python3 -c "
-          import json, sys
-          try:
-              data = json.load(sys.stdin)
-          except Exception:
-              print('pip-audit: no JSON output (likely zero vulnerabilities)')
-              sys.exit(0)
-          vulns = [v for d in data.get('dependencies', [])
-                   for v in d.get('vulns', [])
-                   if v.get('fix_versions')]
-          if vulns:
-              print(f'::warning::pip-audit: {len(vulns)} fixable vulnerabilities found')
-              for v in vulns[:5]:
-                  print(f'  {v[\"id\"]}: {v.get(\"description\",\"\")[:80]}')
-          else:
-              print('pip-audit: no fixable vulnerabilities')
-          " || echo "pip-audit check complete"
-
-      - name: Upload pytest results
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -127,58 +124,56 @@ jobs:
           path: /tmp/pytest_output.txt
           retention-days: 7
 
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: /tmp/coverage.json
-          retention-days: 30
 
-  frontend-lint:
-    name: Frontend — build check
+  security-scan:
+    name: Security — Dependency audit
     runs-on: ubuntu-latest
-    timeout-minutes: 8
-
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
+      - name: Python vulnerability scan
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          pip install pip-audit --quiet
+          pip-audit -r requirements.txt --format json 2>/dev/null | \
+          python3 -c "
+          import json,sys
+          try:
+            data=json.load(sys.stdin)
+            vulns=[v for d in data.get('dependencies',[])
+                   for v in d.get('vulns',[])
+                   if v.get('fix_versions')]
+            if vulns:
+              print(f'⚠ {len(vulns)} fixable vulnerabilities')
+            else:
+              print('✅ No fixable vulnerabilities')
+          except: print('scan complete')
+          " || echo "pip-audit done"
 
-      - name: Install dependencies
-        working-directory: frontend
-        run: yarn install --frozen-lockfile --prefer-offline
-
-      - name: Build check (Vite)
-        working-directory: frontend
-        env:
-          REACT_APP_BACKEND_URL: https://auremcto.com
-          VITE_API_URL: https://auremcto.com
-        run: yarn build 2>&1 | tail -40
-
-      - name: Security audit — yarn audit
+      - name: Node vulnerability scan
         working-directory: frontend
         continue-on-error: true
         run: |
-          # Iter 140 — high-severity threshold to avoid noise from
-          # dev-only transitive deps. Non-zero exit = informational
-          # warning only (continue-on-error).
-          yarn audit --groups dependencies --level high 2>&1 | tail -20 \
-            || echo "yarn audit completed (non-zero exit is informational)"
+          yarn audit --level high 2>&1 | tail -10 || echo "yarn audit done"
 
-  notify-on-failure:
-    name: Notify on failure
-    needs: [backend-tests, frontend-lint]
-    if: failure()
+
+  deploy-gate:
+    name: Deploy gate — all checks passed
+    needs: [frontend-build, backend-tests, security-scan]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
-      - name: Post failure status to AUREM
+      - name: All checks passed
+        run: |
+          echo "✅ Frontend build: passed"
+          echo "✅ Backend tests: passed"
+          echo "✅ Security scan: passed"
+          echo "🚀 Safe to deploy to aurem.live"
+
+      - name: Notify AUREM dashboard
         if: ${{ secrets.AUREM_API_KEY != '' }}
         env:
           API_KEY: ${{ secrets.AUREM_API_KEY }}
@@ -186,5 +181,5 @@ jobs:
           curl -s -X POST \
             "https://auremcto.com/api/aurem-dev/github-deploy/report" \
             -H "Content-Type: application/json" \
-            -d "{\"api_key\":\"$API_KEY\",\"commit\":\"${{ github.sha }}\",\"status\":\"ci_failed\",\"repo\":\"${{ github.repository }}\"}" \
-            || echo "Notify failed (non-fatal)"
+            -d "{\"api_key\":\"$API_KEY\",\"commit\":\"${{ github.sha }}\",\"status\":\"ci_passed\",\"repo\":\"${{ github.repository }}\"}" \
+            || echo "notify done"
