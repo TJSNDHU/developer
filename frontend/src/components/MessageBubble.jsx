@@ -578,19 +578,20 @@ export default function MessageBubble({
               display: "inline-flex", flexDirection: "column",
               gap: 6, minWidth: 220,
             }}>
-              {/* Iter 136 — Top-of-bubble progress line.
-                 Animates from yellow (start) → green (done) as the
-                 LLM produces tokens. Uses an asymptotic curve so it
-                 ramps fast at first then slows, capping at 95% until
-                 streaming flips off (then snaps to 100%). Gives the
-                 user a visceral sense of "how close are we" even
-                 when the model doesn't expose token-by-token progress. */}
+              {/* Iter 136/141 — Top-of-bubble progress line.
+                 Iter 141 replaces the asymptotic time-based dummy
+                 with REAL milestone progress driven by SSE events:
+                 meta=15%, mode=25%, thinking activity=30-50%,
+                 first token=55%, tokens stream toward 95%, done=100%.
+                 We fall back to the time curve ONLY if `progressPct`
+                 isn't set yet (very first ~50ms before the meta
+                 frame lands) so the bar never sits at 0. */}
               {(() => {
+                const real = typeof m.progressPct === "number" ? m.progressPct : null;
                 const t = displayElapsedS;
-                // Asymptotic fake progress — fast ramp, capped at 95%
-                // until streaming ends.
-                const raw = 1 - Math.exp(-t / 8);
-                const pct = Math.min(0.95, Math.max(0, raw));
+                const fallback = Math.min(15, (1 - Math.exp(-t / 2)) * 15);
+                const pctRaw = real !== null ? real : fallback;
+                const pct = Math.max(0, Math.min(100, pctRaw)) / 100;
                 // Yellow (255,197,96) → Green (109,212,161)
                 const r = Math.round(255 + (109 - 255) * pct);
                 const g = Math.round(197 + (212 - 197) * pct);
@@ -614,7 +615,7 @@ export default function MessageBubble({
                         height: "100%",
                         background: colour,
                         boxShadow: `0 0 6px ${colour}`,
-                        transition: "width 200ms linear, background-color 200ms linear, box-shadow 200ms linear",
+                        transition: "width 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94), background-color 350ms linear, box-shadow 350ms linear",
                       }}
                     />
                   </div>

@@ -1219,6 +1219,21 @@ async def chat_stream(
         ticker_t = asyncio.create_task(_ticker())
         worker_t = asyncio.create_task(_worker())
 
+        # Iter 141 — emit an immediate meta frame so the client gets
+        # progress feedback inside 10 ms instead of waiting for the
+        # orchestrator's first LLM round-trip (which can be 1-5 s on
+        # OpenRouter cold-start). The frontend uses this to anchor the
+        # real-progress bar at 15% the moment the request is accepted.
+        yield (
+            "data: " + json.dumps({
+                "meta": True,
+                "session_id": body.session_id,
+                "provider": "aurem-cto",
+                "thinking_s": 0.0,
+                "tool_calls_run": 0,
+            }) + "\n\n"
+        )
+
         result = None
         deadline_at = _t.monotonic() + HARD_TIMEOUT_S
         while True:

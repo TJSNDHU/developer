@@ -732,18 +732,32 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         // scores, needs_confirm}. Older flows still pass a bare string.
         if (typeof m === "string") {
           setServerMode(m);
-          return;
-        }
-        setServerMode(m.mode);
-        if (m.needs_confirm) {
-          setModeAmbiguous({
-            detected:   m.mode,
-            confidence: m.confidence,
-            scores:     m.scores,
-          });
         } else {
-          setModeAmbiguous(null);
+          setServerMode(m.mode);
+          if (m.needs_confirm) {
+            setModeAmbiguous({
+              detected:   m.mode,
+              confidence: m.confidence,
+              scores:     m.scores,
+            });
+          } else {
+            setModeAmbiguous(null);
+          }
         }
+        // Iter 141 — second real progress milestone. Mode classification
+        // has finished, so the orchestrator is now committed to a route
+        // (chat / code / debug). Jump to 25%.
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            copy[copy.length - 1] = {
+              ...last,
+              progressPct: Math.max(last.progressPct || 0, 25),
+            };
+          }
+          return copy;
+        });
       },
       onOpsRedirect: (m) => setOpsRedirect(m),
       // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
@@ -775,6 +789,72 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         } catch { /* ignore */ }
       },
       onMeta: (m) => {
+        // Iter 141 — first real progress milestone. The meta frame
+        // confirms the server accepted the request and routed it to
+        // the orchestrator. Anchor the bar at 15% so the user gets
+        // immediate visual proof the backend is alive.
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            copy[copy.length - 1] = {
+              ...last,
+              meta: m,
+              progressPct: Math.max(last.progressPct || 0, 15),
+            };
+          }
+          return copy;
+        });
+      },
+      // Iter 35/36: server emits periodic {thinking:true, elapsed_s, activity}
+      // frames during the tool-call loop so we can show a live counter +
+      // a status label ("running 3 tools in parallel…").
+      onThinking: (elapsed, activity) => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            // Iter 141 — real progress. Each new activity advances
+            // the bar by 5pp, capped at 50% (the "first-token"
+            // milestone). If activity stays the same, the bar
+            // doesn't jiggle.
+            const seen = last.seenActivities || [];
+            const isNewActivity = activity && !seen.includes(activity);
+            const newSeen = isNewActivity ? [...seen, activity] : seen;
+            const stepProgress = Math.min(50, 25 + newSeen.length * 5);
+            copy[copy.length - 1] = {
+              ...last,
+              elapsedS: elapsed,
+              seenActivities: newSeen,
+              progressPct: Math.max(last.progressPct || 0, stepProgress),
+              ...(activity ? { activity } : {}),
+            };
+          }
+          return copy;
+        });
+      },
+      onToken: (tok) => {
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant") {
+            // Iter 141 — token-driven progress. Once the first token
+            // lands we jump to 55% and then incrementally close on
+            // 95% per chunk (asymptotic so we never overshoot before
+            // onDone fires).
+            const baseline = Math.max(last.progressPct || 0, 55);
+            const gap = 95 - baseline;
+            // Each token chunk closes ~5% of the remaining gap.
+            const nextPct = Math.min(95, baseline + gap * 0.05);
+            copy[copy.length - 1] = {
+              ...last,
+              content: (last.content || "") + tok,
+              progressPct: nextPct,
+            };
+          }
+          return copy;
+        });
+      },
         if (m.provider) providerSeen = m.provider;
         if (typeof m.temperature === "number" || m.mode) {
           setMessages((msgs) => {
@@ -792,33 +872,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             return copy;
           });
         }
-      },
-      // Iter 35/36: server emits periodic {thinking:true, elapsed_s, activity}
-      // frames during the tool-call loop so we can show a live counter +
-      // a status label ("running 3 tools in parallel…").
-      onThinking: (elapsed, activity) => {
-        setMessages((msgs) => {
-          const copy = msgs.slice();
-          const last = copy[copy.length - 1];
-          if (last && last.role === "assistant" && last.streaming) {
-            copy[copy.length - 1] = {
-              ...last,
-              elapsedS: elapsed,
-              ...(activity ? { activity } : {}),
-            };
-          }
-          return copy;
-        });
-      },
-      onToken: (tok) => {
-        setMessages((msgs) => {
-          const copy = msgs.slice();
-          const last = copy[copy.length - 1];
-          if (last && last.role === "assistant") {
-            copy[copy.length - 1] = { ...last, content: (last.content || "") + tok };
-          }
-          return copy;
-        });
       },
       onWatchdogPending: () => {
         setMessages((msgs) => {
@@ -849,6 +902,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           if (last && last.role === "assistant") {
             copy[copy.length - 1] = {
               ...last, streaming: false,
+              // Iter 141 — final progress milestone. Snap to 100%
+              // so the bar briefly shows fully-green right before
+              // disappearing (the streaming:false flip removes the
+              // bar from MessageBubble's render path).
+              progressPct: 100,
               provider: d.provider || providerSeen || "—",
               council: !!(d.council || d.provider === "mode-b-council"),
               verifiedPaths: Array.isArray(d.verified_paths)
