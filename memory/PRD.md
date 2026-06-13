@@ -4962,3 +4962,88 @@ is logically identical (all rules still present, just lazily loaded).
 If ORA starts giving generic answers on connected repos or asks
 permission to read, file a bug — likely the trigger regex missed
 a verb and EXECUTE/REPO didn't load.
+
+---
+
+## Iter 131 — Chat-window "Clear ↑" toolbar (FEATURE, 2026-06-13)
+
+**User requirement (Hinglish):** "add a older chat clear button in
+chat window" → clarified: (a) hard-clear current session messages
+(UI + DB) and (d) soft-hide older messages (UI-only). Location:
+message list ke top pe ("Clear ↑" type).
+
+**What shipped:**
+
+1. **Backend endpoint** in `backend/routers/chat.py`:
+   ```
+   DELETE /api/aurem-dev/chat/sessions/{session_id}/messages
+   ```
+   Owner-scoped (matches both `session_id` and `user_id`),
+   idempotent, 404 on non-existent session. Uses `$set turns: []`
+   so the session DOC is preserved (sidebar entry stays alive) —
+   only the conversation is wiped.
+
+2. **Frontend toolbar** in `frontend/src/components/ChatPanel.jsx`,
+   sticky at top of `chat-messages`. Renders only when there's at
+   least one real (non-WELCOME) turn:
+   - **"Hide older ↑"** pill — toggles a UI-only collapse. When ON,
+     only the last `HIDE_OLDER_THRESHOLD=10` messages render and a
+     dashed pill above them says
+     "↑ N older messages hidden — click to show all". Older turns
+     stay in the DB; toggling OFF restores them.
+   - **"Clear chat"** pill — calls the DELETE endpoint after a
+     browser confirm. On success: local messages reset to WELCOME,
+     `hideOlder` reset to false, toast "Chat cleared."
+   - Buttons turn red on hover for the destructive Clear.
+   - Disabled state during clear (Loader2 spinner).
+
+**Wiring details:**
+- Session switch resets `hideOlder` so the previous chat's
+  collapsed state doesn't carry over (added to the Iter 125
+  sessionId-change effect).
+- `messages.map(...)` keeps iterating the full array so the
+  existing `dbTurnIndex` math (used for in-place message updates)
+  remains correct; hidden turns return `null` from the render
+  function rather than being sliced out.
+
+**E2E proof (real frontend → real backend → real MongoDB):**
+
+```
+PRE-CLEAR  : 30 turns in DB | 22 children in chat-messages DOM |
+             toolbar visible with "Hide older ↑" and "Clear chat"
+
+HIDE OLDER :  9 children rendered | pill text:
+             "↑ 10 older messages hidden — click to show all" |
+             toolbar text changes to "Show all (19)" + "Clear chat"
+
+CLEAR      :  Click "Clear chat" → window.confirm() auto-accepted
+             → DELETE /chat/sessions/{id}/messages → 200 OK
+             → toast "Chat cleared."
+             → 2 children (WELCOME + endRef), toolbar hidden
+             → DB: turns=[], last_message="", session_id PRESERVED
+             → Sidebar still shows "ITER 131 Toolbar Proof"
+```
+
+Plus curl verification:
+- POST chat → 2 turns in DB
+- DELETE /sessions/{id}/messages → `{ok: true, cleared: true}`
+- DB after: 0 turns, session doc intact
+
+**Tests:** `backend/tests/test_iter131_chat_clear_messages.py` —
+4 source-level regression guards:
+1. DELETE route is registered.
+2. Handler uses `update_one` (not `delete_one`) — preserves session.
+3. Query is scoped to `user_id` — owner-only.
+4. 404 on missing session — frontend can surface a useful error.
+
+Full battery: **56 / 56 PASSED** across Iters 124, 125, 127, 128,
+129, 130, 131.
+
+**Files touched**
+- EDIT: `backend/routers/chat.py` (+25 lines — clear endpoint)
+- EDIT: `frontend/src/components/ChatPanel.jsx` (+135 lines — state,
+  callbacks, toolbar JSX, hide-older filter, sidebar reset)
+- NEW : `backend/tests/test_iter131_chat_clear_messages.py` (4 tests)
+
+**Deployment note:** Ship with the rest of the iters. Backend is
+backwards compatible — old frontends just won't see the toolbar.

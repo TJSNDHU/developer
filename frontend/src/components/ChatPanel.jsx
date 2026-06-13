@@ -15,7 +15,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Loader2, Square, Paperclip, Github, Zap,
-  Eye,
+  Eye, EyeOff, Trash2,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
@@ -38,6 +38,10 @@ const TEXT_FAST_PATH_BYTES = 50 * 1024;  // <=50KB text → skip server roundtri
 const MAXX_KEY = "aurem_maxx_mode";
 const AGENT_KEY = "aurem_chat_agent";
 const PREVIEW_KEY = "aurem_preview_open";
+// Iter 131 — Clear ↑ toolbar: when `hideOlder` is ON, only this many
+// most-recent messages render. Older ones collapse into a single
+// "N older messages hidden — show all" pill.
+const HIDE_OLDER_THRESHOLD = 10;
 
 const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
 
@@ -131,6 +135,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // Iter 131 — message-list toolbar state.
+  // `hideOlder` collapses everything older than the last
+  // HIDE_OLDER_THRESHOLD messages into a count badge (UI only — DB
+  // is untouched). `clearingChat` blocks double-clicks on the
+  // destructive Clear button.
+  const [hideOlder, setHideOlder] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
   const [maxxMode, setMaxxMode] = useState(
     () => localStorage.getItem(MAXX_KEY) === "1"
@@ -264,6 +275,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     sessionIdPrevRef.current = sessionId;
     if (prev && sessionId && prev !== sessionId) {
       setLivePopupTaskId(null);
+      // Iter 131 — session switch resets the Clear ↑ toolbar's hide
+      // state. The previous session's "hide older" preference doesn't
+      // carry over.
+      setHideOlder(false);
     }
   }, [sessionId]);
 
@@ -304,6 +319,47 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       return next;
     });
   }, []);
+
+  // Iter 131 — Clear ↑ toolbar.
+  //
+  // "Hide older" toggles a UI-only collapse so a long transcript
+  // doesn't drown the viewport (older turns stay in DB and reappear
+  // when toggled off / when the session is re-opened).
+  //
+  // "Clear chat" wipes the session's `turns` array in MongoDB via the
+  // Iter 131 endpoint and resets the local message list to the
+  // WELCOME bubble. The session_id is preserved so the sidebar entry
+  // doesn't disappear — only the conversation is gone.
+  const toggleHideOlder = useCallback(() => {
+    setHideOlder((v) => !v);
+  }, []);
+
+  const clearChat = useCallback(async () => {
+    if (clearingChat) return;
+    if (!sessionId) {
+      // No session yet (welcome screen) — just wipe the local bubble list.
+      setMessages([WELCOME]);
+      setHideOlder(false);
+      return;
+    }
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      "Clear all messages in this chat? The session stays in your sidebar — only the conversation is wiped. This cannot be undone.",
+    );
+    if (!ok) return;
+    setClearingChat(true);
+    try {
+      await api.delete(`/chat/sessions/${sessionId}/messages`);
+      setMessages([WELCOME]);
+      setHideOlder(false);
+      toast({ message: "Chat cleared.", kind: "info" });
+    } catch (e) {
+      const detail = e?.response?.data?.detail || e.message || "Failed to clear chat.";
+      toast({ message: detail, kind: "error" });
+    } finally {
+      setClearingChat(false);
+    }
+  }, [clearingChat, sessionId]);
 
   // Auto-extract code blocks from the latest *completed* assistant reply
   const latestAssistant = useMemo(() => {
@@ -758,6 +814,119 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           display: "flex", flexDirection: "column", gap: 20,
         }}
       >
+        {/* Iter 131 — Clear ↑ toolbar. Sits at the top of the
+            scrollable message list and only renders when there's
+            at least one real (non-WELCOME) turn to act on. */}
+        {messages.length > 1 && (
+          <div
+            data-testid="chat-toolbar"
+            style={{
+              position: "sticky", top: -24, zIndex: 2,
+              margin: "-24px -28px 0 -28px",
+              padding: "8px 28px",
+              display: "flex", alignItems: "center", justifyContent: "flex-end",
+              gap: 8,
+              background: "linear-gradient(180deg, var(--bg) 70%, transparent)",
+              backdropFilter: "blur(6px)",
+              borderBottom: "1px solid var(--border)",
+              fontSize: 12,
+            }}
+          >
+            {messages.length > HIDE_OLDER_THRESHOLD + 1 && (
+              <button
+                type="button"
+                data-testid="chat-hide-older-btn"
+                onClick={toggleHideOlder}
+                title={hideOlder
+                  ? "Show all messages in this chat"
+                  : `Collapse all but the last ${HIDE_OLDER_THRESHOLD} messages`
+                }
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "4px 10px",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 999,
+                  color: "var(--text-faint)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  transition: "color 120ms, border-color 120ms",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--text)";
+                  e.currentTarget.style.borderColor = "var(--text-faint)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-faint)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                {hideOlder ? <Eye size={12} /> : <EyeOff size={12} />}
+                {hideOlder
+                  ? `Show all (${messages.length - 1})`
+                  : "Hide older ↑"
+                }
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="chat-clear-btn"
+              onClick={clearChat}
+              disabled={clearingChat}
+              title="Delete every message in this chat. Session stays in your sidebar."
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "4px 10px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: 999,
+                color: "var(--text-faint)",
+                cursor: clearingChat ? "not-allowed" : "pointer",
+                fontSize: 12,
+                opacity: clearingChat ? 0.6 : 1,
+                transition: "color 120ms, border-color 120ms",
+              }}
+              onMouseEnter={(e) => {
+                if (clearingChat) return;
+                e.currentTarget.style.color = "var(--danger, #ef4444)";
+                e.currentTarget.style.borderColor = "var(--danger, #ef4444)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-faint)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              {clearingChat
+                ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+                : <Trash2 size={12} />
+              }
+              {clearingChat ? "Clearing…" : "Clear chat"}
+            </button>
+          </div>
+        )}
+
+        {/* Iter 131 — "N older messages hidden" pill, shown only
+            when hideOlder is ON and there's actual collapse. */}
+        {hideOlder && messages.length > HIDE_OLDER_THRESHOLD + 1 && (
+          <button
+            type="button"
+            data-testid="chat-show-hidden-pill"
+            onClick={toggleHideOlder}
+            style={{
+              alignSelf: "center",
+              padding: "6px 14px",
+              borderRadius: 999,
+              border: "1px dashed var(--border)",
+              background: "var(--bg-soft, transparent)",
+              color: "var(--text-faint)",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            ↑ {messages.length - HIDE_OLDER_THRESHOLD} older messages hidden — click to show all
+          </button>
+        )}
+
         {loadingHistory && (
           <div data-testid="chat-loading-history" style={{
             display: "flex", alignItems: "center", gap: 8,
@@ -769,6 +938,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => {
+          // Iter 131 — when hideOlder is ON, skip messages older
+          // than the last HIDE_OLDER_THRESHOLD. We still iterate the
+          // full array so the `dbTurnIndex` math below stays
+          // correct (it depends on absolute positions).
+          if (
+            hideOlder &&
+            messages.length > HIDE_OLDER_THRESHOLD + 1 &&
+            i < messages.length - HIDE_OLDER_THRESHOLD
+          ) {
+            return null;
+          }
           // The DB `turns` array does NOT contain the front-end-only
           // WELCOME / system messages. So when we ship a turn and tell
           // the backend "this is turn N", N must be computed from the

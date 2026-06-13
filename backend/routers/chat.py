@@ -1531,6 +1531,32 @@ async def chat_session_delete(
     return {"ok": True, "deleted": r.deleted_count}
 
 
+@router.delete("/sessions/{session_id}/messages")
+async def chat_session_clear_messages(
+    session_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 131 — wipe all turns in a session but KEEP the session
+    alive (preserves session_id + title + project link). Powers the
+    'Clear chat' button in the chat-window toolbar so a user can
+    reset a long conversation without losing its sidebar entry."""
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    r = await db.chat_sessions.update_one(
+        {"session_id": session_id, "user_id": user["user_id"]},
+        {"$set": {
+            "turns": [],
+            "updated_at": time.time(),
+            "last_message": "",
+        }},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "session not found")
+    return {"ok": True, "cleared": True, "session_id": session_id}
+
+
 # ─── Iter 53 — Post-commit wrap-up message ─────────────────────────────
 # When a Mode C task finishes (status=done) the chat used to fall silent.
 # The user only saw "✅ Pushed <sha>" on the status card and had to ask
