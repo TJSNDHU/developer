@@ -793,6 +793,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         // confirms the server accepted the request and routed it to
         // the orchestrator. Anchor the bar at 15% so the user gets
         // immediate visual proof the backend is alive.
+        if (m && m.provider) providerSeen = m.provider;
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -801,6 +802,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ...last,
               meta: m,
               progressPct: Math.max(last.progressPct || 0, 15),
+              ...(typeof m?.temperature === "number" ? { temperature: m.temperature } : {}),
+              ...(m?.mode ? { mode: m.mode } : {}),
+              ...(typeof m?.thinking_s !== "undefined" ? { thinkingS: m.thinking_s } : {}),
+              ...(typeof m?.tool_calls_run !== "undefined" ? { toolCallsRun: m.tool_calls_run } : {}),
             };
           }
           return copy;
@@ -854,24 +859,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           }
           return copy;
         });
-      },
-        if (m.provider) providerSeen = m.provider;
-        if (typeof m.temperature === "number" || m.mode) {
-          setMessages((msgs) => {
-            const copy = msgs.slice();
-            const last = copy[copy.length - 1];
-            if (last && last.role === "assistant") {
-              copy[copy.length - 1] = {
-                ...last,
-                temperature: m.temperature,
-                mode: m.mode,
-                thinkingS: m.thinking_s,
-                toolCallsRun: m.tool_calls_run,
-              };
-            }
-            return copy;
-          });
-        }
       },
       onWatchdogPending: () => {
         setMessages((msgs) => {

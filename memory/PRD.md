@@ -5179,3 +5179,26 @@ frames.
 - P2: pgvector / Qdrant vector DB
 - P2: Fast-AUREM marketing repo
 - Refactor: `ChatPanel.jsx` (1500+ lines) → split into custom hooks
+
+
+### Iter 142 — CRITICAL FIX: ChatPanel parse error (Feb 2026)
+**Bug**: User reported "kuch bhe khta hain karna ko system thinking he karta hai real reply nahi ata koi" — chat completely broken in production. Every prompt showed "thinking..." spinner but no reply ever rendered.
+
+**Root cause**: `ChatPanel.jsx` had a JavaScript parse error (line 858) — the previous iter141 progress-bar refactor introduced a new `onMeta` callback for SSE milestone progress tracking, but the OLD meta-handler logic (`if (m.provider) providerSeen = ...`, `if (typeof m.temperature ...)`) was left ORPHANED outside any function, dangling between the `onToken` callback and `onWatchdogPending` inside the `streamChat({...})` object literal. ESLint confirmed: `Parsing error: Unexpected token .` at 858:14. Vite silently failed to compile the file, the component was effectively dead in the browser → SSE stream worked at backend, but no React state updater could receive the tokens.
+
+**Fix**: Merged the orphan meta-handler logic into the new `onMeta` callback (using spread-conditionals for optional fields like `temperature`, `mode`, `thinkingS`, `toolCallsRun`), removed the dangling code block, retained `providerSeen` closure tracking. Babel parse now passes.
+
+**Verification**: 
+- Backend curl test: SSE `/chat/stream` streams `meta → mode → thinking ticks → tokens → done` correctly (latency ~2s for "say hi" prompt).
+- Frontend Playwright E2E: Login → dashboard → send "Say hi in 3 words" → assistant reply "Hi, let's ship." rendered correctly. Zero stuck thinking bubbles.
+
+**Files touched**
+- EDIT: `frontend/src/components/ChatPanel.jsx` (merged `onMeta` + removed orphan code)
+
+**Pending tasks (priority order)**
+- P1: Dynamic SEO/GEO Compare Hub integration (re-upload required — `/tmp/seo_geo/` wiped)
+- P1: Security tooling (Semgrep SAST, k6 load tests)
+- P2: pgvector / Qdrant vector DB
+- P2: Fast-AUREM marketing repo
+- Refactor: `ChatPanel.jsx` (still 1600+ lines) → continue migration to `useChatMessages`/`useChatStream` hooks
+
