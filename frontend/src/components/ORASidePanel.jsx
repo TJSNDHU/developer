@@ -15,18 +15,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { X, Send, Square, Volume2, VolumeX, Mic, MicOff } from "lucide-react";
 import { useTextToVoice } from "../hooks/useTextToVoice";
-import ModeSelector from "./ModeSelector";
 
 export default function ORASidePanel({
   open, messages, busy, projectId,
   onClose, onSend, onStop,
 }) {
   const [input, setInput] = useState("");
-  // Iter 153 fix — `chatMode` was referenced below (handleSend + ModeSelector)
-  // without ever being declared, which threw a ReferenceError at render
-  // time and made the entire ORA panel mount as a blank node (the JSX
-  // never reached the DOM). Declaring it here restores the panel.
-  const [chatMode, setChatMode] = useState("swift");
+  // Iter 155 — ModeSelector removed from the ORA panel per user feedback:
+  // ORA picks its own engine via the aurem.live API, the Swift/Pro/Maxx
+  // pills here were just confusing duplication of the main AUREM chat.
+  // `onSend` no longer receives a mode argument from this panel.
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   const bottomRef = useRef(null);
@@ -83,16 +81,16 @@ export default function ORASidePanel({
     setListening(false);
   };
 
-  const handleSend = (modeArg) => {
+  const handleSend = () => {
     if (!input.trim() || busy) return;
-    onSend(input.trim(), modeArg || chatMode);
+    onSend(input.trim());
     setInput("");
   };
 
   const handleKey = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend(chatMode);
+      handleSend();
     }
   };
 
@@ -299,7 +297,9 @@ export default function ORASidePanel({
                 </button>
               )}
               <span style={{ flex: 1 }} />
-              <ModeSelector value={chatMode} onChange={setChatMode} />
+              {/* Iter 155 — ModeSelector removed. ORA uses its own
+                  upstream engine (aurem.live), so the Swift/Pro/Maxx
+                  pills don't apply here. */}
               {busy ? (
                 <button
                   type="button"
@@ -314,7 +314,7 @@ export default function ORASidePanel({
                 <button
                   type="button"
                   data-testid="ora-send-btn"
-                  onClick={() => handleSend(chatMode)}
+                  onClick={handleSend}
                   className="btn-primary"
                   disabled={!input.trim()}
                   style={{ fontSize: 12, gap: 6 }}

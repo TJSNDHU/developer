@@ -86,7 +86,7 @@ export function useORAPanel() {
     } catch { /* ignore */ }
   }, []);
 
-  const sendMessage = useCallback(async (text, mode = "swift") => {
+  const sendMessage = useCallback(async (text) => {
     if (!text.trim() || busy) return;
 
     setMessages((prev) => [...prev, { role: "user", content: text }]);
@@ -104,6 +104,10 @@ export function useORAPanel() {
         throw new Error("Not signed in — please log in and retry.");
       }
 
+      // Iter 155 — `agent: "ora"` so the stream is routed straight to
+      // the aurem.live ORA upstream (its own engine + system prompt),
+      // not the AUREM orchestrator. No review-mode pill from the
+      // panel; ORA picks its own model on the server side.
       const response = await fetch(
         `${API_BASE}/api/aurem-dev/chat/stream`,
         {
@@ -117,8 +121,7 @@ export function useORAPanel() {
             project_id: projectId || undefined,
             session_id: sessionIdRef.current,
             max_tool_iters: 4,
-            agent: "auto",
-            mode,
+            agent: "ora",
           }),
           signal: controller.signal,
         },
