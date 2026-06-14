@@ -1,0 +1,38 @@
+<svg width="100%" viewBox="0 0 900 160" 
+     xmlns="http://www.w3.org/2000/svg" 
+     role="img">
+  <title>AUREM CTO</title>
+  <desc>AUREM CTO platform banner</desc>
+  <rect width="900" height="160" fill="#0a0a0a" rx="8"/>
+  <style>
+    .b {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 11.5px;
+      font-weight: 700;
+      fill: #f59e0b;
+    }
+    .g {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 11.5px;
+      font-weight: 700;
+      fill: #fcd34d;
+      opacity: 0.15;
+    }
+  </style>
+  <text class="g" x="21" y="47">█████╗ ██╗   ██╗██████╗ ███████╗███╗   ███╗     ██████╗████████╗ ██████╗</text>
+  <text class="g" x="21" y="63">██╔══██╗██║   ██║██╔══██╗██╔════╝████╗ ████║    ██╔════╝╚══██╔══╝██╔═══██╗</text>
+  <text class="g" x="21" y="79">███████║██║   ██║██████╔╝█████╗  ██╔████╔██║    ██║        ██║   ██║   ██║</text>
+  <text class="g" x="21" y="95">██╔══██║██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║    ██║        ██║   ██║   ██║</text>
+  <text class="g" x="21" y="111">██║  ██║╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║    ╚██████╗   ██║   ╚██████╔╝</text>
+  <text class="g" x="21" y="127">╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝     ╚═════╝   ╚═╝    ╚═════╝</text>
+  <text class="b" x="20" y="46">█████╗ ██╗   ██╗██████╗ ███████╗███╗   ███╗     ██████╗████████╗ ██████╗</text>
+  <text class="b" x="20" y="62">██╔══██╗██║   ██║██╔══██╗██╔════╝████╗ ████║    ██╔════╝╚══██╔══╝██╔═══██╗</text>
+  <text class="b" x="20" y="78">███████║██║   ██║██████╔╝█████╗  ██╔████╔██║    ██║        ██║   ██║   ██║</text>
+  <text class="b" x="20" y="94">██╔══██║██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║    ██║        ██║   ██║   ██║</text>
+  <text class="b" x="20" y="110">██║  ██║╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║    ╚██████╗   ██║   ╚██████╔╝</text>
+  <text class="b" x="20" y="126">╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝     ╚═════╝   ╚═╝    ╚═════╝</text>
+  <text font-family="'JetBrains Mono', monospace" 
+        font-size="11" fill="#6b7280" x="20" y="148">
+    ORA reads your repo · writes the code · ships to GitHub · in one turn
+  </text>
+</svg>
