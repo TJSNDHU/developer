@@ -351,16 +351,41 @@ export default function MessageBubble({
   }, [m.shipped_task_id, shipState.taskId]);
 
   // Poll the CTO task while it's in progress, until done/failed
+  // Iter 151 — Production logs showed runaway polling: 50+ GETs to
+  // /cto/tasks/{id} in seconds across 4 stuck task IDs. Root causes:
+  //   (a) TERMINAL set was too narrow — `error`, `blocked`, `rejected`,
+  //       `cancelled` never stopped the loop;
+  //   (b) the API call itself swallowed errors silently, so a 4xx/5xx
+  //       just re-fired tick() every 2s forever;
+  //   (c) no maximum-attempt safety cap.
+  // We now (i) recognise all known terminal states, (ii) stop on any
+  // hard error from the API, (iii) hard-cap at 30 minutes (900 polls).
   useEffect(() => {
     const tid = shipState.taskId;
     if (!tid) return;
     let cancelled = false;
-    const TERMINAL = new Set(["done", "failed"]);
+    let attempts = 0;
+    const MAX_ATTEMPTS = 900;          // 900 * 2s = 30 minutes
+    const TERMINAL = new Set([
+      "done", "failed", "error", "blocked", "rejected",
+      "cancelled", "canceled", "completed", "timed_out",
+    ]);
     async function tick() {
+      if (cancelled) return;
+      attempts += 1;
+      if (attempts > MAX_ATTEMPTS) {
+        // Give up — task is either stuck or backend is unreachable.
+        // Either way, stop hammering the API.
+        return;
+      }
       try {
         const r = await api.get(`/cto/tasks/${tid}`);
         const t = r.data?.task || null;
-        if (cancelled || !t) return;
+        if (cancelled) return;
+        if (!t) {
+          // Task not found — terminal. Stop polling.
+          return;
+        }
         setTaskInfo(t);
         if (!TERMINAL.has(t.status)) {
           setTimeout(tick, 2000);
@@ -370,8 +395,18 @@ export default function MessageBubble({
           // second fire is harmless if the effect re-runs.
           if (onTaskCompleted) onTaskCompleted(tid);
         }
-      } catch {
-        /* keep last known state */
+      } catch (err) {
+        // 4xx → permission / missing task; 5xx → backend down. Either
+        // way, hammering the same endpoint won't help. Stop.
+        const code = err?.response?.status;
+        if (code && code >= 400 && code < 500) {
+          // Hard stop — task is inaccessible to us. No retry.
+          return;
+        }
+        // 5xx or network — back off and try once more, then give up.
+        if (attempts < 3) {
+          setTimeout(tick, 5000);
+        }
       }
     }
     tick();

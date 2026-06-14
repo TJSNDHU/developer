@@ -37,29 +37,43 @@ export default function LiveTaskPopup({ taskId, onClose }) {
   const pollTimerRef    = useRef(null);
 
   // unmount whenever taskId changes / becomes null (new chat dismiss)
+  // Iter 151 — same terminal-state widening + retry cap as in
+  // MessageBubble. Previously only `done` / `failed` stopped polling;
+  // `error`, `blocked`, `cancelled` etc. spun forever.
   useEffect(() => {
     if (!taskId) return;
     let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 900;                       // 900 * POLL_MS ≈ 30 min @ 2 s
+    const TERMINAL = new Set([
+      "done", "failed", "error", "blocked", "rejected",
+      "cancelled", "canceled", "completed", "timed_out",
+    ]);
     const tick = async () => {
       if (cancelled) return;
+      attempts += 1;
+      if (attempts > MAX_ATTEMPTS) return;          // hard cap
       try {
         const r = await api.get(`/cto/tasks/${taskId}`);
         const t = r?.data?.task;
         if (!cancelled && t) {
           setTask(t);
           if (t.status === "done") {
-            // arm auto-dismiss only once
             if (!dismissTimerRef.current) {
               dismissTimerRef.current = setTimeout(() => {
                 if (!cancelled) onClose?.();
               }, DISMISS_MS);
             }
-            return; // stop polling on terminal state
+            return;
           }
-          if (t.status === "failed") return; // stay until close
+          if (TERMINAL.has(t.status)) return;       // any other terminal → stop
         }
       } catch (e) {
         if (!cancelled) setErr(e?.response?.data?.detail || e.message || String(e));
+        // 4xx → permission/missing; never retry. 5xx/network → 2 retries then bail.
+        const code = e?.response?.status;
+        if (code && code >= 400 && code < 500) return;
+        if (attempts >= 3) return;
       }
       pollTimerRef.current = setTimeout(tick, POLL_MS);
     };
