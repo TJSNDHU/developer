@@ -24,7 +24,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
 from services import github_deploy_service as gh
@@ -136,9 +137,39 @@ async def install_workflow(
 
 
 @router.post("/report")
-async def deploy_report(body: ReportBody):
+async def deploy_report(request: Request):
     """Public-ish: authenticated by api_key in body, not JWT.
-    Called from the customer's GitHub Actions runner."""
+    Called from the customer's GitHub Actions runner.
+
+    Iter 150 — replaced auto-Pydantic body binding with manual parsing so
+    422s log WHICH field broke. Production logs were showing opaque 422s
+    from upstream workflows sending mismatched schemas; now every reject
+    leaves a breadcrumb so we can hand the caller a precise error and
+    audit the bad payload.
+    """
+    import logging as _l
+    _log = _l.getLogger(__name__)
+    try:
+        raw = await request.json()
+    except Exception:
+        _log.warning("[report] invalid JSON from %s", request.client.host if request.client else "?")
+        raise HTTPException(400, {"code": "invalid_json", "msg": "Body must be JSON."})
+    try:
+        body = ReportBody(**raw)
+    except Exception as e:
+        _log.warning(
+            "[report] schema reject from %s — keys=%s — err=%s",
+            request.client.host if request.client else "?",
+            list(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
+            str(e)[:200],
+        )
+        # Surface the validation detail back to the caller so their CI
+        # job log shows exactly what's missing.
+        raise HTTPException(422, {
+            "code": "schema_invalid",
+            "msg":  "Body schema mismatch. Required fields: api_key, commit, status (success|failure|cancelled), repo (owner/repo).",
+            "received_keys": list(raw.keys()) if isinstance(raw, dict) else None,
+        })
     res = await gh.record_customer_deploy_report(
         api_key=body.api_key,
         commit=body.commit,
@@ -147,9 +178,6 @@ async def deploy_report(body: ReportBody):
         deployed_at=body.deployed_at,
     )
     if not res.get("ok"):
-        # Soft-record returns ok=False with soft_recorded=True; that's
-        # not a client error — we still want to acknowledge so the
-        # action doesn't retry.
         if res.get("soft_recorded"):
             return res
         raise HTTPException(400, res.get("error", "report rejected"))

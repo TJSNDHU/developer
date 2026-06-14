@@ -181,5 +181,5 @@ jobs:
           curl -s -X POST \
             "https://auremcto.com/api/aurem-dev/github-deploy/report" \
             -H "Content-Type: application/json" \
-            -d "{\"api_key\":\"$API_KEY\",\"commit\":\"${{ github.sha }}\",\"status\":\"ci_passed\",\"repo\":\"${{ github.repository }}\"}" \
+            -d "{\"api_key\":\"$API_KEY\",\"commit\":\"${{ github.sha }}\",\"status\":\"success\",\"repo\":\"${{ github.repository }}\"}" \
             || echo "notify done"
