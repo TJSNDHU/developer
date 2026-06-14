@@ -1401,6 +1401,24 @@ async def chat_stream(
                             project_id=body.project_id,
                             shipped_task_id=handoff_task_id)
 
+        # Iter 145 — ORA shadow-learning. For ALL users, detect
+        # low-confidence AUREM replies and fire a background ORA call
+        # whose output is logged (never shown) so ORA can learn
+        # patterns from real weak-spots. NEVER replaces user reply.
+        try:
+            from services.ora_learning import maybe_log_ora_escalation
+            asyncio.create_task(maybe_log_ora_escalation(
+                db=get_db(),
+                user_id=user_id,
+                session_id=body.session_id or "",
+                project_id=body.project_id,
+                prompt=body.prompt or "",
+                aurem_response=content or "",
+                provider=provider,
+            ))
+        except Exception:
+            pass
+
         # ORA council log (Mode A/B only) + project brain update.
         # Fire-and-forget; never blocks user reply.
         # BUG 5 fix — Mode D (debug) and E (audit) replies were getting

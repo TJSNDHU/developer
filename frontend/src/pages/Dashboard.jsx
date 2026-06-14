@@ -1,23 +1,18 @@
 /**
- * Dashboard.jsx — Authenticated home, chat on the left + live preview
- * on the right (Bolt-style activation pattern).
+ * Dashboard.jsx — Authenticated home: full-width chat with a top-right
+ * "Preview / Hide preview" toggle that drives ChatPanel's right-side
+ * live iframe pane.
  *
- * Layout:
- *   ┌──────────────┬──────────────┐
- *   │  ChatPanel   │ PreviewPane  │
- *   │  (left)      │ (right)      │
- *   └──────────────┴──────────────┘
- *
- * Resize handle in the middle. "◈ Preview" toggle in the top bar
- * hides/shows the right side so existing single-pane users don't
- * get whiplash.  Auto-shows the first time a task ships.
+ * Iter 145 — collapsed prior split-pane layout. The legacy PreviewPane
+ * showed only "No preview yet" and was redundant with ChatPanel's
+ * existing live-URL iframe. Top-right button now dispatches a
+ * `aurem:toggle-preview` window event that ChatPanel listens for.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
-import PreviewPane from "../components/PreviewPane";
 import TabBar, { useActiveProject } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import { toast } from "../components/Toast";
@@ -39,13 +34,10 @@ function DashboardBody() {
   const project = useActiveProject();
   const navigate = useNavigate();
   const [showWizard, setShowWizard] = useState(false);
-  const [latestTaskId, setLatestTaskId] = useState(null);
   const [showPreview, setShowPreview] = useState(() => {
     try { return localStorage.getItem(PREVIEW_PREF_KEY) === "1"; }
     catch { return false; }
   });
-  const [splitRatio, setSplitRatio] = useState(60);
-  const dragRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,21 +52,12 @@ function DashboardBody() {
     return () => { cancelled = true; };
   }, []);
 
-  // Listen for ship events from ChatPanel and auto-pop the preview pane
-  // the very first time something ships in this session.
+  // Milestone share-prompt on ship events (preview auto-open moved
+  // into ChatPanel; here we only handle the celebratory toast).
   useEffect(() => {
     const handler = (e) => {
       const id = e?.detail?.task_id;
       if (!id) return;
-      setLatestTaskId(id);
-      // Only auto-show; respect explicit user hide afterwards.
-      if (localStorage.getItem(PREVIEW_PREF_KEY) === null) {
-        setShowPreview(true);
-        try { localStorage.setItem(PREVIEW_PREF_KEY, "1"); } catch { /* ignore */ }
-      }
-      // Milestone share-prompt — fires the first time the user reaches
-      // 10/25/50/… shipped tasks this period. Stored per-milestone in
-      // localStorage so we never nag the same user twice.
       api.get("/wrapped/me?period=all_time").then((r) => {
         const shipped = r.data?.stats?.tasks_shipped || 0;
         const milestone = SHARE_MILESTONES.find(
@@ -93,36 +76,31 @@ function DashboardBody() {
     };
     window.addEventListener("aurem:shipped", handler);
     return () => window.removeEventListener("aurem:shipped", handler);
+  }, [navigate]);
+
+  // Keep button label in sync with ChatPanel's internal preview state
+  // (ChatPanel may auto-open the pane when a project with a preview_url
+  // is selected, or close it after a code reply).
+  useEffect(() => {
+    const onStateChanged = (e) => {
+      const open = !!e?.detail?.open;
+      setShowPreview(open);
+    };
+    window.addEventListener("aurem:preview-state-changed", onStateChanged);
+    return () => window.removeEventListener("aurem:preview-state-changed", onStateChanged);
   }, []);
 
-  const startDrag = useCallback(() => {
-    dragRef.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    const onMove = (ev) => {
-      if (!dragRef.current) return;
-      const pct = Math.min(75, Math.max(30, (ev.clientX / window.innerWidth) * 100));
-      setSplitRatio(pct);
-    };
-    const onUp = () => {
-      dragRef.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, []);
-
-  function togglePreview() {
+  const togglePreview = useCallback(() => {
     setShowPreview((p) => {
       const next = !p;
       try { localStorage.setItem(PREVIEW_PREF_KEY, next ? "1" : "0"); }
       catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
+        detail: { open: next },
+      }));
       return next;
     });
-  }
+  }, []);
 
   return (
     <div
@@ -136,7 +114,7 @@ function DashboardBody() {
         <button
           data-testid="preview-toggle"
           onClick={togglePreview}
-          title={showPreview ? "Hide preview pane" : "Show live preview pane"}
+          title={showPreview ? "Hide live preview" : "Show live preview"}
           className="preview-toggle-btn"
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
@@ -159,11 +137,7 @@ function DashboardBody() {
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         <div
           data-testid="chat-pane"
-          style={{
-            width: showPreview ? `${splitRatio}%` : "100%",
-            minWidth: 0, overflow: "hidden",
-            transition: dragRef.current ? "none" : "width .15s ease",
-          }}
+          style={{ width: "100%", minWidth: 0, overflow: "hidden" }}
         >
           <ChatPanel
             sessionId={sessionId}
@@ -171,27 +145,6 @@ function DashboardBody() {
             activeProject={project}
           />
         </div>
-
-        {showPreview && (
-          <>
-            <div
-              data-testid="split-handle"
-              onMouseDown={startDrag}
-              style={{
-                width: 4, flexShrink: 0, cursor: "col-resize",
-                background: "var(--border, rgba(255,200,120,0.10))",
-                transition: "background .15s",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,138,42,0.32)")}
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "var(--border, rgba(255,200,120,0.10))")}
-            />
-            <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <PreviewPane taskId={latestTaskId} />
-            </div>
-          </>
-        )}
       </div>
 
       {showWizard && (

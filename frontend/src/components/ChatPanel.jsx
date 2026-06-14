@@ -388,9 +388,42 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     setPreviewOpen((v) => {
       const next = !v;
       localStorage.setItem(PREVIEW_KEY, next ? "1" : "0");
+      // Iter 145 — notify Dashboard so the top-right button label stays
+      // in sync (button is the only visible entrypoint now).
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:preview-state-changed", {
+          detail: { open: next },
+        }));
+      } catch { /* ignore */ }
       return next;
     });
   }, []);
+
+  // Iter 145 — listen for the top-right Preview toggle from Dashboard.
+  useEffect(() => {
+    const onToggle = (e) => {
+      const desired = e?.detail?.open;
+      setPreviewOpen((cur) => {
+        const next = typeof desired === "boolean" ? desired : !cur;
+        try { localStorage.setItem(PREVIEW_KEY, next ? "1" : "0"); }
+        catch { /* ignore */ }
+        return next;
+      });
+    };
+    window.addEventListener("aurem:toggle-preview", onToggle);
+    return () => window.removeEventListener("aurem:toggle-preview", onToggle);
+  }, []);
+
+  // Iter 145 — broadcast every previewOpen change (incl. auto-open
+  // when a code reply lands or a project with preview_url is selected)
+  // so Dashboard's top-right Preview/Hide button label always matches.
+  useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:preview-state-changed", {
+        detail: { open: previewOpen },
+      }));
+    } catch { /* ignore */ }
+  }, [previewOpen]);
 
   // Iter 131 — Clear ↑ toolbar.
   //
@@ -1478,18 +1511,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             Icon={Zap}
             active={maxxMode}
           />
-          <ToolButton
-            testid="chat-preview-btn"
-            title={previewOpen ? "Hide live preview" : "Show live preview"}
-            onClick={togglePreview}
-            Icon={Eye}
-            active={previewOpen}
-            className="chat-preview-tool"
-          />
           <span style={{ flex: 1 }} />
-          {/* Iter 38: agent selector — appears only when >1 agent is
-              available (i.e. founders see ORA, customers see nothing). */}
-          {agents.length > 1 && (
+          {/* Iter 145 — agent selector hidden. AUREM is default for
+              everyone; ORA runs as a silent shadow-learner in the
+              backend (see services/ora_learning.py). No token leak
+              from accidental ORA selection. */}
+              from accidental ORA selection. */}
+          {false && agents.length > 1 && (
             <select
               data-testid="chat-agent-select"
               value={agent}
