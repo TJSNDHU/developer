@@ -5261,3 +5261,30 @@ frames.
 - Backend logs after restart: only routine startup lines, no `ORA upstream circuit OPEN` re-trip (fatal-breaker silences re-probing for 24h).
 
 **Operator action required**: fix the OpenRouter model slug on `aurem.live` upstream, then delete `/tmp/aurem_ora_circuit_open_fatal` (or wait 24h) to re-probe.
+
+
+### Iter 154 — Chat composer cleanup + mode-tinted window (Feb 2026)
+**User ask (Hinglish)**: remove the legacy Maxx toggle button from the composer toolbar (redundant with the new ModeSelector pill), widen the two buttons that remain so they breathe better, and tint the whole chat window subtly based on the selected review mode — Swift = light, Pro = medium dark, Maxx = dark + bright.
+
+**Changes**
+1. `frontend/src/components/ChatPanel.jsx`
+   - Removed standalone `chat-maxx-btn` `<ToolButton>` from the composer toolbar.
+   - Replaced the `useState(maxxMode)` + `toggleMaxx` + `MAXX_KEY` localStorage trio with a single derived constant `const maxxMode = chatMode === "maxx"`. Backend payload still receives `maxx_mode` — no API change.
+   - Removed the duplicate `maxx-active-pill` from the status row above the composer (the ModeSelector accent border already shows which mode is active).
+   - Added `wide` prop to the internal `ToolButton` (42×34 + radius 8 + 15px icon when set). Applied to Attach. Also bumped the GitHub status button to 38×32, 15px icon. Both feel less cramped now.
+   - Added `data-chat-mode={chatMode}` attribute on `[data-testid="chat-root"]` so the CSS layer can theme per mode without prop drilling.
+2. `frontend/src/index.css`
+   - New block: `[data-testid="chat-root"][data-chat-mode] [data-testid="chat-panel"]::before` paints a single transition-driven wash above the glass pane. Three variants:
+     - `swift` → warm amber radial wash (`rgba(255,197,96,0.10)` top-right).
+     - `pro`   → cool blue+dark radial (`rgba(125,164,255,0.10)` top-right, darker linear-gradient floor).
+     - `maxx`  → two-radial bright amber halo + dark floor + inset 1px accent ring on the panel itself.
+   - Messages list + form are forced to `z-index:1, position:relative` so bubbles stay above the wash.
+
+**Verification**
+- Login → Dashboard → click each ModeSelector pill (or set `localStorage.aurem_chat_mode`) → screenshots confirm three visually distinct chat windows.
+- DOM assertions: `chat-maxx-btn` absent, `maxx-active-pill` absent, `chat-root` carries the correct `data-chat-mode` attribute (`swift`/`pro`/`maxx`).
+- Backend integration untouched (`/chat/stream` still receives both `mode` and `maxx_mode` correctly).
+
+**Files touched**
+- EDIT: `frontend/src/components/ChatPanel.jsx`
+- EDIT: `frontend/src/index.css`

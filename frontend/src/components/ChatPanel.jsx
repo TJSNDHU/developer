@@ -228,9 +228,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // by the no-repo warning pill above the composer and by clicking the
   // red GH status indicator in the toolbar.
   const [showRepoHelp, setShowRepoHelp] = useState(false);
-  const [maxxMode, setMaxxMode] = useState(
-    () => localStorage.getItem(MAXX_KEY) === "1"
-  );
+  // Iter 154 — legacy `maxxMode` boolean is now derived from `chatMode`.
+  // The standalone Maxx toggle button has been removed from the toolbar
+  // (redundant with ModeSelector's Maxx pill). Backend payload still
+  // expects `maxx_mode` so we keep the var alive — but it's a pure
+  // derivation now, no setter, no localStorage.
+  const maxxMode = chatMode === "maxx";
   const [previewOpen, setPreviewOpen] = useState(
     () => localStorage.getItem(PREVIEW_KEY) === "1"
   );
@@ -396,19 +399,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
   const exhausted = !!usage?.is_exhausted;
 
-  const toggleMaxx = useCallback(() => {
-    setMaxxMode((v) => {
-      const next = !v;
-      localStorage.setItem(MAXX_KEY, next ? "1" : "0");
-      toast({
-        message: next
-          ? "Maxx mode ON — Emergent watchdog will review every reply."
-          : "Maxx mode OFF — single-engine DeepSeek.",
-        kind: next ? "warn" : "info",
-      });
-      return next;
-    });
-  }, []);
+  // Iter 154 — toggleMaxx removed; Maxx is now selected via ModeSelector.
 
   const togglePreview = useCallback(() => {
     setPreviewOpen((v) => {
@@ -1027,6 +1018,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   return (
     <div
       data-testid="chat-root"
+      data-chat-mode={chatMode}
       style={{
         display: "flex",
         height: "100%",
@@ -1401,20 +1393,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               }, 50);
             }}
           />
-          {maxxMode && (
-            <span
-              data-testid="maxx-active-pill"
-              style={{
-                fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
-                letterSpacing: "0.16em", color: "var(--accent-2)",
-                padding: "4px 10px", border: "1px solid var(--accent)",
-                borderRadius: 999, background: "var(--accent-soft)",
-                boxShadow: "0 0 12px -2px var(--accent)",
-              }}
-            >
-              ⚡ MAXX
-            </span>
-          )}
+          {/* Iter 154 — legacy MAXX active-pill removed. The selected
+              mode is already shown by ModeSelector's accent border on
+              its Maxx pill, so this duplicate pill was visual noise. */}
           {/* Iter 148 — explicit warning when the active project has
               no GitHub repo wired up. Click opens a guided helper dialog
               with the exact 3 steps to connect one. The dialog drives
@@ -1559,6 +1540,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             title="Attach file — PDF, DOCX, XLSX, PPTX, images, code (max 25 MB)"
             onClick={() => fileInputRef.current?.click()}
             Icon={Paperclip}
+            wide
           />
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works
@@ -1586,16 +1568,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 30,
-              height: 30,
-              borderRadius: 6,
+              width: 38,
+              height: 32,
+              borderRadius: 8,
               background: "transparent",
               border: "1px solid var(--border, rgba(255,200,120,0.16))",
               cursor: "pointer",
               color: "var(--text-dim)",
             }}
           >
-            <Github size={14} />
+            <Github size={15} />
             <span
               aria-hidden="true"
               style={{
@@ -1614,13 +1596,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               }}
             />
           </button>
-          <ToolButton
-            testid="chat-maxx-btn"
-            title={maxxMode ? "Maxx mode ON (Emergent watchdog)" : "Maxx mode OFF"}
-            onClick={toggleMaxx}
-            Icon={Zap}
-            active={maxxMode}
-          />
+          {/* Iter 154 — legacy `chat-maxx-btn` removed. Maxx is now
+              selected via the ModeSelector pill on the right; the
+              standalone toggle was redundant and confused users. */}
           <span style={{ flex: 1 }} />
           <ModeSelector value={chatMode} onChange={setChatMode} />
           {/* Iter 145 — agent selector hidden. AUREM is default for
@@ -1720,7 +1698,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   );
 }
 
-function ToolButton({ testid, title, onClick, Icon, active, className }) {
+function ToolButton({ testid, title, onClick, Icon, active, className, wide }) {
+  // Iter 154 — `wide` lifts the button from 34×34 → 42×34 so the two
+  // remaining toolbar buttons (Attach + GitHub) read clearer now that
+  // the Maxx toggle has been retired.
+  const w = wide ? 42 : 34;
   return (
     <button
       type="button"
@@ -1729,7 +1711,7 @@ function ToolButton({ testid, title, onClick, Icon, active, className }) {
       onClick={onClick}
       className={className}
       style={{
-        width: 34, height: 34, borderRadius: 4,
+        width: w, height: 34, borderRadius: wide ? 8 : 4,
         background: active ? "var(--accent-soft)" : "transparent",
         border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
         color: active ? "var(--accent-2)" : "var(--text-dim)",
@@ -1751,7 +1733,7 @@ function ToolButton({ testid, title, onClick, Icon, active, className }) {
         }
       }}
     >
-      <Icon size={14} />
+      <Icon size={wide ? 15 : 14} />
     </button>
   );
 }
