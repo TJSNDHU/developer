@@ -11,7 +11,7 @@
 <br/>
 
 [![Ship Wall](https://img.shields.io/badge/🚀_Ship_Wall-Live-22c55e?style=for-the-badge)](https://auremcto.com/wall)
-[![Tests](https://img.shields.io/badge/Tests-604_passing-6366f1?style=for-the-badge)](#)
+[![Modes](https://img.shields.io/badge/Modes-Swift_·_Pro_·_Maxx-f59e0b?style=for-the-badge)](https://auremcto.com/signup)
 [![Uptime](https://img.shields.io/badge/Uptime-99.9%25-0ea5e9?style=for-the-badge)](#)
 [![Price](https://img.shields.io/badge/Pro-$19%2Fmo_flat-f59e0b?style=for-the-badge)](https://auremcto.com/signup)
 
@@ -25,18 +25,18 @@
 
 <br/>
 
-## What just changed — June 2026
+## What just changed — February 2026
 
 > These aren't roadmap promises. They shipped this week.
 
 | Improvement | Before | After | How |
 | :--- | :---: | :---: | :--- |
-| **Chat response time** | ~30s | **6–8s** | Layered persona (25k → 5k chars per turn) + retry tuning |
-| **Token cost per turn** | 38k tokens | **20k tokens** | Tool help sent on iter 1 only, not every iteration |
-| **Tool calling** | Silent failures | **Working** | DeepSeek native `tool_calls` extraction fixed |
-| **Thinking UI** | Frozen `thinking…` | **Live 0.1s counter** | Client-side fallback timer, monotonic merge |
-| **Stop button** | Left ghost bubbles | **Instant ⏹ Stopped** | Streaming sweep on stop click |
-| **Tests** | — | **604 passing** | Regression guards for every iter from 124→135 |
+| **Three review modes** | Single watchdog toggle | **Swift / Pro / Maxx** pills | `ModeSelector` + tier-gated `/chat/modes/available` (Iter 153) |
+| **Chat window theming** | Same look in every mode | **Tinted per mode** | CSS `data-chat-mode` wash — light/medium/bright (Iter 154) |
+| **Ask ORA side panel** | Blank container (regression) | **Split-screen 35vw, TTS + STT** | Fixed `chatMode` ReferenceError in `ORASidePanel.jsx` (Iter 153) |
+| **ORA upstream log spam** | 1 INFO line every 10 min | **1 line / 24h** | Split breaker — fatal patterns now use 24h cool-down (Iter 153) |
+| **WCAG AA contrast** | Pricing card faints fail (2.92:1) | **5.20:1, AA-clean** | Bumped `--text-faint` `#6b6557 → #948c79` (Iter 152) |
+| **Render-blocking JS** | F12 capture blocks first paint | **`defer` + preconnect hints** | 1.3 s saved per LCP (Iter 152) |
 
 <br/>
 
@@ -169,9 +169,23 @@ Click the commit SHA in chat → GitHub diff opens → it's exactly what you ask
 
 ---
 
-## ORA's 6 modes
+## ORA's two mode systems
 
-You don't say "use mode C." ORA reads your intent and picks automatically.
+ORA has **two** sets of "modes". One you pick (review speed vs. thoroughness), one ORA picks for you (what kind of work you're asking for).
+
+### 🎚 Review modes — you choose
+
+Pills inside the chat composer. Each tier unlocks more. The chat window background tints with your choice so you always know which engine is on.
+
+| Pill | Engines | Window tint | Min plan |
+| :---: | :--- | :--- | :--- |
+| ⚡ **Swift** | DeepSeek V3 single-pass — fastest | Warm amber wash | Free |
+| 🔍 **Pro** | DeepSeek V3 + diff review — catches more bugs | Cool blue / medium dark | Pro $19 |
+| 🚀 **Maxx** | DeepSeek + Claude Sonnet 4.5 watchdog — strictest | Dark + bright amber halo | Team $49 |
+
+### 🧭 Classifier modes — ORA picks
+
+You don't say *"use mode C"*. ORA reads your intent and routes automatically.
 
 | Mode | Name | Trigger | What happens |
 | :---: | :--- | :--- | :--- |
@@ -289,17 +303,20 @@ You don't say "use mode C." ORA reads your intent and picks automatically.
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
-### Key sub-systems (June 2026)
+### Key sub-systems (February 2026)
 
 | System | Files | What it does |
 | :--- | :--- | :--- |
-| **6 ORA modes** | `mode_b/d/e/f_*.py`, `mode_classifier.py` | Auto-routes prompts to Chat/Advice/Code-ship/Debug/Audit/Engage |
+| **6 ORA classifier modes** | `mode_b/d/e/f_*.py`, `mode_classifier.py` | Auto-routes prompts to Chat/Advice/Code-ship/Debug/Audit/Engage |
+| **3 review modes** | `ModeSelector.jsx`, `subscription_tiers.py` *(Iter 153)* | User-selectable Swift/Pro/Maxx pills, tier-gated by plan |
+| **Mode-tinted chat window** | `index.css` `data-chat-mode` *(Iter 154)* | Per-mode background wash (light / medium dark / dark bright) |
 | **Project Brain** | `project_brain.py`, `codebase_indexer.py` | Per-repo memory: stack, conventions, last 5 commits |
 | **Vanguard 007** | `vanguard_audit.py`, `vanguard_scanner.py`, `vanguard_verify_agent.py` | 25+ patterns block AWS/Stripe/GitHub keys, SQLi, XSS, missing auth |
 | **Parallel agents** | `parallel_agents.py` | Splits large tasks across backend/frontend/test workers |
 | **GitHub direct-commit** | `github_api_writer.py`, `github_auto.py` | Atomic REST commit — no PR, no local `git` binary |
 | **ORA shadow-learner** | `ora_learning.py` *(Iter 145)* | Detects low-confidence AUREM replies → background ORA call → learning log |
-| **Ask-ORA side panel** | `FloatingORAButton.jsx`, `ORASidePanel.jsx` *(Iter 150-152)* | Split-screen 35vw second-opinion AI, JWT-scoped, TTS + STT |
+| **ORA upstream breaker** | `ora_client.py` *(Iter 153)* | Split transient (10 min) / fatal (24h) cool-downs — silences config-error spam |
+| **Ask-ORA side panel** | `FloatingORAButton.jsx`, `ORASidePanel.jsx` *(Iter 150-153)* | Split-screen 35vw second-opinion AI, JWT-scoped, TTS + STT |
 | **Composer card** | `ChatPanel.jsx`, `composer-card` CSS *(Iter 147)* | Unified input+toolbar surface, status pill bar auto-collapses |
 | **Sidebar auto-hide** | `Shell.jsx`, `data-typing-hidden` *(Iter 146)* | Hides on first send; cursor on left-edge hot-zone peeks it back |
 | **Repo-help dialog** | `RepoHelpDialog` *(Iter 148)* | Blinking pill + 3-step modal when active project has no GitHub repo |
@@ -345,13 +362,13 @@ The security skill injection is automatic — ORA writes more secure code by def
 
 ### ⚡ Maxx mode — two-agent review
 
-Enable Maxx in the Ship dialog for critical tasks.
+Pick the **Maxx** pill in the chat composer (Team plan). DeepSeek V3 writes; Claude Sonnet 4.5 reviews every line before it touches GitHub. The chat window switches to a dark + bright-amber tint so you always know Maxx is on.
 
 ```
   ┌──────────────────────────────────────────────────┐
   │  MAXX MODE                                       │
   │                                                  │
-  │  DeepSeek V3  ──generates──▶  Claude Sonnet      │
+  │  DeepSeek V3  ──generates──▶  Claude Sonnet 4.5  │
   │                               │                  │
   │                               reviews for:       │
   │                               - wrong imports    │
@@ -364,7 +381,7 @@ Enable Maxx in the Ship dialog for critical tasks.
   └──────────────────────────────────────────────────┘
 ```
 
-Two AI engineers on every task. Available on Pro and Team.
+Two AI engineers on every task. Available on **Team $49/mo**. Pro plan unlocks the lighter **Pro mode** (diff review without Claude).
 
 ---
 
@@ -480,7 +497,7 @@ Every task ORA ships appears at **auremcto.com/wall** — your name, repo, task 
 
 ## Honest comparison
 
-> June 2026. No marketing claims — only verifiable features.
+> February 2026. No marketing claims — only verifiable features.
 
 | Feature | **AUREM CTO** | Cursor 3 | Copilot | Claude Code | Devin |
 | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -488,13 +505,14 @@ Every task ORA ships appears at **auremcto.com/wall** — your name, repo, task 
 | Per-repo permanent memory | ✅ Project Brain | ❌ | ❌ | ❌ | ⚠ limited |
 | F12 browser error capture | ✅ | ❌ | ❌ | ❌ | ✅ Chromium |
 | Web UI — no IDE needed | ✅ **+ mobile** | ❌ | ❌ | ❌ terminal | ❌ |
-| Flat-fee pricing | ✅ $19/mo | ❌ credit pool | ❌ token billing | ✅ plan limits | ❌ per-task |
+| Flat-fee pricing | ✅ $19/mo Pro · $49 Team | ❌ credit pool | ❌ token billing | ✅ plan limits | ❌ per-task |
 | Security scanner pre-commit | ✅ 25+ patterns | ❌ | ❌ | ❌ | ❌ |
-| Two-agent code review | ✅ Maxx | ❌ | ❌ | ❌ | ❌ |
+| User-picked review tier | ✅ **Swift / Pro / Maxx** | ❌ | ❌ | ❌ | ❌ |
 | Live preview pane | ✅ iframe blob | ❌ | ❌ | ❌ | ❌ |
 | Parallel agents | ✅ 3 domains | ✅ 8 agents | ❌ | ❌ | ❌ |
 | Webhook automations | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Commit history learning | ✅ `get_commit_diff` | ❌ | ❌ | ❌ | ✅ |
+| Ask-ORA second opinion | ✅ split-screen panel | ❌ | ❌ | ❌ | ❌ |
 | Response time | **6–8s** | ~8s | ~5s | ~10s | ~30s |
 | Entry paid price | **$9/mo** | $20/mo | $10/mo* | $17/mo | $20/mo |
 
@@ -507,36 +525,47 @@ direct GitHub commit **+** Project Brain memory **+** F12 capture **+** mobile w
 
 ## Pricing
 
+> Single source of truth: `backend/services/subscription_tiers.py`. The Stripe price IDs are wired live — see `/api/aurem-dev/payments/checkout`.
+
 ```
-  ┌──────────┬──────────┬──────────────┬──────────────┐
-  │  FREE    │ STARTER  │    PRO ⭐    │    TEAM      │
-  │   $0     │  $9/mo   │   $19/mo     │   $49/mo     │
-  ├──────────┼──────────┼──────────────┼──────────────┤
-  │ 10 tasks │ 50 tasks │  Unlimited   │  Unlimited   │
-  │          │          │              │  per user    │
-  ├──────────┼──────────┼──────────────┼──────────────┤
-  │ Ship     │ Ship     │  Ship        │  Ship        │
-  │ Chat     │ Chat     │  Chat        │  Chat        │
-  │          │ Brain    │  Brain       │  Brain       │
-  │          │          │  Maxx 100/mo │  Maxx ∞      │
-  │          │          │  Parallel    │  Parallel    │
-  │          │          │  Preview     │  Preview     │
-  │          │          │  Automations │  Automations │
-  │          │          │              │  Admin panel │
-  │          │          │              │  Priority Q  │
-  └──────────┴──────────┴──────────────┴──────────────┘
+  ┌──────────┬──────────┬─────────────────┬──────────────────┐
+  │  FREE    │ STARTER  │     PRO ⭐      │      TEAM        │
+  │   $0     │  $9/mo   │    $19/mo       │     $49/mo       │
+  ├──────────┼──────────┼─────────────────┼──────────────────┤
+  │ 10 tasks │ 50 tasks │  300 tasks/mo   │  400 tasks/user  │
+  ├──────────┼──────────┼─────────────────┼──────────────────┤
+  │ Swift    │ Swift    │  Swift + Pro    │  Swift + Pro +   │
+  │ mode     │ mode     │  modes          │  Maxx modes      │
+  │          │ Brain    │  Brain memory   │  Brain memory    │
+  │          │ memory   │  Parallel agts  │  Parallel agts   │
+  │          │          │  Live preview   │  Priority queue  │
+  │          │          │  Automations    │  Admin panel     │
+  └──────────┴──────────┴─────────────────┴──────────────────┘
 ```
+
+| Feature | Free | Starter $9 | Pro $19 | Team $49 |
+| :--- | :---: | :---: | :---: | :---: |
+| Tasks per month | 10 | 50 | 300 | 400 / user |
+| Swift mode (DeepSeek single-pass) | ✓ | ✓ | ✓ | ✓ |
+| Pro mode (diff review) | — | — | ✓ | ✓ |
+| Maxx mode (Claude watchdog) | — | — | — | ✓ |
+| Project Brain memory | — | ✓ | ✓ | ✓ |
+| Parallel agents | — | — | ✓ | ✓ |
+| Priority queue | — | — | — | ✓ |
+| Admin dashboard + roles | — | — | — | ✓ |
+
+Annual plans save 20% (e.g. Pro $182/yr vs $228 monthly). No usage-based billing. No credit pools. The price doesn't move if you ship 5 tasks or 500.
 
 ### Cost transparency
 
 ```
 AUREM's cost per task              Why $19 Pro works
 ──────────────────────────         ──────────────────────────────
-DeepSeek V3   ~$0.02–0.04         Avg developer ships 20–50 tasks/mo
-Claude Sonnet ~$0.01–0.02         Break-even at 300–600 tasks/mo
-Total         ~$0.03–0.06         At 200 tasks → still profitable
-                                  At 500 tasks → you saved ~$30k/yr
-                                  vs Devin per-task pricing
+DeepSeek V3   ~$0.02–0.04         Avg developer ships 20–60 tasks/mo
+Claude Sonnet ~$0.01–0.02         Pro covers up to 300 tasks/mo
+Total         ~$0.03–0.06         Heavy users → upgrade to Team ($49)
+                                  Token billing competitors at the same
+                                  workload bill $300–$750+/mo.
 ```
 
 ---
@@ -547,7 +576,7 @@ Total         ~$0.03–0.06         At 200 tasks → still profitable
 
 **Use F12 capture for bugs.** Drop the `<script>` in your `<head>` once. Every browser error routes to ORA automatically from then on.
 
-**Enable Maxx for critical code.** Auth flows, payment handlers, database migrations — let Claude review DeepSeek's work before it commits.
+**Enable Maxx for critical code.** Auth flows, payment handlers, database migrations — pick the **Maxx** pill so Claude Sonnet 4.5 reviews every line DeepSeek writes. The chat window switches to a dark + bright tint so you always know Maxx is on.
 
 **Build Brain context early.** Tell ORA your decisions once. *"We use Zustand not Redux. Always Tailwind. No inline styles."* It remembers forever.
 

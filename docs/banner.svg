@@ -1,38 +1,127 @@
-<svg width="100%" viewBox="0 0 900 160" 
-     xmlns="http://www.w3.org/2000/svg" 
-     role="img">
-  <title>AUREM CTO</title>
-  <desc>AUREM CTO platform banner</desc>
-  <rect width="900" height="160" fill="#0a0a0a" rx="8"/>
-  <style>
-    .b {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 11.5px;
-      font-weight: 700;
-      fill: #f59e0b;
-    }
-    .g {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 11.5px;
-      font-weight: 700;
-      fill: #fcd34d;
-      opacity: 0.15;
-    }
-  </style>
-  <text class="g" x="21" y="47">█████╗ ██╗   ██╗██████╗ ███████╗███╗   ███╗     ██████╗████████╗ ██████╗</text>
-  <text class="g" x="21" y="63">██╔══██╗██║   ██║██╔══██╗██╔════╝████╗ ████║    ██╔════╝╚══██╔══╝██╔═══██╗</text>
-  <text class="g" x="21" y="79">███████║██║   ██║██████╔╝█████╗  ██╔████╔██║    ██║        ██║   ██║   ██║</text>
-  <text class="g" x="21" y="95">██╔══██║██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║    ██║        ██║   ██║   ██║</text>
-  <text class="g" x="21" y="111">██║  ██║╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║    ╚██████╗   ██║   ╚██████╔╝</text>
-  <text class="g" x="21" y="127">╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝     ╚═════╝   ╚═╝    ╚═════╝</text>
-  <text class="b" x="20" y="46">█████╗ ██╗   ██╗██████╗ ███████╗███╗   ███╗     ██████╗████████╗ ██████╗</text>
-  <text class="b" x="20" y="62">██╔══██╗██║   ██║██╔══██╗██╔════╝████╗ ████║    ██╔════╝╚══██╔══╝██╔═══██╗</text>
-  <text class="b" x="20" y="78">███████║██║   ██║██████╔╝█████╗  ██╔████╔██║    ██║        ██║   ██║   ██║</text>
-  <text class="b" x="20" y="94">██╔══██║██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║    ██║        ██║   ██║   ██║</text>
-  <text class="b" x="20" y="110">██║  ██║╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║    ╚██████╗   ██║   ╚██████╔╝</text>
-  <text class="b" x="20" y="126">╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝     ╚═════╝   ╚═╝    ╚═════╝</text>
-  <text font-family="'JetBrains Mono', monospace" 
-        font-size="11" fill="#6b7280" x="20" y="148">
-    ORA reads your repo · writes the code · ships to GitHub · in one turn
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320"
+     role="img" aria-labelledby="banner-title banner-desc">
+  <title id="banner-title">AUREM CTO — autonomous AI engineer</title>
+  <desc id="banner-desc">AUREM CTO brand banner. Warm amber serif wordmark with monospace tagline on a deep charcoal field.</desc>
+
+  <!-- ──────────────────────────────────────────────────────────
+       1. Background: deep charcoal with two warm radial washes
+          (matches the live site's body gradient).
+       ────────────────────────────────────────────────────────── -->
+  <defs>
+    <radialGradient id="bgGlowR" cx="80%" cy="-10%" r="55%">
+      <stop offset="0%"  stop-color="#ff8a2a" stop-opacity="0.22"/>
+      <stop offset="60%" stop-color="#ff8a2a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgGlowL" cx="-5%" cy="110%" r="48%">
+      <stop offset="0%"  stop-color="#ffc560" stop-opacity="0.10"/>
+      <stop offset="60%" stop-color="#ffc560" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Molten amber gradient for the wordmark itself. -->
+    <linearGradient id="wordmarkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#ffd57a"/>
+      <stop offset="45%" stop-color="#ff8a2a"/>
+      <stop offset="100%" stop-color="#e57718"/>
+    </linearGradient>
+
+    <!-- Subtle inner glow for the wordmark. -->
+    <filter id="wordmarkGlow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Hair-thin accent rule used under the wordmark. -->
+    <linearGradient id="ruleGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%"  stop-color="#ff8a2a" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#ff8a2a" stop-opacity="0.85"/>
+      <stop offset="80%" stop-color="#ffc560" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffc560" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Solid base — the radials sit on top. -->
+  <rect width="1200" height="320" fill="#07080d" rx="14"/>
+  <rect width="1200" height="320" fill="url(#bgGlowR)" rx="14"/>
+  <rect width="1200" height="320" fill="url(#bgGlowL)" rx="14"/>
+
+  <!-- Faint grid lines (top corners) — quiet "engineering" texture. -->
+  <g stroke="#ff8a2a" stroke-opacity="0.06" stroke-width="1">
+    <line x1="40"   y1="40" x2="120"  y2="40"/>
+    <line x1="40"   y1="40" x2="40"   y2="120"/>
+    <line x1="1160" y1="40" x2="1080" y2="40"/>
+    <line x1="1160" y1="40" x2="1160" y2="120"/>
+    <line x1="40"   y1="280" x2="120"  y2="280"/>
+    <line x1="40"   y1="280" x2="40"   y2="200"/>
+    <line x1="1160" y1="280" x2="1080" y2="280"/>
+    <line x1="1160" y1="280" x2="1160" y2="200"/>
+  </g>
+
+  <!-- ──────────────────────────────────────────────────────────
+       2. Eyebrow tag — monospace, all caps, dim amber.
+       ────────────────────────────────────────────────────────── -->
+  <text x="600" y="92"
+        font-family="'JetBrains Mono', 'Menlo', monospace"
+        font-size="14" font-weight="500"
+        fill="#ffc560" fill-opacity="0.78"
+        letter-spacing="6"
+        text-anchor="middle">
+    AUTONOMOUS AI ENGINEER · SHIPS TO GITHUB · v1.23
   </text>
+
+  <!-- ──────────────────────────────────────────────────────────
+       3. Wordmark — Cinzel serif, molten amber gradient.
+       ────────────────────────────────────────────────────────── -->
+  <text x="600" y="186"
+        font-family="'Cinzel', 'Trajan Pro', 'Times New Roman', serif"
+        font-size="84" font-weight="700"
+        fill="url(#wordmarkGrad)"
+        filter="url(#wordmarkGlow)"
+        letter-spacing="6"
+        text-anchor="middle">
+    AUREM CTO
+  </text>
+
+  <!-- Accent rule under the wordmark. -->
+  <rect x="380" y="208" width="440" height="1.4" fill="url(#ruleGrad)"/>
+
+  <!-- ──────────────────────────────────────────────────────────
+       4. Tagline — monospace, cool grey.
+       ────────────────────────────────────────────────────────── -->
+  <text x="600" y="246"
+        font-family="'JetBrains Mono', 'Menlo', monospace"
+        font-size="16" font-weight="400"
+        fill="#a39d8a"
+        letter-spacing="1"
+        text-anchor="middle">
+    reads your repo · writes the code · ships to GitHub · in one turn
+  </text>
+
+  <!-- ──────────────────────────────────────────────────────────
+       5. Footer chips — three short-list features in pill style.
+       ────────────────────────────────────────────────────────── -->
+  <g font-family="'JetBrains Mono', 'Menlo', monospace"
+     font-size="11" font-weight="500"
+     letter-spacing="2"
+     text-anchor="middle">
+    <!-- chip 1 -->
+    <rect x="364" y="276" width="138" height="26" rx="13"
+          fill="#ff8a2a" fill-opacity="0.10"
+          stroke="#ff8a2a" stroke-opacity="0.45" stroke-width="1"/>
+    <text x="433" y="293" fill="#ffc560">22 DEV SKILLS</text>
+
+    <!-- chip 2 -->
+    <rect x="516" y="276" width="168" height="26" rx="13"
+          fill="#ff8a2a" fill-opacity="0.10"
+          stroke="#ff8a2a" stroke-opacity="0.45" stroke-width="1"/>
+    <text x="600" y="293" fill="#ffc560">FLAT $19/MO PRO</text>
+
+    <!-- chip 3 -->
+    <rect x="698" y="276" width="138" height="26" rx="13"
+          fill="#ff8a2a" fill-opacity="0.10"
+          stroke="#ff8a2a" stroke-opacity="0.45" stroke-width="1"/>
+    <text x="767" y="293" fill="#ffc560">MOBILE-READY</text>
+  </g>
 </svg>
