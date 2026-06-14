@@ -61,8 +61,15 @@ export function useORAPanel() {
 
   const openPanel = useCallback(() => {
     setOpen(true);
-    // Fresh session per open. Random suffix avoids any collision risk.
     sessionIdRef.current = `ora-panel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Iter 151 — broadcast so Shell.jsx can shrink the main app
+    // grid by `clamp(360px, 35vw, 680px)` and make room for the panel
+    // instead of overlaying it on top of the composer.
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:ora-panel-state", {
+        detail: { open: true },
+      }));
+    } catch { /* ignore */ }
     loadProject();
   }, [loadProject]);
 
@@ -72,6 +79,11 @@ export function useORAPanel() {
       abortRef.current.abort();
       abortRef.current = null;
     }
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:ora-panel-state", {
+        detail: { open: false },
+      }));
+    } catch { /* ignore */ }
   }, []);
 
   const sendMessage = useCallback(async (text) => {

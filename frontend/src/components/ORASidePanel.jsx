@@ -1,14 +1,16 @@
 /**
- * ORASidePanel — sliding right-side panel that hosts the Ask-ORA
- * conversation. Mounted by FloatingORAButton.
+ * ORASidePanel — slides in from the right and mirrors the main chat
+ * inbox's theme (glass panel, accent-2 user bubble, btn-primary send).
  *
- * Capabilities:
- *   - SSE-streamed reply from /api/aurem-dev/chat/stream
- *   - Text-to-Voice playback of completed assistant turns (toggle)
- *   - Speech-to-Text dictation via Web Speech API (browser-native)
+ * Iter 150 changes:
+ *   - Width now 35% of viewport (bounded 360–680px) per spec
+ *   - Slower slide-in (520ms cubic-bezier) for a calmer reveal
+ *   - All colors use the same CSS variables as ChatPanel so light/dark
+ *     themes and brand changes propagate automatically
+ *   - Hidden on mobile (FAB itself doesn't mount on small screens)
  *
- * Security: all network calls flow through useORAPanel which carries
- * the logged-in user's `aurem_token`. project_id is the user's own.
+ * Security gates unchanged: all network calls flow through useORAPanel
+ * which carries the logged-in user's `aurem_token`.
  */
 import React, { useEffect, useRef, useState } from "react";
 import { X, Send, Square, Volume2, VolumeX, Mic, MicOff } from "lucide-react";
@@ -33,7 +35,7 @@ export default function ORASidePanel({
 
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      setTimeout(() => inputRef.current?.focus(), 120);
     }
   }, [open]);
 
@@ -92,69 +94,67 @@ export default function ORASidePanel({
 
   return (
     <>
-      <div
-        data-testid="ora-panel-backdrop"
-        onClick={onClose}
-        style={{
-          position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.3)",
-          zIndex: 8000,
-          backdropFilter: "blur(2px)",
-        }}
-      />
-
+      {/* Iter 151 — split-screen, no backdrop. Shell shrinks the main
+          app width so the panel sits beside the existing chat instead
+          of covering it. Composer stays fully usable. */}
       <div
         data-testid="ora-panel"
+        className="glass-sidebar"
         style={{
           position: "fixed",
           top: 0, right: 0, bottom: 0,
-          width: "min(420px, 100vw)",
-          background: "var(--panel, #0d1018)",
-          borderLeft: "1px solid var(--border-strong, rgba(255,200,120,0.18))",
+          // 35% of viewport, clamped so it never gets unusably narrow
+          // on small desktops or comically wide on ultrawides.
+          width: "clamp(360px, 35vw, 680px)",
+          background: "var(--panel)",
+          borderLeft: "1px solid var(--border-strong)",
           zIndex: 8001,
           display: "flex",
           flexDirection: "column",
-          boxShadow: "-8px 0 32px rgba(0,0,0,0.5)",
-          animation: "ora-slide-in-right 0.2s ease-out",
+          boxShadow: "-12px 0 48px rgba(0,0,0,0.55)",
+          animation: "ora-slide-in-right 520ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
-        {/* Header */}
+        {/* Header — matches ChatPanel header aesthetic. */}
         <div style={{
           display: "flex", alignItems: "center",
           justifyContent: "space-between",
-          padding: "16px 20px",
+          padding: "14px 18px",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{
-              width: 32, height: 32,
+              width: 30, height: 30,
               borderRadius: "50%",
-              background: "linear-gradient(135deg, #f59e0b, #d97706)",
-              display: "flex", alignItems: "center",
-              justifyContent: "center",
-              fontSize: 14, fontWeight: 700, color: "#000",
+              background: "var(--accent-soft)",
+              border: "1px solid var(--accent)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 700, color: "var(--accent-2)",
+              fontFamily: "'JetBrains Mono', monospace",
+              boxShadow: "0 0 12px -2px var(--accent)",
             }}>O</div>
             <div>
-              <div style={{
-                fontSize: 14, fontWeight: 600,
-                color: "var(--text, #e5e7eb)",
+              <div className="serif" style={{
+                fontSize: 15, color: "var(--text)", lineHeight: 1,
               }}>Ask ORA</div>
               {projectId && (
                 <div
                   data-testid="ora-project-connected"
                   style={{
                     fontSize: 10,
-                    color: "var(--text-faint, #6b7280)",
+                    color: "var(--text-faint)",
                     fontFamily: "'JetBrains Mono', monospace",
+                    letterSpacing: "0.08em",
+                    marginTop: 2,
                   }}
                 >
-                  project connected ✓
+                  PROJECT CONNECTED ✓
                 </div>
               )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {ttsSupported && (
               <button
                 data-testid="ora-tts-toggle"
@@ -164,32 +164,34 @@ export default function ORASidePanel({
                 }}
                 title={voiceEnabled ? "Voice off" : "Voice on"}
                 style={{
-                  background: voiceEnabled
-                    ? "rgba(245,158,11,0.15)"
-                    : "transparent",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6, padding: "4px 8px",
+                  width: 30, height: 30, borderRadius: 6,
+                  background: voiceEnabled ? "var(--accent-soft)" : "transparent",
+                  border: `1px solid ${voiceEnabled ? "var(--accent)" : "var(--border)"}`,
+                  color: voiceEnabled ? "var(--accent-2)" : "var(--text-dim)",
                   cursor: "pointer",
-                  color: voiceEnabled
-                    ? "#f59e0b"
-                    : "var(--text-faint)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 120ms, border-color 120ms, background 120ms",
                 }}
               >
-                {voiceEnabled
-                  ? <Volume2 size={14} />
-                  : <VolumeX size={14} />}
+                {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
               </button>
             )}
             <button
               data-testid="ora-close-btn"
               onClick={onClose}
+              title="Close"
               style={{
-                background: "none", border: "none",
-                color: "var(--text-faint)",
-                cursor: "pointer", padding: 4,
+                width: 30, height: 30, borderRadius: 6,
+                background: "transparent",
+                border: "1px solid var(--border)",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
               }}
             >
-              <X size={18} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -199,7 +201,7 @@ export default function ORASidePanel({
           data-testid="ora-messages"
           style={{
             flex: 1, overflowY: "auto",
-            padding: "16px 20px",
+            padding: "18px 18px 8px",
             display: "flex", flexDirection: "column", gap: 12,
           }}
         >
@@ -210,33 +212,34 @@ export default function ORASidePanel({
             }}>
               <div
                 data-testid={`ora-msg-${msg.role}`}
+                className={msg.role === "user" ? "glass-bubble-user" : "glass-bubble-assistant"}
                 style={{
-                  maxWidth: "85%",
+                  maxWidth: "88%",
                   padding: "10px 14px",
                   borderRadius: msg.role === "user"
                     ? "12px 12px 2px 12px"
                     : "12px 12px 12px 2px",
                   background: msg.role === "user"
-                    ? "#f59e0b"
-                    : "var(--bg-elev, rgba(255,255,255,0.04))",
-                  color: msg.role === "user"
-                    ? "#000"
-                    : "var(--text, #e5e7eb)",
+                    ? "var(--accent-soft)"
+                    : "var(--panel-2, rgba(255,255,255,0.03))",
+                  color: msg.role === "user" ? "var(--accent-2)" : "var(--text)",
+                  border: `1px solid ${msg.role === "user" ? "var(--accent)" : "var(--border)"}`,
                   fontSize: 13,
-                  lineHeight: 1.6,
-                  border: msg.role === "assistant"
-                    ? "1px solid var(--border)"
-                    : "none",
-                  opacity: msg.error ? 0.7 : 1,
+                  lineHeight: 1.55,
+                  opacity: msg.error ? 0.75 : 1,
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
+                  boxShadow: msg.role === "user"
+                    ? "0 0 14px -4px var(--accent)"
+                    : "none",
                 }}
               >
                 {msg.content || (msg.streaming
                   ? <span style={{
-                      opacity: 0.5,
-                      fontFamily: "monospace",
+                      opacity: 0.55,
+                      fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 11,
+                      letterSpacing: "0.06em",
                     }}>thinking…</span>
                   : ""
                 )}
@@ -245,7 +248,7 @@ export default function ORASidePanel({
                     display: "inline-block",
                     width: 6, height: 6,
                     borderRadius: "50%",
-                    background: "#f59e0b",
+                    background: "var(--accent-2)",
                     marginLeft: 4,
                     animation: "ora-pulse 1s infinite",
                   }} />
@@ -256,94 +259,83 @@ export default function ORASidePanel({
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
+        {/* Composer — uses the same composer-card aesthetic as ChatPanel. */}
         <div style={{
-          padding: "12px 16px",
+          padding: "10px 14px 14px",
           borderTop: "1px solid var(--border)",
           flexShrink: 0,
+          background: "rgba(13, 16, 24, 0.32)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
         }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <div className="composer-card">
             <textarea
               ref={inputRef}
               data-testid="ora-input"
+              className="composer-input-bare"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
               placeholder="Ask ORA anything about your project…"
               rows={1}
               disabled={busy}
-              style={{
-                flex: 1,
-                background: "var(--bg-elev, rgba(255,255,255,0.04))",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: "10px 12px",
-                color: "var(--text, #e5e7eb)",
-                fontSize: 13,
-                resize: "none",
-                fontFamily: "inherit",
-                lineHeight: 1.5,
-                outline: "none",
-                maxHeight: 120,
-                overflowY: "auto",
-              }}
+              style={{ maxHeight: 120, overflowY: "auto" }}
             />
-
-            {sttSupported && (
-              <button
-                data-testid="ora-mic-btn"
-                onClick={listening ? stopListening : startListening}
-                disabled={busy}
-                title={listening ? "Stop listening" : "Speak"}
-                style={{
-                  width: 36, height: 36,
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: listening
-                    ? "rgba(239,68,68,0.15)"
-                    : "var(--bg-elev, rgba(255,255,255,0.04))",
-                  color: listening ? "#ef4444" : "var(--text-faint)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {listening ? <MicOff size={14} /> : <Mic size={14} />}
-              </button>
-            )}
-
-            <button
-              data-testid="ora-send-btn"
-              onClick={busy ? onStop : handleSend}
-              disabled={!busy && !input.trim()}
-              style={{
-                width: 36, height: 36,
-                borderRadius: 8,
-                border: "none",
-                background: busy
-                  ? "rgba(239,68,68,0.15)"
-                  : (!input.trim() ? "rgba(245,158,11,0.4)" : "#f59e0b"),
-                color: busy ? "#ef4444" : "#000",
-                cursor: busy || input.trim() ? "pointer" : "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                fontWeight: 600,
-              }}
-            >
-              {busy ? <Square size={14} /> : <Send size={14} />}
-            </button>
+            <div className="composer-toolbar">
+              {sttSupported && (
+                <button
+                  type="button"
+                  data-testid="ora-mic-btn"
+                  onClick={listening ? stopListening : startListening}
+                  disabled={busy}
+                  title={listening ? "Stop listening" : "Speak"}
+                  style={{
+                    width: 30, height: 30, borderRadius: 6,
+                    border: `1px solid ${listening ? "rgba(239,68,68,0.6)" : "var(--border)"}`,
+                    background: listening ? "rgba(239,68,68,0.10)" : "transparent",
+                    color: listening ? "#ff8a8a" : "var(--text-dim)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  {listening ? <MicOff size={14} /> : <Mic size={14} />}
+                </button>
+              )}
+              <span style={{ flex: 1 }} />
+              {busy ? (
+                <button
+                  type="button"
+                  data-testid="ora-send-btn"
+                  onClick={onStop}
+                  className="btn-ghost"
+                  style={{ fontSize: 12, gap: 6 }}
+                >
+                  <Square size={13} /> Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="ora-send-btn"
+                  onClick={handleSend}
+                  className="btn-primary"
+                  disabled={!input.trim()}
+                  style={{ fontSize: 12, gap: 6 }}
+                >
+                  <Send size={13} /> Send
+                </button>
+              )}
+            </div>
           </div>
 
           {projectId && (
             <div style={{
               fontSize: 9,
-              color: "var(--text-faint, #6b7280)",
+              color: "var(--text-faint)",
               marginTop: 6,
               fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.08em",
+              textAlign: "center",
             }}>
               tokens → your account · repo → your project only
             </div>
@@ -353,8 +345,12 @@ export default function ORASidePanel({
 
       <style>{`
         @keyframes ora-slide-in-right {
-          from { transform: translateX(100%); opacity: 0; }
+          from { transform: translateX(110%); opacity: 0; }
           to   { transform: translateX(0);    opacity: 1; }
+        }
+        @keyframes ora-fade-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
         }
         @keyframes ora-pulse {
           0%, 100% { opacity: 1; }

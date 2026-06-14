@@ -442,6 +442,25 @@ table { max-width: 100%; }
 .aurem-app-shell { grid-template-columns: 260px 1fr; }
 .aurem-app-shell[data-collapsed="true"] { grid-template-columns: 64px 1fr; }
 
+/* Iter 151 — split-screen for the ORA panel. When the panel is open
+   the entire main app shifts left to reserve a 35vw column on the
+   right. The panel sits in that reserved space rather than overlaying
+   the composer at the bottom. */
+.aurem-app-shell[data-ora-open="true"] {
+  padding-right: clamp(360px, 35vw, 680px);
+  transition: padding-right 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.aurem-app-shell {
+  transition: padding-right 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (max-width: 900px) {
+  /* ORA panel is desktop-only; ensure the padding never applies on
+     mobile even if the attribute leaks through. */
+  .aurem-app-shell[data-ora-open="true"] {
+    padding-right: 0 !important;
+  }
+}
+
 /* Iter 146 — auto-hide on typing. On desktop the sidebar slides
    fully off-screen, the grid column collapses to 0, and a thin
    hot-zone strip appears on the left edge. Hovering/clicking the

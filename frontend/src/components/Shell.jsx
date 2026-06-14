@@ -131,7 +131,16 @@ export default function Shell({ children, requireAuth }) {
   // Close drawer whenever route changes (mobile UX expectation)
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
-  // Iter 146 — sidebar hide-on-session-start.
+  // Iter 146 — typing-hidden state, hot-zone, default collapsed (above).
+  // Iter 151 — track ORA panel open state so the main app grid can
+  // shrink and let the panel sit beside the chat (split-screen), not
+  // overlay it. FloatingORAButton dispatches the event.
+  const [oraOpen, setOraOpen] = useState(false);
+  useEffect(() => {
+    const onState = (e) => setOraOpen(!!e?.detail?.open);
+    window.addEventListener("aurem:ora-panel-state", onState);
+    return () => window.removeEventListener("aurem:ora-panel-state", onState);
+  }, []);
   // Fires once the user sends their first message in a chat session,
   // and stays hidden until they switch sessions (new chat, project
   // change) or hover the left-edge hot-zone. This matches the
@@ -283,6 +292,7 @@ export default function Shell({ children, requireAuth }) {
         data-collapsed={collapsed ? "true" : "false"}
         data-drawer-open={drawerOpen ? "true" : "false"}
         data-typing-hidden={hiddenForTyping && !drawerOpen ? "true" : "false"}
+        data-ora-open={oraOpen && !isMobile ? "true" : "false"}
         style={{
           minHeight: "100vh",
           display: "grid",
