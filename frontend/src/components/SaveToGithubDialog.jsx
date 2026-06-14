@@ -8,8 +8,8 @@ import { api } from "../lib/api";
 import { toast } from "./Toast";
 
 export default function SaveToGithubDialog({ open, onClose, sessionId }) {
-  const [repo, setRepo] = useState("TJSNDHU/auremdev");
-  const [branch, setBranch] = useState("aurem-dev-mvp");
+  const [repo, setRepo] = useState("polarisbuiltinc-wq/auremdev");
+  const [branch, setBranch] = useState("main");
   const [commit, setCommit] = useState("AUREM Dev: push from chat session");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
