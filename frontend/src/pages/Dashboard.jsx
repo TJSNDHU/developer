@@ -9,7 +9,7 @@
  * `aurem:toggle-preview` window event that ChatPanel listens for.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
@@ -111,6 +111,31 @@ function DashboardBody() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <TabBar />
         </div>
+        <button
+          data-testid="ask-ora-launch-btn"
+          onClick={() => {
+            try { window.dispatchEvent(new CustomEvent("aurem:ora-open")); }
+            catch { /* ignore */ }
+          }}
+          title="Ask ORA — second-opinion AI panel"
+          className="ask-ora-launch-btn"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            fontSize: 10, fontWeight: 700,
+            padding: "5px 12px",
+            background: "var(--accent-soft, rgba(255,138,42,0.10))",
+            border: "1px solid var(--accent, rgba(255,138,42,0.4))",
+            borderRadius: 6,
+            color: "var(--accent-2, #ffb347)",
+            cursor: "pointer", flexShrink: 0,
+            fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: "0.12em",
+            boxShadow: "0 0 10px -3px var(--accent, rgba(255,138,42,0.4))",
+          }}
+        >
+          <MessageCircle size={11} />
+          ASK ORA
+        </button>
         <button
           data-testid="preview-toggle"
           onClick={togglePreview}
