@@ -704,18 +704,35 @@ export default function Shell({ children, requireAuth }) {
                   data-testid="logout-btn"
                   onClick={logout}
                   style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-faint)",
+                    marginTop: 10,
+                    width: "100%",
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.35)",
+                    color: "#ff8a8a",
                     cursor: "pointer",
                     fontSize: 11,
-                    padding: "8px 0 0",
-                    display: "flex",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    padding: "7px 10px",
+                    borderRadius: 6,
+                    display: "inline-flex",
                     alignItems: "center",
-                    gap: 4,
+                    justifyContent: "center",
+                    gap: 6,
+                    transition: "background 160ms ease, color 160ms ease, border-color 160ms ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.18)";
+                    e.currentTarget.style.color = "#fff";
+                    e.currentTarget.style.borderColor = "rgba(239,68,68,0.6)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.08)";
+                    e.currentTarget.style.color = "#ff8a8a";
+                    e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
                   }}
                 >
-                  <LogOut size={11} /> Sign out
+                  <LogOut size={12} /> Sign out
                 </button>
               </div>
             )}
@@ -754,19 +771,27 @@ export default function Shell({ children, requireAuth }) {
                   onClick={logout}
                   title="Sign out"
                   style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-faint)",
+                    background: "rgba(239,68,68,0.10)",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                    color: "#ff8a8a",
                     cursor: "pointer",
-                    padding: 4,
+                    padding: 6,
+                    borderRadius: 6,
                     display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "background 160ms ease, color 160ms ease, border-color 160ms ease",
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.color = "var(--danger)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.color = "var(--text-faint)")
-                  }
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.22)";
+                    e.currentTarget.style.color = "#fff";
+                    e.currentTarget.style.borderColor = "rgba(239,68,68,0.7)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.10)";
+                    e.currentTarget.style.color = "#ff8a8a";
+                    e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)";
+                  }}
                 >
                   <LogOut size={13} />
                 </button>
