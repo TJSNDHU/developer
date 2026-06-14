@@ -485,7 +485,7 @@ function ProjectDetail({ project, onRemoved, onChanged }) {
           const exists = cur.find((x) => x.task_id === t.task_id);
           return exists ? cur.map((x) => (x.task_id === t.task_id ? t : x)) : [t, ...cur];
         });
-        if (t && ["done", "failed"].includes(t.status)) {
+        if (t && ["done", "failed", "cancelled", "blocked"].includes(t.status)) {
           // If a rollback is in flight, keep polling until it settles
           const rb = t.rollback_status;
           if (rb !== "queued" && rb !== "running") {

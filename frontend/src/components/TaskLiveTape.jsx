@@ -82,9 +82,17 @@ export default function TaskLiveTape({ taskId, onDone }) {
 
             if (d.step) setSteps((p) => [...p, d]);
             if (typeof d.pct === "number") setPct(d.pct);
-            if (d.type === "done" || d.type === "fail") {
+            const terminalTypes = ["done", "fail", "failed", "cancelled", "blocked"];
+            const terminalStatus = ["done", "failed", "cancelled", "blocked"];
+            if (
+              terminalTypes.includes(d.type) ||
+              terminalStatus.includes(d.status)
+            ) {
               setDone(true);
               try { onDone?.(d); } catch { /* host handler crash */ }
+              try { ctrl.abort(); } catch { /* ignore */ }
+              cancelled = true;
+              break;
             }
           }
         }
