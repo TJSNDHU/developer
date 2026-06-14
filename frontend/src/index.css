@@ -406,19 +406,9 @@ table { max-width: 100%; }
   height: 100vh;
   z-index: 90;
   cursor: pointer;
-  background: linear-gradient(
-    to right,
-    rgba(255, 138, 42, 0.22),
-    rgba(255, 138, 42, 0.06) 60%,
-    transparent
-  );
-  border-right: 1px solid rgba(255, 138, 42, 0.18);
-  box-shadow: 2px 0 14px rgba(255, 138, 42, 0.18);
-  animation: aurem-hotzone-pulse 2.6s ease-in-out infinite;
-}
-@keyframes aurem-hotzone-pulse {
-  0%, 100% { opacity: 0.78; }
-  50%      { opacity: 1; }
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 @media (max-width: 900px) {
   /* On mobile, the existing menu pill already serves as the
