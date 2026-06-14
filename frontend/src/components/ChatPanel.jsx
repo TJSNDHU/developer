@@ -1364,12 +1364,45 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       >
         <TokenBanner usage={usage} />
 
-        {/* Iter 59 — Attachment pills. Always visible while files are
-            either uploading, ready, or errored. User can remove any pill
-            with the × button. Failed pills stay visible (status="error")
-            so the user knows what was attempted; their stub markdown is
-            still sent to the LLM so the chat never silently drops the
-            attempt. */}
+        {/* Iter 147 — top status bar. Renders mode pill, F12 badge, and
+            the MAXX-active indicator above the input. The container
+            auto-collapses (display:none on :empty) so when no signal
+            is active the composer hugs the input tightly. */}
+        <div className="composer-status-bar" data-testid="composer-status-bar">
+          <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
+          <F12Badge
+            errorCount={f12.errorCount}
+            hasErrors={f12.hasErrors}
+            onSendToORA={() => {
+              const payload = f12.flush();
+              const cc = payload?.console_errors?.length || 0;
+              const nc = payload?.network_errors?.length || 0;
+              const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+              setInput(msg);
+              lastF12PayloadRef.current = payload;
+              setTimeout(() => {
+                const form = taRef.current && taRef.current.form;
+                if (form) form.requestSubmit();
+              }, 50);
+            }}
+          />
+          {maxxMode && (
+            <span
+              data-testid="maxx-active-pill"
+              style={{
+                fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.16em", color: "var(--accent-2)",
+                padding: "4px 10px", border: "1px solid var(--accent)",
+                borderRadius: 999, background: "var(--accent-soft)",
+                boxShadow: "0 0 12px -2px var(--accent)",
+              }}
+            >
+              ⚡ MAXX
+            </span>
+          )}
+        </div>
+
+        {/* Iter 59 — Attachment pills. */}
         {attachments.length > 0 && (
           <div
             data-testid="chat-attachments-row"
@@ -1426,32 +1459,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           </div>
         )}
 
-        {/* Iter 42 — Mode pill + F12 error badge above the input */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
-          <F12Badge
-            errorCount={f12.errorCount}
-            hasErrors={f12.hasErrors}
-            onSendToORA={() => {
-              const payload = f12.flush();
-              const cc = payload?.console_errors?.length || 0;
-              const nc = payload?.network_errors?.length || 0;
-              const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
-              setInput(msg);
-              lastF12PayloadRef.current = payload;
-              // Trigger send on next tick
-              setTimeout(() => {
-                const form = taRef.current && taRef.current.form;
-                if (form) form.requestSubmit();
-              }, 50);
-            }}
-          />
-        </div>
-        {/* Input on top */}
+        {/* Iter 147 — unified composer card: textarea + toolbar share
+            one rounded surface so it reads as a single chat input. */}
+        <div className="composer-card" data-testid="composer-card">
         <textarea
           ref={taRef}
           data-testid="chat-input"
-          className="input"
+          className="composer-input-bare"
           value={input}
           onChange={(e) => {
             const v = e.target.value;
@@ -1480,11 +1494,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}
-          style={{ resize: "none", width: "100%", fontFamily: "'Jost', system-ui, sans-serif" }}
         />
 
-        {/* Toolbar + Send BELOW input */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {/* Toolbar — inside the same card as the textarea */}
+        <div className="composer-toolbar">
           <input
             ref={fileInputRef}
             type="file"
@@ -1587,20 +1600,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ))}
             </select>
           )}
-          {maxxMode && (
-            <span
-              data-testid="maxx-active-pill"
-              style={{
-                fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
-                letterSpacing: "0.16em", color: "var(--accent-2)",
-                padding: "4px 10px", border: "1px solid var(--accent)",
-                borderRadius: 999, background: "var(--accent-soft)",
-                boxShadow: "0 0 12px -2px var(--accent)",
-              }}
-            >
-              ⚡ MAXX
-            </span>
-          )}
           {busy ? (
             <button
               type="button" data-testid="chat-stop"
@@ -1618,6 +1617,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               <Send size={14} /> Send
             </button>
           )}
+        </div>
         </div>
       </form>
 

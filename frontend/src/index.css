@@ -326,6 +326,58 @@ body.aurem-glass #root {
   border-top: 1px solid rgba(255, 200, 120, 0.10);
 }
 
+/* Iter 147 — unified composer card. Textarea + toolbar share one
+   rounded glass surface so the input looks like a single "chat box"
+   with controls living inside it (Emergent / Bolt pattern). */
+.composer-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.composer-card:focus-within {
+  border-color: var(--accent-2);
+  background: rgba(255, 197, 96, 0.04);
+}
+.composer-card .composer-input-bare {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 4px 2px;
+  min-height: 28px;
+}
+.composer-card .composer-input-bare::placeholder {
+  color: var(--text-faint);
+}
+.composer-card .composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+/* Status pill row that lives ABOVE the composer card. Auto-collapses
+   to zero height when it has no children so the composer hugs tight. */
+.composer-status-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 0;
+}
+.composer-status-bar:empty {
+  display: none;
+}
+
 
 /* ──────────────────────────────────────────────────────────────────────
    Iter 64 — Global responsive safety net.
