@@ -20,6 +20,7 @@ import {
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
+import ModeSelector from "./ModeSelector";
 import LiveTaskPopup from "./LiveTaskPopup";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
@@ -212,6 +213,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // is untouched). `clearingChat` blocks double-clicks on the
   // destructive Clear button.
   const [hideOlder, setHideOlder] = useState(false);
+  // Iter 153 — review mode (swift / pro / maxx). Persisted across reloads.
+  const [chatMode, setChatMode] = useState(() => {
+    try { return localStorage.getItem("aurem_chat_mode") || "swift"; }
+    catch { return "swift"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("aurem_chat_mode", chatMode); }
+    catch { /* ignore */ }
+  }, [chatMode]);
+
   const [clearingChat, setClearingChat] = useState(false);
   // Iter 148 — controls the "connect a repo" helper dialog. Triggered
   // by the no-repo warning pill above the composer and by clicking the
@@ -785,6 +796,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       maxToolIters: 2,
       maxxMode,
       agent,                       // iter 38: selector value
+      mode: chatMode,              // Iter 153: swift / pro / maxx review
       f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
       onMode: (m) => {
@@ -1520,7 +1532,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               handleFiles(files);
             }
           }}
-          placeholder="Ask AUREM CTO to plan, build, debug…  (Enter to send, Shift+Enter for newline. Drop / paste files anytime.)"
+          placeholder="Ask AUREM CTO to plan, build, debug…  (~6s simple · ~20-30s multi-file · Enter to send, Shift+Enter newline)"
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}
@@ -1610,6 +1622,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             active={maxxMode}
           />
           <span style={{ flex: 1 }} />
+          <ModeSelector value={chatMode} onChange={setChatMode} />
           {/* Iter 145 — agent selector hidden. AUREM is default for
               everyone; ORA runs as a silent shadow-learner in the
               backend (see services/ora_learning.py). */}

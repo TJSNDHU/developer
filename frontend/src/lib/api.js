@@ -71,7 +71,8 @@ export function newSessionId() {
 /** SSE-style stream over fetch (we POST JSON, so EventSource won't work). */
 export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     maxxMode = false, projectId = null,
-                                    agent = "auto", f12Payload = null,
+                                    agent = "auto", mode = "swift",
+                                    f12Payload = null,
                                     onMeta, onMode, onToken, onWatchdog, onWatchdogPending,
                                     onOpsRedirect,
                                     onThinking, onTaskHandoff, onDone, onError, signal }) {
@@ -88,6 +89,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       max_tool_iters: maxToolIters,
       maxx_mode: maxxMode,
       agent,
+      mode,
       project_id: projectId,
       f12_payload: f12Payload,
     }),

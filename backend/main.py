@@ -221,6 +221,19 @@ async def lifespan(app: FastAPI):
 
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+    # Iter 153 — nightly MongoDB backup (03:00 UTC, keeps 7 days).
+    # Guarded behind ENABLE_DB_BACKUP=1 so dev environments without
+    # mongodump installed don't spam warnings.
+    if os.environ.get("ENABLE_DB_BACKUP", "1").lower() in ("1", "true", "yes"):
+        try:
+            from services.db_backup import backup_cron
+            app.state.backup_task = _asyncio.create_task(backup_cron())
+            logger.info("🗄️ nightly DB backup cron enabled (03:00 UTC, 7-day retention)")
+        except Exception as e:
+            app.state.backup_task = None
+            logger.warning("db backup cron not started: %r", e)
+    else:
+        app.state.backup_task = None
     # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC.
     # OPT-IN via ENABLE_EVAL_CRON=1 env var. When the cron fired at 03:00
     # UTC on prod (Iter 124g initial deploy), 22 sequential LLM calls

@@ -77,16 +77,16 @@ export default function ORASidePanel({
     setListening(false);
   };
 
-  const handleSend = () => {
+  const handleSend = (modeArg) => {
     if (!input.trim() || busy) return;
-    onSend(input.trim());
+    onSend(input.trim(), modeArg || chatMode);
     setInput("");
   };
 
   const handleKey = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend(chatMode);
     }
   };
 
@@ -266,7 +266,7 @@ export default function ORASidePanel({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Ask ORA anything about your project…"
+              placeholder="Ask ORA anything — ~6s simple · ~20-30s multi-file"
               rows={1}
               disabled={busy}
               style={{ maxHeight: 120, overflowY: "auto" }}
@@ -293,6 +293,7 @@ export default function ORASidePanel({
                 </button>
               )}
               <span style={{ flex: 1 }} />
+              <ModeSelector value={chatMode} onChange={setChatMode} />
               {busy ? (
                 <button
                   type="button"
@@ -307,7 +308,7 @@ export default function ORASidePanel({
                 <button
                   type="button"
                   data-testid="ora-send-btn"
-                  onClick={handleSend}
+                  onClick={() => handleSend(chatMode)}
                   className="btn-primary"
                   disabled={!input.trim()}
                   style={{ fontSize: 12, gap: 6 }}

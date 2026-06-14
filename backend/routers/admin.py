@@ -143,6 +143,32 @@ async def council_stats(authorization: Optional[str] = Header(None)):
 
 
 # ── Users ──────────────────────────────────────────────────────────
+@router.get("/ora-learning/weekly-summary")
+async def ora_learning_weekly_summary(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 153 — top low-confidence patterns from the last 7 days of
+    ora_learning_logs. Powers the AdminOverview learning card."""
+    await _require_admin(authorization)
+    db = require_db()
+    cutoff = time.time() - 7 * 86400
+    cur = db.ora_learning_logs.aggregate([
+        {"$match": {"ts": {"$gte": cutoff}}},
+        {"$group": {"_id": "$reason", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+        {"$limit": 10},
+    ])
+    rows = await cur.to_list(50)
+    total = sum(r.get("n", 0) for r in rows)
+    return {
+        "ok": True,
+        "window_days": 7,
+        "total": total,
+        "patterns": [{"reason": r["_id"], "count": r["n"]} for r in rows],
+    }
+
+
+
 @router.get("/users")
 async def list_users(
     search: str = "",

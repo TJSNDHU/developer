@@ -182,6 +182,69 @@ async def _decrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
         return None    # tamper / wrong user → treat as missing token
 
 
+@router.get("/projects/{project_id}/check-pat")
+async def check_project_pat(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 153 FIX 3 — PAT health check.
+
+    Decrypts the stored token, hits `GET https://api.github.com/user`,
+    and reports `valid` / `expired` / `missing` along with the upstream
+    `github-authentication-token-expiration` header if GitHub returned
+    one. Used by Projects.jsx to toast the user if their PAT is gone
+    or expiring within 7 days.
+    """
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "github_token": 1},
+    )
+    if not proj:
+        raise HTTPException(404, "project not found")
+    token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    if not token:
+        return {"ok": True, "state": "missing", "message": "No PAT configured"}
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8.0) as cx:
+            r = await cx.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "aurem-cto-pat-check",
+                },
+            )
+    except Exception as e:
+        return {"ok": True, "state": "unknown",
+                "message": f"check failed: {type(e).__name__}"}
+
+    expires_at = r.headers.get("github-authentication-token-expiration")
+    if r.status_code == 200:
+        return {
+            "ok": True, "state": "valid",
+            "expires_at": expires_at,
+            "login": (r.json() or {}).get("login"),
+        }
+    if r.status_code in (401, 403):
+        return {
+            "ok": True, "state": "expired",
+            "message": "PAT rejected by GitHub — please rotate.",
+            "expires_at": expires_at,
+        }
+    return {
+        "ok": True, "state": "unknown",
+        "message": f"GitHub returned HTTP {r.status_code}",
+        "expires_at": expires_at,
+    }
+
+
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────
 @router.post("/projects/add")
 async def add_project(body: AddProject, authorization: str = Header(None)) -> dict:

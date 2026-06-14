@@ -299,7 +299,18 @@ AUREM_CTO_PERSONA = (
     "or 'Module not found' — FIX the error first, then re-run "
     "the build, then commit. "
     "A broken build = chat is broken for every user. "
-    "This is not optional. Never skip it. Never assume it passes.\n\n"
+    "This is not optional. Never skip it. Never assume it passes.\n"
+    "  7. READ BEFORE YOU ANSWER. If the user asks anything about "
+    "their connected repo — a file, a function, a router, a config "
+    "value, behaviour, structure, dependencies, anything — you MUST "
+    "call `read_repo_file` / `read_repo_files` / `search_repo` / "
+    "`semantic_search_repo` / `list_repo_files` FIRST and answer "
+    "from real bytes. Never answer from memory or generic 'typical "
+    "FastAPI app' knowledge when their real files are reachable. "
+    "If you cannot find the file, SAY SO and offer to search. "
+    "NEVER: invent file paths, hallucinate function bodies, fabricate "
+    "config values, or guess at line numbers. Reading is free — "
+    "skipping it is the #1 trust-killer.\n\n"
 
     "# MODE DETECTION — DO THIS FIRST, BEFORE ANYTHING ELSE\n"
     "  Look at the user's message and classify it into ONE of these modes. "
@@ -951,6 +962,89 @@ def _founder_escalation_note(count: int) -> str:
     )
 
 
+# Iter 153 — three review modes used at the tail of chat_with_tools.
+# Pricing-mapped:
+#   swift → DeepSeek writes → Claude diff-only review (cheap, ~400 toks)
+#   pro   → DeepSeek + Claude full review (one correction pass)
+#   maxx  → Claude already wrote the code → no extra review needed
+async def _swift_diff_review(content: str, prompt: str) -> str:
+    """Claude returns ONLY a bug-diff (≤5 fixes, no prose). If any, ask
+    DeepSeek to apply them in one cheap targeted pass. Falls back to the
+    original content on any error so a flaky reviewer never breaks chat."""
+    if not content or len(content) < 150:
+        return content
+    try:
+        from .llm import _call_claude, _call_deepseek
+        diff = await asyncio.wait_for(
+            _call_claude(
+                system=(
+                    "Find real bugs only (wrong logic, bad import, "
+                    "security hole, syntax error). Reply in this exact "
+                    "format, nothing else:\n"
+                    "PASS  (if no bugs)\n"
+                    "or list each bug as:\n"
+                    "LINE <n> | wrong: <code> | right: <code>\n"
+                    "Max 5 bugs. No prose. No explanation."
+                ),
+                user=f"Code:\n{content[:3000]}",
+                max_tokens=400,
+                temperature=0.0,
+            ),
+            timeout=6.0,
+        )
+        if not diff or diff.strip().upper().startswith("PASS"):
+            return content
+        fixed = await asyncio.wait_for(
+            _call_deepseek(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Original code:\n{content[:3000]}\n\n"
+                        f"Apply ONLY these fixes, return full corrected "
+                        f"code:\n{diff}"
+                    ),
+                }],
+                max_tokens=3500,
+                temperature=0.0,
+            ),
+            timeout=20.0,
+        )
+        return fixed if fixed and len(fixed) > 100 else content
+    except Exception:
+        return content
+
+
+async def _pro_parallel_review(content: str, prompt: str) -> str:
+    """Claude does a full review in one shot. If correct → PASS, else
+    `FIX:` followed by the corrected code block. One correction pass,
+    no nitpicks."""
+    if not content or len(content) < 150:
+        return content
+    try:
+        from .llm import _call_claude
+        review = await asyncio.wait_for(
+            _call_claude(
+                system=(
+                    "Review for bugs. If correct reply 'PASS'. "
+                    "If bugs, reply 'FIX:' then ONLY the corrected "
+                    "code block. One pass. No nitpicks."
+                ),
+                user=f"Task: {prompt[:200]}\nCode:\n{content[:3000]}",
+                max_tokens=2000,
+                temperature=0.0,
+            ),
+            timeout=8.0,
+        )
+        if review and review.strip().startswith("FIX:"):
+            fix = review.split("FIX:", 1)[1].strip()
+            if len(fix) > 50:
+                return fix
+        return content
+    except Exception:
+        return content
+
+
+
 def _is_code_task(prompt: str, history_lines: list[str]) -> bool:
     """Heuristic — should this turn use the code model (Claude) + bigger
     token budget? True for explicit code verbs OR short confirmations
@@ -980,6 +1074,7 @@ async def chat_with_tools(
     project_id: Optional[str] = None,
     activity_hook=None,                 # iter 36: optional callback(label)
     live_invocations_ref: Optional[list] = None,  # see _worker timeout guard
+    mode: str = "swift",                # Iter 153 — review mode (swift/pro/maxx)
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -1080,7 +1175,9 @@ async def chat_with_tools(
     iters = 0
     fallback_chain: list[str] = []
     # iter 33: pick model + token budget once per request
-    use_code_model = _is_code_task(prompt, history_lines)
+    # Iter 153 — Maxx mode forces Claude (code-class) to write the
+    # primary response so we skip the review pass at the end.
+    use_code_model = _is_code_task(prompt, history_lines) or (mode == "maxx")
     token_budget = 3500 if use_code_model else 1500
     llm_mode = "code" if use_code_model else "chat"
 
@@ -1176,6 +1273,17 @@ async def chat_with_tools(
                 )
 
             # Persistence is handled by chat.py:_persist_turn — no double-write here.
+            # Iter 153 — tail-end review per chosen mode. Failures fall
+            # back to the original content so review can never crash the
+            # request path.
+            try:
+                if mode == "swift" and use_code_model:
+                    content = await _swift_diff_review(content, prompt)
+                elif mode == "pro" and use_code_model:
+                    content = await _pro_parallel_review(content, prompt)
+                # maxx → Claude already wrote the code as use_code_model=True
+            except Exception:
+                pass
             return {
                 "ok": meta.get("ok", True),
                 "content": content,
@@ -1190,6 +1298,7 @@ async def chat_with_tools(
                 # fabricated citation cannot render Ship via CTO.
                 "verified_paths": sorted(tool_paths_read),
                 "mode": llm_mode,
+                "review_mode": mode,
                 "web_sources": _dedupe_sources(
                     [s for inv in invocations for s in (inv.get("web_sources") or [])]
                 ),

@@ -71,6 +71,9 @@ class ChatBody(BaseModel):
     # own aurem.live ORA endpoint. Other values currently fall through to
     # "auto" so adding new agents later is backwards-compatible.
     agent: Optional[str] = Field("auto", max_length=32)
+    # Iter 153 — review mode requested by the user (swift/pro/maxx).
+    # Server clamps to whatever their tier allows; never trusted as-is.
+    mode: Optional[str] = Field("swift", max_length=16)
     # Iter 42: structured payload of browser console/network/stack errors
     # captured by frontend/public/F12ErrorCapture.js. When present (and has
     # any errors), the request is auto-classified as Mode D (debug).
@@ -356,6 +359,12 @@ async def chat_send(
     repo_ctx = await get_repo_context(user["user_id"], body.project_id or "")
     url_ctx = await build_url_context(body.prompt)
     extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
+    # Iter 153 — clamp the requested review mode to whatever the user's
+    # tier allows. Falls back to the BEST mode they have access to so
+    # the request never errors out from a missing entitlement.
+    from services.subscription_tiers import allowed_modes_for_tier
+    _allowed = allowed_modes_for_tier((user or {}).get("tier") or "free")
+    req_mode = body.mode if (body.mode in _allowed) else _allowed[-1]
     result = await chat_with_tools(
         prompt=body.prompt,
         jwt_token=jwt_token,
@@ -365,6 +374,7 @@ async def chat_send(
         mongo_client=None,
         user_id=user["user_id"],
         project_id=body.project_id,
+        mode=req_mode,
     )
     content = result.get("content", "") or ""
     provider = result.get("provider", "") or ""
@@ -421,6 +431,32 @@ async def list_agents(authorization: Optional[str] = Header(None)) -> dict:
             "founder_only": True,
         })
     return {"agents": agents, "default": "auto"}
+
+
+@router.get("/modes/available")
+async def available_modes(authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 153 — return the review-mode catalog with lock-state for the
+    caller's tier. Drives ModeSelector.jsx in the composer."""
+    user = await current_dev(authorization)
+    from services.subscription_tiers import allowed_modes_for_tier
+    tier = (user or {}).get("tier") or "free"
+    allowed = allowed_modes_for_tier(tier)
+    catalog = {
+        "swift": {
+            "label": "Swift", "min_tier": "starter", "price": "$9",
+            "desc": "Fast code with a quick safety check. Best for everyday work.",
+        },
+        "pro": {
+            "label": "Pro", "min_tier": "pro", "price": "$19",
+            "desc": "DeepSeek + Claude review every answer. Higher quality.",
+        },
+        "maxx": {
+            "label": "Maxx", "min_tier": "team", "price": "$49",
+            "desc": "Claude writes your code directly. Best for critical work.",
+        },
+    }
+    out = {k: {**v, "unlocked": k in allowed} for k, v in catalog.items()}
+    return {"ok": True, "tier": tier, "modes": out}
 
 
 
@@ -1192,6 +1228,10 @@ async def chat_stream(
                         # Fall through to the AUREM/orchestrator path below.
 
                 activity["label"] = "thinking…"
+                # Iter 153 — clamp mode to tier-allowed set for this stream.
+                from services.subscription_tiers import allowed_modes_for_tier as _allowed_modes
+                _allowed_s = _allowed_modes((user or {}).get("tier") or "free")
+                req_mode_stream = body.mode if (body.mode in _allowed_s) else _allowed_s[-1]
                 # Hook to publish tool invocations live so the timeout
                 # guard can summarise what we managed to inspect.
                 _published: list[dict] = []
@@ -1210,6 +1250,7 @@ async def chat_stream(
                     project_id=body.project_id,
                     activity_hook=_activity,
                     live_invocations_ref=_published,
+                    mode=req_mode_stream,
                 )
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):

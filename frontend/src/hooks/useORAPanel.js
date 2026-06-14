@@ -86,7 +86,7 @@ export function useORAPanel() {
     } catch { /* ignore */ }
   }, []);
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, mode = "swift") => {
     if (!text.trim() || busy) return;
 
     setMessages((prev) => [...prev, { role: "user", content: text }]);
@@ -118,6 +118,7 @@ export function useORAPanel() {
             session_id: sessionIdRef.current,
             max_tool_iters: 4,
             agent: "auto",
+            mode,
           }),
           signal: controller.signal,
         },

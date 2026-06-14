@@ -1,13 +1,13 @@
 """
 services/subscription_tiers.py — single source of truth for plan limits.
 
-Every gate in the codebase (task counter, maxx-mode, parallel agents,
+Every gate in the codebase (task counter, mode access, parallel agents,
 priority queue) MUST read from here.  Anywhere else duplicating the
 numbers is a bug.
 
-Tiers are str-enum so they survive Mongo serialization without an extra
-codec, and `get_limit` / `can_use_feature` safe-default to `Tier.FREE`
-on any unknown string (so stale rows never crash).
+Iter 153 — added per-tier `modes` list and `allowed_modes_for_tier()`
+helper.  Per-tier task caps were lowered from "unlimited" to capped
+values so we don't bleed cash on power users (Pro 300/mo, Team 400/mo).
 """
 from __future__ import annotations
 
@@ -20,57 +20,54 @@ class Tier(str, Enum):
     STARTER = "starter"
     PRO     = "pro"
     TEAM    = "team"
-    FOUNDER = "founder"   # internal — never billed; mirrors Pro features
+    FOUNDER = "founder"   # internal — never billed; mirrors Team features
 
 
 TIER_LIMITS: dict[Tier, dict] = {
     Tier.FREE: {
-        "tasks_per_month": 10,
-        "maxx_mode":       False,
-        "maxx_tasks_per_month": 0,    # no Maxx for free tier
-        "brain_memory":    False,
-        "parallel_agents": False,
-        "priority_queue":  False,
-        "price_monthly":   0,
+        "tasks_per_month":     10,
+        "modes":               ["swift"],
+        "maxx_mode":           False,
+        "brain_memory":        False,
+        "parallel_agents":     False,
+        "priority_queue":      False,
+        "price_monthly":       0,
     },
     Tier.STARTER: {
-        "tasks_per_month": 50,
-        "maxx_mode":       False,
-        "maxx_tasks_per_month": 0,    # Starter has no Maxx access at all
-        "brain_memory":    True,
-        "parallel_agents": False,
-        "priority_queue":  False,
-        "price_monthly":   9,
+        "tasks_per_month":     50,
+        "modes":               ["swift"],
+        "maxx_mode":           False,
+        "brain_memory":        True,
+        "parallel_agents":     False,
+        "priority_queue":      False,
+        "price_monthly":       9,
     },
     Tier.PRO: {
-        "tasks_per_month": None,    # unlimited
-        "maxx_mode":       True,
-        "maxx_tasks_per_month": 100,  # hard cap — after this, code/review fall back to DeepSeek
-        "brain_memory":    True,
-        "parallel_agents": True,
-        "priority_queue":  False,
-        "price_monthly":   19,
+        "tasks_per_month":     300,
+        "modes":               ["swift", "pro"],
+        "maxx_mode":           False,
+        "brain_memory":        True,
+        "parallel_agents":     True,
+        "priority_queue":      False,
+        "price_monthly":       19,
     },
     Tier.TEAM: {
-        "tasks_per_month": None,
-        "maxx_mode":       True,
-        "maxx_tasks_per_month": None,  # unlimited Maxx for paying Team tier
-        "brain_memory":    True,
-        "parallel_agents": True,
-        "priority_queue":  True,
-        "price_monthly":   49,
+        "tasks_per_month":     400,
+        "modes":               ["swift", "pro", "maxx"],
+        "maxx_mode":           True,
+        "brain_memory":        True,
+        "parallel_agents":     True,
+        "priority_queue":      True,
+        "price_monthly":       49,
     },
-    # Internal account — never billed, mirrors Pro features so founders
-    # don't get gated out of Maxx / parallel agents during eat-our-own-
-    # dogfood testing.
     Tier.FOUNDER: {
-        "tasks_per_month": None,
-        "maxx_mode":       True,
-        "maxx_tasks_per_month": None,  # unlimited for internal use
-        "brain_memory":    True,
-        "parallel_agents": True,
-        "priority_queue":  True,
-        "price_monthly":   0,
+        "tasks_per_month":     None,
+        "modes":               ["swift", "pro", "maxx"],
+        "maxx_mode":           True,
+        "brain_memory":        True,
+        "parallel_agents":     True,
+        "priority_queue":      True,
+        "price_monthly":       0,
     },
 }
 
@@ -91,13 +88,7 @@ def get_limit(tier: Optional[str], feature: str) -> Union[int, bool, None]:
 
 
 def can_use_feature(tier: Optional[str], feature: str) -> bool:
-    """True if the tier is allowed to use the feature.
-
-    - Bool features (maxx_mode, brain_memory…) return their stored bool.
-    - Numeric features (tasks_per_month) return True iff the tier owns
-      *any* quota; the actual count is checked elsewhere via get_limit.
-    - `None` means unlimited → always True.
-    """
+    """True if the tier is allowed to use the feature."""
     val = TIER_LIMITS[_coerce(tier)].get(feature)
     if val is None:
         return True
@@ -109,3 +100,14 @@ def can_use_feature(tier: Optional[str], feature: str) -> bool:
 def plan_price(tier: Optional[str]) -> int:
     """USD/month price for the tier — used by Settings + Landing."""
     return TIER_LIMITS[_coerce(tier)]["price_monthly"]
+
+
+def allowed_modes_for_tier(tier: Optional[str]) -> list:
+    """Iter 153 — list of mode keys the tier may select in the UI.
+
+    Used by `chat_with_tools(mode=…)` to clamp any user-supplied mode
+    to what their plan covers (last entry is treated as their best
+    available fallback).
+    """
+    t = _coerce(tier)
+    return TIER_LIMITS.get(t, TIER_LIMITS[Tier.FREE]).get("modes", ["swift"])
