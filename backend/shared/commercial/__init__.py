@@ -21,7 +21,8 @@ from .workspace_service import (
     get_workspace_service
 )
 from .consent_service import ConsentTracker, ConsentType, ConsentStatus, get_consent_tracker
-from .billing_service import BillingService, PaymentStatus, get_billing_service
+# Iter 153 — billing_service.py deleted (orphan, zero callers). The
+# ModeSelector → Stripe checkout flow lives in routers/payments.py.
 try:
     from .gmail_service import GmailService, get_gmail_service
 except ImportError:
