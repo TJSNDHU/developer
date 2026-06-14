@@ -23,6 +23,7 @@ import ShipDialog from "./ShipDialog";
 import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
+import RenderedMessage from "./RenderedMessage";
 
 // ---- Helpers (only used here) ----------------------------------------------
 
@@ -547,7 +548,14 @@ export default function MessageBubble({
               <CopyIcon size={12} />
             </button>
           )}
-          {m.content}
+          {/* Iter 148 — Monaco-powered code rendering for fenced blocks.
+              User-typed messages don't get parsed (preserves raw text);
+              assistant replies get full syntax highlighting + copy. */}
+          {m.role === "assistant" ? (
+            <RenderedMessage text={m.content} />
+          ) : (
+            m.content
+          )}
           {/* Multi-file checklist parsed from ORA's message + DB-backed plan (pairs with Gap 3 + structural multi-file contract). */}
           {m.role === "assistant" && (hasChecklist(m.content) || m.shipped_task_id) && (
             <TaskManagementPanel text={m.content} taskId={m.shipped_task_id} />
