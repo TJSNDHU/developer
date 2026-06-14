@@ -33,7 +33,7 @@ export default function Toaster() {
       data-testid="toaster"
       style={{
         position: "fixed",
-        bottom: 24,
+        top: 24,
         right: 24,
         display: "flex",
         flexDirection: "column",
