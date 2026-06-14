@@ -44,30 +44,30 @@ export default function FloatingORAButton() {
           title="Ask ORA"
           style={{
             position: "fixed",
-            // Sits well above the composer's Send button on /dashboard.
             bottom: 92,
             right: 24,
-            width: 52, height: 52,
-            borderRadius: "50%",
+            padding: "0 18px",
+            height: 40,
+            borderRadius: 20,
             background:
               "radial-gradient(circle at 30% 30%, var(--accent-2), var(--accent))",
             border: "1px solid var(--accent)",
             cursor: "pointer",
             zIndex: 7999,
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
             boxShadow:
               "0 6px 22px rgba(255, 138, 42, 0.42), 0 0 0 1px rgba(255,200,120,0.18) inset",
-            fontSize: 18,
-            fontWeight: 800,
+            fontSize: 11,
+            fontWeight: 700,
             color: "#1a0f00",
             fontFamily: "'JetBrains Mono', monospace",
-            letterSpacing: "0.05em",
+            letterSpacing: "0.12em",
             transition: "transform 180ms ease, box-shadow 180ms ease",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "scale(1.08)";
+            e.currentTarget.style.transform = "scale(1.06)";
             e.currentTarget.style.boxShadow =
               "0 8px 30px rgba(255, 138, 42, 0.58), 0 0 0 1px rgba(255,200,120,0.28) inset";
           }}
@@ -77,7 +77,7 @@ export default function FloatingORAButton() {
               "0 6px 22px rgba(255, 138, 42, 0.42), 0 0 0 1px rgba(255,200,120,0.18) inset";
           }}
         >
-          O
+          ASK ORA
         </button>
       )}
 

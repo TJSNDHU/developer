@@ -124,16 +124,6 @@ export default function ORASidePanel({
           flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 30, height: 30,
-              borderRadius: "50%",
-              background: "var(--accent-soft)",
-              border: "1px solid var(--accent)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 13, fontWeight: 700, color: "var(--accent-2)",
-              fontFamily: "'JetBrains Mono', monospace",
-              boxShadow: "0 0 12px -2px var(--accent)",
-            }}>O</div>
             <div>
               <div className="serif" style={{
                 fontSize: 15, color: "var(--text)", lineHeight: 1,
