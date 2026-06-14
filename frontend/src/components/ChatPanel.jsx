@@ -312,6 +312,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
   const taRef = useRef(null);
+  // Iter 146 — tracks whether the textarea currently holds in-flight
+  // user input. Used to fire `aurem:chat-typing-started/stopped` events
+  // exactly once per typing session so Shell.jsx can auto-hide the
+  // sidebar without flickering on every keystroke.
+  const typingActiveRef = useRef(false);
 
   // Attached files (separate from textarea content). Each:
   // {id, name, size, kind: "image"|"doc", status: "uploading"|"ready"|"error",
@@ -703,6 +708,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // demanded text, which is why an image-only chat silently refused.
     if ((!text && !readyAttachments.length) || busy || !sessionId) return;
     setInput("");
+    // Iter 146 — once user sends, the typing-session ends → fire stop
+    // so the sidebar resumes its normal hover/peek behaviour.
+    if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      try { window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped")); }
+      catch { /* ignore */ }
+    }
     // Clear any leftover ambiguous-mode banner from the previous turn —
     // a new prompt = new classification.
     setModeAmbiguous(null);
@@ -1430,8 +1442,31 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           className="input"
           value={input}
           onChange={(e) => {
-            setInput(e.target.value);
-            setDetectedMode(detectMode(e.target.value));
+            const v = e.target.value;
+            setInput(v);
+            setDetectedMode(detectMode(v));
+            // Iter 146 — sidebar auto-hide on typing. Fire start-event
+            // when the user types the first character of a fresh prompt;
+            // fire stop-event when the textarea is empty again.
+            try {
+              if (v.length > 0) {
+                if (!typingActiveRef.current) {
+                  typingActiveRef.current = true;
+                  window.dispatchEvent(new CustomEvent("aurem:chat-typing-started"));
+                }
+              } else if (typingActiveRef.current) {
+                typingActiveRef.current = false;
+                window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped"));
+              }
+            } catch { /* ignore */ }
+          }}
+          onBlur={() => {
+            // Restore sidebar if user navigated away without sending.
+            if (typingActiveRef.current && !input.trim()) {
+              typingActiveRef.current = false;
+              try { window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped")); }
+              catch { /* ignore */ }
+            }
           }}
           onKeyDown={onKeyDown}
           onPaste={(e) => {

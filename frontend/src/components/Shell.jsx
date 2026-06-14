@@ -7,7 +7,7 @@
  * Chat session selection is exposed via Context — Dashboard subscribes,
  * other pages just consume the chrome.
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Rocket, Database, Globe, Settings as Cog,
@@ -58,9 +58,21 @@ export default function Shell({ children, requireAuth }) {
   const [health, setHealth] = useState({ ok: true, _initial: true });
   const [sessionId, setSessionIdState] = useState(null);
   const [sessions, setSessions] = useState([]);
-  const [collapsed, setCollapsedState] = useState(
-    () => localStorage.getItem(COLLAPSED_KEY) === "1"
-  );
+  const [collapsed, setCollapsedState] = useState(() => {
+    // Iter 146 — default is collapsed (compact). Expanded only when
+    // user explicitly toggles via the sidebar control.
+    const v = localStorage.getItem(COLLAPSED_KEY);
+    return v === null ? true : v === "1";
+  });
+
+  // Iter 146 — auto-hide on typing.
+  // When the user starts typing in ChatPanel, the sidebar slides
+  // fully off-screen and a thin hot-zone strip appears on the left
+  // edge. Hovering that strip (desktop) or tapping the mobile menu
+  // pill brings the sidebar back. A second `aurem:chat-typing-stopped`
+  // event (fired on textarea blur with empty content) re-arms it.
+  const [hiddenForTyping, setHiddenForTyping] = useState(false);
+  const peekFromHoverRef = useRef(false);
 
   // ── Active project (synced across tabs/components) ────────────────
   const [activeProjectId, setActiveProjectId] = useState(() =>
@@ -117,6 +129,42 @@ export default function Shell({ children, requireAuth }) {
   }, []);
   // Close drawer whenever route changes (mobile UX expectation)
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+
+  // Iter 146 — typing-auto-hide wiring. ChatPanel fires these events.
+  useEffect(() => {
+    const onStart = () => {
+      // Don't fight the user if they explicitly expanded the sidebar
+      // moments ago — only hide if it was already in default collapsed
+      // state OR if no manual peek is active.
+      setHiddenForTyping(true);
+    };
+    const onStop = () => {
+      setHiddenForTyping(false);
+      peekFromHoverRef.current = false;
+    };
+    window.addEventListener("aurem:chat-typing-started", onStart);
+    window.addEventListener("aurem:chat-typing-stopped", onStop);
+    return () => {
+      window.removeEventListener("aurem:chat-typing-started", onStart);
+      window.removeEventListener("aurem:chat-typing-stopped", onStop);
+    };
+  }, []);
+
+  // Bring sidebar back when cursor hits the left hot-zone (desktop).
+  const onHotZoneEnter = useCallback(() => {
+    if (isMobile) return;
+    peekFromHoverRef.current = true;
+    setHiddenForTyping(false);
+  }, [isMobile]);
+  // When the cursor leaves the sidebar after a hover-peek, slide it
+  // back away so the chat reclaims the full width again.
+  const onSidebarMouseLeave = useCallback(() => {
+    if (isMobile) return;
+    if (peekFromHoverRef.current) {
+      peekFromHoverRef.current = false;
+      setHiddenForTyping(true);
+    }
+  }, [isMobile]);
 
   // ── Token wallet polling ───────────────────────────────────────────
   const [tokensRemaining, setTokensRemaining] = useState(
@@ -231,12 +279,25 @@ export default function Shell({ children, requireAuth }) {
         className="aurem-app-shell"
         data-collapsed={collapsed ? "true" : "false"}
         data-drawer-open={drawerOpen ? "true" : "false"}
+        data-typing-hidden={hiddenForTyping && !drawerOpen ? "true" : "false"}
         style={{
           minHeight: "100vh",
           display: "grid",
           transition: "grid-template-columns 240ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       >
+        {/* Iter 146 — desktop hot-zone strip. Visible only when the
+            sidebar has slid off after the user started typing. Hovering
+            brings the sidebar back; clicking is also accepted. */}
+        {!isMobile && hiddenForTyping && (
+          <div
+            data-testid="sidebar-hotzone"
+            className="aurem-side-hotzone"
+            onMouseEnter={onHotZoneEnter}
+            onClick={onHotZoneEnter}
+            title="Show sidebar"
+          />
+        )}
         {/* Mobile hamburger — visible only <=900px via CSS */}
         <button
           type="button"
@@ -260,6 +321,7 @@ export default function Shell({ children, requireAuth }) {
           data-testid="app-sidebar"
           data-collapsed={collapsed ? "true" : "false"}
           className="glass-sidebar"
+          onMouseLeave={onSidebarMouseLeave}
           style={{
             borderRight: "1px solid var(--border)",
             padding: collapsed ? "28px 10px" : "28px 16px",
