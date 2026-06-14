@@ -747,9 +747,15 @@ async def health_v1():
 # Iter 122 — memory diagnostic endpoint for restart-loop debugging.
 # Admin-only. Returns RSS + tracemalloc top allocations so we can SEE
 # what's eating memory between restarts. Read-only; safe in prod.
+# Iter 145 — gated behind ENABLE_TRACEMALLOC=1. Previous unconditional
+# tracemalloc.start(10) kept a 10-frame call stack for EVERY allocation
+# in the process. In production this caused steady RSS growth → OOMKill
+# → CrashLoopBackOff. Now strictly opt-in. /api/_diag/memory returns a
+# 503 explaining how to enable when the flag is off.
 import tracemalloc as _tm  # noqa: E402
+_TRACEMALLOC_ENABLED = os.environ.get("ENABLE_TRACEMALLOC", "").lower() in ("1", "true", "yes")
 try:
-    if not _tm.is_tracing():
+    if _TRACEMALLOC_ENABLED and not _tm.is_tracing():
         _tm.start(10)        # keep 10 frames per snapshot
 except Exception:
     pass
