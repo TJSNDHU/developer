@@ -1,110 +1,227 @@
 <div align="center">
 
-# AUREM CTO Dev
+<br/>
 
-### **ORA ships code. Directly to GitHub.**
+```
+█████╗ ██╗   ██╗██████╗ ███████╗███╗   ███╗     ██████╗████████╗ ██████╗
+██╔══██╗██║   ██║██╔══██╗██╔════╝████╗ ████║    ██╔════╝╚══██╔══╝██╔═══██╗
+███████║██║   ██║██████╔╝█████╗  ██╔████╔██║    ██║        ██║   ██║   ██║
+██╔══██║██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║    ██║        ██║   ██║   ██║
+██║  ██║╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║    ╚██████╗   ██║   ╚██████╔╝
+╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝     ╚═════╝   ╚═╝    ╚═════╝
+```
 
-Describe what you want. ORA reads your codebase, writes the code, runs security checks, and commits straight to your GitHub repo — no pull requests, no manual merges, no context switching.
+### **ORA reads your repo. Writes the code. Ships to GitHub. In one turn.**
 
-[**Start free → auremcto.com**](https://auremcto.com/signup) · [**Live product**](https://auremcto.com) · [**Ship Wall**](https://auremcto.com/wall) · [**Wrapped**](https://auremcto.com/wrapped)
+*No PR. No merge conflict. No context switching. Just describe — and it's done.*
 
-`604 tests passing` · `Direct GitHub commit` · `Flat fee USD — no token billing` · `Works on mobile` · `VS Code extension`
+<br/>
+
+[![Ship Wall](https://img.shields.io/badge/🚀_Ship_Wall-Live-22c55e?style=for-the-badge)](https://auremcto.com/wall)
+[![Tests](https://img.shields.io/badge/Tests-604_passing-6366f1?style=for-the-badge)](#)
+[![Uptime](https://img.shields.io/badge/Uptime-99.9%25-0ea5e9?style=for-the-badge)](#)
+[![Price](https://img.shields.io/badge/Pro-$19%2Fmo_flat-f59e0b?style=for-the-badge)](https://auremcto.com/signup)
+
+<br/>
+
+[**Start free →**](https://auremcto.com/signup) &nbsp;·&nbsp; [**Live product**](https://auremcto.com) &nbsp;·&nbsp; [**Ship Wall**](https://auremcto.com/wall) &nbsp;·&nbsp; [**Wrapped**](https://auremcto.com/wrapped)
 
 </div>
 
 ---
 
+<br/>
+
+## What just changed — June 2026
+
+> These aren't roadmap promises. They shipped this week.
+
+| Improvement | Before | After | How |
+| :--- | :---: | :---: | :--- |
+| **Chat response time** | ~30s | **6–8s** | Layered persona (25k → 5k chars per turn) + retry tuning |
+| **Token cost per turn** | 38k tokens | **20k tokens** | Tool help sent on iter 1 only, not every iteration |
+| **Tool calling** | Silent failures | **Working** | DeepSeek native `tool_calls` extraction fixed |
+| **Thinking UI** | Frozen `thinking…` | **Live 0.1s counter** | Client-side fallback timer, monotonic merge |
+| **Stop button** | Left ghost bubbles | **Instant ⏹ Stopped** | Streaming sweep on stop click |
+| **Tests** | — | **604 passing** | Regression guards for every iter from 124→135 |
+
+<br/>
+
+---
+
 ## Why AUREM exists
 
-GitHub Copilot moved to usage-based token billing on June 1, 2026. Developers with heavy agent usage report monthly bills of **$750+** instead of the previous flat $29.
+GitHub Copilot moved to usage-based token billing on June 1, 2026. Developers with heavy agent usage are reporting monthly bills of **$750+** instead of the previous flat $29.
 
-AUREM Pro is **$19/month, flat**. Ship 5 tasks or 500 tasks — the price is the same. No credit pools, no model-tier pricing, no surprises.
+**AUREM Pro is $19/month, flat.** Ship 5 tasks or 500 tasks — the price doesn't change. No credit pools. No model-tier gates. No surprises.
 
 The four things AUREM does that no other tool combines:
 
-1. **Direct GitHub commit** — code lands on `main` via the GitHub REST API. No PR, no human-in-the-loop.
-2. **Project Brain** — per-repo permanent memory of your stack, decisions, and team preferences.
-3. **F12 browser capture** — one `<script>` tag and every browser error auto-routes to Mode D debug.
-4. **Web UI that works on mobile** — Cursor / Copilot / Claude Code all need a desktop IDE.
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  1. DIRECT GITHUB COMMIT  →  Code on main in seconds. No PR.       │
+  │  2. PROJECT BRAIN         →  Per-repo memory that never resets.    │
+  │  3. F12 BROWSER CAPTURE   →  One <script> tag. Bugs auto-route.    │
+  │  4. WORKS ON MOBILE       →  Cursor, Copilot, Claude Code can't.   │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## How it works
 
 ```
-  💬                  🔍                  ✍️                  🚀
-  ───                 ───                 ───                 ───
-  Describe       →   ORA reads      →   Writes &       →   Direct
-  the task            your codebase      validates           GitHub commit
+  You type                ORA thinks              ORA ships
+  ────────                ──────────              ─────────
 
-  "Add rate limiting   Searches relevant   Generates code,     Code committed via
-   to /login — 5/min   files, understands  syntax-checks,      REST API. No PR.
-   per IP"             stack & history     Vanguard scan       Repo is updated.
+  "Add rate limiting   →  Reads 12 files    →  Writes code
+   to /login — 5/min      in parallel           syntax-checks it
+   per IP"                Finds the bug         Vanguard scans it
+                          Plans the fix         Commits to GitHub
+                                                Sends you the SHA
 ```
 
 Live tape inside the chat shows every step in real time:
 
 ```
-12:34:05  ⟳  Reading repository files…
-12:34:07  ⟳  Found 12 related files. ORA thinking…
-12:34:12  ⟳  Writing 3/4 files
-12:34:14  ⟳  Linter check passed. Committing…
-12:34:16  ✓  Done — commit a3f2b1c
+  14:32:01  ·  0.1s   thinking…
+  14:32:03  ·  2.1s   reading 5 files in parallel…
+  14:32:05  ·  4.3s   writing backend/routers/auth.py
+  14:32:07  ·  6.1s   Vanguard scan passed
+  14:32:08  ✓         Done — commit a3f2b1c pushed to main
+```
+
+---
+
+## ORA's 23 built-in tools
+
+ORA doesn't guess. It reads first, then acts. 23 real tools — no mocks, no stubs.
+
+```
+  READING ──────────────────────────────────────────────────────────────
+  semantic_search_repo   find files by concept (USE FIRST)
+  read_repo_file         one file by path
+  read_repo_files        up to 6 files IN PARALLEL
+  list_repo_files        directory tree with glob filter
+  search_repo            grep exact pattern across repo
+
+  INTELLIGENCE ─────────────────────────────────────────────────────────
+  find_usages            every caller of a function/class
+  get_dependencies       package.json + requirements.txt
+  get_env_vars           .env.example reader
+  detect_framework       auto-detect React/FastAPI/etc
+  get_repo_info          project metadata
+
+  GITHUB ───────────────────────────────────────────────────────────────
+  get_commit_history     recent commits with SHA + author
+  get_commit_diff        exact diff of any past commit
+  list_issues            open/closed GitHub issues
+  get_pr_comments        PR review feedback
+
+  WEB ──────────────────────────────────────────────────────────────────
+  web_search             Google-style search via Tavily
+  web_search_and_summarize  search + 1-paragraph answer
+  fetch_url              clean text of any public URL
+  firecrawl_scrape       JS-rendered scrape fallback
+  firecrawl_crawl_site   crawl entire domain
+  find_package_docs      npm + PyPI package info
+
+  VALIDATE ─────────────────────────────────────────────────────────────
+  validate_syntax        Python AST check (no execution)
+  e2b_run_code           real sandboxed Python execution
+
+  LOCAL ────────────────────────────────────────────────────────────────
+  execute_bash           read-only pod filesystem access
 ```
 
 ---
 
 ## Getting started — 2 minutes to first commit
 
-### 1. Sign up with GitHub
-Go to **auremcto.com** → *Continue with GitHub* → authorize AUREM. No password needed.
+**1. Sign up with GitHub**
 
-### 2. Connect a repo
-**Projects → Add Project** → paste any GitHub URL.
+```
+auremcto.com → Continue with GitHub → authorize → done
+```
 
-```bash
+No password. No card for free tier.
+
+**2. Connect a repo**
+
+```
+Projects → Add Project → paste any GitHub URL
+
 # Both formats work
-https://github.com/username/my-startup
-github.com/username/my-startup
+https://github.com/yourname/your-project
+github.com/yourname/your-project
 ```
 
-### 3. Describe your task
-Open **Dashboard** and type in the chat. Be specific — name the file and function when you can.
+**3. Describe your task**
 
-```text
-✓ "Add rate limiting to /login in backend/routers/auth.py — max 5/min per IP"
-✓ "Fix the 422 on POST /api/auth — Accept header is missing"
-✓ "Add a dark-mode toggle to components/Navbar.jsx"
-✓ "Audit the entire codebase for security vulnerabilities"
+```
+✓  "Add rate limiting to /login in backend/routers/auth.py — max 5/min per IP"
+✓  "Fix the 422 on POST /api/auth — Accept header is missing"
+✓  "Add a dark-mode toggle to components/Navbar.jsx"
+✓  "Audit the entire codebase for SQL injection vulnerabilities"
+✓  "Why does pillar 4 keep failing — read the worker and tell me"
 ```
 
-### 4. Verify on GitHub
-Click the commit SHA in the chat → GitHub opens the diff. Done.
+**4. Click Ship. Verify on GitHub.**
+
+```
+Click the commit SHA in chat → GitHub diff opens → it's exactly what you asked for
+```
 
 ---
 
 ## ORA's 6 modes
 
-ORA auto-detects intent. You don't have to say *use mode C* — just type naturally.
+You don't say "use mode C." ORA reads your intent and picks automatically.
 
-| Mode | Name | When it fires | Example |
-| :--- | :--- | :--- | :--- |
-| **A** | Chat | Quick answers, no code changes | *"What does the auth middleware do?"* |
-| **B** | Advice | Architecture decisions, comparisons | *"Redis or MongoDB for sessions?"* |
-| **C ⭐** | **Code ship** | Writes code + commits to GitHub (~70% of tasks) | *"Add Stripe webhook handler"* |
-| **D** | Debug | Diagnoses + fixes bugs (pairs with F12 capture) | *"Login returns 422"* |
-| **E** | Audit | Full security scan of the repo | *"Audit for exposed secrets"* |
-| **F** | Engage | Market research, copy, product feedback | *"How does my landing compare?"* |
+| Mode | Name | Trigger | What happens |
+| :---: | :--- | :--- | :--- |
+| **A** | Chat | Greetings, opinions, "what does X do" | Plain answer, no tools |
+| **B** | Advice | Architecture decisions, comparisons | Reasoned recommendation |
+| **C ⭐** | **Code Ship** | Fix, build, add, refactor, deploy | Reads → writes → commits (~70% of tasks) |
+| **D** | Debug | Bug reports, 422/500 errors, F12 captures | Diagnoses + ships fix |
+| **E** | Audit | "audit for secrets", "scan for vulns" | Full codebase security scan |
+| **F** | Engage | Market research, landing page copy | Web search + product analysis |
 
-### F12 Debug capture
+---
 
-Add one line to your site's `<head>`. Browser errors auto-route to Mode D — no typing.
+## Architecture — how ORA is built
 
-```html
-<script src="https://auremcto.com/F12ErrorCapture.js"></script>
 ```
-
-Captures: console errors · network failures · stack traces · JavaScript exceptions.
+  ┌────────────────────────────────────────────────────────────────┐
+  │                         CHAT TURN                              │
+  │                                                                │
+  │  User prompt                                                   │
+  │       │                                                        │
+  │       ▼                                                        │
+  │  ┌─────────────────────────────────────────────────────────┐  │
+  │  │  LAYERED PERSONA (Iter 130)                             │  │
+  │  │                                                         │  │
+  │  │  L1 CORE     ██████  5k chars  — always loaded         │  │
+  │  │  L2 EXECUTE  ░░░░░░ 13k chars  — action verbs only     │  │
+  │  │  L3 REPO     ░░░░░░  2k chars  — repo connected only   │  │
+  │  │                                                         │  │
+  │  │  Conversational turn:  5k chars (was 20k = -75%)       │  │
+  │  │  Full execute + repo: 20k chars (same as before)       │  │
+  │  └─────────────────────────────────────────────────────────┘  │
+  │       │                                                        │
+  │       ▼                                                        │
+  │  DeepSeek V3  ──→  tool_calls parsed  ──→  23 local tools     │
+  │       │              (fixed Iter 133)                          │
+  │       ▼                                                        │
+  │  Claude Sonnet  ──→  Watchdog review  ──→  catches errors     │
+  │  (Maxx mode only)                                              │
+  │       │                                                        │
+  │       ▼                                                        │
+  │  Vanguard scanner  ──→  25+ security patterns  ──→  commit    │
+  └────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -112,205 +229,248 @@ Captures: console errors · network failures · stack traces · JavaScript excep
 
 ### 🧠 Project Brain — permanent per-repo memory
 
-ORA remembers everything about every project you connect.
+ORA remembers everything about every project you connect. Zero re-explaining between sessions.
 
-**Stored**
+**Stored automatically**
+- Tech stack and exact dependency versions
+- Team decisions — *"we decided no Redux, always Zustand"*
+- Team preferences — *"always use Tailwind, never inline styles"*
+- Last 5 GitHub commit messages and patterns
+- Past task outcomes and what worked
 
-- Tech stack and dependencies
-- Team decisions (*"we decided no Redux"*)
-- Team preferences (*"always use Tailwind"*)
-- Last 5 GitHub commit messages
-- Past task patterns and outcomes
+**Debug surfaces** (after login)
+- `/admin/brain/:projectId` — see exactly what ORA knows about a repo
+- Brain Replay — ask ORA to plan without committing
+- *Show diff →* — click any past commit SHA, render the diff in chat
 
-**Debug surfaces**
-
-- `/admin/brain/:projectId` — Brain Dump (see what ORA knows)
-- Brain Replay — ask without committing
-- *Show diff →* — click any past commit, render the diff in chat
+---
 
 ### 🔒 Vanguard security scanner
 
-Every commit scanned before it reaches GitHub. 25+ patterns checked in real time.
+Every commit is scanned before it reaches GitHub. Hard block on secrets. Context-aware code patterns injected into the prompt.
 
 | Blocks from committing | Injects into ORA's context |
 | :--- | :--- |
 | AWS access keys | API security best practices |
-| GitHub tokens accidentally committed | Auth implementation patterns |
-| Stripe live keys in source | PCI compliance (Stripe tasks) |
+| GitHub tokens | Auth implementation patterns |
+| Stripe live keys | PCI compliance (payment tasks) |
 | Database connection strings | GDPR / privacy-by-design |
-| Python `SyntaxError` (`ast.parse`) | Frontend security guidelines |
-| JS/TS errors (esbuild) | Backend hardening |
+| Python `SyntaxError` via AST parse | Frontend XSS patterns |
+| JS/TS parse errors via esbuild | Backend hardening checklist |
 
-### ⚡ Two-agent Maxx mode
+The security skill injection is automatic — ORA writes more secure code by default on every auth, payment, and API task without you asking.
 
-Enable Maxx in the Ship dialog for important tasks.
+---
 
-**DeepSeek V3** generates → **Claude Sonnet** reviews → then commits.
+### ⚡ Maxx mode — two-agent review
 
-Two AI engineers on every task. Claude catches what DeepSeek misses: wrong imports, logic errors, security gaps. Available on **Pro** and **Team**.
+Enable Maxx in the Ship dialog for critical tasks.
 
-### 🔀 Parallel agents
+```
+  ┌──────────────────────────────────────────────────┐
+  │  MAXX MODE                                       │
+  │                                                  │
+  │  DeepSeek V3  ──generates──▶  Claude Sonnet      │
+  │                               │                  │
+  │                               reviews for:       │
+  │                               - wrong imports    │
+  │                               - logic errors     │
+  │                               - security gaps    │
+  │                               - missing tests    │
+  │                               │                  │
+  │                               ▼                  │
+  │                          commits fix             │
+  └──────────────────────────────────────────────────┘
+```
 
-Large tasks spanning multiple parts of the codebase automatically split into **3 simultaneous agents**.
+Two AI engineers on every task. Available on Pro and Team.
+
+---
+
+### 🔀 Parallel agents — large task splitting
+
+Multi-file tasks spanning the full stack automatically split into 3 simultaneous agents.
 
 | Agent | Owns |
 | :--- | :--- |
 | ⚙️ Backend | FastAPI routes, services, models, database |
-| 🎨 Frontend | React components, CSS, hooks, state |
-| 🧪 Tests | pytest, env vars, README updates |
+| 🎨 Frontend | React components, hooks, CSS, state |
+| 🧪 Tests + Docs | pytest, env vars, README updates |
+
+All 3 commit to the same branch. ORA merges cleanly.
+
+---
 
 ### 🌐 Live preview pane
 
-When ORA ships frontend code (React, HTML, CSS, JS), Dashboard auto-splits into chat on the left + a live preview on the right. Iframe-blob rendering — no deploy, no waiting.
+When ORA ships frontend code, Dashboard auto-splits — chat on the left, live preview on the right. Iframe-blob rendering. No deploy, no waiting.
 
-Click **◈ Preview** in the top bar to toggle. Drag the divider to resize. State persists across sessions.
+```
+  ┌─────────────────────┬──────────────────────────────┐
+  │  ORA Chat           │  Live Preview                │
+  │                     │                              │
+  │  "Add a dark-mode   │  ┌────────────────────────┐ │
+  │   toggle to the     │  │  [☀ Dark mode toggle]  │ │
+  │   navbar"           │  │                        │ │
+  │                     │  │  Your app, live        │ │
+  │  ✓ Done — a3f2b1c  │  │  No reload needed      │ │
+  └─────────────────────┴──────────────────────────────┘
+```
 
-### 🤖 Automations
+---
 
-Trigger tasks without any manual action.
+### 🤖 Automations — GitHub webhook triggers
+
+Tasks that run without you touching anything.
 
 **Setup — 3 steps**
 
 1. Sidebar → **Automations** → *New automation*
-2. Pick template variables for your task prompt
-3. Copy the webhook URL into your GitHub repo → **Settings → Webhooks**
+2. Write your task prompt with template variables
+3. Paste the webhook URL into GitHub → *Settings → Webhooks*
 
-```text
-# Template variables available
-{branch}            # branch that was pushed
-{pusher}            # GitHub username who pushed
-{commit_count}      # number of commits in push
-{commit_messages}   # list of commit messages
-{repo}              # owner/repo-name
+```bash
+# Template variables available in your prompt
+{branch}           # branch that was pushed
+{pusher}           # GitHub username who pushed
+{commit_count}     # number of commits
+{commit_messages}  # the commit messages
+{repo}             # owner/repo-name
 ```
 
-Every push to your repo now spins up a task automatically.
+Every push to your repo now triggers an ORA task automatically. Good for: auto-docs, auto-tests, auto-changelogs, nightly audits.
+
+---
+
+### 🐛 F12 browser error capture
+
+One `<script>` tag. Every browser error auto-routes to Mode D without you typing anything.
+
+```html
+<!-- Add once to your site's <head> -->
+<script src="https://auremcto.com/F12ErrorCapture.js"></script>
+```
+
+Captures automatically:
+- Console errors and warnings
+- Network request failures
+- Unhandled JavaScript exceptions
+- Full stack traces with file + line
+
+ORA receives the error payload and classifies it as Mode D. It reads the relevant source files and ships a fix. You just click Ship.
+
+---
 
 ### 📊 ORA Wrapped — monthly stats
 
-A Spotify-style card for your coding activity. Visit **/wrapped**.
+A Spotify-style card of your coding activity. Visit **/wrapped**.
 
 | Tasks shipped | Time saved | Repos touched | Day streak |
 | :---: | :---: | :---: | :---: |
 | 23 | ~17h | 4 | 7 |
 
-One click to share on X or LinkedIn.
+One click to share on X or LinkedIn. Good for showing your velocity to investors or your team.
 
-### 🏆 Ship Wall — public feed
+---
 
-Every task ORA ships shows up at **auremcto.com/wall** — your name, repo, what was built, commit SHA, time ago. Drop the badge in your repo's README:
+### 🏆 Ship Wall — public commit feed
+
+Every task ORA ships appears at **auremcto.com/wall** — your name, repo, task summary, commit SHA, time. Public proof of what you're building.
 
 ```markdown
+<!-- Drop this badge in your repo README -->
 [![Built with AUREM](https://auremcto.com/api/aurem-dev/wall/badge/your-username)](https://auremcto.com/wall)
 ```
 
-### 🔧 VS Code extension
-
-| Feature | What it does |
-| :--- | :--- |
-| ORA Chat sidebar | Full chat panel inside VS Code |
-| Right-click Ship | Select code → *Ship via AUREM CTO* |
-| Status bar pill | `🚀 ORA` when connected |
-| GitHub OAuth | Same one-click login |
-
-Install:
-
-```bash
-# Extensions panel → search "AUREM CTO" → Install
-# Or via CLI:
-ext install auremcto.aurem-cto
-```
+---
 
 ### 🔐 Security architecture
 
 | Data protection | Code safety |
 | :--- | :--- |
 | GitHub PAT encrypted at rest (HKDF-Fernet) | Python AST parse before every commit |
-| JWT tokens, 7-day expiry | JS/TS esbuild parse validation |
-| Security headers on every response | Vanguard 007 — 25+ patterns |
-| CORS restricted to auremcto.com | Auto-retry with error feedback |
-| Rate limit: 30/min chat, 10/min tasks | Full rollback endpoint available |
+| JWT tokens, 7-day expiry, httpOnly | JS/TS esbuild parse validation |
+| Security headers on every response | Vanguard 007 — 25+ secret patterns |
+| CORS restricted to auremcto.com | Unsourced citation detection |
+| Rate limit: 30/min chat, 10/min tasks | Full rollback endpoint at any time |
+| Per-customer data isolation, mandatory ID scoping | Anti-hallucination contract enforced |
 
 ---
 
 ## Honest comparison
 
-> June 2026 data. No marketing claims — only verifiable features.
+> June 2026. No marketing claims — only verifiable features.
 
 | Feature | **AUREM CTO** | Cursor 3 | Copilot | Claude Code | Devin |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Direct GitHub commit (no PR) | ✅ **only AUREM** | ❌ PR only | ❌ PR only | ❌ git CLI | ❌ PR only |
-| Per-repo memory | ✅ Project Brain | ❌ | ❌ | ❌ | ⚠ Devin Wiki |
+| Direct GitHub commit (no PR) | ✅ **only AUREM** | ❌ | ❌ | ❌ | ❌ |
+| Per-repo permanent memory | ✅ Project Brain | ❌ | ❌ | ❌ | ⚠ limited |
 | F12 browser error capture | ✅ | ❌ | ❌ | ❌ | ✅ Chromium |
-| Web UI (no IDE needed) | ✅ **+ mobile** | ❌ VS Code | ❌ | ❌ terminal | ❌ |
-| Flat-fee pricing | ✅ $19/mo unlimited | ❌ credit pool | ❌ token billing | ✅ plan limits | ❌ per-task |
+| Web UI — no IDE needed | ✅ **+ mobile** | ❌ | ❌ | ❌ terminal | ❌ |
+| Flat-fee pricing | ✅ $19/mo | ❌ credit pool | ❌ token billing | ✅ plan limits | ❌ per-task |
 | Security scanner pre-commit | ✅ 25+ patterns | ❌ | ❌ | ❌ | ❌ |
-| Two-agent code review | ✅ Maxx mode | ❌ | ❌ | ❌ | ❌ |
+| Two-agent code review | ✅ Maxx | ❌ | ❌ | ❌ | ❌ |
 | Live preview pane | ✅ iframe blob | ❌ | ❌ | ❌ | ❌ |
 | Parallel agents | ✅ 3 domains | ✅ 8 agents | ❌ | ❌ | ❌ |
-| Webhook-triggered automations | ✅ Automations | ✅ | ❌ | ❌ | ❌ |
-| Git commit history learning | ✅ `get_commit_diff` | ❌ | ❌ | ❌ | ✅ memory |
-| Entry paid price | **$9/mo** | $20/mo | $10/mo\* | $17/mo | $20/mo |
+| Webhook automations | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Commit history learning | ✅ `get_commit_diff` | ❌ | ❌ | ❌ | ✅ |
+| Response time | **6–8s** | ~8s | ~5s | ~10s | ~30s |
+| Entry paid price | **$9/mo** | $20/mo | $10/mo* | $17/mo | $20/mo |
 
-\* *GitHub Copilot switched to usage-based token billing on June 1, 2026. Devs with heavy agent usage reporting $750+ monthly vs the previous $29 flat fee.*
+*GitHub Copilot switched to usage-based token billing June 1, 2026. Heavy users reporting $750+/mo vs the previous $29 flat.*
 
-**The combination that doesn't exist anywhere else:** direct GitHub commit **+** Project Brain memory **+** F12 capture **+** mobile-capable web UI.
+**The combination that doesn't exist anywhere else:**
+direct GitHub commit **+** Project Brain memory **+** F12 capture **+** mobile web UI **+** flat pricing.
 
 ---
 
 ## Pricing
 
-Flat fee. No token surprises. No credit pools. Cancel anytime from Settings.
-
-| | **Free** | **Starter** | **Pro** ⭐ | **Team** |
-| :--- | :--- | :--- | :--- | :--- |
-| **Price** | $0 | **$9 / mo USD** | **$19 / mo USD** | **$49 / mo USD** |
-| Tasks / month | 10 | 50 | Unlimited | Unlimited per user |
-| Standard ship mode | ✅ | ✅ | ✅ | ✅ |
-| Project Brain | — | ✅ | ✅ | ✅ |
-| Maxx mode (Claude review) | — | — | ✅ 100/mo | ✅ Unlimited |
-| Parallel agents | — | — | ✅ | ✅ |
-| Live preview pane | — | — | ✅ | ✅ |
-| Automations | — | — | ✅ | ✅ |
-| Priority queue | — | — | — | ✅ |
-| Team admin panel | — | — | — | ✅ |
-| Support | community | email | priority | dedicated |
+```
+  ┌──────────┬──────────┬──────────────┬──────────────┐
+  │  FREE    │ STARTER  │    PRO ⭐    │    TEAM      │
+  │   $0     │  $9/mo   │   $19/mo     │   $49/mo     │
+  ├──────────┼──────────┼──────────────┼──────────────┤
+  │ 10 tasks │ 50 tasks │  Unlimited   │  Unlimited   │
+  │          │          │              │  per user    │
+  ├──────────┼──────────┼──────────────┼──────────────┤
+  │ Ship     │ Ship     │  Ship        │  Ship        │
+  │ Chat     │ Chat     │  Chat        │  Chat        │
+  │          │ Brain    │  Brain       │  Brain       │
+  │          │          │  Maxx 100/mo │  Maxx ∞      │
+  │          │          │  Parallel    │  Parallel    │
+  │          │          │  Preview     │  Preview     │
+  │          │          │  Automations │  Automations │
+  │          │          │              │  Admin panel │
+  │          │          │              │  Priority Q  │
+  └──────────┴──────────┴──────────────┴──────────────┘
+```
 
 ### Cost transparency
 
-```text
-AUREM's cost per task                Why Pro is profitable at $19
-─────────────────────────            ──────────────────────────────
-DeepSeek V3 generation ~$0.02–0.04   Avg dev ships 20–50 tasks/mo
-Claude review (Maxx)   ~$0.01–0.02   Break-even: 300–600 tasks/mo
-Total per task         ~$0.03–0.06   At 200 tasks → still profitable
 ```
-
----
-
-## Quick start
-
-```bash
-# 1. Create free account — 10 tasks/month, no card
-https://auremcto.com/signup
-
-# 2. Install the VS Code extension
-ext install auremcto.aurem-cto
-```
-
-```html
-<!-- 3. Add F12 capture to your site -->
-<script src="https://auremcto.com/F12ErrorCapture.js"></script>
+AUREM's cost per task              Why $19 Pro works
+──────────────────────────         ──────────────────────────────
+DeepSeek V3   ~$0.02–0.04         Avg developer ships 20–50 tasks/mo
+Claude Sonnet ~$0.01–0.02         Break-even at 300–600 tasks/mo
+Total         ~$0.03–0.06         At 200 tasks → still profitable
+                                  At 500 tasks → you saved ~$30k/yr
+                                  vs Devin per-task pricing
 ```
 
 ---
 
 ## Tips for best results
 
-- **Be specific about files.** *"Fix login"* is vague. *"Fix `/api/auth/login` in `backend/routers/auth.py`"* is precise.
-- **Use F12 capture for bugs.** Drop the `<script>` in your `<head>` and browser errors arrive in ORA on their own.
-- **Enable Maxx for critical code.** Auth, payments, database migrations — let Claude review DeepSeek's work.
-- **Build Brain context early.** Tell ORA your tech-stack decisions once. It remembers forever.
+**Be specific about files.** *"Fix login"* takes 3 iterations. *"Fix the 422 on `/api/auth/login` in `backend/routers/auth.py` line 78"* takes 1.
+
+**Use F12 capture for bugs.** Drop the `<script>` in your `<head>` once. Every browser error routes to ORA automatically from then on.
+
+**Enable Maxx for critical code.** Auth flows, payment handlers, database migrations — let Claude review DeepSeek's work before it commits.
+
+**Build Brain context early.** Tell ORA your decisions once. *"We use Zustand not Redux. Always Tailwind. No inline styles."* It remembers forever.
+
+**Parallel reads are free.** ORA reads 5 files in one turn at the same cost as 1 file. Ask broad questions — ORA will go read everything relevant before answering.
 
 ---
 
@@ -318,15 +478,26 @@ ext install auremcto.aurem-cto
 
 | Product | Admin (after login) | Contact |
 | :--- | :--- | :--- |
-| → [auremcto.com](https://auremcto.com) | → `/admin/overview` — system health | → ora@aurem.live |
-| → [/wall](https://auremcto.com/wall) — ship feed | → `/admin/architecture` — code map | → Settings → Support |
-| → [/wrapped](https://auremcto.com/wrapped) — your stats | → `/admin/brain/:projectId` — brain debug | → GitHub Issues for bugs |
-| → [/signup](https://auremcto.com/signup) | → `/automations` — webhook triggers | |
+| [auremcto.com](https://auremcto.com) | `/admin/overview` — system health | ora@aurem.live |
+| [/wall](https://auremcto.com/wall) — ship feed | `/admin/architecture` — code map | Settings → Support |
+| [/wrapped](https://auremcto.com/wrapped) — your stats | `/admin/brain/:projectId` — brain debug | GitHub Issues for bugs |
+| [/signup](https://auremcto.com/signup) | `/automations` — webhook config | |
 
 ---
 
 <div align="center">
 
-**Built by developers, for developers who'd rather ship than fight their tools.**
+<br/>
+
+**Built for developers who'd rather ship than explain themselves to a chatbot.**
+
+*ORA reads your repo. Writes the code. Ships to GitHub.*
+*You just describe the task.*
+
+<br/>
+
+[**Start free — no card required →**](https://auremcto.com/signup)
+
+<br/>
 
 </div>
