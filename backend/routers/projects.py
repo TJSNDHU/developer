@@ -8,6 +8,7 @@ E2E project creation router:
       → return {project_id, repo_url, db_conn, files}
 """
 from __future__ import annotations
+import asyncio
 import json as _json
 import logging
 import time as _t
@@ -49,8 +50,26 @@ async def create_project(
     user_id = me["user_id"]
 
     # 1. Generate code
+    # Iter 147 — hard cap at 80s. The full E2E (LLM + GitHub push + DB
+    # provision) used to run synchronously inside one HTTP call. On
+    # Cloudflare-fronted prod this hit the 100s edge limit roughly half
+    # the time and returned 524 with no log line; user saw "invalid or
+    # incomplete response". Now we time-box the LLM step, return a
+    # friendly 504, and let the user retry instead of an opaque
+    # Cloudflare error.
     logger.info(f"[projects] generating for user={user_id} idea={body.idea[:60]}")
-    gen = await generate_project(body.idea, body.stack_id)
+    try:
+        gen = await asyncio.wait_for(
+            generate_project(body.idea, body.stack_id),
+            timeout=80.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, {
+            "code": "code_generation_timeout",
+            "msg":  "Code generation took longer than 80s. The LLM is likely "
+                    "rate-limited or the upstream model is slow. Please try "
+                    "again in a few seconds.",
+        })
     if not gen.get("ok"):
         raise HTTPException(502, f"Code generation failed: {gen.get('error')}")
 

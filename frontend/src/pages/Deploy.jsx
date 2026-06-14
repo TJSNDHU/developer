@@ -16,8 +16,9 @@
  *     a 3-field form.
  */
 import React, { useEffect, useState } from "react";
-import { Rocket, GitBranch, Server, History, KeyRound, Settings2 } from "lucide-react";
+import { Rocket, GitBranch, Server, History, KeyRound, Settings2, Cloud } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
+import HostedDeployWidget from "../components/HostedDeployWidget";
 import { api } from "../lib/api";
 
 const EMPTY_CFG = {
@@ -38,6 +39,9 @@ export default function Deploy() {
   const [running, setRunning]   = useState(false);
   const [status, setStatus]     = useState(null);
   const [showAdv, setShowAdv]   = useState(false);
+  // Iter 147 — hosted-deploy section (moved from Projects page).
+  const [projects, setProjects] = useState([]);
+  const [hostedProjectId, setHostedProjectId] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -63,6 +67,15 @@ export default function Deploy() {
         const r = await api.get("/deploy/history");
         setHistory(r.data?.runs || []);
       } catch {/* no history yet */}
+      // Iter 147 — load projects so the hosted-deploy widget can pick one.
+      try {
+        const r = await api.get("/cto/projects/list");
+        const list = r.data?.projects || r.data || [];
+        setProjects(list);
+        if (list.length && !hostedProjectId) {
+          setHostedProjectId(list[0].project_id);
+        }
+      } catch {/* user has no projects yet */}
     })();
   }, []);
 
@@ -263,6 +276,46 @@ export default function Deploy() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* Iter 147 — Hosted Deploy section. Was previously buried inside
+          the Projects page; moved here so all deploy controls (SSH and
+          hosted) live in one window. Per-project picker because hosted
+          deploy hooks are project-scoped (one Vercel/Netlify hook per
+          project). */}
+      <div style={{ marginTop: 32, display: "grid", gap: 14 }}>
+        <h3 style={{ fontSize: 14, color: "var(--text)", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          <Cloud size={14} /> Hosted deploy (Vercel / Netlify)
+        </h3>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0, maxWidth: 720 }}>
+          Self-hosted deploy (above) SSHes into your own server and runs <code>git pull && docker compose up</code>.
+          Hosted deploy fires a webhook on Vercel or Netlify so they re-build & re-deploy your project automatically.
+        </p>
+        {projects.length === 0 ? (
+          <div className="card" style={{ padding: 14, fontSize: 13, color: "var(--text-faint)" }}>
+            No projects yet. Create one on the <strong>Projects</strong> page first, then come back here to wire a hosted-deploy hook.
+          </div>
+        ) : (
+          <>
+            <label style={{ maxWidth: 480 }}>
+              <span className="label-mini">Project</span>
+              <select data-testid="hosted-project-select" className="input" value={hostedProjectId}
+                      onChange={(e) => setHostedProjectId(e.target.value)}>
+                {projects.map((p) => (
+                  <option key={p.project_id} value={p.project_id}>
+                    {p.name || p.project_id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {hostedProjectId && (
+              <HostedDeployWidget
+                key={hostedProjectId}
+                project={projects.find((p) => p.project_id === hostedProjectId) || { project_id: hostedProjectId }}
+              />
+            )}
+          </>
+        )}
       </div>
     </Shell>
   );
