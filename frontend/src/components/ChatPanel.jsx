@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
-import SaveToGithubDialog from "./SaveToGithubDialog";
 import PreviewPanel from "./PreviewPanel";
 import LiveTaskPopup from "./LiveTaskPopup";
 import TemperatureBadge from "./TemperatureBadge";
@@ -1507,23 +1506,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             }}
           />
           {activeProject && (
-            <span
-              data-testid="chat-project-pill"
-              title={`Pinned to ${activeProject.name} — ${activeProject.github_owner}/${activeProject.github_repo}`}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "4px 10px", fontSize: 10,
-                fontFamily: "'JetBrains Mono', monospace",
-                letterSpacing: "0.08em",
-                color: "var(--accent-2)",
-                background: "var(--accent-soft)",
-                border: "1px solid var(--accent)",
-                borderRadius: 999,
-                marginRight: 4,
-              }}
-            >
-              ▸ {activeProject.name}
-            </span>
+            <span style={{ marginRight: 4 }} />
           )}
           <ToolButton
             testid="chat-attach-btn"
@@ -1531,14 +1514,53 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             onClick={() => fileInputRef.current?.click()}
             Icon={Paperclip}
           />
-          <ToolButton
-            testid="chat-github-btn"
-            title={activeProject
-              ? `Save to ${activeProject.github_owner}/${activeProject.github_repo}`
-              : "Save to GitHub"}
-            onClick={() => setShowGithub(true)}
-            Icon={Github}
-          />
+          {/* Iter 146 — passive GitHub status indicator.
+              Green dot = active project has a connected repo (push works
+              from the Projects page). Red dot = no repo configured.
+              Click routes to Projects so the user can wire one up — we
+              no longer expose AUREM-owned PAT pushes to end users. */}
+          <button
+            type="button"
+            data-testid="chat-github-status"
+            title={
+              activeProject?.github_owner && activeProject?.github_repo
+                ? `GitHub: connected — ${activeProject.github_owner}/${activeProject.github_repo}`
+                : "GitHub: not connected — click to configure in Projects"
+            }
+            onClick={() => { window.location.href = "/projects"; }}
+            style={{
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              background: "transparent",
+              border: "1px solid var(--border, rgba(255,200,120,0.16))",
+              cursor: "pointer",
+              color: "var(--text-dim)",
+            }}
+          >
+            <Github size={14} />
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                width: 6,
+                height: 6,
+                borderRadius: 999,
+                background: (activeProject?.github_owner && activeProject?.github_repo)
+                  ? "#22c55e"
+                  : "#ef4444",
+                boxShadow: (activeProject?.github_owner && activeProject?.github_repo)
+                  ? "0 0 6px rgba(34,197,94,0.7)"
+                  : "0 0 6px rgba(239,68,68,0.7)",
+              }}
+            />
+          </button>
           <ToolButton
             testid="chat-maxx-btn"
             title={maxxMode ? "Maxx mode ON (Emergent watchdog)" : "Maxx mode OFF"}
@@ -1549,9 +1571,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           <span style={{ flex: 1 }} />
           {/* Iter 145 — agent selector hidden. AUREM is default for
               everyone; ORA runs as a silent shadow-learner in the
-              backend (see services/ora_learning.py). No token leak
-              from accidental ORA selection. */}
-              from accidental ORA selection. */}
+              backend (see services/ora_learning.py). */}
           {false && agents.length > 1 && (
             <select
               data-testid="chat-agent-select"
@@ -1609,13 +1629,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           )}
         </div>
       </form>
-
-      <SaveToGithubDialog
-        open={showGithub}
-        onClose={() => setShowGithub(false)}
-        sessionId={sessionId}
-        activeProject={activeProject}
-      />
 
       <style>{`
         @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
@@ -1687,4 +1700,3 @@ function ToolButton({ testid, title, onClick, Icon, active, className }) {
     </button>
   );
 }
-
