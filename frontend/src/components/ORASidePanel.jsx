@@ -15,12 +15,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { X, Send, Square, Volume2, VolumeX, Mic, MicOff } from "lucide-react";
 import { useTextToVoice } from "../hooks/useTextToVoice";
+import ModeSelector from "./ModeSelector";
 
 export default function ORASidePanel({
   open, messages, busy, projectId,
   onClose, onSend, onStop,
 }) {
   const [input, setInput] = useState("");
+  // Iter 153 fix — `chatMode` was referenced below (handleSend + ModeSelector)
+  // without ever being declared, which threw a ReferenceError at render
+  // time and made the entire ORA panel mount as a blank node (the JSX
+  // never reached the DOM). Declaring it here restores the panel.
+  const [chatMode, setChatMode] = useState("swift");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   const bottomRef = useRef(null);

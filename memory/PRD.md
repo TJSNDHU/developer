@@ -5233,3 +5233,31 @@ frames.
 - P2: pgvector / Qdrant vector DB
 - P2: `ChatPanel.jsx` (1700+ lines) → continue hook extraction
 - Ops: add CSP / COOP / X-Frame-Options headers at Cloudflare to lift BP "Trust & Safety" warnings
+
+
+### Iter 153 — Ask ORA blank-panel fix + log spam cooldown (Feb 2026)
+**Bugs reported by user**
+1. *"Ora ask not working showing blank"* — the right-side ORA panel mounted as an empty container, no header / no chat / no input.
+2. Backend log spam (every 10 min):
+   ```
+   services.ora_client INFO ORA upstream circuit OPEN for 600s — reason: http_500: ora_chat_error: openrouter HTTP 404: "This model is unavailable for free..."
+   ```
+
+**Root causes**
+1. `frontend/src/components/ORASidePanel.jsx` referenced `chatMode`, `setChatMode`, and `ModeSelector` but never declared the state hook nor imported the component. React threw `ReferenceError: chatMode is not defined` during render → error boundary swallowed it → panel rendered as an empty `<></>`. (Regression from Iter 153's mode-selector wiring.)
+2. The aurem.live upstream returns a permanent OpenRouter 404 ("model unavailable for free") — a config issue only the operator can fix. The breaker correctly opened for 600s, but every cool-down expiry triggered another probe + INFO log → re-tripped every 10 min.
+
+**Fixes**
+- `ORASidePanel.jsx`: added `import ModeSelector from "./ModeSelector"` and `const [chatMode, setChatMode] = useState("swift")`. Panel now mounts with header, project pill, messages list, ModeSelector and Send button. Verified with screenshot (`panel mounted: True`, `input: True`, `send: True`).
+- `services/ora_client.py`: split the breaker into transient (10 min) vs fatal (24h) cool-downs. Fatal cool-down is triggered by any of the known-config patterns (`openrouter HTTP 404`, `model is unavailable`, `openrouter HTTP 401/403`, `ora_chat_error`). Persistent file: `/tmp/aurem_ora_circuit_open_fatal`. Override via `ORA_BREAKER_FATAL_COOLDOWN_S`. Reduces the same INFO log line from ~144/day → 1/day until the upstream is repaired.
+- Preemptively wrote the fatal-breaker file so the existing 10-min loop stops immediately rather than waiting for the current short cool-down to expire.
+
+**Files touched**
+- EDIT: `frontend/src/components/ORASidePanel.jsx`
+- EDIT: `backend/services/ora_client.py`
+
+**Verification**
+- Login as `test@aurem.dev` → Dashboard → click `ask-ora-launch-btn` → screenshot confirms panel mounts with all controls (Swift/Pro/Maxx selector visible). ESLint clean.
+- Backend logs after restart: only routine startup lines, no `ORA upstream circuit OPEN` re-trip (fatal-breaker silences re-probing for 24h).
+
+**Operator action required**: fix the OpenRouter model slug on `aurem.live` upstream, then delete `/tmp/aurem_ora_circuit_open_fatal` (or wait 24h) to re-probe.

@@ -41,7 +41,14 @@ logger = logging.getLogger(__name__)
 # manually; 10 minutes is enough to silence the retry storm without
 # stranding the app for an hour. Override via ORA_BREAKER_COOLDOWN_S.
 _BREAKER_COOLDOWN_SECS = int(os.getenv("ORA_BREAKER_COOLDOWN_S", "600"))
+# Iter 153 — when the upstream returns a known-fatal config error
+# ("model unavailable for free", HTTP 404 from OpenRouter, etc.) there is
+# nothing retrying every 10 minutes can fix — an operator has to update
+# the model slug on aurem.live. Extend the breaker to 24h in that case
+# so the log spam stops until the founder rolls a real fix.
+_BREAKER_FATAL_COOLDOWN_SECS = int(os.getenv("ORA_BREAKER_FATAL_COOLDOWN_S", "86400"))
 _BREAKER_FILE = Path("/tmp/aurem_ora_circuit_open")
+_BREAKER_FATAL_FILE = Path("/tmp/aurem_ora_circuit_open_fatal")
 
 # Substrings of upstream errors that are NEVER going to fix themselves via
 # retry — opening the breaker the moment we see them is correct.
@@ -57,6 +64,17 @@ _FATAL_UPSTREAM_PATTERNS = (
 def _breaker_is_open() -> bool:
     """True iff the breaker file exists AND is within cool-down window."""
     try:
+        # Iter 153 — fatal-cooldown file (24h) takes precedence. We
+        # check it FIRST so a known-bad upstream stays silenced even if
+        # the short-cooldown file expired underneath it.
+        if _BREAKER_FATAL_FILE.exists():
+            age = time.time() - _BREAKER_FATAL_FILE.stat().st_mtime
+            if age < _BREAKER_FATAL_COOLDOWN_SECS:
+                return True
+            try:
+                _BREAKER_FATAL_FILE.unlink()
+            except OSError:
+                pass
         if not _BREAKER_FILE.exists():
             return False
         age = time.time() - _BREAKER_FILE.stat().st_mtime
@@ -72,12 +90,19 @@ def _breaker_is_open() -> bool:
         return False
 
 
-def _trip_breaker(reason: str) -> None:
-    """Open the breaker. Persists across workers in this pod."""
+def _trip_breaker(reason: str, fatal: bool = False) -> None:
+    """Open the breaker. Persists across workers in this pod.
+
+    When ``fatal=True`` we use the 24h cooldown file so manual-fix-only
+    upstream errors (model unavailable, 404, 401) don't re-log every
+    10 minutes. The short cooldown is reserved for transient failures
+    (timeouts, transport errors, generic 5xx)."""
     try:
-        _BREAKER_FILE.write_text(f"{int(time.time())} {reason[:200]}\n")
+        path = _BREAKER_FATAL_FILE if fatal else _BREAKER_FILE
+        path.write_text(f"{int(time.time())} {reason[:200]}\n")
+        cooldown = _BREAKER_FATAL_COOLDOWN_SECS if fatal else _BREAKER_COOLDOWN_SECS
         logger.info("ORA upstream circuit OPEN for %ds — reason: %s",
-                    _BREAKER_COOLDOWN_SECS, reason[:200])
+                    cooldown, reason[:200])
     except OSError as e:
         logger.warning("failed to persist ORA breaker file: %r", e)
 
@@ -141,8 +166,13 @@ async def call_ora(
     # Iter 107 — Trip the breaker on:
     #   (a) any 5xx (server-side problem on aurem.live — retrying won't help)
     #   (b) any fatal-pattern body text (OpenRouter model deprecation etc.)
-    if r.status_code >= 500 or any(p.lower() in str(detail).lower()
-                                    for p in _FATAL_UPSTREAM_PATTERNS):
+    # Iter 153 — fatal-pattern matches now extend the cooldown to 24h
+    # so the log spam stops until an operator fixes the upstream config.
+    detail_l = str(detail).lower()
+    is_fatal = any(p.lower() in detail_l for p in _FATAL_UPSTREAM_PATTERNS)
+    if is_fatal:
+        _trip_breaker(f"http_{r.status_code}: {str(detail)[:100]}", fatal=True)
+    elif r.status_code >= 500:
         _trip_breaker(f"http_{r.status_code}: {str(detail)[:100]}")
 
     raise HTTPException(r.status_code, f"ORA: {detail}")
