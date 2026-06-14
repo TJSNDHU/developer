@@ -1210,18 +1210,35 @@ async def chat_with_tools(
         async def _run_one(c: dict) -> dict:
             tool_name = c["tool"]
             tool_args = c.get("args") or {}
+            # Iter 149 — publish PENDING entry up-front so the SSE
+            # ticker can render the chip ("▸ read_repo_file") the moment
+            # the tool starts, not only after it returns.
+            entry = {
+                "tool":       tool_name,
+                "args":       tool_args,
+                "ok":         None,
+                "status":     "running",
+                "elapsed_ms": None,
+                "error":      None,
+                "web_sources": [],
+            }
+            invocations.append(entry)
+            if activity_hook:
+                try:
+                    activity_hook(f"running {tool_name}…")
+                except Exception:
+                    pass
             res = await invoke_local_tool(tool_name, tool_args, local_ctx)
             if res is None:
                 res = await invoke_tool(tool_name, tool_args, jwt_token)
-            invocations.append({
-                "tool":       tool_name,
-                "args":       tool_args,
-                "ok":         res.get("ok"),
-                "elapsed_ms": res.get("elapsed_ms"),
-                "error":      res.get("error"),
-                # Iter 119 — web sources for citation chip
-                "web_sources": _extract_web_sources(tool_name, tool_args, res),
-            })
+            # Mutate in-place so the ticker sees the updated status the
+            # next time it iterates `activity['invocations']`.
+            entry["ok"]         = res.get("ok")
+            entry["status"]     = "ok" if res.get("ok") else "error"
+            entry["elapsed_ms"] = res.get("elapsed_ms")
+            entry["error"]      = res.get("error")
+            # Iter 119 — web sources for citation chip
+            entry["web_sources"] = _extract_web_sources(tool_name, tool_args, res)
             # Iter 123b — fire-and-forget skill usage telemetry. Never awaited.
             log_skill_use(
                 tool=tool_name,

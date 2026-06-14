@@ -754,10 +754,15 @@ async def chat_stream(
                     return
                 except asyncio.TimeoutError:
                     elapsed = round(_t.monotonic() - t_start, 1)
+                    # Iter 149 — also emit the LIVE tool invocations list so
+                    # the UI can render chips ("read_repo_file ✓", "search_repo …")
+                    # right below the thinking bar instead of only the label.
+                    _inv = list(activity.get("invocations") or [])
                     await q.put({
                         "type": "tick",
                         "elapsed_s": elapsed,
                         "activity": activity["label"],
+                        "invocations": _inv,
                     })
 
         async def _worker():
@@ -1328,9 +1333,10 @@ async def chat_stream(
             if ev["type"] == "tick":
                 yield (
                     "data: " + json.dumps({
-                        "thinking":  True,
-                        "elapsed_s": ev["elapsed_s"],
-                        "activity":  ev["activity"],
+                        "thinking":    True,
+                        "elapsed_s":   ev["elapsed_s"],
+                        "activity":    ev["activity"],
+                        "invocations": ev.get("invocations") or [],
                     }) + "\n\n"
                 )
             elif ev["type"] == "mode":

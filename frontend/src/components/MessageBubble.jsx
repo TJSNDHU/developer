@@ -642,6 +642,54 @@ export default function MessageBubble({
                   {` · ${displayElapsedS.toFixed(1)}s`}
                 </span>
               </span>
+              {/* Iter 149 — Live tool invocation chips. Surfaces the
+                  raw tool-call activity from the orchestrator (e.g.
+                  "read_repo_file ✓", "search_repo …") so the user knows
+                  EXACTLY what AUREM is touching while it streams.
+                  Hidden when no tools have been called this turn. */}
+              {Array.isArray(m.invocations) && m.invocations.length > 0 && (
+                <div
+                  data-testid="chat-invocations"
+                  style={{
+                    marginTop: 8,
+                    display: "flex", flexWrap: "wrap", gap: 6,
+                  }}
+                >
+                  {m.invocations.slice(-6).map((inv, i) => {
+                    const name = inv.tool || inv.name || "tool";
+                    const done = inv.status === "ok" || inv.ok === true || inv.completed;
+                    const failed = inv.status === "error" || inv.ok === false;
+                    return (
+                      <span
+                        key={i}
+                        data-testid={`chat-invocation-${i}`}
+                        title={inv.summary || inv.detail || name}
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: 10,
+                          fontFamily: "'JetBrains Mono', monospace",
+                          letterSpacing: "0.04em",
+                          borderRadius: 999,
+                          border: "1px solid " + (
+                            failed ? "rgba(255,107,107,0.4)"
+                              : done ? "rgba(109,212,161,0.3)"
+                              : "var(--border)"
+                          ),
+                          background: failed ? "rgba(255,107,107,0.06)"
+                            : done ? "rgba(109,212,161,0.06)"
+                            : "rgba(255,255,255,0.03)",
+                          color: failed ? "var(--danger)"
+                            : done ? "var(--ok)"
+                            : "var(--text-faint)",
+                        }}
+                      >
+                        {failed ? "✗ " : done ? "✓ " : "▸ "}
+                        {name}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           {m.streaming && m.content && (

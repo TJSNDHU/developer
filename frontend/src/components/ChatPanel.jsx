@@ -814,7 +814,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // Iter 35/36: server emits periodic {thinking:true, elapsed_s, activity}
       // frames during the tool-call loop so we can show a live counter +
       // a status label ("running 3 tools in parallel…").
-      onThinking: (elapsed, activity) => {
+      onThinking: (elapsed, activity, invocations) => {
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -833,6 +833,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               seenActivities: newSeen,
               progressPct: Math.max(last.progressPct || 0, stepProgress),
               ...(activity ? { activity } : {}),
+              // Iter 149 — live tool invocation chips shown beneath the
+              // thinking bar so the user sees what AUREM is doing right
+              // now (read_repo_file, search_repo, execute_bash, etc.).
+              ...(Array.isArray(invocations) ? { invocations } : {}),
             };
           }
           return copy;

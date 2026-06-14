@@ -55,28 +55,34 @@ export default function SaveToGithubDialog({ open, onClose, sessionId }) {
       data-testid="github-dialog-overlay"
       onClick={onClose}
       style={{
+        // Iter 149 — instead of a full-screen blocking modal, keep the
+        // chat visible and just slide a side panel in from the right.
+        // The overlay is transparent + click-to-dismiss; only the
+        // right column has visual presence.
         position: "fixed", inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        backdropFilter: "blur(4px)",
+        background: "transparent",
         zIndex: 9000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
+        pointerEvents: "auto",
       }}
     >
       <div
         data-testid="github-dialog"
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "100%",
-          maxWidth: 520,
+          position: "fixed",
+          top: "50%",
+          right: 24,
+          transform: "translateY(-50%)",
+          width: "min(440px, calc(100vw - 48px))",
+          maxHeight: "85vh",
+          overflowY: "auto",
           background: "var(--panel)",
           border: "1px solid var(--border-strong)",
-          borderRadius: 6,
+          borderRadius: 8,
           padding: 24,
           color: "var(--text)",
-          boxShadow: "0 24px 60px -12px rgba(0,0,0,0.7)",
+          boxShadow: "0 24px 60px -12px rgba(0,0,0,0.7), -2px 0 32px rgba(0,0,0,0.4)",
+          animation: "slide-in-right 0.18s ease-out",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>

@@ -279,6 +279,12 @@ body.aurem-glass #root {
   to { transform: rotate(360deg); }
 }
 
+/* Iter 149 — SaveToGithubDialog right-side slide-in (no chat blocking). */
+@keyframes slide-in-right {
+  from { transform: translate(20px, -50%); opacity: 0; }
+  to   { transform: translate(0, -50%);    opacity: 1; }
+}
+
 .glass-bubble {
   position: relative;
   border-radius: 14px;
