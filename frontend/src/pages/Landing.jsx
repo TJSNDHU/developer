@@ -197,8 +197,8 @@ export default function Landing() {
                     border: "1px solid rgba(255,138,42,0.25)",
                   }}>{item.tag}</span>
                 </div>
-                <h4 style={{ fontSize: 13, margin: "0 0 6px",
-                              color: "var(--text)" }}>{item.title}</h4>
+                <h3 style={{ fontSize: 13, margin: "0 0 6px",
+                              color: "var(--text)", fontWeight: 600 }}>{item.title}</h3>
                 <p style={{ fontSize: 12, lineHeight: 1.5,
                             color: "var(--text-dim)", margin: 0 }}>
                   {item.body}

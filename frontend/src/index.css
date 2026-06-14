@@ -23,7 +23,11 @@
   --border-strong: rgba(255, 200, 120, 0.22);
   --text: #f4ecdc;
   --text-dim: #a39d8a;
-  --text-faint: #6b6557;
+  /* WCAG AA fix (Iter 152): bumped from #6b6557 → #948c79.
+     Old value was 2.92:1 on --panel bg → flagged as low-contrast by
+     PageSpeed Insights / axe (color-contrast rule). New value is
+     ~5.20:1, comfortably above the 4.5:1 normal-text threshold. */
+  --text-faint: #948c79;
   --accent: #ff8a2a;       /* sodium amber (primary) */
   --accent-end: #e57718;   /* primary gradient endpoint */
   --accent-2: #ffc560;     /* warm gold (secondary) */

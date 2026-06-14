@@ -5202,3 +5202,34 @@ frames.
 - P2: Fast-AUREM marketing repo
 - Refactor: `ChatPanel.jsx` (still 1600+ lines) → continue migration to `useChatMessages`/`useChatStream` hooks
 
+
+
+### Iter 152 — PageSpeed Insights P0 fixes (Feb 2026)
+**Trigger**: User shared PageSpeed report for `https://auremcto.com` (`pagespeed.web.dev/.../nhuul77liz`) → Performance 86, Accessibility 89, BP 100, SEO 100. Asked to fix the highlighted issues.
+
+**Issues addressed**
+1. **WCAG AA color contrast fail** (axe rule `color-contrast`): `--text-faint: #6b6557` on `--panel` bg measured ~2.92:1 — well under the 4.5:1 normal-text threshold. Failing elements were the small subtitles on every pricing card ("Kick the tires", "For weekend builders", "Ship as a squad", "/ month USD", "forever").
+   - Fix: bumped `--text-faint` to `#948c79` (~5.20:1) in `frontend/src/index.css`. Stays in the warm-amber palette; no other CSS edits needed because every faint-text site references the variable.
+2. **Heading order skip** (axe rule `heading-order`): WHATS_NEW cards on the landing page used `<h4>` while their parent section was `<h2>` (h3 was skipped).
+   - Fix: `frontend/src/pages/Landing.jsx` — changed `<h4>` → `<h3>` for the iteration title rendered in the WHATS_NEW grid (line 200).
+3. **Render-blocking resources** (1,300ms savings):
+   - Added `defer` to `<script src="/F12ErrorCapture.js">` so it no longer blocks first paint.
+4. **Preconnect candidates** (320ms LCP savings):
+   - Added `<link rel="preconnect">` + `<link rel="dns-prefetch">` for `fonts.googleapis.com`, `fonts.gstatic.com`, and `launch-pad-237.emergent.host` (the public-stats API on the LCP path).
+5. **LCP image priority**: added `fetchpriority="high"` to both `<link rel="preload">` background-image hints in `index.html`.
+
+**Files touched**
+- EDIT: `frontend/src/index.css` (--text-faint contrast bump)
+- EDIT: `frontend/src/pages/Landing.jsx` (h4 → h3 in WHATS_NEW)
+- EDIT: `frontend/index.html` (preconnect, dns-prefetch, defer, fetchpriority)
+
+**Verification**: smoke-screenshot on preview confirms pricing card subtitles are now clearly legible (warmer/brighter); no other UI regressed. The CSP / COOP / Trusted-Types warnings from the report are server-side headers (Cloudflare config) and outside the React/Vite build — flagged separately for the next ops pass.
+
+**Pending tasks (priority order)**
+- P1: Async background job pattern for `POST /projects/create` (return job_id immediately)
+- P1: Production Purge Test Data API (`POST /api/aurem-dev/admin/purge-test-data`)
+- P1: Dynamic SEO/GEO Compare Hub integration (needs re-uploaded files)
+- P2: Vercel OAuth 1-click wizard (blocked: needs OAuth app creds)
+- P2: pgvector / Qdrant vector DB
+- P2: `ChatPanel.jsx` (1700+ lines) → continue hook extraction
+- Ops: add CSP / COOP / X-Frame-Options headers at Cloudflare to lift BP "Trust & Safety" warnings

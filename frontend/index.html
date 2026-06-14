@@ -91,8 +91,18 @@
     <!-- =============================================================== -->
     <!-- PERFORMANCE — preload the landing background image              -->
     <!-- =============================================================== -->
-    <link rel="preload" as="image" href="/aurem-bg.webp" media="(min-width: 769px)" />
-    <link rel="preload" as="image" href="/aurem-bg-mobile.webp" media="(max-width: 768px)" />
+    <!-- Iter 152 — preconnect hints. Saves ~320ms on the public-stats
+         call (LCP path) per PageSpeed report, plus parallel TLS handshake
+         for Google Fonts CDN. dns-prefetch is a fallback for older UAs. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://launch-pad-237.emergent.host" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="dns-prefetch" href="https://launch-pad-237.emergent.host" />
+
+    <link rel="preload" as="image" href="/aurem-bg.webp" media="(min-width: 769px)" fetchpriority="high" />
+    <link rel="preload" as="image" href="/aurem-bg-mobile.webp" media="(max-width: 768px)" fetchpriority="high" />
 
     <!-- =============================================================== -->
     <!-- STRUCTURED DATA (Schema.org JSON-LD)                            -->
