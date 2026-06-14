@@ -311,11 +311,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const abortRef = useRef(null);
   const fileInputRef = useRef(null);
   const taRef = useRef(null);
-  // Iter 146 — tracks whether the textarea currently holds in-flight
-  // user input. Used to fire `aurem:chat-typing-started/stopped` events
-  // exactly once per typing session so Shell.jsx can auto-hide the
-  // sidebar without flickering on every keystroke.
-  const typingActiveRef = useRef(false);
+  // Iter 146 — tracks whether the user has already sent a message in
+  // the current session. Used to fire `aurem:chat-session-started`
+  // exactly once so Shell.jsx can hide the sidebar after the first
+  // send (not on every keystroke).
+  const sessionStartedRef = useRef(false);
+  // Reset the flag whenever the session changes (new chat, switched
+  // project) so the sidebar reappears in the fresh session until the
+  // user actually sends something.
+  useEffect(() => {
+    sessionStartedRef.current = false;
+    try { window.dispatchEvent(new CustomEvent("aurem:chat-session-reset")); }
+    catch { /* ignore */ }
+  }, [sessionId]);
 
   // Attached files (separate from textarea content). Each:
   // {id, name, size, kind: "image"|"doc", status: "uploading"|"ready"|"error",
@@ -707,12 +715,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // demanded text, which is why an image-only chat silently refused.
     if ((!text && !readyAttachments.length) || busy || !sessionId) return;
     setInput("");
-    // Iter 146 — once user sends, the typing-session ends → fire stop
-    // so the sidebar resumes its normal hover/peek behaviour.
-    if (typingActiveRef.current) {
-      typingActiveRef.current = false;
-      try { window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped")); }
-      catch { /* ignore */ }
+    // Iter 146 — once the user fires off the first message of this
+    // session, broadcast `aurem:chat-session-started` so Shell.jsx
+    // can hide the sidebar for the rest of the session. The peek hot
+    // zone on the left edge remains the only way to bring it back.
+    if (!sessionStartedRef.current) {
+      sessionStartedRef.current = true;
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:chat-session-started", {
+          detail: { session_id: sessionId },
+        }));
+      } catch { /* ignore */ }
     }
     // Clear any leftover ambiguous-mode banner from the previous turn —
     // a new prompt = new classification.
@@ -1444,28 +1457,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             const v = e.target.value;
             setInput(v);
             setDetectedMode(detectMode(v));
-            // Iter 146 — sidebar auto-hide on typing. Fire start-event
-            // when the user types the first character of a fresh prompt;
-            // fire stop-event when the textarea is empty again.
-            try {
-              if (v.length > 0) {
-                if (!typingActiveRef.current) {
-                  typingActiveRef.current = true;
-                  window.dispatchEvent(new CustomEvent("aurem:chat-typing-started"));
-                }
-              } else if (typingActiveRef.current) {
-                typingActiveRef.current = false;
-                window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped"));
-              }
-            } catch { /* ignore */ }
-          }}
-          onBlur={() => {
-            // Restore sidebar if user navigated away without sending.
-            if (typingActiveRef.current && !input.trim()) {
-              typingActiveRef.current = false;
-              try { window.dispatchEvent(new CustomEvent("aurem:chat-typing-stopped")); }
-              catch { /* ignore */ }
-            }
           }}
           onKeyDown={onKeyDown}
           onPaste={(e) => {

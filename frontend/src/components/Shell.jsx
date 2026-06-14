@@ -130,23 +130,24 @@ export default function Shell({ children, requireAuth }) {
   // Close drawer whenever route changes (mobile UX expectation)
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
-  // Iter 146 — typing-auto-hide wiring. ChatPanel fires these events.
+  // Iter 146 — sidebar hide-on-session-start.
+  // Fires once the user sends their first message in a chat session,
+  // and stays hidden until they switch sessions (new chat, project
+  // change) or hover the left-edge hot-zone. This matches the
+  // sovereign-CTO pattern: focus first, navigation on demand.
   useEffect(() => {
     const onStart = () => {
-      // Don't fight the user if they explicitly expanded the sidebar
-      // moments ago — only hide if it was already in default collapsed
-      // state OR if no manual peek is active.
       setHiddenForTyping(true);
     };
-    const onStop = () => {
+    const onReset = () => {
       setHiddenForTyping(false);
       peekFromHoverRef.current = false;
     };
-    window.addEventListener("aurem:chat-typing-started", onStart);
-    window.addEventListener("aurem:chat-typing-stopped", onStop);
+    window.addEventListener("aurem:chat-session-started", onStart);
+    window.addEventListener("aurem:chat-session-reset", onReset);
     return () => {
-      window.removeEventListener("aurem:chat-typing-started", onStart);
-      window.removeEventListener("aurem:chat-typing-stopped", onStop);
+      window.removeEventListener("aurem:chat-session-started", onStart);
+      window.removeEventListener("aurem:chat-session-reset", onReset);
     };
   }, []);
 
@@ -157,7 +158,8 @@ export default function Shell({ children, requireAuth }) {
     setHiddenForTyping(false);
   }, [isMobile]);
   // When the cursor leaves the sidebar after a hover-peek, slide it
-  // back away so the chat reclaims the full width again.
+  // back away so the chat reclaims the full width again. We only
+  // re-hide if this was a hover-peek (user didn't manually toggle).
   const onSidebarMouseLeave = useCallback(() => {
     if (isMobile) return;
     if (peekFromHoverRef.current) {
