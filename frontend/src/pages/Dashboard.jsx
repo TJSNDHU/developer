@@ -102,6 +102,16 @@ function DashboardBody() {
     });
   }, []);
 
+  // Track ORA panel open-state so the launch button can hide while the
+  // panel is already on screen (the panel header already says ASK ORA,
+  // so the toolbar pill becomes redundant noise).
+  const [oraOpen, setOraOpen] = useState(false);
+  useEffect(() => {
+    const onState = (e) => setOraOpen(!!e?.detail?.open);
+    window.addEventListener("aurem:ora-panel-state", onState);
+    return () => window.removeEventListener("aurem:ora-panel-state", onState);
+  }, []);
+
   return (
     <div
       data-testid="dashboard-root"
@@ -112,31 +122,6 @@ function DashboardBody() {
           <TabBar />
         </div>
         <button
-          data-testid="ask-ora-launch-btn"
-          onClick={() => {
-            try { window.dispatchEvent(new CustomEvent("aurem:ora-open")); }
-            catch { /* ignore */ }
-          }}
-          title="Ask ORA — second-opinion AI panel"
-          className="ask-ora-launch-btn"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            fontSize: 10, fontWeight: 700,
-            padding: "5px 12px",
-            background: "var(--accent-soft, rgba(255,138,42,0.10))",
-            border: "1px solid var(--accent, rgba(255,138,42,0.4))",
-            borderRadius: 6,
-            color: "var(--accent-2, #ffb347)",
-            cursor: "pointer", flexShrink: 0,
-            fontFamily: "'JetBrains Mono', monospace",
-            letterSpacing: "0.12em",
-            boxShadow: "0 0 10px -3px var(--accent, rgba(255,138,42,0.4))",
-          }}
-        >
-          <MessageCircle size={11} />
-          ASK ORA
-        </button>
-        <button
           data-testid="preview-toggle"
           onClick={togglePreview}
           title={showPreview ? "Hide live preview" : "Show live preview"}
@@ -144,7 +129,6 @@ function DashboardBody() {
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             fontSize: 11, padding: "5px 10px",
-            margin: "0 14px",
             background: showPreview
               ? "rgba(255,138,42,0.10)"
               : "rgba(255,255,255,0.04)",
@@ -157,6 +141,34 @@ function DashboardBody() {
           {showPreview ? <EyeOff size={11} /> : <Eye size={11} />}
           {showPreview ? "Hide preview" : "Preview"}
         </button>
+        {!oraOpen && (
+          <button
+            data-testid="ask-ora-launch-btn"
+            onClick={() => {
+              try { window.dispatchEvent(new CustomEvent("aurem:ora-open")); }
+              catch { /* ignore */ }
+            }}
+            title="Ask ORA — second-opinion AI panel"
+            className="ask-ora-launch-btn"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 10, fontWeight: 700,
+              padding: "5px 12px",
+              margin: "0 14px 0 10px",
+              background: "var(--accent-soft, rgba(255,138,42,0.10))",
+              border: "1px solid var(--accent, rgba(255,138,42,0.4))",
+              borderRadius: 6,
+              color: "var(--accent-2, #ffb347)",
+              cursor: "pointer", flexShrink: 0,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.12em",
+              boxShadow: "0 0 10px -3px var(--accent, rgba(255,138,42,0.4))",
+            }}
+          >
+            <MessageCircle size={11} />
+            ASK ORA
+          </button>
+        )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>

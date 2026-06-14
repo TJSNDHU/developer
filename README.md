@@ -186,6 +186,10 @@ You don't say "use mode C." ORA reads your intent and picks automatically.
 
 ## Architecture — how ORA is built
 
+> Full system mapping — every layer that turns a chat prompt into a live commit.
+
+### One-turn flow
+
 ```
   ┌────────────────────────────────────────────────────────────────┐
   │                         CHAT TURN                              │
@@ -213,8 +217,92 @@ You don't say "use mode C." ORA reads your intent and picks automatically.
   │       │                                                        │
   │       ▼                                                        │
   │  Vanguard scanner  ──→  25+ security patterns  ──→  commit    │
+  │       │                                                        │
+  │       ▼                                                        │
+  │  ORA shadow-learner ──→  low-confidence detector              │
+  │  (Iter 145)              → silent ORA call → learning log     │
   └────────────────────────────────────────────────────────────────┘
 ```
+
+### Full surface map — 60-second tour
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║                      FRONTEND  (React 19 + Vite)                     ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  Pages (24)           Landing · Login · Signup · Dashboard           ║
+║                       Projects · Deploy · Database · Domain          ║
+║                       Tokens · Analytics · Wrapped · ShipWall        ║
+║                       Settings · BrainDump · VsDevin · OpsRecipes    ║
+║                       Automations · Admin (5 sub-tabs)               ║
+║                                                                      ║
+║  Hooks (5)            useChatSession · useChatStream · useChatMessages║
+║                       useORAPanel · useTextToVoice                   ║
+║                                                                      ║
+║  Components (30+)     ChatPanel — unified composer-card layout       ║
+║                       ORASidePanel — split-screen 35vw panel         ║
+║                       MessageBubble · RenderedMessage · CodeBlock    ║
+║                       TaskLiveTape · LiveTaskPopup · ShipDialog      ║
+║                       Shell — sidebar auto-hide + hot-zone           ║
+╚══════════════════════════════════════════════════════════════════════╝
+                                  │
+                                  ▼  /api/aurem-dev/*  (SSE + REST)
+╔══════════════════════════════════════════════════════════════════════╗
+║                       BACKEND  (FastAPI 0.115)                       ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  Routers (26)         chat · cto_projects · github_deploy            ║
+║                       hosted_deploy · payments · auth · admin        ║
+║                       vault · upload · usage · automations · domain  ║
+║                       stacks · support · trust · unlock · wrapped    ║
+║                       shipwall · github_oauth · github_bot · harden  ║
+║                       lint_preview · engagement · deploy · projects  ║
+║                                                                      ║
+║  Services (47)        orchestrator · llm · tools_bridge · ora_client ║
+║                       ora_learning · ora_council_logger              ║
+║                       mode_b_council · mode_d_debugger               ║
+║                       mode_e_auditor · mode_f_engage · vanguard_*    ║
+║                       project_brain · codebase_indexer · repo_context║
+║                       parallel_agents · github_api_writer            ║
+║                       mongo_provisioner · sandbox_runner · vault     ║
+╚══════════════════════════════════════════════════════════════════════╝
+                                  │
+                                  ▼
+╔══════════════════════════════════════════════════════════════════════╗
+║                  PERSISTENCE  (MongoDB Motor async)                  ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  dev_users  ·  chat_sessions  ·  cto_projects  ·  cto_tasks          ║
+║  vanguard_audit  ·  ora_council_logs  ·  ora_learning_logs (new)     ║
+║  usage_events  ·  github_deploy_events  ·  feature_flags             ║
+║  ship_wall  ·  wrapped_stats  ·  subscriptions  ·  vault_secrets     ║
+╚══════════════════════════════════════════════════════════════════════╝
+                                  │
+                                  ▼
+╔══════════════════════════════════════════════════════════════════════╗
+║                       EXTERNAL INTEGRATIONS                          ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  LLM         DeepSeek V3 · Claude Sonnet 4.5 (Maxx) · Emergent LLM   ║
+║  Code        GitHub REST API (trees+blobs+commits+refs)              ║
+║  Deploy      Vercel webhooks · Emergent hosted MongoDB provisioner   ║
+║  Payments    Stripe (flat-fee subscriptions, no token meters)        ║
+║  Search      Tavily web search · Firecrawl JS-heavy scrape           ║
+║  Observe     Sentry (crash) · F12 browser-error capture (custom)     ║
+╚══════════════════════════════════════════════════════════════════════╝
+```
+
+### Key sub-systems (June 2026)
+
+| System | Files | What it does |
+| :--- | :--- | :--- |
+| **6 ORA modes** | `mode_b/d/e/f_*.py`, `mode_classifier.py` | Auto-routes prompts to Chat/Advice/Code-ship/Debug/Audit/Engage |
+| **Project Brain** | `project_brain.py`, `codebase_indexer.py` | Per-repo memory: stack, conventions, last 5 commits |
+| **Vanguard 007** | `vanguard_audit.py`, `vanguard_scanner.py`, `vanguard_verify_agent.py` | 25+ patterns block AWS/Stripe/GitHub keys, SQLi, XSS, missing auth |
+| **Parallel agents** | `parallel_agents.py` | Splits large tasks across backend/frontend/test workers |
+| **GitHub direct-commit** | `github_api_writer.py`, `github_auto.py` | Atomic REST commit — no PR, no local `git` binary |
+| **ORA shadow-learner** | `ora_learning.py` *(Iter 145)* | Detects low-confidence AUREM replies → background ORA call → learning log |
+| **Ask-ORA side panel** | `FloatingORAButton.jsx`, `ORASidePanel.jsx` *(Iter 150-152)* | Split-screen 35vw second-opinion AI, JWT-scoped, TTS + STT |
+| **Composer card** | `ChatPanel.jsx`, `composer-card` CSS *(Iter 147)* | Unified input+toolbar surface, status pill bar auto-collapses |
+| **Sidebar auto-hide** | `Shell.jsx`, `data-typing-hidden` *(Iter 146)* | Hides on first send; cursor on left-edge hot-zone peeks it back |
+| **Repo-help dialog** | `RepoHelpDialog` *(Iter 148)* | Blinking pill + 3-step modal when active project has no GitHub repo |
 
 ---
 

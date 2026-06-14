@@ -1,5 +1,5 @@
 # robots.txt — AUREM CTO (auremcto.com)
-# Last updated: 2026-06-05
+# Last updated: 2026-06-14
 #
 # Policy: we welcome traditional crawlers AND AI/LLM crawlers — answer
 # engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews,

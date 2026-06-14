@@ -139,6 +139,11 @@ export default function AdminOverview() {
         </div>
       </Section>
 
+      {/* ── System mapping (Iter 152) ─────────────────────────
+          Architectural at-a-glance — same content as README so admins,
+          founders, and ORA itself have a single source of truth. */}
+      <SystemMappingCard />
+
       {/* ── Cache & refresh (Iter 63) ───────────────────────── */}
       <CachePurgePanel />
 
@@ -709,3 +714,147 @@ function humanAgo(iso) {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 }
+
+
+/**
+ * SystemMappingCard — Iter 152.
+ * Live snapshot of every architectural layer that turns a chat prompt
+ * into a live commit. Mirrors the README so admins, founders, and ORA
+ * itself have a single source of truth. Pure JSX (no fetch) — it's an
+ * editor-controlled diagram, not telemetry.
+ */
+function SystemMappingCard() {
+  const layers = [
+    {
+      key: "frontend",
+      title: "Frontend · React 19 + Vite",
+      tag: "24 pages · 5 hooks · 30+ components",
+      items: [
+        ["Pages", "Landing · Dashboard · Projects · Deploy · Database · Domain · Tokens · Analytics · Wrapped · ShipWall · Admin (×5) · Settings"],
+        ["Hooks", "useChatSession · useChatStream · useChatMessages · useORAPanel · useTextToVoice"],
+        ["Surfaces", "ChatPanel composer-card · ORASidePanel split-screen · MessageBubble · TaskLiveTape · Shell auto-hide sidebar"],
+      ],
+    },
+    {
+      key: "backend",
+      title: "Backend · FastAPI 0.115 (Motor async)",
+      tag: "26 routers · 47 services",
+      items: [
+        ["Routers", "chat · cto_projects · github_deploy · hosted_deploy · payments · auth · admin · vault · usage · automations · domain · stacks · trust · wrapped · shipwall · github_oauth · harden · lint_preview · engagement"],
+        ["LLM core", "orchestrator · llm · tools_bridge · ora_client · ora_learning (new) · ora_council_logger"],
+        ["Modes", "mode_b_council · mode_d_debugger · mode_e_auditor · mode_f_engage · mode_classifier"],
+        ["Code path", "project_brain · codebase_indexer · repo_context · parallel_agents · github_api_writer · sandbox_runner"],
+        ["Security", "vanguard_audit · vanguard_scanner · vanguard_verify_agent · vault · rate_limiter"],
+      ],
+    },
+    {
+      key: "data",
+      title: "Persistence · MongoDB",
+      tag: "Motor async · sharded by user_id",
+      items: [
+        ["Identity", "dev_users · subscriptions · usage_events"],
+        ["Conversation", "chat_sessions · cto_tasks · cto_projects · vanguard_audit"],
+        ["Learning", "ora_council_logs · ora_learning_logs (Iter 145)"],
+        ["Engagement", "ship_wall · wrapped_stats · feature_flags · vault_secrets"],
+      ],
+    },
+    {
+      key: "external",
+      title: "External integrations",
+      tag: "5 LLM/services · 1 payments · 1 deploy",
+      items: [
+        ["LLM", "DeepSeek V3 · Claude Sonnet 4.5 (Maxx review) · Emergent LLM key"],
+        ["Code", "GitHub REST API — trees · blobs · commits · refs (atomic)"],
+        ["Deploy", "Vercel webhooks · Emergent hosted MongoDB provisioner"],
+        ["Payments", "Stripe (flat-fee subscriptions, no token meters)"],
+        ["Search", "Tavily web search · Firecrawl JS-heavy scrape"],
+        ["Observe", "Sentry crash · F12 browser-error custom capture"],
+      ],
+    },
+  ];
+
+  return (
+    <Section title="System mapping">
+      <div
+        data-testid="admin-system-mapping"
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))",
+        }}
+      >
+        {layers.map((layer) => (
+          <div
+            key={layer.key}
+            data-testid={`sysmap-${layer.key}`}
+            style={{
+              background: "var(--panel-2, rgba(255,255,255,0.02))",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "14px 16px",
+            }}
+          >
+            <div style={{
+              display: "flex", alignItems: "baseline", justifyContent: "space-between",
+              gap: 10, marginBottom: 8,
+            }}>
+              <div style={{
+                fontSize: 12, fontWeight: 700,
+                color: "var(--text)", letterSpacing: "0.02em",
+              }}>{layer.title}</div>
+              <div style={{
+                fontSize: 9,
+                color: "var(--accent-2)",
+                fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.08em",
+                whiteSpace: "nowrap",
+              }}>{layer.tag}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {layer.items.map(([label, body], i) => (
+                <div key={i} style={{
+                  display: "grid",
+                  gridTemplateColumns: "78px 1fr",
+                  gap: 10, alignItems: "baseline",
+                }}>
+                  <div style={{
+                    fontSize: 9,
+                    color: "var(--text-faint)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                  }}>{label}</div>
+                  <div style={{
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    lineHeight: 1.55,
+                  }}>{body}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        marginTop: 14,
+        padding: "10px 14px",
+        background: "rgba(255,138,42,0.06)",
+        border: "1px dashed rgba(255,138,42,0.32)",
+        borderRadius: 6,
+        fontSize: 11,
+        color: "var(--text-dim)",
+        lineHeight: 1.55,
+      }}>
+        <strong style={{ color: "var(--accent-2)", letterSpacing: "0.04em" }}>
+          One-turn flow:
+        </strong>{" "}
+        User prompt → layered persona (5/13/2k) → DeepSeek V3 with 23 local
+        tools → optional Claude Sonnet watchdog (Maxx) → Vanguard 25+ pattern
+        scan → atomic GitHub commit → ORA shadow-learner detects low-confidence
+        replies and logs both sides into <code>ora_learning_logs</code>.
+      </div>
+    </Section>
+  );
+}
+

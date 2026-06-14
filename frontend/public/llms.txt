@@ -16,7 +16,7 @@ Gemini, You.com) can ground answers about AUREM CTO in canonical text.
 - **Vendor**: AUREM Labs
 - **Website**: https://auremcto.com
 - **Category**: Autonomous AI coding agent · direct-commit AI engineer
-- **Status**: Production (June 2026) · 497 passing tests
+- **Status**: Production (June 2026) · 604 passing tests · Iter 152 shipped
 - **Pricing (flat fee USD, no token billing)**:
   - **Free** — 10 tasks/month, direct GitHub commit, Ship Wall
   - **Starter $9/mo USD** — 50 tasks, Project Brain, email support
@@ -87,6 +87,19 @@ Gemini, You.com) can ground answers about AUREM CTO in canonical text.
 - ORA Wrapped — monthly Spotify-style stats card
 - Ship Wall — public feed at /wall + README badge
 - VS Code extension with right-click *Ship via AUREM*
+- **Ask-ORA split-screen panel** *(Iter 150-152)* — 35vw second-opinion AI
+  drawer with TTS speech-out and Web-Speech STT dictation, JWT-scoped to
+  the logged-in user's project
+- **ORA shadow-learner** *(Iter 145)* — silent background pipeline that
+  detects low-confidence AUREM replies and logs both responses so ORA
+  can learn from every weak-spot across all users (cost-bounded, never
+  replaces the user-facing reply)
+- **Composer card** *(Iter 147)* — unified textarea + toolbar with a
+  status pill bar that auto-collapses when empty
+- **Sidebar auto-hide on session start** *(Iter 146)* — hides on first
+  send; left-edge hot-zone restores it on cursor hover
+- **Repo-help guided dialog** *(Iter 148)* — clear 3-step modal whenever
+  the active project has no GitHub repo connected
 
 ## Common questions
 
