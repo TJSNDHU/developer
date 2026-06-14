@@ -17,6 +17,7 @@ import {
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
 import TokenBell from "./TokenBell";
 import PWAInstallPrompt from "./PWAInstallPrompt";
+import FloatingORAButton from "./FloatingORAButton";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -842,6 +843,10 @@ export default function Shell({ children, requireAuth }) {
         </main>
       </div>
       {token && <PWAInstallPrompt />}
+      {/* Iter 149 — Floating ORA Panel. Mounted only when an authenticated
+          token is present so the panel inherits the logged-in user's JWT
+          (never the admin token). */}
+      {token && <FloatingORAButton />}
     </SessionCtx.Provider>
   );
 }
