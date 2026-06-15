@@ -51,6 +51,7 @@ const OpsRecipes        = lazy(() => import("./pages/OpsRecipes"));
 const Automations       = lazy(() => import("./pages/Automations"));
 const OAuthFinish       = lazy(() => import("./pages/OAuthFinish"));
 const VsDevin           = lazy(() => import("./pages/VsDevin"));
+const Pricing           = lazy(() => import("./pages/Pricing"));
 
 // Minimal loading state for the brief fetch window. Avoids the
 // jarring "blank page" between click and hydration. Pure CSS so it
@@ -137,6 +138,7 @@ export default function App() {
           <Route path="/automations" element={<Automations />} />
           <Route path="/oauth-finish" element={<OAuthFinish />} />
           <Route path="/vs/devin"  element={<VsDevin />} />
+          <Route path="/pricing" element={<Pricing />} />
           {/* Iter 124h — /vs/cursor was a dead link in Landing footer pre-fix;
               keep the URL alive (incoming backlinks) by redirecting to /vs/devin
               until a dedicated VsCursor page lands. */}

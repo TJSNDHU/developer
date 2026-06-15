@@ -42,7 +42,7 @@ export const PRICING_TIERS = [
     tagline: "For weekend builders",
     features: [
       "50 tasks per month",
-      "Standard mode",
+      "⚡ Swift mode only",
       "Direct commits + rollback",
       "Live worker tape",
       "Email support",
@@ -59,8 +59,8 @@ export const PRICING_TIERS = [
     tagline: "Most popular",
     highlight: true,
     features: [
-      "Unlimited tasks",
-      "Maxx mode — 100 Claude tasks/mo",
+      "300 tasks per month",
+      "Swift + Pro review modes",
       "Project Brain memory",
       "Parallel agents",
       "VS Code extension",
@@ -78,7 +78,9 @@ export const PRICING_TIERS = [
     tagline: "Ship as a squad",
     features: [
       "Everything in Pro",
-      "Unlimited Maxx mode",
+      "400 tasks per month",
+      "🚀 Maxx mode — Claude writes your code",
+      "All 3 modes: Swift, Pro, Maxx",
       "Admin dashboard + roles",
       "Priority queue",
       "Shared project brain",
