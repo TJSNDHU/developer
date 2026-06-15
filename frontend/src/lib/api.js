@@ -7,7 +7,7 @@ import axios from "axios";
 const BACKEND =
   (typeof process !== "undefined" && process.env && process.env.REACT_APP_BACKEND_URL) ||
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_URL) ||
-  "";
+  "https://auremcto.com";
 
 export const API_BASE = `${BACKEND}/api/aurem-dev`;
 export const api = axios.create({
