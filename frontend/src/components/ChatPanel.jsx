@@ -21,6 +21,7 @@ import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
+import ThinkingHint from "./ThinkingHint";
 import LiveTaskPopup from "./LiveTaskPopup";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
@@ -1396,6 +1397,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           {/* Iter 154 — legacy MAXX active-pill removed. The selected
               mode is already shown by ModeSelector's accent border on
               its Maxx pill, so this duplicate pill was visual noise. */}
+          {/* Iter 158 — tier-aware thinking-state upsell pill.
+              Appears 600ms into a chat-busy cycle, slides in with a
+              soft amber glow, and converts dead wait time into a
+              feature/upsell CTA. Founder tier renders nothing. */}
+          <ThinkingHint busy={busy} />
           {/* Iter 148 — explicit warning when the active project has
               no GitHub repo wired up. Click opens a guided helper dialog
               with the exact 3 steps to connect one. The dialog drives

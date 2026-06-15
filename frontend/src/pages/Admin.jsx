@@ -15,6 +15,7 @@ import { toast } from "../components/Toast";
 import AuremAdminPanel from "../components/AuremAdminPanel";
 import AdminOverview from "./AdminOverview";
 import AgentTokenPanel from "../components/AgentTokenPanel";
+import AdminThinkingHints from "../components/AdminThinkingHints";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -1019,6 +1020,117 @@ function SettingsPage() {
         onClick={save} disabled={busy}
         className="btn-primary" style={{ marginTop: 14 }}>
         {busy ? "Saving…" : "Save settings"}
+      </button>
+
+      {/* Iter 158 — thinking-hint manager (tier-aware upsell pills
+          shown next to the chat spinner). Full CRUD + global toggle
+          + delay slider. */}
+      <ThinkingHintsConfigCard />
+      <AdminThinkingHints />
+    </div>
+  );
+}
+
+function ThinkingHintsConfigCard() {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get("/admin/thinking-hints-config")
+      .then((r) => setCfg({
+        enabled: r.data?.enabled ?? true,
+        delay_ms: r.data?.delay_ms ?? 600,
+      }))
+      .catch(() => setCfg({ enabled: true, delay_ms: 600 }));
+  }, []);
+
+  if (!cfg) return null;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.post("/admin/thinking-hints-config", cfg);
+      toast({ message: "Hint config saved", kind: "success" });
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Save failed",
+        kind: "error",
+      });
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div
+      data-testid="hints-config-card"
+      style={{
+        marginTop: 28, padding: 14, borderRadius: 10,
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <h3 style={{ fontSize: 13, margin: "0 0 6px" }}>
+        💡 Thinking-Hint Global Config
+      </h3>
+      <p style={{ fontSize: 11, color: "var(--text-faint)", margin: "0 0 14px" }}>
+        Master kill-switch + delay tuner. Per-hint copy is managed below.
+      </p>
+      <label style={{
+        display: "flex", alignItems: "center", gap: 10, fontSize: 12,
+        marginBottom: 14, cursor: "pointer",
+      }}>
+        <input
+          data-testid="hints-config-enabled"
+          type="checkbox"
+          checked={!!cfg.enabled}
+          onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })}
+        />
+        Show thinking hints to users
+        <span style={{
+          marginLeft: 8, fontSize: 10, letterSpacing: "0.1em",
+          padding: "2px 8px", borderRadius: 999,
+          background: cfg.enabled
+            ? "rgba(110, 231, 183, 0.12)"
+            : "rgba(255, 80, 80, 0.10)",
+          color: cfg.enabled ? "var(--ok, #6ee7b7)" : "var(--danger, #ef4444)",
+          border: `1px solid ${cfg.enabled
+            ? "rgba(110, 231, 183, 0.35)"
+            : "rgba(255, 80, 80, 0.35)"}`,
+        }}>
+          {cfg.enabled ? "ENABLED" : "DISABLED"}
+        </span>
+      </label>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{
+          display: "flex", justifyContent: "space-between",
+          fontSize: 11, color: "var(--text-dim)", marginBottom: 4,
+        }}>
+          <span>Delay before hint appears</span>
+          <span data-testid="hints-config-delay-value"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+            {cfg.delay_ms} ms
+          </span>
+        </div>
+        <input
+          data-testid="hints-config-delay"
+          type="range"
+          min={200} max={5000} step={100}
+          value={cfg.delay_ms}
+          onChange={(e) => setCfg({ ...cfg, delay_ms: +e.target.value })}
+          style={{ width: "100%" }}
+        />
+        <div style={{
+          display: "flex", justifyContent: "space-between",
+          fontSize: 10, color: "var(--text-faint)", marginTop: 2,
+        }}>
+          <span>200ms (instant)</span><span>5000ms (slow)</span>
+        </div>
+      </div>
+      <button
+        data-testid="hints-config-save"
+        onClick={save} disabled={saving} className="btn-primary"
+        style={{ fontSize: 11 }}
+      >
+        {saving ? "Saving…" : "Save config"}
       </button>
     </div>
   );

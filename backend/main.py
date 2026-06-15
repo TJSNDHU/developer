@@ -44,6 +44,7 @@ from routers.shipwall import router as shipwall_router
 from routers.wrapped import router as wrapped_router
 from routers.hosted_deploy import router as hosted_deploy_router
 from routers.github_deploy import router as github_deploy_router   # iter 123
+from routers.thinking_hints import router as thinking_hints_router  # iter 158
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -276,6 +277,15 @@ async def lifespan(app: FastAPI):
                 logger.warning("init_prod_collections errors: %s", result["errors"])
         except Exception as _e:
             logger.warning(f"init_prod_collections failed: {_e}")
+        # Iter 158 — seed default thinking_hints (idempotent, never
+        # overwrites admin edits, only inserts missing hint_ids).
+        try:
+            from services.thinking_hints import ensure_default_hints
+            inserted = await ensure_default_hints(app.state.db)
+            if inserted:
+                logger.info("💡 thinking_hints seeded: %d entries", inserted)
+        except Exception as _e:
+            logger.warning(f"thinking_hints seed failed: {_e}")
         # Iter 123 — wire deploy_logger.
         try:
             from services.deploy_logger import log_deploy_event
@@ -848,3 +858,4 @@ app.include_router(wrapped_router,       prefix="/api/aurem-dev")
 app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
+app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
