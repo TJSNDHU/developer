@@ -8,7 +8,7 @@
  * existing live-URL iframe. Top-right button now dispatches a
  * `aurem:toggle-preview` window event that ChatPanel listens for.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
@@ -112,12 +112,87 @@ function DashboardBody() {
     return () => window.removeEventListener("aurem:ora-panel-state", onState);
   }, []);
 
+  // Iter 163 — auto-hide topbar (tabs + Preview + ASK ORA) when the
+  // user starts typing, mirroring the sidebar auto-hide pattern in
+  // Shell.jsx but INDEPENDENT of it: a thin top hot-zone strip
+  // appears at the top edge; hovering it brings ONLY the topbar
+  // back (not the sidebar). Sidebar peek lives in Shell.
+  const [topHidden, setTopHidden] = useState(false);
+  const topPeekFromHoverRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined"
+      && window.matchMedia("(max-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = (e) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => {
+    const onStart = () => setTopHidden(true);
+    const onReset = () => {
+      setTopHidden(false);
+      topPeekFromHoverRef.current = false;
+    };
+    window.addEventListener("aurem:chat-session-started", onStart);
+    window.addEventListener("aurem:chat-session-reset", onReset);
+    return () => {
+      window.removeEventListener("aurem:chat-session-started", onStart);
+      window.removeEventListener("aurem:chat-session-reset", onReset);
+    };
+  }, []);
+  const onTopHotZoneEnter = useCallback(() => {
+    if (isMobile) return;
+    topPeekFromHoverRef.current = true;
+    setTopHidden(false);
+  }, [isMobile]);
+  const onTopBarMouseLeave = useCallback(() => {
+    if (isMobile) return;
+    if (topPeekFromHoverRef.current) {
+      topPeekFromHoverRef.current = false;
+      setTopHidden(true);
+    }
+  }, [isMobile]);
+
   return (
     <div
       data-testid="dashboard-root"
       style={{ display: "flex", flexDirection: "column", height: "100%" }}
     >
-      <div style={{ display: "flex", alignItems: "center" }}>
+      {/* Iter 163 — top hot-zone strip. Visible only when topbar is
+          hidden (auto-hide on typing). Hovering brings ONLY the
+          topbar back; sidebar stays untouched. */}
+      {!isMobile && topHidden && (
+        <div
+          data-testid="topbar-hotzone"
+          onMouseEnter={onTopHotZoneEnter}
+          onClick={onTopHotZoneEnter}
+          title="Show top tabs"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 8,
+            zIndex: 90,
+            cursor: "pointer",
+            background: "transparent",
+          }}
+        />
+      )}
+      <div
+        data-testid="dashboard-topbar"
+        data-typing-hidden={topHidden && !isMobile ? "true" : "false"}
+        onMouseLeave={onTopBarMouseLeave}
+        style={{
+          display: "flex", alignItems: "center",
+          transform: (topHidden && !isMobile) ? "translateY(-105%)" : "translateY(0)",
+          opacity: (topHidden && !isMobile) ? 0 : 1,
+          pointerEvents: (topHidden && !isMobile) ? "none" : "auto",
+          transition: "transform 260ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+        }}
+      >
         <div style={{ flex: 1, minWidth: 0 }}>
           <TabBar />
         </div>
