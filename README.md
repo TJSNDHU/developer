@@ -202,6 +202,48 @@ You don't say *"use mode C"*. ORA reads your intent and routes automatically.
 
 > Full system mapping — every layer that turns a chat prompt into a live commit.
 
+### Agent Architecture (Iter 165)
+
+| Mode | Task | Model | Why |
+|------|------|-------|-----|
+| All  | Read files   | `moonshotai/kimi-k2`              | Cheapest reader |
+| Swift | Write code  | `moonshotai/kimi-k2.7-code`       | Coding specialist |
+| Swift | Review      | `moonshotai/kimi-k2.5`            | Fast diff review |
+| Pro  | Write code   | `moonshotai/kimi-k2.7-code`       | Best open coder |
+| Pro  | Review       | `moonshotai/kimi-k2-thinking`     | Deep reasoning |
+| Maxx | Write code   | `anthropic/claude-sonnet-4-5`     | Best quality |
+| Maxx | Review       | `moonshotai/kimi-k2-thinking`     | Smart review |
+| All  | Security     | `anthropic/claude-sonnet-4-5`     | Non-negotiable |
+| —    | Fallback     | `deepseek/deepseek-chat`          | Any upstream error |
+
+Every model ID is env-overridable via `AUREM_MODEL_<KEY>` (e.g.
+`AUREM_MODEL_SWIFT_CODE=…`) so we can A/B routes without redeploying.
+
+**Agent classes** (`backend/services/agents.py`):
+
+```
+ReaderAgent      — reads repo files (Kimi K2)
+CoderAgent       — writes code (mode-aware)
+ReviewerAgent    — reviews existing code (diff format, cheap)
+SecurityAgent    — security scan (always Claude)
+CoordinatorAgent — orchestrates above. Runs Reviewer + Security in
+                   PARALLEL via asyncio.gather. Maxx mode skips
+                   Reviewer (Claude wrote it) and only runs Security.
+```
+
+**Integration surface:** `services/orchestrator.py` calls
+`CoordinatorAgent(mode).review_tail(content, prompt)` at the end of
+the chat turn. Any agent failure degrades silently to the original
+content so a flaky reviewer can never break the chat path.
+
+**Estimated cost per task** (input + output combined):
+
+| Mode | Cost | Monthly cap | Revenue | Gross margin |
+|------|------|-------------|---------|--------------|
+| Swift ($9)  | ~$0.040 | 50 tasks  | $9  | ~$7    |
+| Pro ($19)   | ~$0.045 | 300 tasks | $19 | ~$5.50 |
+| Maxx ($49)  | ~$0.085 | 400 tasks | $49 | ~$15   |
+
 ### One-turn flow
 
 ```

@@ -964,86 +964,11 @@ def _founder_escalation_note(count: int) -> str:
     )
 
 
-# Iter 153 — three review modes used at the tail of chat_with_tools.
-# Pricing-mapped:
-#   swift → DeepSeek writes → Claude diff-only review (cheap, ~400 toks)
-#   pro   → DeepSeek + Claude full review (one correction pass)
-#   maxx  → Claude already wrote the code → no extra review needed
-async def _swift_diff_review(content: str, prompt: str) -> str:
-    """Claude returns ONLY a bug-diff (≤5 fixes, no prose). If any, ask
-    DeepSeek to apply them in one cheap targeted pass. Falls back to the
-    original content on any error so a flaky reviewer never breaks chat."""
-    if not content or len(content) < 150:
-        return content
-    try:
-        from .llm import _call_claude, _call_deepseek
-        diff = await asyncio.wait_for(
-            _call_claude(
-                system=(
-                    "Find real bugs only (wrong logic, bad import, "
-                    "security hole, syntax error). Reply in this exact "
-                    "format, nothing else:\n"
-                    "PASS  (if no bugs)\n"
-                    "or list each bug as:\n"
-                    "LINE <n> | wrong: <code> | right: <code>\n"
-                    "Max 5 bugs. No prose. No explanation."
-                ),
-                user=f"Code:\n{content[:3000]}",
-                max_tokens=400,
-                temperature=0.0,
-            ),
-            timeout=6.0,
-        )
-        if not diff or diff.strip().upper().startswith("PASS"):
-            return content
-        fixed = await asyncio.wait_for(
-            _call_deepseek(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Original code:\n{content[:3000]}\n\n"
-                        f"Apply ONLY these fixes, return full corrected "
-                        f"code:\n{diff}"
-                    ),
-                }],
-                max_tokens=3500,
-                temperature=0.0,
-            ),
-            timeout=20.0,
-        )
-        return fixed if fixed and len(fixed) > 100 else content
-    except Exception:
-        return content
-
-
-async def _pro_parallel_review(content: str, prompt: str) -> str:
-    """Claude does a full review in one shot. If correct → PASS, else
-    `FIX:` followed by the corrected code block. One correction pass,
-    no nitpicks."""
-    if not content or len(content) < 150:
-        return content
-    try:
-        from .llm import _call_claude
-        review = await asyncio.wait_for(
-            _call_claude(
-                system=(
-                    "Review for bugs. If correct reply 'PASS'. "
-                    "If bugs, reply 'FIX:' then ONLY the corrected "
-                    "code block. One pass. No nitpicks."
-                ),
-                user=f"Task: {prompt[:200]}\nCode:\n{content[:3000]}",
-                max_tokens=2000,
-                temperature=0.0,
-            ),
-            timeout=8.0,
-        )
-        if review and review.strip().startswith("FIX:"):
-            fix = review.split("FIX:", 1)[1].strip()
-            if len(fix) > 50:
-                return fix
-        return content
-    except Exception:
-        return content
+# Iter 153 → Iter 165 — review tail is now delegated to
+# services.agents.CoordinatorAgent which uses smart_router to pick the
+# right model per (task, mode). Legacy `_swift_diff_review` and
+# `_pro_parallel_review` removed in iter 165 — see
+# /app/memory/post_launch_smart_router.md for the routing table.
 
 
 
@@ -1364,17 +1289,36 @@ async def chat_with_tools(
                 )
 
             # Persistence is handled by chat.py:_persist_turn — no double-write here.
-            # Iter 153 — tail-end review per chosen mode. Failures fall
-            # back to the original content so review can never crash the
-            # request path.
-            try:
-                if mode == "swift" and use_code_model:
-                    content = await _swift_diff_review(content, prompt)
-                elif mode == "pro" and use_code_model:
-                    content = await _pro_parallel_review(content, prompt)
-                # maxx → Claude already wrote the code as use_code_model=True
-            except Exception:
-                pass
+            # Iter 153 → 165 — review tail delegated to CoordinatorAgent.
+            # Runs Reviewer + Security in parallel (per smart_router
+            # routing table). Maxx skips Reviewer — Claude wrote it.
+            # Failures degrade silently to the original content so a
+            # flaky reviewer can never break the chat path.
+            agent_meta: dict = {}
+            if use_code_model and content and mode in ("swift", "pro", "maxx"):
+                try:
+                    from .agents import CoordinatorAgent
+                    coord = CoordinatorAgent(mode=mode)
+                    tail = await asyncio.wait_for(
+                        coord.review_tail(
+                            content=content, prompt=prompt, file_path="",
+                        ),
+                        timeout=20.0,
+                    )
+                    if tail.get("content"):
+                        content = tail["content"]
+                    agent_meta = {
+                        "agent_was_reviewed": bool(tail.get("was_reviewed")),
+                        "agent_providers": tail.get("providers_used") or [],
+                        "agent_security_findings": tail.get("security_findings") or [],
+                    }
+                    for f in (tail.get("security_findings") or [])[:3]:
+                        logger.warning(
+                            "agents: security [%s] line %s — %s",
+                            f.get("severity"), f.get("line"), f.get("issue"),
+                        )
+                except Exception as _re:
+                    logger.warning("agents: review tail failed: %r", _re)
             return {
                 "ok": meta.get("ok", True),
                 "content": content,
@@ -1393,6 +1337,7 @@ async def chat_with_tools(
                 "web_sources": _dedupe_sources(
                     [s for inv in invocations for s in (inv.get("web_sources") or [])]
                 ),
+                **agent_meta,
             }
 
         # iter 33: PARALLEL tool execution via asyncio.gather.

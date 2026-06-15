@@ -259,6 +259,55 @@ async def _call_claude(system: str, user: str,
 
 # ── Unified entry point ───────────────────────────────────────────────────────
 
+async def call_openrouter_model(
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int = 1000,
+    temperature: float = 0.2,
+) -> str:
+    """Iter 165 — generic OpenRouter caller for the agents pipeline.
+
+    Used by services.agents._call for ANY OpenRouter model (Kimi K2,
+    Kimi K2.7 Code, Kimi K2.5, Kimi Thinking, Claude via OpenRouter,
+    DeepSeek). The legacy `_call_claude` path goes through the
+    Emergent LLM key instead — this function is the unified
+    OpenRouter-only path so smart_router can pick any provider.
+
+    Returns "" on any failure; the agents layer handles fallback so we
+    keep this function thin and predictable.
+    """
+    api_key = _openrouter_key()
+    if not api_key:
+        logger.warning("OPENROUTER_API_KEY missing — call_openrouter_model returning empty")
+        return ""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": os.getenv("APP_URL", "https://auremcto.com"),
+        "X-Title": "AUREM Dev",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+    }
+    _timeout_s = float(os.getenv("LLM_HTTP_TIMEOUT_S", "25.0"))
+    try:
+        async with httpx.AsyncClient(timeout=_timeout_s) as c:
+            r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+        return (data["choices"][0]["message"].get("content") or "").strip()
+    except Exception as e:
+        logger.warning("call_openrouter_model(%s) failed: %r", model, e)
+        return ""
+
+
 async def call_llm(messages: list, system: str = "",
                    max_tokens: int = 4000,
                    temperature: float = 0.7) -> str:
