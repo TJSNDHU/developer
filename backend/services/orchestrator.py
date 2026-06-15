@@ -9,6 +9,8 @@ Returns: {ok, content, provider, iterations, tool_calls_run,
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 import json
 import logging
 import re
@@ -1147,6 +1149,34 @@ async def chat_with_tools(
     if founder_ask_count >= 3:
         extra = extra + _founder_escalation_note(founder_ask_count)
 
+    # Iter 157 — REPO-PERSONA RESCUE.
+    # When `project_id` is set the user is chatting *about a specific
+    # repo*, even if get_repo_context() failed/timed-out and left
+    # `extra` without the "CONNECTED REPO CONTEXT" marker that
+    # _wants_repo() looks for. Without this marker `build_persona`
+    # used to skip the REPO layer entirely → the LLM answered repo
+    # questions ("is scout working?") with generic fluff instead of
+    # calling `read_repo_file` / `search_repo`. We inject a minimal
+    # stub so the persona's MANDATORY-tool-use block kicks in.
+    if project_id and project_id != "home" and "CONNECTED REPO CONTEXT" not in extra:
+        extra = (
+            extra.rstrip()
+            + "\n\n=== CONNECTED REPO CONTEXT (degraded — fetch timed out) ===\n"
+            + f"You are scoped to project_id={project_id}. The recursive "
+            + "file tree could not be inlined this turn, but read access "
+            + "via the `read_repo_file`, `read_repo_files`, `list_repo_files`, "
+            + "and `search_repo` tools is fully available. When the user "
+            + "names ANY file / component / function / agent in this repo "
+            + "(examples: 'is scout working?', 'show me X.py'), you MUST "
+            + "call `search_repo` or `list_repo_files` first to LOCATE the "
+            + "real path, then `read_repo_file` to read it, BEFORE answering. "
+            + "Never hallucinate file paths from the prompt alone, and "
+            + "never give generic 'stream buffer / network error' diagnoses "
+            + "about your own AUREM bundle hashes — those belong to the host "
+            + "app, not the user's repo.\n"
+            + "=== END REPO CONTEXT ===\n"
+        )
+
     layered_persona = build_persona(prompt, extra, history_lines)
     base_system = layered_persona + (("\n\n" + extra) if extra.strip() else "")
     # First-iteration system prompt — full tool catalog + help.
@@ -1181,7 +1211,50 @@ async def chat_with_tools(
     token_budget = 3500 if use_code_model else 1500
     llm_mode = "code" if use_code_model else "chat"
 
+    # Iter 157 — PER-TURN ORCHESTRATOR DEADLINE.
+    # The router-level HARD_TIMEOUT_S (default 150s) used to be the only
+    # ceiling, but it lives outside this loop and only fires when the
+    # SSE queue actually receives a tick past the deadline. If the LLM
+    # is blocked inside httpx retries the worker emits nothing and the
+    # router can't cancel cleanly — that's where the 300s "thinking…"
+    # stalls came from in production.
+    #
+    # Now: every iter checks the wall-clock. If we've spent ≥ this
+    # budget we bail with a synthetic summary instead of starting
+    # another LLM round (which could itself take 2×35s on retries).
+    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "110"))
+    _orch_started_at = time.monotonic()
+
     while iters < max_iters:
+        # Iter 157 — abort BEFORE starting another LLM call if we're
+        # within ~one-LLM-round of the budget. Synthesise whatever
+        # we have so the user still gets a useful reply.
+        _elapsed = time.monotonic() - _orch_started_at
+        if _elapsed > _ORCH_BUDGET_S - 40 and iters > 0:
+            logger.info(
+                "orchestrator per-turn budget guard tripped at iter %d "
+                "(%.1fs elapsed of %ds budget) — synthesising summary",
+                iters, _elapsed, int(_ORCH_BUDGET_S),
+            )
+            clean = _synthesise_max_iters_summary(prompt, invocations) or (
+                "I hit my per-turn time budget while gathering context. "
+                "Try a narrower question (point me at a specific file or "
+                "agent name) and I'll have a real answer in seconds."
+            )
+            return {
+                "ok": True,
+                "content": clean,
+                "provider": final_provider,
+                "fallback_chain": fallback_chain,
+                "iterations": iters,
+                "tool_calls_run": len(invocations),
+                "tool_invocations": invocations,
+                "mode": llm_mode,
+                "per_turn_budget_hit": True,
+                "web_sources": _dedupe_sources(
+                    [s for inv in invocations for s in (inv.get("web_sources") or [])]
+                ),
+            }
         iters += 1
         # Iter 36: surface activity to the SSE stream so the UI can show
         # "calling Claude…" / "running 3 tools in parallel…" instead of a

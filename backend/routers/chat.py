@@ -705,8 +705,39 @@ async def chat_stream(
         if not is_founder_email(user.get("email")):
             raise HTTPException(403, "ORA agent is founder-only")
 
-    repo_ctx = await get_repo_context(user_id, body.project_id or "")
-    url_ctx = await build_url_context(body.prompt)
+    # Iter 157 — COLD START FIX.
+    # Three context-builders below used to run sequentially with NO
+    # outer timeout:
+    #   - get_repo_context()  → 5-15 GitHub API calls (worst case 15-45s)
+    #   - get_brain_context() → Mongo read + optional GH PAT call (1-5s)
+    #   - build_url_context() → external URL scrape (1-10s)
+    #
+    # On a fresh chat session against a real repo the wall-clock for
+    # JUST the context build was hitting 30-60s BEFORE the LLM was
+    # even invoked, which fed the 300s "thinking…" stalls users were
+    # reporting on production.
+    #
+    # Fix:
+    #   1. Run all three IN PARALLEL via asyncio.gather.
+    #   2. Wrap each in asyncio.wait_for(timeout=12s). If a builder
+    #      misses the budget we degrade with an empty string — the
+    #      orchestrator still has the persona + local tools and the
+    #      LLM can call read_repo_file itself.
+    #   3. Total upper bound for the context phase: 12s (not 60s+).
+    async def _safe(coro, label, timeout_s=12.0):
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning(f"chat-context: {label} timed out after {timeout_s}s — degrading")
+            return ""
+        except Exception as e:
+            logger.warning(f"chat-context: {label} failed ({e!r}) — degrading")
+            return ""
+
+    repo_ctx, url_ctx = await asyncio.gather(
+        _safe(get_repo_context(user_id, body.project_id or ""), "repo_context"),
+        _safe(build_url_context(body.prompt), "url_context"),
+    )
 
     # ── Iter 87: "ship" shortcut ──────────────────────────────────────
     # When the user's prompt is just "ship" / "do it" / "go" right after
@@ -749,9 +780,15 @@ async def chat_stream(
                     or await _user_gh_token(user_id)
             except Exception:
                 _pat = None
-            brain_ctx = await get_brain_context(
-                get_db(), body.project_id, repo_full,
-                github_token=_pat,
+            # Iter 157 — also wrap brain context in the same 12s budget;
+            # this used to be the slowest of the three on first turn
+            # because it pulls remote commit history.
+            brain_ctx = await _safe(
+                get_brain_context(
+                    get_db(), body.project_id, repo_full,
+                    github_token=_pat,
+                ),
+                "brain_context",
             )
             if brain_ctx:
                 brain_ctx = "[PROJECT MEMORY]\n" + brain_ctx
