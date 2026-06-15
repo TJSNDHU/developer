@@ -213,6 +213,10 @@ def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
         r"\bship (this|it|the)\b",
         r"\bcommit\b",
         r"\bpush to (github|main|prod)\b",
+        # Iter 162 — explicit deploy-target verbs. Previously a bare
+        # "deploy to vercel" fell through to Mode A because the C regex
+        # required "my|the …repo|project|app|code|file" after the verb.
+        r"\bdeploy to (vercel|netlify|render|fly|railway|heroku|aws|cloudflare|production|prod|staging)\b",
     ]
     for p in c_patterns:
         if _re_mode.search(p, message or "", _re_mode.IGNORECASE):

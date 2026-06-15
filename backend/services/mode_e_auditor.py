@@ -32,17 +32,23 @@ from services.ora_council_logger import log_conversational
 # ─────────────────────────────────────────────────────────────────────────────
 
 AUDIT_SIGNALS = [
-    r"\baudit\b",
-    r"\breview\s+(my\s+)?(code|repo|codebase|project)\b",
-    r"\bwhat[''s\s]+wrong\s+with\b",
-    r"\bwhat\s+should\s+i\s+refactor\b",
-    r"\bsecurity\s+(check|scan|audit|review)\b",
-    r"\bcode\s+quality\b",
-    r"\btech\s+debt\b",
+    # Iter 162 audit-pass — these now require EXPLICIT audit/scan/review
+    # intent. Removed the loose `what's wrong with`, bare `code quality`,
+    # and bare `tech debt` patterns that were silently routing things
+    # like "what's wrong with the build" (real debug request) and "the
+    # tech debt is killing us" (venting conversation) through a full
+    # repo audit. False positives like that produced a long expensive
+    # report when the user wanted a one-line answer.
+    r"\baudit\b(\s+my|\s+the|\s+this|\s+repo|\s+codebase|\s+code|\s+project)",
+    r"\b(security\s+(audit|scan|review|check)|secrets?\s+(scan|leak\s+check))\b",
+    r"\breview\s+(my|the|this)\s+(entire|whole|full)?\s*(code|repo|codebase|project)\b",
+    r"\bscan\s+(my|the)\s+(repo|codebase|code|project)\b",
     r"\bcheck\s+(my\s+)?(entire|whole|full)\s+(repo|codebase)\b",
-    r"\bfind\s+(all\s+)?(issues|bugs|problems)\s+in\b",
-    r"\bhealth\s+check\b",
-    r"\bwhat[''s\s]+bad\s+in\b",
+    r"\bfind\s+(all\s+)?(issues|bugs|problems|vulnerabilities)\s+in\b",
+    r"\bvuln(erabilit(y|ies))?\s+(scan|check|audit)\b",
+    r"\bhealth\s+check\b\s+(my\s+)?(repo|codebase|code)",
+    r"\bowasp\b",
+    r"\b(refactor|cleanup)\s+plan\s+for\s+(my|the)\s+(repo|codebase|project)\b",
 ]
 
 AUDIT_PATTERN = re.compile("|".join(AUDIT_SIGNALS), re.IGNORECASE)

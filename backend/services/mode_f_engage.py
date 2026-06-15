@@ -15,18 +15,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 _ENGAGE_PATTERNS = [
-    # competitive / positioning
-    r"\b(competit(or|ion|ive)|rival|alternative to)\b",
-    r"\bhow (do|can|should) (we|i) (beat|differentiate|position)\b",
-    r"\b(who('?s|\s+is|\s+are)\s+(my|our|the)\s+competit)",
-    r"\b(my|our|the)\s+\w*\s*vs\.?\s+\w+",
+    # Iter 162 engage-pass — tightened to require EXPLICIT marketing /
+    # GTM intent. Removed the bare `audience|ideal customer|icp|persona`
+    # match that was silently routing technical conversations like
+    # "persona is wrong here" or "icp is enterprise devs" through the
+    # market-copy persona prompt. False positives wasted tokens and
+    # gave irrelevant answers.
+    # competitive / positioning — always require positioning context
+    r"\b(competit(or|ion|ive)|rival|alternative to)\s+(analysis|teardown|matrix|landscape)\b",
+    r"\bwho('?s|\s+is|\s+are)\s+(my|our|the)\s+(competit|rival)",
+    r"\bhow (do|can|should) (we|i) (beat|differentiate|position|out-position)\b",
     r"\b(market|positioning|gtm|go.to.market|launch strategy)\b",
-    r"\b(usp|moat|differentiator)\b",
-    # sales / copy / outreach
-    r"\bwrite (me )?(a|the|some) (tweet|post|copy|pitch|headline|tagline|launch)",
+    r"\b(usp|moat|unfair advantage|differentiator)\b",
+    # explicit ICP / persona ASKS, not bare nouns
+    r"\b(define|describe|write)\s+(our|my|the)\s+(audience|ideal customer|icp|persona|target market)\b",
+    r"\bwho('?s|\s+is)\s+(our|my|the)\s+(audience|ideal customer|icp|persona|target market)\b",
+    # sales / copy / outreach — always require WRITE intent
+    r"\bwrite (me )?(a|the|some) (tweet|post|copy|pitch|headline|tagline|launch|landing\s+page)",
     r"\b(announce|launch post|cold (email|outreach))\b",
-    r"\b(audience|ideal customer|icp|persona)\b",
-    # pricing / business
+    # pricing / business — must be on user's own product
+    r"\bhow (do|should) (i|we) price\b",
     r"\b(price|pricing|monet[iz]e|charge)\b.*\b(my|our)\b.*\b(product|app|saas|service)\b",
 ]
 
