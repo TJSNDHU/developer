@@ -216,6 +216,7 @@ async def callback(
             user_id   = existing["user_id"]
             user_mail = existing.get("email") or gh_email or ""
             is_admin  = bool(existing.get("is_admin"))
+            is_new_account = False  # Iter 156 — return-login, not signup
             await db.dev_users.update_one(
                 {"user_id": user_id},
                 {"$set": {"github": {
@@ -227,6 +228,7 @@ async def callback(
             )
         else:
             # Brand-new account, no password (GitHub-only sign-in).
+            is_new_account = True  # Iter 156 — fire signup conversion downstream
             user_id   = uuid.uuid4().hex
             # If GitHub still hid the email, fall back to a stable
             # synthetic so the unique constraint never bites us.
@@ -266,6 +268,11 @@ async def callback(
                 f"{base}/oauth-finish"
                 f"#token={jwt_token}"
                 f"&login={gh_login}"
+                # Iter 156 — `new=1` signals to OAuthFinish.jsx that
+                # this redirect just minted a brand-new account, so
+                # the page can fire the Google Ads signup conversion
+                # exactly once (no double-fire for return logins).
+                f"&new={'1' if is_new_account else '0'}"
             )
         )
 

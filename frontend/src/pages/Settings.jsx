@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { User, KeyRound, Receipt } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api, getUser } from "../lib/api";
+import { trackPurchase } from "../lib/analytics";
 import GitHubCard from "../components/GitHubCard";
 import PricingCards from "../components/PricingCards";
 import OraWrapped from "../components/OraWrapped";
@@ -39,6 +40,18 @@ export default function Settings() {
           const r = await api.get(`/payments/status/${sid}`);
           if (r.data?.payment_status === "paid") {
             setBillingMsg(`Upgraded to ${r.data.tier?.toUpperCase() || "PAID"} — enjoy.`);
+            // Iter 156 — Google Ads conversion. We pass the actual
+            // plan value in USD when we can read it back from the
+            // status endpoint, falling back to the founder's default
+            // (9.0 CAD) only if the tier label is missing.
+            //   Plan → USD value used for ROAS reporting.
+            const tier = (r.data.tier || "").toLowerCase();
+            const PLAN_VALUE_USD = { starter: 9, pro: 19, team: 49 };
+            if (tier && PLAN_VALUE_USD[tier]) {
+              trackPurchase(PLAN_VALUE_USD[tier], "USD", sid);
+            } else {
+              trackPurchase(); // 9.0 CAD default
+            }
             const me2 = await api.get("/auth/me");
             if (me2.data?.user) setMe(me2.data.user);
             return;

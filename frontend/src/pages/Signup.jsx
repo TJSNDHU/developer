@@ -7,6 +7,7 @@ import { Rocket, Github } from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
+import { trackSignup } from "../lib/analytics";
 
 export default function Signup() {
   usePageMeta({
@@ -57,6 +58,10 @@ export default function Signup() {
           localStorage.removeItem("aurem_ref");
         }
       } catch { /* non-blocking */ }
+      // Iter 156 — Google Ads conversion. Fire AFTER the account row
+      // exists and BEFORE navigation so the event leaves the page
+      // before React unmounts.
+      trackSignup();
       try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
       navigate(next, { replace: true });
     } catch (e) {

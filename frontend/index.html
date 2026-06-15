@@ -323,7 +323,30 @@
     <!-- Iter 42 — F12 error capture. Hooks console.error / fetch / XHR so
          the chat panel can attach captured errors as `f12_payload` to the
          next chat request. Pure client-side; no auto-upload. -->
-    <script src="/F12ErrorCapture.js"></script>
+    <!-- Iter 152 — `defer` so this no longer blocks first paint
+         (saved ~470ms render-blocking time per PageSpeed report). -->
+    <script src="/F12ErrorCapture.js" defer></script>
+
+    <!-- =============================================================== -->
+    <!-- Iter 156 — Google Ads conversion tracking (gtag.js)             -->
+    <!-- =============================================================== -->
+    <!--
+      Loads Google Ads' global site tag for account AW-18239920865.
+      `async` keeps it off the critical path; the inline init queues
+      events that fire whenever the library finishes loading. Actual
+      conversion events are dispatched from `src/lib/analytics.js`
+      (trackSignup / trackPurchase) — keep all label literals there
+      so this block stays tiny and cache-friendly.
+    -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18239920865"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){ dataLayer.push(arguments); }
+      window.gtag = gtag;
+      gtag('js', new Date());
+      gtag('config', 'AW-18239920865', { 'send_page_view': true });
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { setToken, setUser, api } from "../lib/api";
+import { trackSignup } from "../lib/analytics";
 
 export default function OAuthFinish() {
   const nav = useNavigate();
@@ -24,6 +25,10 @@ export default function OAuthFinish() {
         const parts = new URLSearchParams(raw);
         const token = parts.get("token");
         const login = parts.get("login") || "";
+        // Iter 156 — `new=1` is set by the backend only when this
+        // OAuth callback minted a brand-new account row. We fire
+        // the Google Ads signup conversion at most once per session.
+        const isNewAccount = parts.get("new") === "1";
         if (!token) {
           setStatus("No sign-in token returned. Redirecting…");
           setTimeout(() => nav("/login?github=missing_token", { replace: true }), 800);
@@ -49,6 +54,12 @@ export default function OAuthFinish() {
         }
         // Flag for the PWA install popup so the Dashboard can prompt.
         try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
+        // Iter 156 — Google Ads signup conversion for GitHub OAuth
+        // path. Only fires when backend flagged this hop as a new
+        // account; return-logins are a no-op.
+        if (isNewAccount) {
+          trackSignup();
+        }
         // Clear the fragment so a refresh doesn't replay it.
         try {
           window.history.replaceState(null, "", "/oauth-finish");
