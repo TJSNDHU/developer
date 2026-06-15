@@ -1227,7 +1227,20 @@ async def chat_with_tools(
     # one LLM round is at worst ~50s, so a 75s budget allows one full
     # round plus prep/finalize without ever crossing into the
     # unrecoverable "user gave up" zone (~90s).
-    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "75"))
+    # Iter 164 — production founder reported the guard tripping too
+    # early on customer-repo deep-scan queries. Root cause: the guard
+    # was reserving 40s for "one final LLM round worst case" — but
+    # median round latency is 8-15s, not 50s. With a 40s buffer the
+    # orchestrator effectively had only 35s of working window out of
+    # the 75s budget. Pushed the budget to 82s (still inside wall-clock
+    # 90s) and shrank the reservation to 18s, so the orchestrator now
+    # has ~64s of useful working time — nearly 2× the previous limit
+    # — while still leaving room for one typical LLM round to finish
+    # cleanly within wall-clock.
+    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "82"))
+    _ORCH_FINAL_ROUND_RESERVE_S = float(
+        os.getenv("ORCH_FINAL_ROUND_RESERVE_S", "18")
+    )
     _orch_started_at = time.monotonic()
 
     while iters < max_iters:
@@ -1235,7 +1248,7 @@ async def chat_with_tools(
         # within ~one-LLM-round of the budget. Synthesise whatever
         # we have so the user still gets a useful reply.
         _elapsed = time.monotonic() - _orch_started_at
-        if _elapsed > _ORCH_BUDGET_S - 40 and iters > 0:
+        if _elapsed > _ORCH_BUDGET_S - _ORCH_FINAL_ROUND_RESERVE_S and iters > 0:
             logger.info(
                 "orchestrator per-turn budget guard tripped at iter %d "
                 "(%.1fs elapsed of %ds budget) — synthesising summary",
