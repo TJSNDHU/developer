@@ -354,6 +354,48 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // session change (new chat).
   const [livePopupTaskId, setLivePopupTaskId] = useState(null);
 
+  // Iter 163 — chat toolbar (Show all / Clear chat) auto-hide on
+  // typing, mirroring the top tabbar pattern. INDEPENDENT hot-zone:
+  // hovering the very top edge of the chat-messages area brings the
+  // toolbar back; the sidebar peek stays separate.
+  const [toolbarHidden, setToolbarHidden] = useState(false);
+  const toolbarPeekFromHoverRef = useRef(false);
+  const isMobileRef = useRef(
+    typeof window !== "undefined"
+      && window.matchMedia("(max-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = (e) => { isMobileRef.current = e.matches; };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => {
+    const onStart = () => setToolbarHidden(true);
+    const onReset = () => {
+      setToolbarHidden(false);
+      toolbarPeekFromHoverRef.current = false;
+    };
+    window.addEventListener("aurem:chat-session-started", onStart);
+    window.addEventListener("aurem:chat-session-reset", onReset);
+    return () => {
+      window.removeEventListener("aurem:chat-session-started", onStart);
+      window.removeEventListener("aurem:chat-session-reset", onReset);
+    };
+  }, []);
+  const onToolbarHotZoneEnter = useCallback(() => {
+    if (isMobileRef.current) return;
+    toolbarPeekFromHoverRef.current = true;
+    setToolbarHidden(false);
+  }, []);
+  const onToolbarMouseLeave = useCallback(() => {
+    if (isMobileRef.current) return;
+    if (toolbarPeekFromHoverRef.current) {
+      toolbarPeekFromHoverRef.current = false;
+      setToolbarHidden(true);
+    }
+  }, []);
+
   // Load token usage on mount + every time a turn is saved (so the banner
   // reflects fresh consumption right after a chat reply / CTO task).
   const refreshUsage = useCallback(async () => {
@@ -1056,10 +1098,29 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       >
         {/* Iter 131 — Clear ↑ toolbar. Sits at the top of the
             scrollable message list and only renders when there's
-            at least one real (non-WELCOME) turn to act on. */}
+            at least one real (non-WELCOME) turn to act on.
+            Iter 163 — auto-hides on typing; top hot-zone peek
+            brings it back independently of the sidebar/topbar. */}
+        {messages.length > 1 && toolbarHidden && (
+          <div
+            data-testid="chat-toolbar-hotzone"
+            onMouseEnter={onToolbarHotZoneEnter}
+            onClick={onToolbarHotZoneEnter}
+            title="Show chat toolbar"
+            style={{
+              position: "sticky", top: -24, zIndex: 3,
+              margin: "-24px -28px 0 -28px",
+              height: 8,
+              cursor: "pointer",
+              background: "transparent",
+            }}
+          />
+        )}
         {messages.length > 1 && (
           <div
             data-testid="chat-toolbar"
+            data-typing-hidden={toolbarHidden ? "true" : "false"}
+            onMouseLeave={onToolbarMouseLeave}
             style={{
               position: "sticky", top: -24, zIndex: 2,
               margin: "-24px -28px 0 -28px",
@@ -1070,6 +1131,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               backdropFilter: "blur(6px)",
               borderBottom: "1px solid var(--border)",
               fontSize: 12,
+              transform: toolbarHidden ? "translateY(-120%)" : "translateY(0)",
+              opacity: toolbarHidden ? 0 : 1,
+              pointerEvents: toolbarHidden ? "none" : "auto",
+              transition: "transform 260ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
             }}
           >
             {messages.length > HIDE_OLDER_THRESHOLD + 1 && (
