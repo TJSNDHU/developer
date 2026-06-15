@@ -1,14 +1,16 @@
 /**
- * FloatingORAButton — Iter 152.
+ * FloatingORAButton — Iter 152 (renamed-but-not-rebranded — owns the
+ * "Ask Advisor" side panel; the legacy file name is kept to avoid an
+ * import sweep across the app).
  * The actual launch button now lives in Dashboard.jsx's top-right bar
  * (next to the Preview toggle) so users find it alongside the other
  * page-level controls instead of floating over the composer.
  *
  * This component is the global owner of the panel state — it stays
  * mounted from Shell.jsx and listens for the `aurem:ora-open` window
- * event dispatched by the Dashboard launch button. That keeps the
- * ORA panel available across every authenticated route while letting
- * each page place its own trigger wherever it makes sense.
+ * event dispatched by the Dashboard "Ask Advisor" launch button. That
+ * keeps the Advisor panel available across every authenticated route
+ * while letting each page place its own trigger wherever it makes sense.
  */
 import React, { useEffect, useState } from "react";
 import { useORAPanel } from "../hooks/useORAPanel";

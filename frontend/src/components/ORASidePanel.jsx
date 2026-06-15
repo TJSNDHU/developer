@@ -131,7 +131,7 @@ export default function ORASidePanel({
             <div>
               <div className="serif" style={{
                 fontSize: 15, color: "var(--text)", lineHeight: 1,
-              }}>Ask ORA</div>
+              }}>Ask Advisor</div>
               {projectId && (
                 <div
                   data-testid="ora-project-connected"
@@ -270,7 +270,7 @@ export default function ORASidePanel({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Ask ORA anything — ~6s simple · ~20-30s multi-file"
+              placeholder="Ask Advisor anything — ~6s simple · ~20-30s multi-file"
               rows={1}
               disabled={busy}
               style={{ maxHeight: 120, overflowY: "auto" }}

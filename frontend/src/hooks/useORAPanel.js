@@ -14,7 +14,7 @@
  *     authenticated JWT → cost lands on the user's account.
  */
 import { useState, useCallback, useRef } from "react";
-import { api } from "../lib/api";
+import { api, getUser } from "../lib/api";
 
 // Match lib/api.js: REACT_APP_BACKEND_URL is the canonical key in this
 // codebase. VITE_API_URL is the local-dev fallback.
@@ -22,6 +22,22 @@ const API_BASE =
   (typeof process !== "undefined" && process.env && process.env.REACT_APP_BACKEND_URL) ||
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_URL) ||
   "";
+
+// Iter 164 — Personalised welcome. Replaces the generic "hey, I am ORA"
+// line with a project-aware greeting that addresses the user by first
+// name. Plain text only (no emoji in body) so SpeechSynthesis reads
+// naturally; a single 👋 sits in the headline where TTS pauses anyway.
+const WELCOME = `Welcome to AUREM CTO, {name}! 👋
+
+Your AI Advisor is ready. I've already loaded your project context and I'm here to help you ship faster, debug smarter, and make better technical decisions.
+
+What are we building today?`;
+
+function buildWelcomeMessage() {
+  const user = getUser();
+  const firstName = (user?.name || "").split(" ")[0] || "Developer";
+  return WELCOME.replace("{name}", firstName);
+}
 
 function readAuthToken() {
   // `aurem_token` is the canonical key (lib/api.js). The other names
@@ -39,10 +55,11 @@ export function useORAPanel() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([{
     role: "assistant",
-    // Iter 159 → 160. Plain words only: removed the 👋 emoji and
-    // em-dashes so SpeechSynthesis (TTS) reads naturally instead of
-    // saying "waving hand sign" / "em dash" out loud.
-    content: "hey, I am ORA. Ask me anything about your project, or just tell me what to fix. I got you.",
+    // Iter 164 — personalised "Ask Advisor" welcome (was the legacy
+    // "hey, I am ORA" line). buildWelcomeMessage() reads the cached
+    // user from localStorage so the greeting addresses the user by
+    // first name. Plain words only — TTS reads it naturally.
+    content: buildWelcomeMessage(),
   }]);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState(null);

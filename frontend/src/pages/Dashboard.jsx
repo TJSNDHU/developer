@@ -103,7 +103,7 @@ function DashboardBody() {
   }, []);
 
   // Track ORA panel open-state so the launch button can hide while the
-  // panel is already on screen (the panel header already says ASK ORA,
+  // panel is already on screen (the panel header already says Ask Advisor,
   // so the toolbar pill becomes redundant noise).
   const [oraOpen, setOraOpen] = useState(false);
   useEffect(() => {
@@ -112,7 +112,7 @@ function DashboardBody() {
     return () => window.removeEventListener("aurem:ora-panel-state", onState);
   }, []);
 
-  // Iter 163 — auto-hide topbar (tabs + Preview + ASK ORA) when the
+  // Iter 163 — auto-hide topbar (tabs + Preview + Ask Advisor) when the
   // user starts typing, mirroring the sidebar auto-hide pattern in
   // Shell.jsx but INDEPENDENT of it: a thin top hot-zone strip
   // appears at the top edge; hovering it brings ONLY the topbar
@@ -223,7 +223,7 @@ function DashboardBody() {
               try { window.dispatchEvent(new CustomEvent("aurem:ora-open")); }
               catch { /* ignore */ }
             }}
-            title="Ask ORA — second-opinion AI panel"
+            title="Ask Advisor — second-opinion AI panel"
             className="ask-ora-launch-btn"
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
@@ -241,7 +241,7 @@ function DashboardBody() {
             }}
           >
             <MessageCircle size={11} />
-            ASK ORA
+            Ask Advisor
           </button>
         )}
       </div>
