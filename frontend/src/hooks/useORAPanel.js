@@ -39,7 +39,8 @@ export function useORAPanel() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([{
     role: "assistant",
-    content: "Hey — I'm ORA. Ask me anything about your project, or tell me what to fix.",
+    // Iter 159 — warmer welcome to match the casual ASK-ORA voice.
+    content: "hey! 👋 I'm ORA — ask me anything about your project, or just tell me what to fix. I got you.",
   }]);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState(null);

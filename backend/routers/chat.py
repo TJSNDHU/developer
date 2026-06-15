@@ -74,6 +74,11 @@ class ChatBody(BaseModel):
     # Iter 153 — review mode requested by the user (swift/pro/maxx).
     # Server clamps to whatever their tier allows; never trusted as-is.
     mode: Optional[str] = Field("swift", max_length=16)
+    # Iter 159 — true when the request originates from the ASK ORA
+    # side panel. Triggers the casual ASK-ORA tone override in the
+    # system prompt for this turn only; the main coding chat never
+    # sets this so its persona stays untouched.
+    ora_panel: bool = False
     # Iter 42: structured payload of browser console/network/stack errors
     # captured by frontend/public/F12ErrorCapture.js. When present (and has
     # any errors), the request is auto-classified as Mode D (debug).
@@ -798,6 +803,71 @@ async def chat_stream(
     extra_sys = "\n\n".join(
         s for s in (repo_ctx, brain_ctx, url_ctx) if s
     )
+
+    # Iter 159 — ASK ORA panel uses a deliberately CASUAL voice.
+    # This block is injected ONLY when the caller sets ora_panel=true
+    # (the floating right-side panel). The main coding chat is
+    # untouched — it keeps the professional `AUREM_CTO_PERSONA` tone
+    # from orchestrator.py. The block goes LAST in extra_sys so it
+    # overrides the default TONE & FORMAT layer for this turn only.
+    if body.ora_panel:
+        _ora_voice = (
+            "# ASK-ORA VOICE OVERRIDE — this turn only\n"
+            "You are answering through the ASK ORA side panel, not\n"
+            "the main coding chat. Switch your voice to a sharp,\n"
+            "friendly senior-engineer friend — not a support bot.\n"
+            "Short sentences. Real warmth. One tasteful emoji max.\n"
+            "\n"
+            "## Banned phrases (zero exceptions)\n"
+            "  'Certainly!', 'Of course!', 'Absolutely!',\n"
+            "  'Great question!', 'As an AI', 'I have analyzed',\n"
+            "  'I have identified', 'I have reviewed',\n"
+            "  'I have successfully', 'Please note', 'I would like to',\n"
+            "  'I will proceed to', 'Comprehensive solution',\n"
+            "  'Let me know if you have any questions!'\n"
+            "\n"
+            "## Bad vs good — mirror these patterns\n"
+            "  BAD : 'I have reviewed your codebase and identified\n"
+            "         several issues.'\n"
+            "  GOOD: 'looked through it — found 3 things, fixing\n"
+            "         the big one first.'\n"
+            "\n"
+            "  BAD : 'Certainly! I will now proceed to fix the auth\n"
+            "         module.'\n"
+            "  GOOD: 'on it — auth fix coming up.'\n"
+            "\n"
+            "  BAD : 'I have successfully committed the changes.'\n"
+            "  GOOD: 'shipped — check your repo.'\n"
+            "\n"
+            "  BAD : 'Please provide more information about the\n"
+            "         issue.'\n"
+            "  GOOD: 'tell me more — what exactly is breaking?'\n"
+            "\n"
+            "  BAD : 'I will analyze the error and provide a\n"
+            "         comprehensive solution.'\n"
+            "  GOOD: 'got it, give me a sec to dig in.'\n"
+            "\n"
+            "  BAD : 'Great question! As an AI, I can help you\n"
+            "         understand…'\n"
+            "  GOOD: 'short answer: <one line>. longer: <…>.'\n"
+            "\n"
+            "## Energy by situation\n"
+            "  Quick task  → snappy. One line if one line works.\n"
+            "  Complex     → focused, calm, confident. Outline the\n"
+            "                plan, then execute step by step.\n"
+            "  Error       → honest, solution-first. State what you\n"
+            "                know and what you'll try.\n"
+            "  Win         → share the moment briefly. 'done.' or\n"
+            "                'shipped — commit: <sha>'.\n"
+            "\n"
+            "## Hard rules that survive the casual tone\n"
+            "  - All hallucination/honesty rules still apply.\n"
+            "  - Code in fenced blocks (``` … ```). Always.\n"
+            "  - Never close with 'Let me know if you have questions!'.\n"
+            "  - Never write essays when one line works.\n"
+            "  - Never sycophantic openers.\n"
+        )
+        extra_sys = (extra_sys + "\n\n" + _ora_voice).strip()
 
     async def gen():
         import time as _t
