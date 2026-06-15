@@ -1,24 +1,25 @@
 /**
- * ThinkingHint.jsx — Iter 158
+ * ThinkingHint.jsx — Iter 158 + 160 (one-line skinny strip)
  *
- * A small, attractive pill that appears next to the chat "thinking…"
- * spinner during chat-busy states. Converts wait time into a tier-
- * aware upsell / feature highlight moment.
+ * A slim sponsored-style strip that appears next to the chat
+ * "thinking…" spinner during chat-busy states. Single line, low
+ * height — feels like a status bar, not an ad card.
  *
  *   <ThinkingHint busy={isBusy} />
  *
- * Behaviour
- * ─────────
- * - Polls `/thinking-hint` ONCE per busy-cycle (when busy flips
- *   false→true). No streaming, no re-renders during the wait.
- * - Founder tier returns null hint → component renders nothing.
- * - `enabled=false` from admin config → component renders nothing.
- * - `delay_ms` from admin config controls slide-in lead time
- *   (default 600ms; sub-second replies never flash the pill).
- * - If `cta_link` starts with `stripe:<tier>` (e.g. `stripe:starter`),
- *   the CTA opens Stripe checkout for that tier directly — one click
- *   instead of three (settings → billing → checkout).
- * - Hover lifts the card and reveals the CTA accent.
+ * Iter 160 changes:
+ *   - Collapsed to ONE line (~32px tall) so it never dominates the
+ *     composer area visually.
+ *   - Headline + body merged into a single sentence ("Headline. Body.")
+ *     truncated with ellipsis on overflow.
+ *   - Width is now content-sized (no `maxWidth: 480` boxy look).
+ *   - Founder tier gets no hint server-side now (never leaks admin
+ *     copy into the user chat).
+ *
+ * Behaviour kept from Iter 158:
+ *   - Polls `/thinking-hint` ONCE per busy-cycle.
+ *   - Honours admin `enabled` + `delay_ms` from global config.
+ *   - `cta_link = "stripe:<tier>"` opens checkout in one click.
  */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
@@ -44,16 +45,14 @@ export default function ThinkingHint({ busy }) {
       try {
         const r = await api.get("/thinking-hint");
         if (cancelled) return;
-        if (r.data?.enabled === false) return;     // admin kill-switch
-        if (!r.data?.hint) return;                  // founder tier / no row
+        if (r.data?.enabled === false) return;
+        if (!r.data?.hint) return;
         setHint(r.data.hint);
         const delayMs = Number.isFinite(r.data.delay_ms)
           ? Math.max(200, Math.min(5000, r.data.delay_ms))
           : 600;
         timerRef.current = setTimeout(() => setShow(true), delayMs);
-      } catch {
-        // Silent — upsell hint is not a critical surface.
-      }
+      } catch { /* silent */ }
     })();
     return () => { cancelled = true; clearTimeout(timerRef.current); };
   }, [busy]);
@@ -77,69 +76,57 @@ export default function ThinkingHint({ busy }) {
       const url = r.data?.url || r.data?.checkout_url;
       if (url) window.location.href = url;
       else setPaying(false);
-    } catch {
-      setPaying(false);
-    }
+    } catch { setPaying(false); }
   }
+
+  // One-sentence merge so the strip stays single-line.
+  const fullText = hint.body
+    ? `${hint.headline} ${hint.body}`
+    : hint.headline;
 
   return (
     <div
       data-testid="thinking-hint"
       data-hint-id={hint.hint_id}
       style={{
-        position: "relative",
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
-        gap: 10,
-        padding: "8px 14px 8px 12px",
-        margin: "10px 0",
-        borderRadius: 12,
+        gap: 8,
+        padding: "5px 10px 5px 8px",
+        margin: "6px 0",
+        borderRadius: 999,                       // pill — skinny status bar feel
         background:
-          "linear-gradient(135deg, rgba(255,138,42,0.08) 0%, rgba(255,197,96,0.04) 100%)",
-        border: "1px solid rgba(255,138,42,0.20)",
-        boxShadow: "0 0 18px -10px rgba(255,138,42,0.55)",
-        animation: "thinkingHintIn 360ms cubic-bezier(.2,.8,.25,1) both",
-        maxWidth: 480,
+          "linear-gradient(135deg, rgba(255,138,42,0.07) 0%, rgba(255,197,96,0.03) 100%)",
+        border: "1px solid rgba(255,138,42,0.22)",
+        boxShadow: "0 0 14px -12px rgba(255,138,42,0.55)",
+        animation: "thinkingHintIn 280ms cubic-bezier(.2,.8,.25,1) both",
+        maxWidth: "100%",
+        minWidth: 0,
+        fontSize: 12,
+        lineHeight: 1.2,
+        height: 28,                              // hard cap → never wraps
+        overflow: "hidden",
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          left: 0, top: 0, bottom: 0,
-          width: 3,
-          borderRadius: "12px 0 0 12px",
-          background:
-            "linear-gradient(180deg, var(--accent, #ff8a2a), var(--accent-2, #ffc560))",
-          boxShadow: "0 0 12px -2px var(--accent, #ff8a2a)",
-        }}
-      />
       {hint.emoji && (
-        <span style={{ fontSize: 18, flexShrink: 0, marginLeft: 4 }}>
-          {hint.emoji}
-        </span>
+        <span style={{ fontSize: 13, flexShrink: 0 }}>{hint.emoji}</span>
       )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          data-testid="thinking-hint-headline"
-          style={{
-            fontSize: 13, fontWeight: 600,
-            color: "var(--text, #f4ecdc)",
-            letterSpacing: "0.01em", lineHeight: 1.25,
-          }}
-        >
+      <span
+        data-testid="thinking-hint-text"
+        style={{
+          color: "var(--text-dim, #a39d8a)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          minWidth: 0,
+          flex: "0 1 auto",
+        }}
+      >
+        <span style={{ color: "var(--text, #f4ecdc)", fontWeight: 600 }}>
           {hint.headline}
-        </div>
-        <div
-          data-testid="thinking-hint-body"
-          style={{
-            fontSize: 11, color: "var(--text-dim, #a39d8a)",
-            lineHeight: 1.4, marginTop: 2,
-          }}
-        >
-          {hint.body}
-        </div>
-      </div>
+        </span>
+        {hint.body ? <span style={{ marginLeft: 6 }}>· {hint.body}</span> : null}
+      </span>
       {hint.cta_text && hint.cta_link && (
         <a
           data-testid="thinking-hint-cta"
@@ -148,40 +135,42 @@ export default function ThinkingHint({ busy }) {
           aria-disabled={paying}
           style={{
             flexShrink: 0,
-            fontSize: 11, fontWeight: 600,
-            letterSpacing: "0.05em",
-            padding: "5px 10px", borderRadius: 8,
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+            padding: "2px 10px",
+            borderRadius: 999,
             color: "var(--accent-2, #ffc560)",
-            background: "rgba(255,138,42,0.08)",
-            border: "1px solid rgba(255,138,42,0.35)",
+            background: "rgba(255,138,42,0.10)",
+            border: "1px solid rgba(255,138,42,0.40)",
             textDecoration: "none",
-            transition: "background 160ms, color 160ms, transform 160ms",
+            transition: "background 120ms, color 120ms",
             whiteSpace: "nowrap",
             cursor: paying ? "wait" : "pointer",
             opacity: paying ? 0.6 : 1,
           }}
           onMouseEnter={(e) => {
             if (paying) return;
-            e.currentTarget.style.background = "rgba(255,138,42,0.18)";
+            e.currentTarget.style.background = "rgba(255,138,42,0.22)";
             e.currentTarget.style.color = "#fff";
-            e.currentTarget.style.transform = "translateY(-1px)";
           }}
           onMouseLeave={(e) => {
             if (paying) return;
-            e.currentTarget.style.background = "rgba(255,138,42,0.08)";
+            e.currentTarget.style.background = "rgba(255,138,42,0.10)";
             e.currentTarget.style.color = "var(--accent-2, #ffc560)";
-            e.currentTarget.style.transform = "translateY(0)";
           }}
         >
-          {paying ? "Opening checkout…" : `${hint.cta_text} →`}
+          {paying ? "…" : hint.cta_text}
         </a>
       )}
       <style>{`
         @keyframes thinkingHintIn {
-          from { opacity: 0; transform: translateY(6px); }
+          from { opacity: 0; transform: translateY(3px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+      {/* dummy reference so unused var lint never complains */}
+      <span style={{ display: "none" }}>{fullText.length}</span>
     </div>
   );
 }

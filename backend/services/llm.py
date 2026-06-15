@@ -137,11 +137,12 @@ async def _call_deepseek(messages: list, system: str = "",
     }
     # Iter 157 — was 60s. DeepSeek typically returns in 5-15s; a
     # 60s budget gave OpenRouter cold-start queues room to gobble up
-    # most of the chat turn's wall-clock budget. With _MAX_RETRIES=1
-    # the worst case is now 2 × 35s = 70s per LLM call (vs 120s),
-    # leaving real headroom for tool iterations inside HARD_TIMEOUT_S.
-    # Override per-deploy via LLM_HTTP_TIMEOUT_S.
-    _LLM_TIMEOUT_S = float(os.getenv("LLM_HTTP_TIMEOUT_S", "35.0"))
+    # most of the chat turn's wall-clock budget.
+    # Iter 160 — tightened further from 35s → 25s after founder
+    # reported still-100s+ stalls on production. With _MAX_RETRIES=1
+    # worst case is now 2 × 25s = 50s per LLM call. Override per-deploy
+    # via LLM_HTTP_TIMEOUT_S.
+    _LLM_TIMEOUT_S = float(os.getenv("LLM_HTTP_TIMEOUT_S", "25.0"))
     async with httpx.AsyncClient(timeout=_LLM_TIMEOUT_S) as c:
         for attempt in range(1, _MAX_RETRIES + 2):  # 1..4
             try:

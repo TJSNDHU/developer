@@ -39,8 +39,10 @@ export function useORAPanel() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([{
     role: "assistant",
-    // Iter 159 — warmer welcome to match the casual ASK-ORA voice.
-    content: "hey! 👋 I'm ORA — ask me anything about your project, or just tell me what to fix. I got you.",
+    // Iter 159 → 160. Plain words only: removed the 👋 emoji and
+    // em-dashes so SpeechSynthesis (TTS) reads naturally instead of
+    // saying "waving hand sign" / "em dash" out loud.
+    content: "hey, I am ORA. Ask me anything about your project, or just tell me what to fix. I got you.",
   }]);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState(null);

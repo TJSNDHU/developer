@@ -1221,8 +1221,13 @@ async def chat_with_tools(
     #
     # Now: every iter checks the wall-clock. If we've spent ≥ this
     # budget we bail with a synthetic summary instead of starting
-    # another LLM round (which could itself take 2×35s on retries).
-    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "110"))
+    # another LLM round (which could itself take 2×25s on retries).
+    # Iter 160 — tightened from 110s → 75s after the founder reported
+    # still-100s+ stalls. With LLM_HTTP_TIMEOUT_S=25 and _MAX_RETRIES=1
+    # one LLM round is at worst ~50s, so a 75s budget allows one full
+    # round plus prep/finalize without ever crossing into the
+    # unrecoverable "user gave up" zone (~90s).
+    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "75"))
     _orch_started_at = time.monotonic()
 
     while iters < max_iters:

@@ -269,10 +269,14 @@ def _weighted_pick(items: list[dict]) -> Optional[dict]:
 async def pick_hint(db, tier: str) -> Optional[dict]:
     """Pick a single random active hint for the given tier.
 
-    Founder tier and any unknown tier fall through to ``None`` so the
-    UI renders nothing — keeps the founder dashboard ad-free unless
-    they explicitly opt in with a `founder` tier hint."""
+    Iter 160 — Founder tier is now hard-suppressed: the founder is
+    the builder, not the buyer, so we never want admin/upsell strips
+    leaking into the founder's own chat surface. Any unknown tier
+    also falls through to None.
+    """
     tier_norm = (tier or "free").lower().strip()
+    if tier_norm == "founder":
+        return None
     by_tier = await _refresh_cache(db)
     items = by_tier.get(tier_norm) or []
     pick = _weighted_pick(items)
