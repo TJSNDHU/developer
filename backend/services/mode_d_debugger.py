@@ -41,27 +41,99 @@ async def read_file(repo_owner: str, repo_name: str, path: str,
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Intent detection — is this a debug request?
+#
+# Iter 162 — Tightened to stop firing on casual colloquial uses of words
+# like "error" / "broken" / "bug". The old regex matched ANY single hit
+# from the soft list, which sent prompts like
+#     "ye error de rha hai chek kro kya prob hai"  (Hinglish for "this
+#     thing is giving an issue, please check what's wrong")
+# straight into Mode D — Mode D then bailed with the generic
+# "insufficient signal to diagnose" template because no stack trace
+# or file context was attached. Bad UX.
+#
+# New rule:
+#   1. HARD signals fire Mode D on their own (real evidence of a bug):
+#      - Stack trace / traceback / line:col pattern
+#      - HTTP error codes (4xx/5xx)
+#      - Standard error class names (TypeError, ValueError, etc.)
+#      - DNS/network error codes (ECONNREFUSED, ETIMEDOUT, ...)
+#      - F12 patterns ([object Object], console.log markers, "f12 …")
+#
+#   2. SOFT signals ("error", "bug", "broken", "not working") fire
+#      Mode D ONLY when paired with a DEBUG ACTION verb in the same
+#      message ("debug", "fix", "investigate", "trace", "diagnose",
+#      "what's wrong"). Casual mentions slip through to A/B.
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEBUG_SIGNALS = [
-    r"\b(error|bug|broken|crash|failing|exception|traceback|stacktrace)\b",
-    r"\b(why is|what's wrong|something broke|not working|keeps failing)\b",
-    r"\b(500|404|422|403|401|cors|undefined is not|cannot read prop)\b",
-    r"\b(fix this error|debug|investigate|trace|diagnose)\b",
-    r"f12\b",
-    r"console\.log|console error",
-    r"stack trace|stack overflow",
+# HARD signals — always fire Mode D
+HARD_DEBUG_SIGNALS = [
+    r"\b(500|404|422|403|401|502|503|504|400)\b",                   # http codes
+    r"\bcors\b(\s+error|\s+issue|\s+blocked)",                       # CORS w/ context
+    r"\b(TypeError|ValueError|KeyError|AttributeError|ImportError)\b",
+    r"\b(ReferenceError|SyntaxError|RangeError)\b",
+    r"\b(ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EADDRINUSE)\b",
+    r"stack ?trace|traceback",
     r"\[object\s+\w+\]",
-    r"TypeError|ValueError|KeyError|AttributeError|ImportError",
-    r"ECONNREFUSED|ETIMEDOUT|ENOTFOUND",
+    r"\bat\s+\S+\s+\([\w./-]+:\d+",                                  # JS stack frame
+    r"\bFile\s+\"[^\"]+\",\s+line\s+\d+",                            # py traceback
+    r"\bundefined is not\b|\bcannot read prop\b|\bcannot read properties\b",
+    r"\bf12 (says|shows|caught|reports|has)\b",
+    # Explicit debug-action verbs as standalone intent. If the user
+    # types "debug X" or "diagnose Y" we ALWAYS take them at their word.
+    r"\bdebug\b",
+    r"\bdiagnose\b",
+    r"\binvestigate\b",
 ]
 
-DEBUG_PATTERN = re.compile("|".join(DEBUG_SIGNALS), re.IGNORECASE)
+# SOFT signals — need to be PAIRED with a debug action verb to fire D
+SOFT_DEBUG_TERMS = [
+    r"\berror\b",         r"\bbug\b",         r"\bbroken\b",
+    r"\bcrash(ing|ed)?\b", r"\bfailing\b",    r"\bexception\b",
+    r"\bnot working\b",    r"\bdoesn'?t work\b", r"\bdoesn'?t load\b",
+    r"\bkeeps failing\b",  r"\bsomething broke\b",
+    r"\bregression\b",     r"\bstuck\b",
+]
+SOFT_DEBUG_PATTERN = re.compile("|".join(SOFT_DEBUG_TERMS), re.IGNORECASE)
+
+# Debug action verbs — must appear together with a soft term
+DEBUG_ACTION_VERBS = [
+    r"\bdebug\b",
+    r"\bfix this\b",
+    r"\bfix the\b",
+    r"\binvestigate\b",
+    r"\btrace\b",
+    r"\bdiagnose\b",
+    r"\bwhy is( it|n'?t)\b",
+    r"\bwhat'?s wrong\b",
+    r"\bwhat is wrong\b",
+    r"\bhelp me fix\b",
+    r"\bcan you fix\b",
+    r"\breproduce\b",
+]
+DEBUG_ACTION_PATTERN = re.compile("|".join(DEBUG_ACTION_VERBS), re.IGNORECASE)
+
+HARD_DEBUG_PATTERN = re.compile("|".join(HARD_DEBUG_SIGNALS), re.IGNORECASE)
+
+# Legacy export — kept so other modules importing DEBUG_PATTERN keep
+# working. The semantics now match HARD_DEBUG only.
+DEBUG_PATTERN = HARD_DEBUG_PATTERN
+DEBUG_SIGNALS = HARD_DEBUG_SIGNALS                                   # noqa: F811
 
 
 def is_debug_request(message: str) -> bool:
-    """Returns True if message looks like a debug/investigation request."""
-    return bool(DEBUG_PATTERN.search(message))
+    """True iff the message looks like a real debug request.
+
+    Returns True for any HARD signal (stack trace, HTTP code, error
+    class, F12 keyword), OR for a SOFT signal paired with a debug-
+    action verb. Casual mentions of "error" / "bug" / "broken" on
+    their own do NOT route to Mode D anymore.
+    """
+    msg = message or ""
+    if HARD_DEBUG_PATTERN.search(msg):
+        return True
+    if SOFT_DEBUG_PATTERN.search(msg) and DEBUG_ACTION_PATTERN.search(msg):
+        return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
