@@ -388,8 +388,12 @@ async def chat_send(
     temperature = temperature_for(mode)
 
     # Maxx mode: watchdog review (only if we have non-empty content)
+    # Iter 161 — same legacy-only gating as the streaming path: skip
+    # when the new mode="maxx" pill is set because Claude already wrote
+    # the code via use_code_model.
     watchdog = None
-    if body.maxx_mode and content.strip():
+    is_new_maxx_pill = (body.mode or "").lower() == "maxx"
+    if body.maxx_mode and content.strip() and not is_new_maxx_pill:
         watchdog = await call_emergent_watchdog(content)
         provider = (provider or "deepseek") + "+emergent-watchdog"
 
@@ -1550,8 +1554,16 @@ async def chat_stream(
             await asyncio.sleep(0.012)
 
         # Maxx mode: emit a stream marker, then run watchdog and emit result
+        # Iter 161 — when `body.mode == "maxx"` Claude has ALREADY written
+        # the code (use_code_model forces Claude inside orchestrator), so
+        # running the Emergent watchdog on top is duplicate work and just
+        # adds the misleading "Watchdog · passed 8/18" pill on a reply
+        # that didn't need it. We keep the watchdog path alive ONLY for
+        # legacy clients that still set maxx_mode without the new mode
+        # pill — those exist in the wild from older cached bundles.
         watchdog = None
-        if body.maxx_mode and content.strip():
+        is_new_maxx_pill = (body.mode or "").lower() == "maxx"
+        if body.maxx_mode and content.strip() and not is_new_maxx_pill:
             yield f"data: {json.dumps({'watchdog_pending': True})}\n\n"
             watchdog = await call_emergent_watchdog(content)
             yield f"data: {json.dumps({'watchdog': watchdog})}\n\n"
