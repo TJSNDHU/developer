@@ -557,6 +557,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             role: t.role,
             content: t.content,
             provider: t.provider,
+            // Iter 161 — preserve review_mode across reload so the
+            // agent chip stays accurate after a page refresh.
+            reviewMode: t.review_mode || null,
             watchdog: t.watchdog,
             feedback: t.feedback,
             shipped_task_id: t.shipped_task_id,
@@ -964,6 +967,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               progressPct: 100,
               provider: d.provider || providerSeen || "—",
               council: !!(d.council || d.provider === "mode-b-council"),
+              // Iter 161 — surface the review mode (swift/pro/maxx) on
+              // the assistant bubble so MessageBubble can render the
+              // "Written by …" / "Reviewed by …" agent chip.
+              reviewMode: d.review_mode || null,
               verifiedPaths: Array.isArray(d.verified_paths)
                 ? d.verified_paths
                 : [],

@@ -756,6 +756,56 @@ export default function MessageBubble({
               <Zap size={10} style={{ color: "var(--accent-2)" }} /> maxx
             </div>
           )}
+          {/* Iter 161 — Agent chip. Shows which engine ACTUALLY wrote
+              the reply (and if it was reviewed). Mapping:
+                review_mode=swift → DeepSeek wrote, Claude diff-reviewed
+                review_mode=pro   → DeepSeek wrote, Claude full-reviewed
+                review_mode=maxx  → Claude wrote (no review tail)
+                else (auto/chat) → fall back to raw provider name      */}
+          {!m.streaming && m.provider && m.provider !== "system"
+              && !m.council && (
+            (() => {
+              const rm = (m.reviewMode || "").toLowerCase();
+              const prov = (m.provider || "").toLowerCase();
+              let writer = null;
+              let reviewer = null;
+              if (rm === "maxx" || prov.includes("claude")) {
+                writer = "Claude";
+              } else if (rm === "swift" || rm === "pro") {
+                writer = "DeepSeek";
+                reviewer = "Claude";
+              } else if (prov.includes("deepseek")) {
+                writer = "DeepSeek";
+              }
+              if (!writer) return null;
+              return (
+                <div
+                  data-testid={`agent-chip-${idx}`}
+                  data-review-mode={rm || "auto"}
+                  style={{
+                    marginTop: 8, fontSize: 10,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "var(--text-faint)",
+                    letterSpacing: "0.1em",
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "2px 8px", borderRadius: 999,
+                    background: "rgba(255, 138, 42, 0.05)",
+                    border: "1px solid rgba(255, 138, 42, 0.20)",
+                  }}
+                >
+                  <span style={{ color: "var(--accent-2)" }}>{writer}</span>
+                  <span>wrote</span>
+                  {reviewer && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>·</span>
+                      <span style={{ color: "var(--accent-2)" }}>{reviewer}</span>
+                      <span>reviewed</span>
+                    </>
+                  )}
+                </div>
+              );
+            })()
+          )}
           {!m.streaming && (m.council || m.provider === "mode-b-council") && (
             <div data-testid={`council-badge-${idx}`} style={{
               marginTop: 8, fontSize: 10,
