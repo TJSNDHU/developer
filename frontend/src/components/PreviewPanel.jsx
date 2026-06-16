@@ -24,7 +24,13 @@ const RENDERABLE = new Set([
 
 function filename(block, idx) {
   if (!block) return `file_${idx}`;
-  if (block.label) return block.label;
+  if (block.label) {
+    // For codebase tabs, show only the basename so 20+ tabs fit
+    // without each being squished to a single character. The full
+    // path is preserved in the tab's `title` tooltip.
+    const parts = block.label.split("/");
+    return parts[parts.length - 1] || block.label;
+  }
   const l = block.lang.toLowerCase();
   if (l === "live_url") return "Live Site";
   if (l === "jsx" || l === "tsx") return `App.${l}`;
@@ -266,14 +272,17 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
         borderBottom: "1px solid var(--border)",
         background: "var(--bg-elev)",
       }}>
-        <span style={{
-          color: "var(--accent-2)",
-          fontSize: 10, letterSpacing: "0.18em",
-          fontFamily: "'JetBrains Mono', monospace",
-          textTransform: "uppercase", marginRight: 6,
-        }}>
-          live preview
-        </span>
+        {viewMode === "preview" && (
+          <span style={{
+            color: "var(--accent-2)",
+            fontSize: 10, letterSpacing: "0.18em",
+            fontFamily: "'JetBrains Mono', monospace",
+            textTransform: "uppercase", marginRight: 6,
+            flexShrink: 0,
+          }}>
+            live preview
+          </span>
+        )}
 
         {/* File tabs */}
         <div style={{
@@ -297,7 +306,11 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
                 cursor: "pointer",
                 fontFamily: "'JetBrains Mono', monospace",
                 whiteSpace: "nowrap",
-                maxWidth: 260,
+                // Tabs must NOT shrink under flex pressure — otherwise
+                // 20+ codebase tabs collapse to single characters
+                // ("s(", ".a") as reported by users.
+                flexShrink: 0,
+                maxWidth: 200,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
@@ -309,7 +322,7 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               fontSize: 11, color: "var(--text-faint)",
-              padding: "4px 8px",
+              padding: "4px 8px", flexShrink: 0,
             }}>
               <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
               loading repo…
@@ -359,7 +372,7 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
               });
             }}
             className="btn-ghost"
-            style={{ padding: "4px 10px", fontSize: 11 }}
+            style={{ padding: "4px 10px", fontSize: 11, flexShrink: 0 }}
             title="Toggle preview/code"
           >
             {viewMode === "preview"
@@ -374,7 +387,7 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
           style={{
             background: "none", border: "none",
             color: "var(--text-faint)", cursor: "pointer",
-            padding: 4,
+            padding: 4, flexShrink: 0,
           }}
         >
           <X size={15} />

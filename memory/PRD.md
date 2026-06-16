@@ -5388,3 +5388,22 @@ frames.
 - EDIT: `frontend/src/components/PreviewPanel.jsx` (codebase browse mode)
 - EDIT: `frontend/src/components/ChatPanel.jsx` (pass `activeProject` + `key` to PreviewPanel)
 - ADD:  `backend/tests/test_iter170_codebase_browse.py` (5 tests)
+
+
+
+### Iter 170d — Code preview tabs polish (Feb 2026)
+**User report (screenshot)**: 20+ tabs in the code-preview header were squished to single characters ("s(", ".a") and the orange "LIVE PREVIEW" label kept hogging space on the left even in Code mode.
+
+**Fix (`frontend/src/components/PreviewPanel.jsx`)**
+- `filename()` now returns the **basename** of `block.label` (split on `/`, take last segment). Full path is preserved in the tab's `title` tooltip so the user can hover to see where the file lives.
+- Tabs get `flexShrink: 0` so flexbox doesn't compress them to a sliver. `maxWidth: 200` + `text-overflow: ellipsis` handles unusually long basenames.
+- LIVE PREVIEW label is only rendered in `viewMode === "preview"`. In Code mode it disappears, freeing real estate for tabs.
+- `flexShrink: 0` also added to loading pill, Preview/Code toggle, and close X so none of them collapse under tab pressure.
+
+**Verification**
+- Standalone Node unit test on `filename()`: 6/6 PASS (paths with depths 1-5, dotfiles, file-with-dash names).
+- Playwright (preview): in Code mode the "live preview" label is **gone** (`live_label_visible: None`); tabs render full basename at 99px (was ~25px pre-fix); error banner still surfaces cleanly when GitHub isn't connected.
+- Lint: 0 issues.
+
+**Files touched**
+- EDIT: `frontend/src/components/PreviewPanel.jsx` (filename helper + flexShrink + conditional label)
