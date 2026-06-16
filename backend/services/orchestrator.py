@@ -110,30 +110,40 @@ def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
                 if p and p not in seen_paths:
                     seen_paths.append(p)
 
-    lines = ["I hit my reasoning-step budget on this task before "
-             "converging to a final answer."]
+    # Iter 169 — actionable budget-hit message. Old version led with
+    # an apology and a 4-pillar example the user could not act on. New
+    # version surfaces exactly which files were read so the user can
+    # narrow the next ask, and gives a copy-pasteable next prompt.
+    lines = [
+        "I ran out of time on this broad task before I could ship a fix.",
+    ]
     if seen_paths:
-        sample = ", ".join(f"`{p}`" for p in seen_paths[:6])
-        more = f" (+{len(seen_paths) - 6} more)" if len(seen_paths) > 6 else ""
-        lines.append(
-            f"**What I looked at:** {sample}{more}."
-        )
+        sample = ", ".join(f"`{p}`" for p in seen_paths[:3])
+        more = f" (+{len(seen_paths) - 3} more)" if len(seen_paths) > 3 else ""
+        lines.append(f"**Files I read:** {sample}{more}.")
     if seen_tools:
         lines.append(
             f"**Tools used:** {', '.join(seen_tools)} "
             f"({len(invocations)} calls)."
         )
-    # Be honest about why and give the user a concrete next move.
     lines.append(
-        "**Why this happened:** the scope of your question is broader "
-        "than a single chat turn can finish. The cleanest next step "
-        "is to ask me about one file or one pillar at a time — I'll "
-        "return a focused answer in seconds."
+        "**To get a concrete fix, narrow the ask to one file + one "
+        "problem.** I'll read it and reply with a ship-ready "
+        "```aurem-handoff fence in seconds."
     )
-    lines.append(
-        "**Try:** _\"check the sales pillar worker — is the scheduler "
-        "actually picking up jobs?\"_ instead of a 4-pillar sweep."
-    )
+    # Build an example from the first file we actually read so the
+    # user can copy-paste it as the next turn.
+    if seen_paths:
+        example_file = seen_paths[0].split("/")[-1]
+        lines.append(
+            f"**Try:** _\"fix `{example_file}` — [paste the exact "
+            f"error or describe the bug in one line]\"_"
+        )
+    else:
+        lines.append(
+            "**Try:** _\"fix `services/llm.py` — [paste the exact "
+            "error or describe the bug in one line]\"_"
+        )
     return "\n\n".join(lines)
 
 
@@ -312,7 +322,21 @@ AUREM_CTO_PERSONA = (
     "If you cannot find the file, SAY SO and offer to search. "
     "NEVER: invent file paths, hallucinate function bodies, fabricate "
     "config values, or guess at line numbers. Reading is free — "
-    "skipping it is the #1 trust-killer.\n\n"
+    "skipping it is the #1 trust-killer.\n"
+    "  8. ANALYSIS → SPEC CONTRACT. Iter 169. When the user asks to "
+    "fix / debug / change something AND you have done the reading, "
+    "your turn MUST end with a concrete ```aurem-handoff fence "
+    "containing the exact patch — files, before/after, tests. "
+    "Never end an analysis turn with vague suggestions and stop. "
+    "If you cannot read the relevant files in this turn (rate limit, "
+    "file not found, ambiguous path), say so EXPLICITLY in one line: "
+    "'I need to read X before I can give a spec — reading now.' Then "
+    "in the SAME turn call `read_repo_file` and continue. Speculating "
+    "about file contents you have not actually called read_repo_file on "
+    "= a bug. If the user says 'fix' / 'ship' / 'do it' and there is "
+    "no concrete spec to ship, ask back: 'Which file? What's the "
+    "problem?' — DO NOT start broad exploratory tool calls hoping to "
+    "find something. Targeted reads only.\n\n"
 
     "# MODE DETECTION — DO THIS FIRST, BEFORE ANYTHING ELSE\n"
     "  Look at the user's message and classify it into ONE of these modes. "

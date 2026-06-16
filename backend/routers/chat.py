@@ -487,6 +487,11 @@ _SHIP_CONFIRMATIONS = {
     "ship", "ship it", "ship via cto", "do it", "do it now",
     "go", "go ahead", "yes", "yep", "ok", "okay", "proceed",
     "please ship", "ship please", "send it", "execute", "run it",
+    # Iter 169 — "fix" / "fix it" / "apply" / "apply the fix" were
+    # caught by _FIX_CONFIRM regex but missing here, so neither the
+    # ship-shortcut nor the clarify-guard fired. User typed "fix",
+    # fell through to a full reasoning loop, hit budget, hallucinated.
+    "fix", "fix it", "apply", "apply the fix", "sure",
 }
 
 _HANDOFF_FENCE_RE = re.compile(
@@ -504,6 +509,45 @@ def _looks_like_ship_confirmation(prompt: str) -> bool:
     if not p or len(p) > 30:
         return False
     return p in _SHIP_CONFIRMATIONS
+
+
+async def _maybe_clarify_short_fix(*, body, user_id: str) -> Optional[str]:
+    """Iter 169 — when the user says a bare 'fix' / 'ship' / 'do it'
+    but no prior assistant turn has an ```aurem-handoff fence in the
+    recent history, do NOT start an expensive reasoning loop that will
+    hallucinate file paths and burn the budget. Reply immediately with
+    a one-shot clarification so the user re-asks with a concrete target.
+
+    Returns the clarification text when the guard trips, or None to let
+    the normal orchestrator path run.
+    """
+    if not _looks_like_ship_confirmation(body.prompt):
+        return None
+    db = get_db()
+    if db is None:
+        return None
+    sess = await db.chat_sessions.find_one(
+        {"user_id": user_id, "session_id": body.session_id},
+        {"messages": 1, "_id": 0},
+    )
+    msgs = (sess or {}).get("messages") or []
+    recent = msgs[-6:] if len(msgs) >= 6 else msgs
+    has_spec = any(
+        m.get("role") == "assistant"
+        and "aurem-handoff" in (m.get("content") or "")
+        for m in recent
+    )
+    if has_spec:
+        return None  # ship-shortcut already handled this
+    return (
+        "I don't have a concrete fix ready to ship.\n\n"
+        "Tell me specifically:\n"
+        "- **Which file** needs fixing?\n"
+        "- **What's the problem?** (paste the error, "
+        "or describe the bug in one line)\n\n"
+        "Then I'll read the file and give you a ship-ready spec — "
+        "no guessing, no broad sweeps."
+    )
 
 
 async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
@@ -765,6 +809,41 @@ async def chat_stream(
     if shipped_via_shortcut is not None:
         return StreamingResponse(
             shipped_via_shortcut, media_type="text/event-stream",
+        )
+
+    # Iter 169 — sibling guard: if user said "fix"/"ship" but no prior
+    # handoff fence exists, return a one-shot clarification stream
+    # instead of running a 150s reasoning loop that will hallucinate
+    # file paths. Emits as a normal SSE turn so the chat UI renders it
+    # the same as any other assistant reply.
+    _clarify_text = await _maybe_clarify_short_fix(body=body, user_id=user_id)
+    if _clarify_text is not None:
+        async def _clarify_stream():
+            import time as _t, json as _j
+            meta = {
+                "meta": True,
+                "session_id": body.session_id,
+                "provider": "aurem-clarify-fix",
+                "mode": "A",
+                "temperature": 0.0,
+                "thinking_s": 0.0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "t_started": _t.monotonic(),
+            }
+            yield f"data: {_j.dumps(meta)}\n\n"
+            yield f"data: {_j.dumps({'delta': _clarify_text})}\n\n"
+            yield f"data: {_j.dumps({'done': True, 'content': _clarify_text})}\n\n"
+            await _persist_turn(
+                user_id=user_id,
+                session_id=body.session_id or "",
+                user_prompt=body.prompt or "",
+                assistant_reply=_clarify_text,
+                provider="aurem-clarify-fix",
+                project_id=body.project_id,
+            )
+        return StreamingResponse(
+            _clarify_stream(), media_type="text/event-stream",
         )
     # Inject the project's persistent memory (recent commits, tech stack,
     # past decisions, rejected ideas, recurring bugs) so a fresh chat
