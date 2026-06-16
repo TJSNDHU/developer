@@ -900,11 +900,15 @@ async def chat_stream(
         # Pattern #2 in RECURRING_ISSUES.md: the previous 90 s budget
         # was getting eaten by the first tool call on real user repos,
         # then "do it" on the retry hit the same wall.
-        # Iter 160 — was 150s, tightened to 90s. With orchestrator
-        # per-turn budget at 75s and LLM call cap at 25s × 2 retries,
-        # a 90s wall-clock ceiling guarantees the user never sees a
-        # spinner past 1.5 min regardless of upstream behaviour.
-        HARD_TIMEOUT_S = float(os.getenv("CHAT_HARD_TIMEOUT_S", "90"))
+        # Iter 169 — bumped back to 180s. Iter 160 had tightened to 90s
+        # but with the smart-router + warm-start + 4-agent system we ran
+        # into the exact failure the user flagged: a legit 13-tool-call
+        # repo sweep was getting guillotined at 90s with a runaway-loop
+        # message even though no loop was happening. 180s wall + 150s
+        # orch budget gives a 30s reserve so the user never sees a
+        # spinner past 3 min, and the cut-off only fires on truly stuck
+        # turns — not on legitimate deep dives.
+        HARD_TIMEOUT_S = float(os.getenv("CHAT_HARD_TIMEOUT_S", "180"))
         stop_event = asyncio.Event()
         q: asyncio.Queue = asyncio.Queue()
         # Shared activity hint the worker mutates as it progresses; the

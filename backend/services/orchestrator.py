@@ -1233,9 +1233,13 @@ async def chat_with_tools(
     # has ~64s of useful working time — nearly 2× the previous limit
     # — while still leaving room for one typical LLM round to finish
     # cleanly within wall-clock.
-    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "82"))
+    # Iter 169 — sized to live under the 180s chat wall clock with a
+    # 30s reserve. Working time = 150 - 25 = 125s. That comfortably
+    # absorbs a 13-tool-call repo sweep (avg 4-6s per local tool) plus
+    # 2 LLM rounds before the final synthesis pass.
+    _ORCH_BUDGET_S = float(os.getenv("ORCH_PER_TURN_BUDGET_S", "150"))
     _ORCH_FINAL_ROUND_RESERVE_S = float(
-        os.getenv("ORCH_FINAL_ROUND_RESERVE_S", "18")
+        os.getenv("ORCH_FINAL_ROUND_RESERVE_S", "25")
     )
     _orch_started_at = time.monotonic()
 

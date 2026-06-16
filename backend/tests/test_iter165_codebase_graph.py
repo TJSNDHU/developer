@@ -183,7 +183,10 @@ def test_chatpanel_wires_graph_panel():
     assert 'from "./GraphPanel"' in src
     assert "graphOpen" in src
     assert "ora-inject" in src
-    assert 'data-testid="graph-toggle-btn"' in src
+    # Iter 169 — switched from inline <button data-testid=…> to a
+    # <ToolButton testid="…"> (the prop renders as data-testid at runtime)
+    # so the toolbar matches the size/style of the Attach + GitHub buttons.
+    assert 'testid="graph-toggle-btn"' in src
     assert "<GraphPanel" in src
 
 
