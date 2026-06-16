@@ -44,6 +44,7 @@ function FileNode({ data, selected }) {
   return (
     <div
       data-testid={`node-${data.layer}`}
+      className="kg-file-node"
       style={{
         width: data.width || 200,
         height: data.height || 95,
@@ -57,11 +58,18 @@ function FileNode({ data, selected }) {
           : selected
             ? `0 0 16px ${c.glow}`
             : "0 2px 8px rgba(0,0,0,0.4)",
-        transition: "all 0.2s ease",
+        transition:
+          "transform 0.18s ease, box-shadow 0.18s ease, " +
+          "background 0.2s ease, z-index 0s",
         position: "relative",
         backdropFilter: "blur(4px)",
         overflow: "hidden",
         boxSizing: "border-box",
+        cursor: "pointer",
+        // Custom CSS variables consumed by the :hover rule below so we
+        // can scale to a readable size regardless of starting dimensions.
+        "--kg-bg": c.bg,
+        "--kg-glow": c.glow,
       }}
     >
       {isLive && (
@@ -78,6 +86,7 @@ function FileNode({ data, selected }) {
         />
       )}
       <div
+        className="kg-file-node__layer"
         style={{
           fontSize: compact ? 8 : 9,
           color: c.bg,
@@ -91,6 +100,7 @@ function FileNode({ data, selected }) {
         {data.layer}
       </div>
       <div
+        className="kg-file-node__label"
         style={{
           fontSize: compact ? 10 : 12,
           fontWeight: 600,
@@ -102,15 +112,16 @@ function FileNode({ data, selected }) {
       >
         {data.label}
       </div>
-      {!compact && data.description && (
+      {data.description && (
         <div
+          className="kg-file-node__desc"
           style={{
             fontSize: 9,
             color: isLive ? `${c.text}cc` : "#94a3b8",
             marginTop: 3,
             overflow: "hidden",
             textOverflow: "ellipsis",
-            display: "-webkit-box",
+            display: compact ? "none" : "-webkit-box",
             WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",
             lineHeight: 1.3,
@@ -119,13 +130,15 @@ function FileNode({ data, selected }) {
           {data.description}
         </div>
       )}
-      {!compact && data.symbolCount > 0 && (
+      {data.symbolCount > 0 && (
         <div
+          className="kg-file-node__symbols"
           style={{
             fontSize: 9,
             color: c.bg,
             marginTop: 4,
             fontFamily: "monospace",
+            display: compact ? "none" : "block",
           }}
         >
           ƒ {data.symbolCount} functions
@@ -409,13 +422,7 @@ export default function KnowledgeGraph({
         proOptions={{ hideAttribution: true }}
       >
         <Background variant="dots" color="#ffffff08" gap={24} size={1} />
-        <Controls
-          style={{
-            background: "#0f172a",
-            border: "1px solid #1e293b",
-            borderRadius: 8,
-          }}
-        />
+        <Controls />
         <MiniMap
           style={{ background: "#0f172a", border: "1px solid #1e293b" }}
           nodeColor={(n) =>
@@ -446,6 +453,55 @@ export default function KnowledgeGraph({
         @keyframes live-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
           50%      { opacity: 0.5; transform: scale(1.4); }
+        }
+
+        /* Iter 168 — hover lifts a node, reveals layer/label/desc at a
+           readable size even if the original cell was compact. The lifted
+           node also wins z-index so it visually pops above neighbours. */
+        .kg-file-node:hover {
+          transform: scale(2.4);
+          z-index: 9999 !important;
+          box-shadow:
+            0 0 24px var(--kg-glow, rgba(99, 102, 241, 0.5)),
+            0 12px 32px rgba(0, 0, 0, 0.6) !important;
+          background: var(--kg-bg) !important;
+          color: #0b0f1a !important;
+        }
+        .kg-file-node:hover .kg-file-node__label {
+          color: #0b0f1a !important;
+        }
+        .kg-file-node:hover .kg-file-node__desc {
+          display: -webkit-box !important;
+          color: #0b0f1a !important;
+        }
+        .kg-file-node:hover .kg-file-node__symbols {
+          display: block !important;
+          color: #0b0f1a !important;
+        }
+
+        /* Iter 168 — dark theme for the ReactFlow zoom/lock controls.
+           Default rendering is white-on-white which is invisible on our
+           #080c14 canvas. */
+        .react-flow__controls {
+          background: #0f172a !important;
+          border: 1px solid #1e293b !important;
+          border-radius: 8px !important;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+        }
+        .react-flow__controls-button {
+          background: #0f172a !important;
+          border-bottom: 1px solid #1e293b !important;
+          color: #f1f5f9 !important;
+          fill: #f1f5f9 !important;
+        }
+        .react-flow__controls-button:last-child {
+          border-bottom: none !important;
+        }
+        .react-flow__controls-button:hover {
+          background: #1e293b !important;
+        }
+        .react-flow__controls-button svg {
+          fill: #f1f5f9 !important;
         }
       `}</style>
     </div>
