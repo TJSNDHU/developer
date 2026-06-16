@@ -1,22 +1,23 @@
 """
 services/llm.py — AUREM Dev LLM gateway
 
-Iter 35 — Model routing upgrade:
+Iter 166 — Emergent SDK fully removed. ALL LLM traffic now goes
+through OpenRouter (single key: OPENROUTER_API_KEY).
 
-  chat / review / title  → DeepSeek via OpenRouter (fast, cheap, private)
-  code / ship tasks      → Claude Sonnet via Emergent (better code quality)
-  maxx mode              → Claude + watchdog review pass (unchanged)
+  chat / review / title  → DeepSeek via OpenRouter
+  code / ship tasks      → Claude Sonnet 4.5 via OpenRouter
+  maxx mode              → Claude + watchdog review pass (both OpenRouter)
 
 Routing logic lives in call_llm_with_meta via `mode` param:
-  mode="code"   → Claude Sonnet 4.5 (EMERGENT_LLM_KEY)
-  mode="chat"   → DeepSeek V3 (OPENROUTER_API_KEY)
-  mode="review" → DeepSeek (fast, cheap)
-  mode="title"  → DeepSeek (tiny output)
+  mode="code"   → Claude Sonnet 4.5 (OpenRouter)
+  mode="chat"   → DeepSeek V3 (OpenRouter)
+  mode="review" → DeepSeek
+  mode="title"  → DeepSeek
   mode="default"→ DeepSeek
 
 Privacy:
   DeepSeek path: data_collection=deny (OpenRouter enforced)
-  Claude path:   Emergent platform key — no training on user data
+  Claude path:   anthropic/claude-sonnet-4-5-20250929 via OpenRouter
 """
 from __future__ import annotations
 import os
@@ -100,12 +101,14 @@ def _openrouter_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "")
 
 
-def _emergent_key() -> str:
-    return os.getenv("EMERGENT_LLM_KEY", "")
-
-
 def _deepseek_model() -> str:
     return os.getenv("LLM_MODEL", "deepseek/deepseek-chat")
+
+
+# Claude model slug on OpenRouter
+_CLAUDE_MODEL = os.getenv(
+    "CLAUDE_MODEL", "anthropic/claude-sonnet-4-5-20250929"
+)
 
 
 # ── DeepSeek path (chat, review, title) ─────────────────────────────────────
@@ -196,11 +199,15 @@ async def _call_deepseek(messages: list, system: str = "",
 async def _call_claude(system: str, user: str,
                        max_tokens: int = 3500,
                        temperature: float = 0.0) -> str:
-    """Call Claude Sonnet via Emergent LLM key for code tasks."""
-    emergent_key = _emergent_key()
-    if not emergent_key:
-        # Fall back to DeepSeek if Emergent key not configured
-        logger.info("EMERGENT_LLM_KEY not set — falling back to DeepSeek for code task")
+    """Call Claude Sonnet 4.5 via OpenRouter for code tasks.
+
+    Iter 166 — Migrated from Emergent SDK to OpenRouter. Single key
+    (OPENROUTER_API_KEY) now serves DeepSeek + Claude + all agents.
+    Falls back to DeepSeek if Claude call returns empty (network /
+    upstream failure) so code tasks never hard-fail.
+    """
+    if not _openrouter_key():
+        logger.info("OPENROUTER_API_KEY not set — falling back to DeepSeek for code task")
         return await _call_deepseek(
             messages=[{"role": "user", "content": user}],
             system=system,
@@ -208,53 +215,24 @@ async def _call_claude(system: str, user: str,
             temperature=temperature,
         )
 
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        import uuid as _uuid
+    content = await call_openrouter_model(
+        model=_CLAUDE_MODEL,
+        system=system,
+        user=user,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    if content:
+        return content
 
-        chat = (
-            LlmChat(
-                api_key=emergent_key,
-                session_id=f"cto-code-{_uuid.uuid4().hex[:8]}",
-                system_message=system,
-            )
-            .with_model("anthropic", "claude-sonnet-4-5-20250929")
-            .with_params(max_tokens=max_tokens, temperature=temperature)
-        )
-        # Iter 124 — retry on transient errors (rate limit / 5xx / timeout).
-        # emergentintegrations surfaces upstream as plain Exceptions, so we
-        # sniff the message for known transient markers.
-        _TRANSIENT_MARKERS = (
-            "429", "rate limit", "rate_limit", "overloaded", "timeout",
-            "timed out", "502", "503", "504", "temporarily unavailable",
-        )
-        last_exc: Exception | None = None
-        for attempt in range(1, _MAX_RETRIES + 2):  # 1..4
-            try:
-                result = await chat.send_message(UserMessage(text=user))
-                return result or ""
-            except Exception as e:
-                last_exc = e
-                msg = str(e).lower()
-                transient = any(m in msg for m in _TRANSIENT_MARKERS)
-                if not transient or attempt > _MAX_RETRIES:
-                    raise
-                delay = _retry_delay(attempt)
-                logger.warning(
-                    "Claude transient failure (attempt %d/%d) — retrying in %.2fs: %r",
-                    attempt, _MAX_RETRIES + 1, delay, e,
-                )
-                await asyncio.sleep(delay)
-        # Should never reach here, but satisfy type checker.
-        raise last_exc or RuntimeError("Claude call exhausted retries")
-    except Exception as e:
-        logger.warning(f"Claude call failed, falling back to DeepSeek: {e!r}")
-        return await _call_deepseek(
-            messages=[{"role": "user", "content": user}],
-            system=system,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+    # Empty content → fall back to DeepSeek so we never silently 500 a code task.
+    logger.warning("Claude (OpenRouter) returned empty — falling back to DeepSeek")
+    return await _call_deepseek(
+        messages=[{"role": "user", "content": user}],
+        system=system,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
 
 
 # ── Unified entry point ───────────────────────────────────────────────────────
@@ -335,7 +313,7 @@ async def call_llm_with_meta(system: str, user: str,
     """
     temperature = temperature_for(mode)
     actual_tokens = min(max_tokens, cap_for(mode))
-    wants_claude = mode in _CLAUDE_MODES and bool(_emergent_key())
+    wants_claude = mode in _CLAUDE_MODES and bool(_openrouter_key())
 
     # ── Iter 94/101: Maxx-mode budget gate + overage tracking ────────
     # 100-task included monthly. Past that:
@@ -366,7 +344,7 @@ async def call_llm_with_meta(system: str, user: str,
             logger.warning(f"maxx budget check failed (allowing): {e!r}")
 
     use_claude = wants_claude
-    provider_name = "claude-sonnet" if use_claude else "deepseek"
+    provider_name = "claude-sonnet-openrouter" if use_claude else "deepseek"
 
     try:
         if use_claude:
@@ -435,41 +413,42 @@ async def call_llm_with_meta(system: str, user: str,
         }
 
 
-# ── Emergent watchdog (Maxx mode) ─────────────────────────────────────────────
+# ── Watchdog (Maxx mode review pass) ─────────────────────────────────────────
 
 async def call_emergent_watchdog(text_to_review: str) -> dict:
-    """Maxx mode: ask Claude to grade DeepSeek's output.
-    Returns {ok, score, issues, review, error}. passed=True iff score >= 7."""
-    emergent_key = _emergent_key()
-    if not emergent_key:
+    """Maxx mode: ask Claude (via OpenRouter) to grade DeepSeek's output.
+
+    Iter 166 — name kept for backwards-compat with existing imports, but
+    the implementation now uses OpenRouter exclusively.
+
+    Returns {ok, score, issues, review, error}. passed=True iff score >= 7.
+    """
+    if not _openrouter_key():
         return {
             "ok": False, "score": None, "issues": [], "review": "",
-            "error": "EMERGENT_LLM_KEY not set",
+            "error": "OPENROUTER_API_KEY not set",
         }
+    system = (
+        "Strict reviewer. Score AI reply 0-10 for correctness, "
+        "hallucinations, broken code. Reply exactly:\n"
+        "SCORE: <0-10>\n"
+        "ISSUES: <semicolon list; 'none' if perfect>\n"
+        "VERDICT: <one sentence>"
+    )
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        import uuid as _uuid
-
-        system = (
-            "Strict reviewer. Score AI reply 0-10 for correctness, "
-            "hallucinations, broken code. Reply exactly:\n"
-            "SCORE: <0-10>\n"
-            "ISSUES: <semicolon list; 'none' if perfect>\n"
-            "VERDICT: <one sentence>"
+        review_txt = await call_openrouter_model(
+            model=_CLAUDE_MODEL,
+            system=system,
+            user=f"Review (score 1-10):\n\n{text_to_review[:3000]}",
+            max_tokens=cap_for("review"),
+            temperature=temperature_for("review"),
         )
-        chat = (
-            LlmChat(
-                api_key=emergent_key,
-                session_id=f"watchdog-{_uuid.uuid4().hex[:8]}",
-                system_message=system,
-            )
-            .with_model("anthropic", "claude-sonnet-4-5-20250929")
-            .with_params(max_tokens=cap_for("review"), temperature=temperature_for("review"))
-        )
-        review = await chat.send_message(
-            UserMessage(text=f"Review (score 1-10):\n\n{text_to_review[:3000]}")
-        )
-        review_txt = (review or "").strip()
+        review_txt = (review_txt or "").strip()
+        if not review_txt:
+            return {
+                "ok": False, "score": None, "issues": [], "review": "",
+                "error": "watchdog returned empty content",
+            }
 
         score = None
         issues_str = ""
@@ -496,7 +475,7 @@ async def call_emergent_watchdog(text_to_review: str) -> dict:
             "passed": (score is not None and score >= 7),
         }
     except Exception as e:
-        logger.warning(f"emergent watchdog failed: {e!r}")
+        logger.warning(f"watchdog (OpenRouter) failed: {e!r}")
         return {
             "ok": False, "score": None, "issues": [], "review": "",
             "error": f"watchdog unavailable: {e}",

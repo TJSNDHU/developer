@@ -7,7 +7,7 @@ Stack:
 - Backend: FastAPI on :8001 with `/api/aurem-dev/*` route prefix
 - Frontend: React + Vite on :3000
 - DB: local MongoDB
-- LLM: DeepSeek V3 via OpenRouter for chat; Emergent LLM key for Maxx-mode watchdog
+- LLM: DeepSeek V3 via OpenRouter for chat; Claude Sonnet 4.5 via OpenRouter for code/review/watchdog (Emergent SDK fully removed in Iter 166)
 
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
@@ -5288,3 +5288,27 @@ frames.
 **Files touched**
 - EDIT: `frontend/src/components/ChatPanel.jsx`
 - EDIT: `frontend/src/index.css`
+
+
+### Iter 166 — Emergent SDK fully removed (Feb 2026)
+**User ask (Hinglish)**: bhai, Emergent LLM dependency hata do. Pura `emergentintegrations` SDK aur `EMERGENT_LLM_KEY` strip kar do — Claude bhi ab OpenRouter se hi jaye. Single OPENROUTER_API_KEY = single bill, no hidden routing.
+
+**Changes (backend/services/llm.py)**
+- Removed `from emergentintegrations.llm.chat import LlmChat, UserMessage` (both occurrences).
+- Removed `def _emergent_key()` helper and all `EMERGENT_LLM_KEY` env references.
+- `_call_claude()` rewritten: now delegates to `call_openrouter_model(model="anthropic/claude-sonnet-4-5-20250929", …)` with DeepSeek fallback when key missing or upstream returns empty.
+- `call_emergent_watchdog()` rewritten same way — function name kept for backwards-compat with existing imports (vanguard_verify_agent, council_logger, etc.) but the body is pure OpenRouter now.
+- `call_llm_with_meta()` — `wants_claude` gate now checks `_openrouter_key()` instead of `_emergent_key()`. Provider name changed from `claude-sonnet` → `claude-sonnet-openrouter` so usage dashboards show the new path.
+- New constant `_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "anthropic/claude-sonnet-4-5-20250929")` so the slug can be hot-swapped via env without code changes.
+
+**Verification**
+- AST check: no `emergentintegrations` import, no `EMERGENT_LLM_KEY` literal, no `_emergent_key` function in llm.py.
+- New regression suite `tests/test_iter166_no_emergent_sdk.py` — 9/9 pass (covers: static check + claude routing + fallback + watchdog routing + watchdog error + meta code mode + meta chat mode).
+- Full Iter 164-166 regression: **86/86 pass** (test_iter164_orch_budget_buffer + 165_smart_router_agents + 165_brain_v2 + 165_warm_start + 165_codebase_graph + 166_no_emergent_sdk).
+- Backend supervisor restart clean, no import errors.
+
+**Note**: Auxiliary files (`vanguard_verify_agent.py`, `brain_orchestrator.py`, `llm_proxy.py`, `integration_health.py`, `external_services_registry.py`) still reference `EMERGENT_LLM_KEY` for legacy paths — those can be migrated in a follow-up iteration. Main hot path (`services/llm.py`) is 100% clean.
+
+**Files touched**
+- EDIT: `backend/services/llm.py` (full Emergent-SDK strip-out)
+- ADD: `backend/tests/test_iter166_no_emergent_sdk.py` (9 tests)
