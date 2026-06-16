@@ -1301,16 +1301,57 @@ async def task_stream(task_id: str, authorization: str = Header(None)):
 
 
 # ── Background worker ────────────────────────────────────────────────────
+def _classify_phase(step: str) -> Optional[str]:
+    """Iter 168 — map a free-form step string to a coarse phase bucket
+    so the live task popup can render phase chips without us having to
+    touch every _log() callsite. Returns one of:
+    phase_read / phase_think / phase_write / phase_verify / phase_commit
+    or None if the step doesn't fit a phase (it just appears as a plain
+    log line then)."""
+    s = (step or "").lower()
+    if any(k in s for k in (
+        "📡", "📄", "reading", "fetched", "fetching",
+        "cloning", "cloned", "injected", "🗂", "📋",
+    )):
+        return "phase_read"
+    if any(k in s for k in (
+        "🧠", "thinking", "plan:", "planning", "deepseek", "claude review",
+    )):
+        return "phase_think"
+    if any(k in s for k in (
+        "✏️", "💾", "writing", "regenerating", "auto-fixed", "linter",
+        "validating", "sandbox",
+    )):
+        return "phase_write"
+    if any(k in s for k in (
+        "🛡", "vanguard", "verify", "verified",
+    )):
+        return "phase_verify"
+    if any(k in s for k in (
+        "🚀", "committing", "pushed", "commit", "pushing",
+    )):
+        return "phase_commit"
+    return None
+
+
 async def _log(task_id: str, step: str, status: str = "info"):
     db = get_db()
+    # Iter 168 — persist phase bucket alongside the raw step text so
+    # the LiveTaskPopup can render phase chips from polled steps[].
+    phase = _classify_phase(step)
     if db is not None:
+        doc = {"step": step, "status": status, "ts": time.time()}
+        if phase:
+            doc["kind"] = phase
         await db.cto_tasks.update_one(
             {"task_id": task_id},
-            {"$push": {"steps": {"step": step, "status": status, "ts": time.time()}}},
+            {"$push": {"steps": doc}},
         )
     # Also fan out to the live SSE queue so chat bubbles can render the
     # worker tape in real time (Iter 73).  status→kind: error→fail, others→step.
-    kind = "fail" if status == "error" else "step"
+    # Phase classification overrides the generic step kind when found
+    # so SSE consumers can drive phase UI too.
+    kind = "fail" if status == "error" else (phase or "step")
     await _emit(task_id, step, kind=kind)
 
 
@@ -1497,7 +1538,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
 
     try:
         await _set_status(task_id, status="pulling", started_at=time.time())
-        await _emit(task_id, "Reading repository files…", pct=10)
+        await _emit(task_id, "Reading repository files…", kind="phase_read", pct=10)
         await _log(task_id, f"📡 Reading {owner}/{repo}@{branch} via API…")
 
         # 1) Read target files (or auto-pick a few likely ones) IN PARALLEL
@@ -1572,7 +1613,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         if issues_ctx:
             await _log(task_id, "📋 injected relevant GitHub issues")
 
-        await _emit(task_id, "ORA thinking…", pct=30)
+        await _emit(task_id, "ORA thinking…", kind="phase_think", pct=30)
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()
@@ -1738,7 +1779,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _set_status(task_id, status="done", result=summary,
                               completed_at=time.time())
             return
-        await _emit(task_id, "Writing files…", pct=60)
+        await _emit(task_id, "Writing files…", kind="phase_write", pct=60)
         await _log(task_id, f"✏️ {len(edits)} files to update", "success")
 
         # PRE-PUSH GATE — reject AI output that looks truncated. We'd
@@ -1797,7 +1838,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _set_status(task_id, status="failed", error=err[:2000],
                               completed_at=time.time())
             return
-        await _emit(task_id, "Running linter…", pct=75)
+        await _emit(task_id, "Running linter…", kind="phase_verify", pct=75)
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
         # ── Multi-file contract — verify every file the user promised
@@ -1846,7 +1887,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         # pipeline on an env-level missing binary).  On failure, one
         # auto-regen with the exact errors fed back (same nudge pattern
         # used by the truncation gate above).
-        await _emit(task_id, "Validating generated code…", pct=78)
+        await _emit(task_id, "Validating generated code…", kind="phase_verify", pct=78)
 
         def _check_js_syntax(filepath: str, content: str) -> Optional[str]:
             """Return an error string for invalid JS/TS/JSX/TSX, None if
@@ -2181,7 +2222,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                         )
                     except Exception:
                         pass
-        await _emit(task_id, "Committing to GitHub…", pct=90)
+        await _emit(task_id, "Committing to GitHub…", kind="phase_commit", pct=90)
 
         async def _prog(step: str, status: str = "info"):
             await _log(task_id, step, status)
@@ -2448,7 +2489,7 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         if issues_ctx:
             await _log(task_id, "📋 injected relevant GitHub issues")
 
-        await _emit(task_id, "ORA thinking…", pct=30)
+        await _emit(task_id, "ORA thinking…", kind="phase_think", pct=30)
         await _log(task_id, "🧠 DeepSeek thinking…")
         files_blob = "\n\n".join(
             f"FILE: {p}\n```\n{c}\n```" for p, c in contents.items()

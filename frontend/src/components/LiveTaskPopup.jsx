@@ -20,6 +20,19 @@ import { api } from "../lib/api";
 const POLL_MS    = 2000;
 const DISMISS_MS = 5000;
 
+// Iter 168 — phase chip config. Phases come from `step.kind`
+// (`phase_read` / `phase_think` / `phase_write` / `phase_verify` /
+// `phase_commit`) emitted by the backend worker, plus a terminal
+// `done` derived from task status.
+const PHASES = {
+  phase_read:   { icon: "📡", label: "Reading repo",    color: "#60a5fa", pulse: true  },
+  phase_think:  { icon: "🧠", label: "Thinking",        color: "#c084fc", pulse: true  },
+  phase_write:  { icon: "✏️", label: "Writing",         color: "#f59e0b", pulse: true  },
+  phase_verify: { icon: "🛡️", label: "Security check",  color: "#34d399", pulse: false },
+  phase_commit: { icon: "🚀", label: "Committing",      color: "#22c55e", pulse: false },
+  done:         { icon: "✅", label: "Done",            color: "#22c55e", pulse: false },
+};
+
 const C = {
   amber:  "#c8922a",
   green:  "#6dd4a1",
@@ -99,6 +112,36 @@ export default function LiveTaskPopup({ taskId, onClose }) {
   const tokens  = task?.tokens_used;
   const elapsed = task?.time_taken_seconds;
 
+  // Iter 168 — derive phase chip history from steps[].
+  // Each step persists a `kind` ∈ PHASES when the worker tagged it
+  // (or our heuristic classifier in _log inferred one). We collapse
+  // consecutive same-kind steps and cap the chip strip at 5 entries.
+  const phaseHistory = [];
+  for (const s of steps) {
+    const k = s.kind;
+    if (!k || !PHASES[k]) continue;
+    if (phaseHistory[phaseHistory.length - 1]?.kind === k) continue;
+    phaseHistory.push({ kind: k, step: s.step, ts: s.ts });
+  }
+  if (status === "done" && phaseHistory[phaseHistory.length - 1]?.kind !== "done") {
+    phaseHistory.push({ kind: "done", step: "Done", ts: Date.now() / 1000 });
+  }
+  const trimmedHistory = phaseHistory.slice(-5);
+  const activePhase = status === "done" || status === "failed"
+    ? null
+    : trimmedHistory[trimmedHistory.length - 1] || null;
+
+  // Extract the file currently being written (for the highlight line).
+  let writingFile = null;
+  if (activePhase?.kind === "phase_write") {
+    // Walk steps from the end, find latest "💾 path" or "✏️ X files".
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const text = steps[i].step || "";
+      const m = text.match(/💾\s+([^\s]+)/);
+      if (m) { writingFile = m[1].split("/").pop(); break; }
+    }
+  }
+
   const statusColor = status === "done"   ? C.green
                     : status === "failed" ? C.red
                     : C.amber;
@@ -107,20 +150,44 @@ export default function LiveTaskPopup({ taskId, onClose }) {
     <div
       data-testid="live-task-popup"
       style={{
-        position: "fixed", right: 16, bottom: 16,
-        width: 360, maxHeight: 480, overflow: "auto",
-        background: C.bg, color: C.ink,
-        border: `1px solid ${C.border}`,
-        borderRadius: 10,
-        boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+        position: "fixed",
+        right: 16,
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "min(360px, calc(100vw - 32px))",
+        maxHeight: "70vh",
+        minHeight: 80,
+        background: "rgba(10, 12, 20, 0.72)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        color: C.ink,
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        boxShadow:
+          "0 8px 32px rgba(0,0,0,0.4), " +
+          "inset 0 1px 0 rgba(255,255,255,0.06)",
+        overflowY: "auto",
+        overflowX: "hidden",
         fontFamily: "ui-monospace, Menlo, monospace",
-        fontSize: 12, zIndex: 9999,
-        animation: "ltp-slide-in 220ms ease-out",
+        fontSize: 12,
+        zIndex: 7500,
+        animation: "popup-slide-in 0.25s ease-out",
+        pointerEvents: "auto",
       }}>
       <style>{`
-        @keyframes ltp-slide-in {
-          from { transform: translateX(20px); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
+        @keyframes popup-slide-in {
+          from {
+            opacity: 0;
+            transform: translateY(-50%) translateX(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(-50%) translateX(0);
+          }
+        }
+        @keyframes phase-pulse {
+          0%, 100% { opacity: 1;   transform: scale(1);   }
+          50%      { opacity: 0.4; transform: scale(1.3); }
         }
       `}</style>
 
@@ -150,6 +217,102 @@ export default function LiveTaskPopup({ taskId, onClose }) {
                    cursor: "pointer", fontSize: 14, padding: 4 }}
         >✕</button>
       </div>
+
+      {/* Iter 168 — Phase chip strip */}
+      {trimmedHistory.length > 0 && (
+        <div
+          data-testid="ltp-phase-strip"
+          style={{
+            padding: "10px 12px",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            display: "flex", flexWrap: "wrap", gap: 4,
+          }}
+        >
+          {trimmedHistory.map((p, i) => {
+            const cfg = PHASES[p.kind] || {};
+            const isActive = activePhase?.kind === p.kind &&
+                             i === trimmedHistory.length - 1;
+            return (
+              <div
+                key={`${p.kind}-${i}`}
+                data-testid={`ltp-phase-chip-${p.kind}`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px",
+                  borderRadius: 12,
+                  background: isActive
+                    ? `${cfg.color}22`
+                    : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${isActive
+                    ? cfg.color + "44"
+                    : "transparent"}`,
+                  fontSize: 11,
+                  color: isActive ? cfg.color : "#475569",
+                  transition: "all 0.2s",
+                  fontFamily:
+                    "system-ui, -apple-system, sans-serif",
+                }}
+              >
+                <span>{cfg.icon}</span>
+                <span style={{ fontWeight: isActive ? 600 : 400 }}>
+                  {cfg.label}
+                  {isActive && writingFile && p.kind === "phase_write"
+                    ? `: ${writingFile}`
+                    : ""}
+                </span>
+                {isActive && cfg.pulse && (
+                  <span
+                    style={{
+                      width: 5, height: 5,
+                      borderRadius: "50%",
+                      background: cfg.color,
+                      animation: "phase-pulse 1s infinite",
+                      display: "inline-block",
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Iter 168 — Currently writing file highlight */}
+      {activePhase?.kind === "phase_write" && writingFile && (
+        <div
+          data-testid="ltp-writing-file"
+          style={{
+            padding: "6px 14px",
+            background: "rgba(245,158,11,0.06)",
+            borderBottom: "1px solid rgba(245,158,11,0.1)",
+            display: "flex", alignItems: "center", gap: 8,
+          }}
+        >
+          <span
+            style={{
+              width: 6, height: 6,
+              borderRadius: "50%",
+              background: "#f59e0b",
+              animation: "phase-pulse 0.8s infinite",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{
+            fontSize: 11,
+            fontFamily: "monospace",
+            color: "#f59e0b",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1, minWidth: 0,
+          }}>
+            {writingFile}
+          </span>
+          <span style={{ fontSize: 10, color: "#64748b", flexShrink: 0 }}>
+            being written…
+          </span>
+        </div>
+      )}
 
       {err && (
         <div data-testid="ltp-error" style={{ padding: 10, color: C.red, fontSize: 11 }}>

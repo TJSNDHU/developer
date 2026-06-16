@@ -1143,8 +1143,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       <div
         data-testid="chat-messages"
         style={{
-          flex: 1, overflowY: "auto", padding: "24px 28px",
+          flex: 1, overflowY: "auto",
+          padding: "24px 28px",
+          paddingRight: livePopupTaskId ? 392 : 28,
           display: "flex", flexDirection: "column", gap: 20,
+          transition: "padding-right 0.2s ease",
         }}
       >
         {/* Iter 131 — Clear ↑ toolbar. Sits at the top of the
