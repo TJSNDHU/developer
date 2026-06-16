@@ -675,3 +675,11 @@ table { max-width: 100%; }
 
 /* End Iter 154 mode-tint block */
 
+
+/* Iter 169 — mobile responsiveness */
+@media (max-width: 768px) {
+  /* Hide Ask Advisor launch button on mobile (chat panel handles ORA there) */
+  .hidden-on-mobile {
+    display: none !important;
+  }
+}

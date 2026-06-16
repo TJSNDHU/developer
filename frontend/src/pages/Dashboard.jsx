@@ -224,7 +224,7 @@ function DashboardBody() {
               catch { /* ignore */ }
             }}
             title="Ask Advisor — second-opinion AI panel"
-            className="ask-ora-launch-btn"
+            className="ask-ora-launch-btn hidden-on-mobile"
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               fontSize: 10, fontWeight: 700,

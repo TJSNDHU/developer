@@ -91,16 +91,48 @@ export default function Shell({ children, requireAuth }) {
     []
   );
 
-  // When the active project changes (or on first mount), switch session
+  // When the active project changes (or on first mount), switch session.
+  //
+  // Iter 170 — Cross-device chat sync.
+  // Previously: if localStorage had no sessionId for this project, we
+  // immediately minted a brand-new one. That meant a user logging in
+  // on mobile (empty localStorage) got a blank chat even though their
+  // desktop had a fully-populated session on the server.
+  //
+  // Now: if localStorage is empty, we async-fetch the most-recent
+  // server-side session for this project (scoped to the user via the
+  // auth token) and adopt it. Only mint a fresh id if the server has
+  // none. The localStorage cache stays authoritative for same-device
+  // continuity once it's populated.
   useEffect(() => {
     const key = sessionKeyFor(activeProjectId);
-    let existing = localStorage.getItem(key);
-    if (!existing) {
-      existing = newSessionId();
-      localStorage.setItem(key, existing);
+    const cached = localStorage.getItem(key);
+    if (cached) {
+      setSessionIdState(cached);
+      return;
     }
-    setSessionIdState(existing);
-  }, [activeProjectId, sessionKeyFor]);
+    let cancelled = false;
+    (async () => {
+      let adopted = null;
+      if (token) {
+        try {
+          const params = activeProjectId
+            ? { project_id: activeProjectId }
+            : { project_id: "home" };
+          const r = await api.get("/chat/sessions", { params });
+          const list = r.data?.sessions || [];
+          if (list.length && list[0]?.session_id) {
+            adopted = list[0].session_id;
+          }
+        } catch { /* fall through to fresh id */ }
+      }
+      if (cancelled) return;
+      const next = adopted || newSessionId();
+      localStorage.setItem(key, next);
+      setSessionIdState(next);
+    })();
+    return () => { cancelled = true; };
+  }, [activeProjectId, sessionKeyFor, token]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsedState((c) => {

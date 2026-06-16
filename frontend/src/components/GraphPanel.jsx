@@ -41,6 +41,18 @@ export default function GraphPanel({ projectId, open, onClose }) {
   const pollRef = useRef(null);
   const liveTimerRef = useRef(null);
 
+  // Iter 169 — track viewport width so the drawer can go full-screen
+  // on mobile (≤640 px) and use the spacious side-drawer layout on
+  // desktop. Updating only on resize keeps render cost ~zero.
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" && window.innerWidth <= 640
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   // Listen for ORA editing events from ChatPanel (dispatched on tool/patch progress).
   useEffect(() => {
     const handler = (e) => {
@@ -153,22 +165,22 @@ export default function GraphPanel({ projectId, open, onClose }) {
         data-testid="graph-panel"
         style={{
           position: "fixed",
-          // Always leave room for topbar (~64px) and chat input (~132px)
-          // so the user never loses access to "Ask Advisor" or the chat
-          // composer while the drawer is open.
-          top: 64,
+          // Iter 169 — on mobile, take the full screen. On desktop, the
+          // floating side-drawer with chat-input + topbar headroom.
+          top: isMobile ? 0 : 64,
           right: 0,
-          bottom: 132,
-          width:
-            view === "graph"
+          bottom: isMobile ? 0 : 132,
+          width: isMobile
+            ? "100vw"
+            : view === "graph"
               ? "min(880px, calc(100vw - 24px))"
               : "min(460px, 100vw)",
           background: "var(--panel)",
-          borderLeft: "1px solid var(--border-strong)",
-          borderTop: "1px solid var(--border-strong)",
-          borderBottom: "1px solid var(--border-strong)",
-          borderTopLeftRadius: 12,
-          borderBottomLeftRadius: 12,
+          borderLeft: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderTop: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderBottom: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderTopLeftRadius: isMobile ? 0 : 12,
+          borderBottomLeftRadius: isMobile ? 0 : 12,
           zIndex: 8501,
           display: "flex", flexDirection: "column",
           animation: "slide-in-right 0.2s ease-out",
@@ -181,29 +193,46 @@ export default function GraphPanel({ projectId, open, onClose }) {
           style={{
             display: "flex", alignItems: "center",
             justifyContent: "space-between",
-            padding: "14px 18px",
+            padding: isMobile ? "10px 12px" : "14px 18px",
             borderBottom: "1px solid var(--border)",
+            gap: 6,
+            flexWrap: "nowrap",
+            minWidth: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <GitBranch size={15} style={{ color: "#f59e0b" }} />
-            <span style={{ fontWeight: 600, fontSize: 14 }}>
-              Codebase Graph
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            minWidth: 0, flex: "1 1 auto",
+            overflow: "hidden",
+          }}>
+            <GitBranch size={15} style={{ color: "#f59e0b", flexShrink: 0 }} />
+            <span style={{
+              fontWeight: 600,
+              fontSize: isMobile ? 12 : 14,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}>
+              {isMobile ? "Graph" : "Codebase Graph"}
             </span>
-            {graph && (
+            {graph && !isMobile && (
               <span
                 style={{
                   fontSize: 10, color: "var(--text-faint)",
                   fontFamily: "monospace",
                   background: "var(--bg-elev)",
                   padding: "2px 6px", borderRadius: 4,
+                  whiteSpace: "nowrap",
                 }}
               >
                 {graph.file_count} files · {graph.llm_files || 0} described
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{
+            display: "flex", gap: 6, alignItems: "center",
+            flexShrink: 0,
+          }}>
             {status === "ready" && graph && (
               <div
                 data-testid="graph-view-toggle"

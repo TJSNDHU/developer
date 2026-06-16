@@ -5312,3 +5312,22 @@ frames.
 **Files touched**
 - EDIT: `backend/services/llm.py` (full Emergent-SDK strip-out)
 - ADD: `backend/tests/test_iter166_no_emergent_sdk.py` (9 tests)
+
+
+
+### Iter 170 — Cross-device chat sync on mobile (Feb 2026)
+**User ask (Hinglish)**: bhai, mobile view pe same account login pe same chat nhi show hoti updated.
+
+**Root cause**: `Shell.jsx` lines 95-103 minted a brand-new `sessionId` whenever localStorage for the current project key was empty. On a fresh mobile login, localStorage starts empty so the user always landed on a blank chat — their desktop history still lived under a different (desktop-only) sessionId stored in the desktop's localStorage.
+
+**Fix (frontend/src/components/Shell.jsx)**
+- Session-init effect now: (1) reads localStorage as before for same-device continuity; (2) if empty, async-fetches `GET /chat/sessions?project_id=<project>` for the authenticated user and adopts `sessions[0].session_id` (most-recent server-side session); (3) only mints `newSessionId()` if the server has no sessions for that scope. The adopted id is then written to localStorage so subsequent loads are instant.
+- Added `token` to the effect's deps so the adoption fires the moment auth completes.
+- Cancellation guard (`cancelled` flag) so a fast project-switch doesn't race the fetch.
+
+**Verification**
+- Backend `/chat/sessions` confirmed returning 6 sessions for `test@aurem.dev`, sorted by `updated_at` DESC.
+- Playwright (mobile viewport 390×844): cleared localStorage → logged in → adopted sessionId `iter157-smoke` (server's most-recent) → 14 messages of real history loaded. Pre-fix would have shown only the WELCOME bubble.
+
+**Files touched**
+- EDIT: `frontend/src/components/Shell.jsx` (session-init effect)
