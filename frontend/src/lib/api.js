@@ -31,6 +31,42 @@ export const healthApi = axios.create({
   timeout: 10000,
 });
 
+// Iter 170 — Request dedup cache for `GET /cto/tasks/{id}`.
+//
+// MessageBubble (one per shipped turn) and LiveTaskPopup each spin up
+// their own 1s/2s poll loops against the same task id. With ~3-4
+// streaming bubbles in view + the floating popup that's been
+// observed firing ~80 requests in 30 s for a single task — heavy on
+// the DB and our preview-edge bandwidth for zero new info per call.
+//
+// We coalesce identical in-flight calls and replay the resolved
+// response for up to 1.5 s. The pattern is intentionally narrow
+// (`/cto/tasks/<id>` with no trailing path) so the dedup never
+// touches `submit`, `rollback`, `/scan`, etc.
+const _TASK_DETAIL_RX = /^\/cto\/tasks\/[^/?]+\/?$/;
+const _TASK_CACHE_TTL_MS = 1500;
+const _taskGetCache = new Map(); // url -> { ts, promise }
+
+const _origApiGet = api.get.bind(api);
+api.get = function dedupedGet(url, config) {
+  if (typeof url === "string" && _TASK_DETAIL_RX.test(url.split("?")[0])) {
+    // Key on full url incl. query so different `?fields=` calls don't collide
+    const cached = _taskGetCache.get(url);
+    const now = Date.now();
+    if (cached && now - cached.ts < _TASK_CACHE_TTL_MS) {
+      return cached.promise;
+    }
+    const promise = _origApiGet(url, config).catch((err) => {
+      // Evict on failure so the next caller actually retries.
+      _taskGetCache.delete(url);
+      throw err;
+    });
+    _taskGetCache.set(url, { ts: now, promise });
+    return promise;
+  }
+  return _origApiGet(url, config);
+};
+
 export function setToken(t) {
   if (t) localStorage.setItem("aurem_token", t);
   else localStorage.removeItem("aurem_token");

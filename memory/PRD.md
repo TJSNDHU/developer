@@ -5331,3 +5331,25 @@ frames.
 
 **Files touched**
 - EDIT: `frontend/src/components/Shell.jsx` (session-init effect)
+
+
+
+### Iter 170b — Request dedup for /cto/tasks/{id} polling (Feb 2026)
+**Problem**: MessageBubble + LiveTaskPopup each run independent poll loops (~1-2s interval) against the same task id. With 3-4 streaming bubbles and the floating popup in view, the live preview observed ~80 calls in 30 s for a single task — pure overhead.
+
+**Fix (frontend/src/lib/api.js)**
+- Monkey-patched `api.get` to intercept URLs matching `/^\/cto\/tasks\/[^/?]+\/?$/` only (task-detail GETs).
+- Coalesces in-flight calls (10 parallel callers → 1 network request) and replays the response for **1.5 s** (TTL).
+- Errored responses are evicted immediately so the next call retries.
+- Non-matching URLs (`/cto/tasks/<id>/scan`, `/cto/tasks/<id>/rollback`, `/chat/history`, etc.) pass through unchanged.
+
+**Verification (10/10 PASS, standalone node test)**
+- 10 parallel calls dedup to 1; all callers receive same response
+- 5 sequential within TTL dedup to 1; call after TTL expiry refetches
+- Non-task-detail URLs not deduped; errored response evicted (next call retries)
+- Different ids do not share cache; regex matches `/cto/tasks/<id>`, rejects `/rollback` and list root.
+
+**Expected impact**: ~80% reduction in `/cto/tasks/{id}` request volume during active task observation.
+
+**Files touched**
+- EDIT: `frontend/src/lib/api.js` (added dedup wrapper around `api.get`)
