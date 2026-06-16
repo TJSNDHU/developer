@@ -171,11 +171,33 @@ export default function PreviewPanel({ blocks, onClose }) {
           ))}
         </div>
 
-        {/* preview/code toggle */}
-        {isRenderable && (
+        {/* preview/code toggle — Iter 169: when toggling FROM the
+            Live Site URL block INTO Code mode, auto-jump to the
+            first actual code/file block so the user sees real code
+            instead of the raw URL string. */}
+        {(isRenderable || (blocks || []).some(
+              (b) => (b?.lang || "").toLowerCase() !== "live_url"
+            )) && (
           <button
             data-testid="preview-view-toggle"
-            onClick={() => setViewMode((v) => (v === "preview" ? "code" : "preview"))}
+            onClick={() => {
+              setViewMode((v) => {
+                const next = v === "preview" ? "code" : "preview";
+                if (next === "code" && isLiveUrl) {
+                  const idx = (blocks || []).findIndex(
+                    (b) => (b?.lang || "").toLowerCase() !== "live_url"
+                  );
+                  if (idx >= 0) setActiveTab(idx);
+                }
+                if (next === "preview") {
+                  const liveIdx = (blocks || []).findIndex(
+                    (b) => (b?.lang || "").toLowerCase() === "live_url"
+                  );
+                  if (liveIdx >= 0) setActiveTab(liveIdx);
+                }
+                return next;
+              });
+            }}
             className="btn-ghost"
             style={{ padding: "4px 10px", fontSize: 11 }}
             title="Toggle preview/code"

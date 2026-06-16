@@ -55,26 +55,36 @@ _task_queues: dict[str, asyncio.Queue] = {}
 
 
 def _frontend_subset(edits: dict[str, str]) -> dict[str, str]:
-    """Pick only renderable front-end files for the live preview pane.
+    """Pick the files we persist on the task doc for the right-side
+    `<PreviewPane />` to render after ship.
 
-    We persist these on the cto_tasks doc so the right-side
-    `<PreviewPane />` can render them in an iframe blob the moment the
-    task completes — no extra round-trip to the repo needed.
+    Iter 169 — expanded beyond pure frontend files. Previously only
+    html/css/js/jsx/ts/tsx were kept, which meant a backend-only ship
+    (e.g. a Python services edit) left the user's "</> Code" button
+    pointing at literally nothing. Now we also keep `.py`, `.json`,
+    `.yaml`, `.yml`, `.md`, `.sql`, `.sh`, `.toml`, and `.env.example`
+    so backend ships show their actual code, not just the live URL.
 
-    Cap: 10 files × 32 KB each = ~320 KB max stored per task. Anything
-    bigger gets dropped (the user can still view the live Vercel URL)."""
+    Cap: 12 files × 32 KB each = ~384 KB max stored per task. Anything
+    bigger gets dropped (the user can still view the live URL)."""
     out: dict[str, str] = {}
+    _ALLOWED_EXT = (
+        ".html", ".css", ".js", ".jsx", ".ts", ".tsx",
+        ".py", ".json", ".yaml", ".yml", ".md",
+        ".sql", ".sh", ".toml",
+    )
     for path, body in (edits or {}).items():
         if not isinstance(body, str):
             continue
-        if not path.lower().endswith(
-            (".html", ".css", ".js", ".jsx", ".ts", ".tsx")
-        ):
+        path_l = path.lower()
+        if path_l.endswith(".env.example"):
+            pass  # explicit allow
+        elif not path_l.endswith(_ALLOWED_EXT):
             continue
         if len(body) > 32_000:
             continue
         out[path] = body
-        if len(out) >= 10:
+        if len(out) >= 12:
             break
     return out
 

@@ -598,6 +598,49 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }
   }, [latestAssistant]);
 
+  // Iter 169 — when the latest assistant turn shipped a task, fetch
+  // the task's persisted `edits` and add each file as a preview block
+  // ahead of any inline ```fenced``` code. This makes the </> Code
+  // button on the right-hand panel show the ACTUAL files ORA pushed,
+  // not just the live URL.
+  useEffect(() => {
+    const taskId = latestAssistant?.shipped_task_id;
+    if (!taskId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get(`/cto/tasks/${taskId}`);
+        const edits = r?.data?.task?.edits || {};
+        const fileBlocks = Object.entries(edits).map(([path, code]) => {
+          const ext = (path.split(".").pop() || "").toLowerCase();
+          const langMap = {
+            py: "python", js: "javascript", jsx: "jsx", ts: "typescript",
+            tsx: "tsx", html: "html", css: "css", json: "json",
+            yml: "yaml", yaml: "yaml", md: "markdown",
+            sh: "bash", sql: "sql", toml: "toml",
+          };
+          return {
+            lang: langMap[ext] || "text",
+            code: code || "",
+            label: path,
+          };
+        });
+        if (!cancelled && fileBlocks.length > 0) {
+          // Merge with any inline-extracted blocks; shipped files first.
+          setPreviewBlocks((prev) => {
+            const inline = (prev || []).filter(
+              (b) => !fileBlocks.some((f) => f.label === b.label)
+            );
+            return [...fileBlocks, ...inline];
+          });
+        }
+      } catch {
+        /* silently ignore — preview panel will just show inline blocks */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [latestAssistant?.shipped_task_id]);
+
   // Auto-open preview when a project with a preview_url is selected
   useEffect(() => {
     if (!activeProject?.preview_url) return;
