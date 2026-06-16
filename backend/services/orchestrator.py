@@ -869,12 +869,25 @@ def build_persona(prompt: str, extra: str = "", history_lines: list[str] | None 
     A conversational greeting hits CORE only (~5 k chars vs the old
     ~20 k monolith). An action-on-connected-repo turn hits all three
     (~20 k chars — same as before, but every other turn pays less).
+
+    Iter 169 — when EXECUTE is active we also tack on Vanguard skills
+    that match the prompt (auth / api-sec / pci / privacy / frontend
+    / backend). Previously skills were only injected on the ship
+    pipeline (cto_projects); now the chat-side LLM that DECIDES the
+    fix also sees the security checklist.
     """
     repo = _wants_repo(prompt, extra)
     execute = _wants_execute(prompt, repo, history_lines)
     parts: list[str] = [_PERSONA_CORE]
     if execute:
         parts.append(_PERSONA_EXECUTE)
+        try:
+            from .skill_context_injector import build_skill_context
+            skill_block = build_skill_context(prompt)
+            if skill_block:
+                parts.append("\n\n" + skill_block + "\n")
+        except Exception as e:
+            logger.debug("skill injection skipped in build_persona: %r", e)
     if repo:
         parts.append(_PERSONA_REPO)
     return "".join(parts)

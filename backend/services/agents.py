@@ -33,6 +33,27 @@ from .smart_router import get_model, get_budget, get_provider_name, MODELS
 logger = logging.getLogger(__name__)
 
 
+# Iter 169 — shared hard rules every agent must follow. Mirrors Rule 6
+# and Rule 7 from AUREM_CTO_PERSONA so agents do not silently bypass
+# the read-first / build-check contracts the chat persona enforces.
+_AGENT_HARD_RULES = (
+    "HARD RULES (do not break):\n"
+    "  R6. FRONTEND BUILD CHECK. If you are touching a .jsx / .tsx / "
+    "vite.config.* / package.json / tsconfig file, your code must "
+    "still build with `yarn build`. No unimported identifiers, no "
+    "default-export mismatches, no broken `import x from \"./y\"` "
+    "paths. If you change a component name, update every import.\n"
+    "  R7. READ BEFORE YOU WRITE. NEVER speculate about file contents. "
+    "Only reference paths/symbols that are explicitly in the context "
+    "you were given. If the context does not contain the file you "
+    "need to modify, return a one-line message starting with "
+    "'NEED_FILE: <path>' instead of writing speculative code.\n"
+    "  R8. ANALYSIS → SPEC. End every code task with the COMPLETE "
+    "file content. Never emit partial diffs, never use placeholder "
+    "comments like `# ... rest unchanged`.\n\n"
+)
+
+
 async def _call(
     model: str,
     system: str,
@@ -101,15 +122,28 @@ class CoderAgent:
     async def write(self, task: str, context: str, mode: str = "swift") -> str:
         provider = get_provider_name("code", mode)
         logger.info("CoderAgent[%s] using %s", mode, provider)
+        # Iter 169 — inject relevant Vanguard skills (auth / api-sec /
+        # pci / privacy / frontend / backend) directly into the agent
+        # system prompt when the task description triggers them. Was
+        # previously only injected on the cto_projects ship path.
+        try:
+            from .skill_context_injector import build_skill_context
+            skill_block = build_skill_context(task)
+        except Exception:
+            skill_block = ""
+        system_parts = [
+            _AGENT_HARD_RULES,
+            "You are an expert software engineer. Write clean, "
+            "production-ready code. Return ONLY the code — no "
+            "explanation, no markdown fences unless showing a "
+            "complete file. If fixing a bug, return the complete "
+            "fixed file.",
+        ]
+        if skill_block:
+            system_parts.append("\n" + skill_block)
         return await _call(
             model=get_model("code", mode),
-            system=(
-                "You are an expert software engineer. Write clean, "
-                "production-ready code. Return ONLY the code — no "
-                "explanation, no markdown fences unless showing a "
-                "complete file. If fixing a bug, return the complete "
-                "fixed file."
-            ),
+            system="\n".join(system_parts),
             user=f"Context:\n{context[:3000]}\n\nTask: {task}",
             max_tokens=get_budget("code", mode),
             temperature=0.15,

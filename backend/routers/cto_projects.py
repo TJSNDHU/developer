@@ -1586,16 +1586,22 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         except Exception as _e:
             repo_block = None
         # iter 41 — Brain + Issues context (zero LLM cost, ~350 tokens)
+        # iter 169 — switched from V1 (project_brains) to V2
+        # (project_brains_v2). V1 retired — same call shape, denser
+        # context format via format_brain_for_agent().
         brain_ctx = ""
         issues_ctx = ""
         try:
-            from services.project_brain import get_brain_context
+            from services.project_brain import (
+                get_brain_v2, format_brain_for_agent,
+            )
             _db = get_db()
             if _db is not None:
-                brain_ctx = await get_brain_context(
-                    _db, proj.get("project_id", ""), f"{owner}/{repo}",
-                    github_token=user_token,
+                _brain = await get_brain_v2(
+                    _db, proj.get("project_id", ""), user_id,
                 )
+                if _brain:
+                    brain_ctx = format_brain_for_agent(_brain)
         except Exception as _e:
             brain_ctx = ""
         try:
@@ -2465,13 +2471,16 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         brain_ctx = ""
         issues_ctx = ""
         try:
-            from services.project_brain import get_brain_context
+            from services.project_brain import (
+                get_brain_v2, format_brain_for_agent,
+            )
             _db = get_db()
             if _db is not None:
-                brain_ctx = await get_brain_context(
-                    _db, proj.get("project_id", ""), f"{owner}/{repo}",
-                    github_token=user_token,
+                _brain = await get_brain_v2(
+                    _db, proj.get("project_id", ""), user_id,
                 )
+                if _brain:
+                    brain_ctx = format_brain_for_agent(_brain)
         except Exception:
             brain_ctx = ""
         try:

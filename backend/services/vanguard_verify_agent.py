@@ -2,19 +2,20 @@
 services/vanguard_verify_agent.py
 =================================
 
-Iter 111 — **Separate Vanguard verify agent**, modelled after Anthropic's
-"defending-code-reference-harness" architecture:
+Iter 111 — Separate Vanguard verify agent (Anthropic-style "defending-
+code-reference-harness"):
 
 > ORA writes code → handed off to a SEPARATE agent (different prompt,
-> different model) → that agent re-reviews the patch for the 25 known
-> vulnerability patterns PLUS its own LLM-grade judgement → only on
-> PASS does the patch progress to commit.
+> different model) → re-reviews the patch for the 25 known vulnerability
+> patterns PLUS its own LLM-grade judgement → only on PASS does the
+> patch progress to commit.
 
-This is intentionally NOT the same orchestrator that wrote the code. We
-use a focused security-review persona on Claude Sonnet (via the Emergent
-LLM Key — cheap, deterministic, and isolated from ORA's tool catalog).
-If the LLM is unavailable we fall back to a regex-only review so the
-pipeline never silently passes a vulnerable patch.
+Iter 169 — migrated to OpenRouter (anthropic/claude-sonnet-4-5-20250929).
+The previous Emergent SDK dependency was dead weight after llm.py was
+cleaned up — when EMERGENT_LLM_KEY was unset the verify pipeline
+silently skipped LLM review, leaving only the regex floor. Now it
+goes through the same OPENROUTER_API_KEY all other LLM calls use, so
+the second-agent review actually runs in production.
 
 Public API
 ----------
@@ -38,9 +39,11 @@ from .vanguard_scanner import scan_file_blocks, has_critical
 logger = logging.getLogger(__name__)
 
 # Separate-agent isolation: this is a DIFFERENT model/persona than ORA.
-# Claude Sonnet 4.5 via the Emergent LLM key — verified working, no
-# OpenRouter cold-start risk.
-_VERIFY_MODEL = os.environ.get("VANGUARD_VERIFY_MODEL", "claude-sonnet-4-5-20250929")
+# Claude Sonnet 4.5 via OpenRouter — same key as the rest of the app.
+_VERIFY_MODEL = os.environ.get(
+    "VANGUARD_VERIFY_MODEL",
+    "anthropic/claude-sonnet-4-5-20250929",
+)
 
 _VERIFY_SYSTEM = """You are the **Vanguard Verify Agent** — a dedicated security
 reviewer that re-audits code patches BEFORE they are committed. You are
@@ -95,13 +98,16 @@ def _has_executable_python(blocks: dict) -> bool:
 
 
 async def _llm_review(file_blocks: dict, repo_ctx: str) -> dict:
-    """Make the second-agent LLM call. Uses Emergent LLM key + Claude
-    Sonnet 4.5. Returns {pass, findings, summary, model}. On any error,
-    returns pass=True with a note so we don't accidentally block the
-    pipeline on transient infra; the regex scan stays the floor."""
-    key = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+    """Make the second-agent LLM call. Iter 169 — uses OpenRouter
+    (anthropic/claude-sonnet-4-5-20250929). Returns
+    {pass, findings, summary, model}. On any error, returns pass=True
+    with a note so we don't accidentally block the pipeline on
+    transient infra; the regex scan stays the floor."""
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
-        return {"pass": True, "findings": [], "summary": "verify-agent skipped (no key)", "model": ""}
+        return {"pass": True, "findings": [],
+                "summary": "verify-agent skipped (no OPENROUTER_API_KEY)",
+                "model": ""}
 
     # Build a compact patch envelope. Each file capped so we don't blow
     # context on huge edits — first/last 250 lines is plenty for review.
@@ -118,19 +124,19 @@ async def _llm_review(file_blocks: dict, repo_ctx: str) -> dict:
     envelope = "\n".join(envelope_parts)[:48_000]  # ~12k tokens of patch
 
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = (
-            LlmChat(api_key=key, session_id="vanguard-verify",
-                    system_message=_VERIFY_SYSTEM)
-                .with_model("anthropic", _VERIFY_MODEL)
-                .with_params(temperature=0.0, max_tokens=2000)
-        )
-        msg = UserMessage(text="Review the following patch:\n\n" + envelope)
+        from .llm import call_openrouter_model
         # Iter 111 — hard 30s ceiling so the verify-agent can never
-        # add unbounded latency to the commit pipeline. If Claude is
-        # cold-starting or the network is slow we degrade to regex-only
-        # rather than freeze the user's commit.
-        raw = await asyncio.wait_for(chat.send_message(msg), timeout=30.0)
+        # add unbounded latency to the commit pipeline.
+        raw = await asyncio.wait_for(
+            call_openrouter_model(
+                model=_VERIFY_MODEL,
+                system=_VERIFY_SYSTEM,
+                user="Review the following patch:\n\n" + envelope,
+                max_tokens=2000,
+                temperature=0.0,
+            ),
+            timeout=30.0,
+        )
         text = (raw or "").strip()
         # Strip ```json fences if present
         if text.startswith("```"):
