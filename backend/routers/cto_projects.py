@@ -253,6 +253,239 @@ async def get_project_brain(
     }
 
 
+# Iter 165 — Warm Start endpoints. Fired on project SELECT so the next
+# chat turn already has fresh commit history + file tree + stack
+# context cached in MongoDB. 4 agents run in parallel, each capped at
+# 8s so the slowest GitHub call can't stall the warm-start job.
+
+
+@router.post("/projects/{project_id}/warm-start")
+async def warm_start_project(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Trigger 4 parallel background agents to pre-load project context.
+
+    Returns the `job_id` immediately so the frontend can stream progress
+    via the status endpoint while the user types their first prompt.
+    """
+    import uuid as _uuid
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    gh_owner = proj.get("github_owner") or ""
+    gh_repo  = proj.get("github_repo") or ""
+    branch   = proj.get("branch") or "main"
+    if not (gh_token and gh_owner and gh_repo):
+        return {
+            "ok": True, "job_id": None,
+            "message": "No GitHub connection — warm-start skipped",
+            "status": "no_token",
+        }
+
+    job_id = f"ws_{_uuid.uuid4().hex[:10]}"
+    started_at = time.time()
+    await db.warm_start_jobs.insert_one({
+        "job_id":        job_id,
+        "project_id":    project_id,
+        "user_id":       user_id,
+        "status":        "running",
+        "started_at":    started_at,
+        "agents_done":   [],
+        "agents_total":  ["brain", "recent", "structure", "stack"],
+    })
+
+    asyncio.create_task(_run_warm_agents(
+        job_id=job_id, project_id=project_id, user_id=user_id,
+        gh_token=gh_token, gh_owner=gh_owner, gh_repo=gh_repo,
+        branch=branch, db=db,
+    ))
+    return {
+        "ok": True, "job_id": job_id,
+        "message": "Warming up — agents loading your project",
+    }
+
+
+async def _run_warm_agents(
+    *, job_id: str, project_id: str, user_id: str,
+    gh_token: str, gh_owner: str, gh_repo: str, branch: str, db,
+) -> None:
+    """Background: 4 agents in parallel. Each pushes its result into
+    `warm_start_jobs` as soon as it finishes."""
+    from services.project_brain import (
+        _gh_list_files, _gh_read_small,
+        build_brain_v2, get_brain_v2,
+    )
+
+    async def _mark_done(agent: str) -> None:
+        try:
+            await db.warm_start_jobs.update_one(
+                {"job_id": job_id},
+                {"$push": {"agents_done": agent}},
+            )
+        except Exception:
+            pass
+
+    # Agent 1 — Brain V2 build/refresh (skip if scanned <10 min ago)
+    async def agent_brain() -> None:
+        try:
+            existing = await get_brain_v2(db, project_id, user_id)
+            age = time.time() - float(existing.get("last_scan", 0) or 0)
+            if not existing or age > 600:
+                await build_brain_v2(
+                    db, project_id, user_id,
+                    gh_token, gh_owner, gh_repo, branch,
+                )
+        except Exception as e:
+            logger.warning("warm-start brain agent: %r", e)
+        finally:
+            await _mark_done("brain")
+
+    # Agent 2 — Recent commits via direct GitHub REST
+    async def agent_recent() -> None:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as cx:
+                r = await cx.get(
+                    f"https://api.github.com/repos/{gh_owner}/{gh_repo}/commits",
+                    params={"per_page": 5, "sha": branch},
+                    headers={
+                        "Authorization": f"token {gh_token}",
+                        "Accept": "application/vnd.github+json",
+                        "User-Agent": "aurem-warm-start",
+                    },
+                )
+            commits_summary = ""
+            if r.status_code == 200:
+                items = r.json() or []
+                lines: list[str] = []
+                for c in items[:5]:
+                    sha = (c.get("sha") or "")[:7]
+                    commit_obj = c.get("commit") or {}
+                    msg = (commit_obj.get("message") or "").splitlines()[0][:80]
+                    author = (commit_obj.get("author") or {}).get("name", "")
+                    lines.append(f"{sha} · {author} · {msg}")
+                commits_summary = "\n".join(lines)[:600]
+            if commits_summary:
+                await db.warm_start_jobs.update_one(
+                    {"job_id": job_id},
+                    {"$set": {"recent_commits": commits_summary}},
+                )
+        except Exception as e:
+            logger.warning("warm-start recent agent: %r", e)
+        finally:
+            await _mark_done("recent")
+
+    # Agent 3 — File tree (root + backend + frontend, parallel)
+    async def agent_structure() -> None:
+        try:
+            root, be, fe = await asyncio.gather(
+                _gh_list_files(gh_token, gh_owner, gh_repo, "", branch),
+                _gh_list_files(gh_token, gh_owner, gh_repo, "backend", branch),
+                _gh_list_files(gh_token, gh_owner, gh_repo, "frontend/src", branch),
+                return_exceptions=True,
+            )
+            def _l(x): return x if isinstance(x, list) else []
+            tree_parts: list[str] = []
+            if _l(root):
+                tree_parts.append("ROOT: " + ", ".join(_l(root)[:15]))
+            if _l(be):
+                tree_parts.append("backend/: " + ", ".join(_l(be)[:15]))
+            if _l(fe):
+                tree_parts.append("frontend/src/: " + ", ".join(_l(fe)[:15]))
+            tree = "\n".join(tree_parts)[:1000]
+            if tree:
+                await db.warm_start_jobs.update_one(
+                    {"job_id": job_id},
+                    {"$set": {"file_tree": tree}},
+                )
+        except Exception as e:
+            logger.warning("warm-start structure agent: %r", e)
+        finally:
+            await _mark_done("structure")
+
+    # Agent 4 — Stack (package.json + requirements.txt, parallel)
+    async def agent_stack() -> None:
+        try:
+            pkg, req = await asyncio.gather(
+                _gh_read_small(gh_token, gh_owner, gh_repo, "package.json", branch, 500),
+                _gh_read_small(gh_token, gh_owner, gh_repo, "backend/requirements.txt", branch, 400),
+                return_exceptions=True,
+            )
+            stack_parts: list[str] = []
+            if isinstance(pkg, str) and pkg:
+                stack_parts.append("package.json:\n" + pkg[:400])
+            if isinstance(req, str) and req:
+                stack_parts.append("requirements.txt:\n" + req[:300])
+            stack_raw = "\n\n".join(stack_parts)[:800]
+            if stack_raw:
+                await db.warm_start_jobs.update_one(
+                    {"job_id": job_id},
+                    {"$set": {"stack_raw": stack_raw}},
+                )
+        except Exception as e:
+            logger.warning("warm-start stack agent: %r", e)
+        finally:
+            await _mark_done("stack")
+
+    try:
+        await asyncio.gather(
+            agent_brain(), agent_recent(),
+            agent_structure(), agent_stack(),
+            return_exceptions=True,
+        )
+        await db.warm_start_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "ready", "completed_at": time.time()}},
+        )
+    except Exception as e:
+        logger.error("warm-start job %s crashed: %r", job_id, e)
+        await db.warm_start_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "failed", "error": str(e)[:500]}},
+        )
+
+
+@router.get("/projects/warm-start/{job_id}/status")
+async def warm_start_status(
+    job_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Poll endpoint: returns the warm-start job's progress so the UI
+    can render a percentage bar."""
+    me = await current_dev(authorization)
+    db = get_db()
+    job = await db.warm_start_jobs.find_one(
+        {"job_id": job_id, "user_id": me["user_id"]},
+        {"_id": 0},
+    )
+    if not job:
+        raise HTTPException(404, "Job not found")
+    agents_done  = job.get("agents_done") or []
+    agents_total = job.get("agents_total") or []
+    progress = (len(agents_done) / max(len(agents_total), 1)) if agents_total else 0.0
+    return {
+        "ok":           True,
+        "job_id":       job_id,
+        "status":       job.get("status"),
+        "progress":     round(progress, 2),
+        "agents_done":  agents_done,
+        "agents_total": agents_total,
+        "ready":        job.get("status") == "ready",
+        "started_at":   job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+    }
+
+
+
 
 @router.get("/projects/{project_id}/check-pat")
 async def check_project_pat(

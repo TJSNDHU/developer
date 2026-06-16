@@ -1121,6 +1121,40 @@ async def chat_with_tools(
                 _brain_str = _format_brain(_brain)
                 if _brain_str:
                     extra = extra.rstrip() + "\n\n" + _brain_str + "\n"
+
+                # Iter 165 — Warm Start cache. If the user just selected
+                # this project, four background agents may have already
+                # pre-loaded recent commits + file tree + stack. Inject
+                # whichever payload arrived first so the first chat turn
+                # feels instant.
+                _warm = await asyncio.wait_for(
+                    _db.warm_start_jobs.find_one(
+                        {
+                            "project_id": project_id,
+                            "user_id":    user_id or "",
+                            "status":     "ready",
+                        },
+                        {"_id": 0, "recent_commits": 1, "file_tree": 1,
+                         "stack_raw": 1, "completed_at": 1},
+                        sort=[("completed_at", -1)],
+                    ),
+                    timeout=1.5,
+                )
+                if _warm:
+                    _warm_parts: list[str] = []
+                    if _warm.get("recent_commits"):
+                        _warm_parts.append("RECENT COMMITS:\n" + _warm["recent_commits"][:500])
+                    if _warm.get("file_tree"):
+                        _warm_parts.append("FILE TREE:\n" + _warm["file_tree"][:600])
+                    if _warm.get("stack_raw"):
+                        _warm_parts.append("STACK:\n" + _warm["stack_raw"][:500])
+                    if _warm_parts:
+                        extra = (
+                            extra.rstrip()
+                            + "\n\n[WARM CONTEXT — pre-loaded on project select]\n"
+                            + "\n\n".join(_warm_parts)
+                            + "\n"
+                        )
         except Exception as _bex:
             logger.debug("brain v2 inject skipped: %r", _bex)
 

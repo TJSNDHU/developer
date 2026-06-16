@@ -286,6 +286,19 @@ async def lifespan(app: FastAPI):
                 logger.info("💡 thinking_hints seeded: %d entries", inserted)
         except Exception as _e:
             logger.warning(f"thinking_hints seed failed: {_e}")
+        # Iter 165 — warm_start_jobs TTL index. Auto-delete completed
+        # warm-start jobs after 1 hour so the collection never grows
+        # unbounded. Idempotent; safe to re-run on every boot.
+        try:
+            await app.state.db.warm_start_jobs.create_index(
+                "started_at",
+                expireAfterSeconds=3600,
+                background=True,
+            )
+            logger.info("🔥 warm_start_jobs TTL index ensured (1h)")
+        except Exception as _e:
+            logger.warning(f"warm_start_jobs TTL index failed: {_e}")
+
         # Iter 123 — wire deploy_logger.
         try:
             from services.deploy_logger import log_deploy_event

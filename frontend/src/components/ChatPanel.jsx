@@ -23,6 +23,8 @@ import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
 import ThinkingHint from "./ThinkingHint";
 import LiveTaskPopup from "./LiveTaskPopup";
+import WarmStatusBar from "./WarmStatusBar";
+import { useWarmStart } from "../hooks/useWarmStart";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
@@ -353,6 +355,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // failure until the user closes it manually, vanishes immediately on
   // session change (new chat).
   const [livePopupTaskId, setLivePopupTaskId] = useState(null);
+
+  // Iter 165 — Warm Start: trigger 4 background agents on project
+  // select so the next chat turn already has pre-loaded context.
+  const { status: warmStatus, progress: warmProgress } = useWarmStart(
+    activeProject?.project_id
+  );
 
   // Iter 163 — chat toolbar (Show all / Clear chat) auto-hide on
   // typing, mirroring the top tabbar pattern. INDEPENDENT hot-zone:
@@ -1089,6 +1097,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           transition: "flex 240ms cubic-bezier(0.4,0,0.2,1)",
         }}
       >
+      {/* Iter 165 — Warm Start status bar. Renders while the 4
+          background agents are pre-loading project context after a
+          project select. Auto-hides on ready/idle. */}
+      <WarmStatusBar status={warmStatus} progress={warmProgress} />
       <div
         data-testid="chat-messages"
         style={{
