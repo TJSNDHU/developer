@@ -5353,3 +5353,38 @@ frames.
 
 **Files touched**
 - EDIT: `frontend/src/lib/api.js` (added dedup wrapper around `api.get`)
+
+
+
+### Iter 170c — `</> Code` browses live GitHub codebase (Feb 2026)
+**User ask (Hinglish)**: bhai, code option still shows website url in preview — properly fix karo, codebase from GitHub profile use karo, vo better hai.
+
+**Problem**: PreviewPanel's `</> Code` toggle was only useful when a shipped task had `edits` to display. Otherwise the panel fell through to a `live_url` block showing the raw preview URL string — confusing UX.
+
+**Backend (`backend/routers/cto_projects.py`) — 2 new endpoints**
+- `GET /cto/projects/{id}/tree` → returns array of source-file paths from the project's connected GitHub repo at the pinned branch. Filters: skips `node_modules`/`.git`/`__pycache__`/build dirs, skips binary extensions (png/mp4/zip/woff/...), skips blobs >200KB, caps at 300 files. Sort order: README first → root-level configs (package.json, requirements.txt, etc.) → by depth → alpha.
+- `GET /cto/projects/{id}/file?path=<path>` → returns a single file's content from the same ref. Rejects path-traversal (`..`, leading `/`). Caps at 200KB with `truncated=true` marker. Wraps the existing well-tested `gh_api_fetch_file` helper.
+
+**Frontend (`frontend/src/components/PreviewPanel.jsx`, `ChatPanel.jsx`)**
+- `PreviewPanel` now accepts `activeProject` prop. When user toggles to `</> Code` mode AND no real code blocks exist (only `live_url`/`text` placeholder) AND the project has GitHub connected, panel auto-fetches the repo tree once.
+- Each file becomes a lazy-load tab. Clicking a tab fires `GET /cto/projects/{id}/file?path=...` on demand; content is cached per-path.
+- Loading states: "loading repo…" pill in tab-bar while tree loads, per-tab "loading {path}…" spinner. Error states: "GitHub not connected to this project" / "Branch X not found" / "PAT invalid" surfaced inline.
+- Footer shows `owner/repo@branch · N chars` when viewing a codebase file (vs. `lang: … · N chars` for chat-generated code).
+- Project switch resets state via `key={activeProject?.project_id}` on `<PreviewPanel>` (clean unmount/remount — no leftover files from project A while project B loads).
+
+**Verification**
+- Backend: `tests/test_iter170_codebase_browse.py` — **5/5 PASS**:
+  - Tree filters `node_modules`/binaries/oversize blobs ✓
+  - Tree sort: README → root configs → depth/alpha ✓
+  - File happy path content returned ✓
+  - File missing returns 404 ✓
+  - File path-traversal rejected (`../etc/passwd`, `/abs`, `a/../b`) ✓
+  - File truncation marker for >200KB blobs ✓
+- E2E (Playwright on preview): `</> Code` toggle on a project without GitHub now shows clean inline error `⚠ GitHub not connected to this project` instead of the raw URL string. Pre-fix showed the literal URL.
+- Lint: 0 new issues in PreviewPanel.jsx.
+
+**Files touched**
+- EDIT: `backend/routers/cto_projects.py` (+2 endpoints, +4 helpers)
+- EDIT: `frontend/src/components/PreviewPanel.jsx` (codebase browse mode)
+- EDIT: `frontend/src/components/ChatPanel.jsx` (pass `activeProject` + `key` to PreviewPanel)
+- ADD:  `backend/tests/test_iter170_codebase_browse.py` (5 tests)

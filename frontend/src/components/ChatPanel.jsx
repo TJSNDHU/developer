@@ -1879,6 +1879,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         const finalBlocks = [...liveBlock, ...previewBlocks];
         return (
           <PreviewPanel
+            key={activeProject?.project_id || "home"}
             blocks={finalBlocks.length > 0 ? finalBlocks : [{
               lang: "text",
               code: activeProject
@@ -1886,6 +1887,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                 : "No code blocks in the current chat yet. Ask AUREM to write some — Hint: ```html ... ``` or ```jsx ... ``` will render live here.",
             }]}
             onClose={togglePreview}
+            activeProject={activeProject}
           />
         );
       })()}

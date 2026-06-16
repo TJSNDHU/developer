@@ -11,8 +11,9 @@
  * so any code rendered here cannot read parent state.
  */
 import React, { useMemo, useState } from "react";
-import { X, Copy, RefreshCw, Code2, Eye, ExternalLink } from "lucide-react";
+import { X, Copy, RefreshCw, Code2, Eye, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "./Toast";
+import { api } from "../lib/api";
 
 const RENDERABLE = new Set([
   "html", "htm",
@@ -100,24 +101,152 @@ function buildIframeDoc(block) {
 </body></html>`;
 }
 
-export default function PreviewPanel({ blocks, onClose }) {
+export default function PreviewPanel({ blocks, onClose, activeProject }) {
   const [activeTab, setActiveTab] = useState(0);
   const [viewMode, setViewMode] = useState("preview"); // 'preview' | 'code'
   const [refreshKey, setRefreshKey] = useState(0);
+  // Iter 170c — Codebase browse mode.
+  //   `codebase`        — { files: [{path, size}], owner, repo, branch } once loaded
+  //   `codebaseLoading` — true while the tree fetch is in flight
+  //   `codebaseErr`     — populated when the GitHub call fails (bad PAT, missing
+  //                       branch, etc.) so we can show a one-line hint instead of a blank panel
+  //   `fileContents`    — Map<path, {code, loading, err}> populated on tab click
+  const [codebase, setCodebase] = useState(null);
+  const [codebaseLoading, setCodebaseLoading] = useState(false);
+  const [codebaseErr, setCodebaseErr] = useState(null);
+  const [fileContents, setFileContents] = useState({});
 
-  const block = blocks?.[activeTab];
+  // Note: We deliberately don't useEffect to reset on project change.
+  // ChatPanel passes `key={activeProject?.project_id}` so a project
+  // switch unmounts and remounts the panel — cleaner than effects.
+
+  // Fired when the user toggles into Code mode and the chat hasn't
+  // produced any real code blocks yet (only the live_url placeholder).
+  // We fetch the repo tree once per project and lazy-load files on tab
+  // click. Errors are surfaced inline.
+  const fetchCodebaseTree = async () => {
+    if (!activeProject?.project_id) return;
+    let go = true;
+    setCodebaseLoading((cur) => {
+      if (cur) { go = false; return cur; }   // already loading
+      return true;
+    });
+    if (!go) return;
+    let alreadyHave = false;
+    setCodebase((cur) => { if (cur) alreadyHave = true; return cur; });
+    if (alreadyHave) { setCodebaseLoading(false); return; }
+    setCodebaseErr(null);
+    try {
+      const r = await api.get(
+        `/cto/projects/${activeProject.project_id}/tree`
+      );
+      setCodebase({
+        files: r.data?.files || [],
+        owner: r.data?.owner,
+        repo:  r.data?.repo,
+        branch: r.data?.branch,
+        truncated: !!r.data?.truncated,
+      });
+    } catch (e) {
+      const msg = e?.response?.data?.detail
+        || e?.message
+        || "Couldn't load codebase.";
+      setCodebaseErr(msg);
+    } finally {
+      setCodebaseLoading(false);
+    }
+  };
+
+  const fetchFileContent = async (path) => {
+    if (!activeProject?.project_id || !path) return;
+    // Use functional setState so we don't need `fileContents` in deps.
+    let shouldFetch = true;
+    setFileContents((m) => {
+      if (m[path]?.code !== undefined || m[path]?.loading) {
+        shouldFetch = false;
+        return m;
+      }
+      return { ...m, [path]: { loading: true } };
+    });
+    if (!shouldFetch) return;
+    try {
+      const r = await api.get(
+        `/cto/projects/${activeProject.project_id}/file`,
+        { params: { path } }
+      );
+      setFileContents((m) => ({
+        ...m,
+        [path]: { code: r.data?.content || "", truncated: !!r.data?.truncated },
+      }));
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "Failed to load file.";
+      setFileContents((m) => ({ ...m, [path]: { err: msg } }));
+    }
+  };
+
+  // Iter 170c — Compute the actual blocks list. When the chat hasn't
+  // produced real code yet and we've fetched the GitHub tree, append
+  // each file as a lazy-load tab. This is how the `</> Code` toggle
+  // becomes useful even before the user has shipped a task.
+  const codebaseBlocks = (() => {
+    if (!codebase?.files) return [];
+    const extLang = {
+      py: "python", js: "javascript", jsx: "jsx", ts: "typescript",
+      tsx: "tsx", html: "html", htm: "html", css: "css", scss: "css",
+      json: "json", yml: "yaml", yaml: "yaml", md: "markdown",
+      sh: "bash", bash: "bash", sql: "sql", toml: "toml", env: "bash",
+      go: "go", rs: "rust", java: "java", rb: "ruby", php: "php",
+    };
+    return codebase.files.map((f) => {
+      const ext = (f.path.split(".").pop() || "").toLowerCase();
+      return {
+        lang: extLang[ext] || "text",
+        label: f.path,
+        isCodebase: true,
+        size: f.size,
+      };
+    });
+  })();
+
+  const realBlocks = blocks || [];
+  const onlyLiveOrPlaceholder = realBlocks.length === 0 || realBlocks.every(
+    (b) => {
+      const l = (b?.lang || "").toLowerCase();
+      return l === "live_url" || l === "text";
+    }
+  );
+  const effectiveBlocks = (onlyLiveOrPlaceholder && codebaseBlocks.length > 0)
+    ? [...realBlocks.filter((b) => (b?.lang || "").toLowerCase() === "live_url"), ...codebaseBlocks]
+    : realBlocks;
+
+  const block = effectiveBlocks[activeTab];
   const isRenderable = !!block && RENDERABLE.has((block.lang || "").toLowerCase());
   const isLiveUrl = (block?.lang || "").toLowerCase() === "live_url";
+  // Note: We deliberately don't useEffect to lazy-load file content
+  // on tab change. The tab button's onClick triggers the fetch inline
+  // — see the file-tabs map below.
+  const effectiveCode = block?.isCodebase
+    ? (fileContents[block.label]?.code || "")
+    : (block?.code || "");
+  const codebaseTabState = block?.isCodebase
+    ? fileContents[block.label]
+    : null;
   const srcDoc = useMemo(
-    () => (isRenderable && !isLiveUrl ? buildIframeDoc(block) : ""),
+    () => (isRenderable && !isLiveUrl && !block?.isCodebase ? buildIframeDoc(block) : ""),
     [block, isRenderable, isLiveUrl, refreshKey]
   );
 
   const copyCode = () => {
-    if (!block?.code) return;
-    navigator.clipboard.writeText(block.code);
+    if (!effectiveCode) return;
+    navigator.clipboard.writeText(effectiveCode);
     toast({ message: "Code copied.", kind: "success", duration: 1800 });
   };
+
+  const canShowCodeToggle = (
+    isRenderable
+    || effectiveBlocks.some((b) => (b?.lang || "").toLowerCase() !== "live_url")
+    || !!activeProject?.project_id  // can fetch repo on demand
+  );
 
   return (
     <aside
@@ -151,11 +280,15 @@ export default function PreviewPanel({ blocks, onClose }) {
           display: "flex", gap: 4, flex: 1,
           overflowX: "auto", minWidth: 0,
         }}>
-          {(blocks || []).map((b, i) => (
+          {effectiveBlocks.map((b, i) => (
             <button
-              key={i}
+              key={`${i}-${b.label || b.lang}`}
               data-testid={`preview-tab-${i}`}
-              onClick={() => setActiveTab(i)}
+              onClick={() => {
+                setActiveTab(i);
+                if (b?.isCodebase && b.label) fetchFileContent(b.label);
+              }}
+              title={b.label || filename(b, i)}
               style={{
                 fontSize: 11, padding: "4px 10px", borderRadius: 4,
                 background: activeTab === i ? "var(--accent)" : "transparent",
@@ -164,33 +297,60 @@ export default function PreviewPanel({ blocks, onClose }) {
                 cursor: "pointer",
                 fontFamily: "'JetBrains Mono', monospace",
                 whiteSpace: "nowrap",
+                maxWidth: 260,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
               }}
             >
               {filename(b, i)}
             </button>
           ))}
+          {codebaseLoading && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 11, color: "var(--text-faint)",
+              padding: "4px 8px",
+            }}>
+              <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+              loading repo…
+            </span>
+          )}
         </div>
 
         {/* preview/code toggle — Iter 169: when toggling FROM the
             Live Site URL block INTO Code mode, auto-jump to the
             first actual code/file block so the user sees real code
-            instead of the raw URL string. */}
-        {(isRenderable || (blocks || []).some(
-              (b) => (b?.lang || "").toLowerCase() !== "live_url"
-            )) && (
+            instead of the raw URL string.
+            Iter 170c: if no real code blocks exist but the project
+            has GitHub connected, fetch the repo tree on first toggle
+            so `</> Code` browses the live codebase. */}
+        {canShowCodeToggle && (
           <button
             data-testid="preview-view-toggle"
             onClick={() => {
               setViewMode((v) => {
                 const next = v === "preview" ? "code" : "preview";
-                if (next === "code" && isLiveUrl) {
-                  const idx = (blocks || []).findIndex(
-                    (b) => (b?.lang || "").toLowerCase() !== "live_url"
-                  );
-                  if (idx >= 0) setActiveTab(idx);
+                if (next === "code") {
+                  // If we only have live_url placeholders and a project
+                  // is connected, kick off the codebase fetch.
+                  if (onlyLiveOrPlaceholder && !codebase
+                      && activeProject?.project_id) {
+                    fetchCodebaseTree();
+                  }
+                  // Jump to the first non-live_url tab if currently on one.
+                  if (isLiveUrl) {
+                    const idx = effectiveBlocks.findIndex(
+                      (b) => (b?.lang || "").toLowerCase() !== "live_url"
+                    );
+                    if (idx >= 0) {
+                      setActiveTab(idx);
+                      const tgt = effectiveBlocks[idx];
+                      if (tgt?.isCodebase && tgt.label) fetchFileContent(tgt.label);
+                    }
+                  }
                 }
                 if (next === "preview") {
-                  const liveIdx = (blocks || []).findIndex(
+                  const liveIdx = effectiveBlocks.findIndex(
                     (b) => (b?.lang || "").toLowerCase() === "live_url"
                   );
                   if (liveIdx >= 0) setActiveTab(liveIdx);
@@ -235,7 +395,7 @@ export default function PreviewPanel({ blocks, onClose }) {
               border: "none", background: "white",
             }}
           />
-        ) : viewMode === "preview" && isRenderable ? (
+        ) : viewMode === "preview" && isRenderable && !block?.isCodebase ? (
           <iframe
             key={`iframe-${activeTab}-${refreshKey}`}
             data-testid="preview-iframe"
@@ -247,6 +407,36 @@ export default function PreviewPanel({ blocks, onClose }) {
               border: "none", background: "white",
             }}
           />
+        ) : codebaseErr && viewMode === "code" ? (
+          <div
+            data-testid="preview-codebase-err"
+            style={{
+              padding: 20, color: "var(--danger, #ef4444)",
+              fontSize: 12,
+            }}
+          >
+            ⚠ {codebaseErr}
+          </div>
+        ) : block?.isCodebase && codebaseTabState?.loading ? (
+          <div
+            data-testid="preview-codebase-loading"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: 20, color: "var(--text-faint)", fontSize: 12,
+            }}
+          >
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+            loading {block.label}…
+          </div>
+        ) : block?.isCodebase && codebaseTabState?.err ? (
+          <div
+            data-testid="preview-codebase-file-err"
+            style={{
+              padding: 20, color: "var(--danger, #ef4444)", fontSize: 12,
+            }}
+          >
+            ⚠ {codebaseTabState.err}
+          </div>
         ) : (
           <pre
             data-testid="preview-code"
@@ -260,7 +450,7 @@ export default function PreviewPanel({ blocks, onClose }) {
               whiteSpace: "pre",
             }}
           >
-            <code>{block?.code || ""}</code>
+            <code>{effectiveCode}</code>
           </pre>
         )}
       </div>
@@ -308,7 +498,10 @@ export default function PreviewPanel({ blocks, onClose }) {
           marginLeft: "auto", color: "var(--text-faint)",
           fontFamily: "'JetBrains Mono', monospace",
         }}>
-          lang: {block?.lang || "—"} · {block?.code?.length || 0} chars
+          {block?.isCodebase && codebase
+            ? <>{codebase.owner}/{codebase.repo}@{codebase.branch} · {effectiveCode.length} chars{codebaseTabState?.truncated ? " (truncated)" : ""}</>
+            : <>lang: {block?.lang || "—"} · {effectiveCode.length || 0} chars</>
+          }
         </span>
       </div>
     </aside>

@@ -713,6 +713,182 @@ async def remove_project(project_id: str, authorization: str = Header(None)) -> 
     return {"ok": True, "deleted": r.deleted_count}
 
 
+# Iter 170c — Codebase browsing for the right-side </> Code preview.
+#
+# When the user hits the `</> Code` toggle in PreviewPanel and there's
+# no recently-shipped task to display, the panel used to fall back to
+# the project's `preview_url` (just a URL string). The new flow:
+#
+#   GET  /cto/projects/{id}/tree                 → paths only
+#   GET  /cto/projects/{id}/file?path=src/x.py   → single file content
+#
+# Both endpoints scope to the project's connected GitHub PAT (decrypted
+# from Mongo) and the project's branch. They are read-only and never
+# touch the working tree on disk; everything goes through the GitHub
+# REST API so no `git` binary is required.
+_BROWSE_SKIP_DIRS = {
+    ".git", "node_modules", ".next", "dist", "build", "__pycache__",
+    ".venv", "venv", ".cache", ".pytest_cache", ".mypy_cache",
+    "coverage", ".turbo", ".vercel", ".idea", ".vscode",
+}
+_BROWSE_SKIP_EXTS = {
+    "lock", "log", "map",
+    "png", "jpg", "jpeg", "gif", "webp", "ico", "svg", "bmp",
+    "mp4", "mov", "mp3", "wav", "ogg",
+    "ttf", "otf", "woff", "woff2", "eot",
+    "zip", "tar", "gz", "7z", "rar",
+    "pdf", "exe", "dll", "so",
+}
+_BROWSE_MAX_FILE_BYTES = 200 * 1024  # 200 KB cap per file
+
+
+def _browse_keep_path(path: str, size: int) -> bool:
+    """Return True if a tree blob should appear in the browseable list."""
+    if not path:
+        return False
+    parts = path.split("/")
+    if any(p in _BROWSE_SKIP_DIRS for p in parts):
+        return False
+    ext = parts[-1].rsplit(".", 1)[-1].lower() if "." in parts[-1] else ""
+    if ext in _BROWSE_SKIP_EXTS:
+        return False
+    if size and size > _BROWSE_MAX_FILE_BYTES:
+        return False
+    return True
+
+
+@router.get("/projects/{project_id}/tree")
+async def get_project_tree(
+    project_id: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Return the list of source-file paths in the connected GitHub repo
+    at the project's pinned branch. Filtered to source files only
+    (no node_modules, no binaries, no >200KB blobs).
+
+    Used by PreviewPanel's `</> Code` toggle to let the user browse
+    the live codebase without leaving the chat. Results are capped at
+    300 files; truncated=True is returned if the tree was deeper.
+    """
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = require_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo") or ""
+    branch = proj.get("branch") or "main"
+    if not (owner and repo and gh_token):
+        raise HTTPException(400, "GitHub not connected to this project")
+
+    import httpx
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {gh_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}"
+        f"/git/trees/{branch}?recursive=1"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.get(url, headers=headers)
+        if r.status_code == 404:
+            raise HTTPException(404, f"Branch {branch} not found on GitHub")
+        if r.status_code == 401:
+            raise HTTPException(401, "GitHub PAT invalid or expired")
+        r.raise_for_status()
+        data = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"[tree] GitHub fetch failed: {e!r}")
+        raise HTTPException(502, f"GitHub API error: {e}")
+
+    items = []
+    for node in (data.get("tree") or []):
+        if node.get("type") != "blob":
+            continue
+        path = node.get("path") or ""
+        size = int(node.get("size") or 0)
+        if not _browse_keep_path(path, size):
+            continue
+        items.append({"path": path, "size": size})
+    # Sort: README first, then root-level configs, then by depth, then alpha
+    def _sort_key(it):
+        p = it["path"].lower()
+        depth = p.count("/")
+        is_readme = 0 if p.startswith("readme") else 1
+        is_root_config = 0 if depth == 0 and any(
+            p.endswith(s) for s in ("package.json", "requirements.txt",
+                                     "pyproject.toml", "dockerfile", ".env.example")
+        ) else 1
+        return (is_readme, is_root_config, depth, p)
+    items.sort(key=_sort_key)
+    truncated = bool(data.get("truncated")) or len(items) > 300
+    items = items[:300]
+    return {
+        "ok": True, "project_id": project_id,
+        "owner": owner, "repo": repo, "branch": branch,
+        "files": items, "truncated": truncated,
+    }
+
+
+@router.get("/projects/{project_id}/file")
+async def get_project_file(
+    project_id: str,
+    path: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Fetch a single file's content from the connected GitHub repo at
+    the project's pinned branch. Capped at 200KB; bigger files return
+    a truncated marker so the UI shows a clean message instead of OOM.
+    """
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = require_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo") or ""
+    branch = proj.get("branch") or "main"
+    if not (owner and repo and gh_token):
+        raise HTTPException(400, "GitHub not connected to this project")
+    if not path or path.startswith("/") or ".." in path.split("/"):
+        raise HTTPException(400, "Invalid path")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            content = await gh_api_fetch_file(c, owner, repo, path, branch, gh_token)
+    except Exception as e:
+        logger.warning(f"[file] fetch failed for {path}: {e!r}")
+        raise HTTPException(502, f"GitHub API error: {e}")
+    if content is None:
+        raise HTTPException(404, f"File not found: {path}")
+    truncated = False
+    if len(content.encode("utf-8", errors="replace")) > _BROWSE_MAX_FILE_BYTES:
+        # Trim to byte budget without breaking utf-8 mid-codepoint.
+        b = content.encode("utf-8", errors="replace")[:_BROWSE_MAX_FILE_BYTES]
+        content = b.decode("utf-8", errors="replace") + "\n\n# … (truncated)"
+        truncated = True
+    return {
+        "ok": True, "project_id": project_id,
+        "path": path, "content": content, "truncated": truncated,
+    }
+
+
 class UpdateProject(BaseModel):
     github_token: Optional[str] = None
     branch: Optional[str] = None
