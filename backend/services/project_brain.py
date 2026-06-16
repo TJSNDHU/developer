@@ -10,13 +10,27 @@ audit / admin display but never sent to the LLM.
 
 Reads run zero LLM calls (pure projection + string build). Writes are
 incremental — only the changed bucket is rewritten, not the whole doc.
+
+Iter 165 — Brain V2: a separate `project_brains_v2` collection that
+stores a compact STRUCTURAL map (folders, stack, hot paths). V2
+populates via 5 parallel GitHub REST calls on `build_brain_v2` and
+auto-updates every task via `update_brain_after_task`. Format helper
+`format_brain_for_agent` emits ~200-300 tokens which is injected at
+the top of every orchestrator turn — so agents stop blind-exploring
+on repeat questions.
 """
 
 from __future__ import annotations
 import asyncio
+import logging
+import os
+import time
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,4 +412,456 @@ async def delete_preference(
         },
     )
     return r.modified_count
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Brain V2 — Iter 165
+#
+# A structural map of the repo (folders, stack, entry points, hot paths) that
+# lives in a separate `project_brains_v2` collection. Populated via direct
+# GitHub REST calls (no LLM, no JWT — just a PAT). Refreshed on first
+# connect + every N tasks. Injected as a compact string into every
+# orchestrator turn so agents stop blind-exploring.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BRAIN_VERSION = 2
+FULL_REFRESH_EVERY_N_TASKS = int(
+    os.getenv("BRAIN_V2_FULL_REFRESH_EVERY_N_TASKS", "10")
+)
+
+
+# ── GitHub REST helpers (no JWT, just PAT) ───────────────────────────────────
+
+async def _gh_list_files(
+    token: str, owner: str, repo: str, path: str = "", branch: str = "main",
+) -> list[str]:
+    """List entries (names) at `path` in `owner/repo` via the contents API.
+    Returns [] on any failure — Brain V2 must NEVER raise."""
+    if not (token and owner and repo):
+        return []
+    import httpx
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path.lstrip('/')}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cx:
+            r = await cx.get(
+                url,
+                params={"ref": branch} if branch else None,
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "aurem-brain-v2",
+                },
+            )
+            if r.status_code != 200:
+                return []
+            data = r.json()
+            if not isinstance(data, list):
+                return []
+            return [
+                (e.get("name") or "")
+                for e in data
+                if isinstance(e, dict) and e.get("name")
+            ][:60]
+    except Exception:
+        return []
+
+
+async def _gh_read_small(
+    token: str, owner: str, repo: str, path: str, branch: str = "main",
+    max_chars: int = 2000,
+) -> str:
+    """Fetch raw file content up to `max_chars`. Returns "" on any failure."""
+    if not (token and owner and repo and path):
+        return ""
+    import base64
+    import httpx
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path.lstrip('/')}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cx:
+            r = await cx.get(
+                url,
+                params={"ref": branch} if branch else None,
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "aurem-brain-v2",
+                },
+            )
+            if r.status_code != 200:
+                return ""
+            data = r.json()
+            content_b64 = (data or {}).get("content") or ""
+            if not content_b64:
+                return ""
+            raw = base64.b64decode(content_b64).decode("utf-8", errors="ignore")
+            return raw[:max_chars]
+    except Exception:
+        return ""
+
+
+# ── Core V2 functions ────────────────────────────────────────────────────────
+
+async def get_brain_v2(
+    db: Optional[AsyncIOMotorDatabase],
+    project_id: str,
+    user_id: str,
+) -> dict:
+    """Return the V2 brain doc for this project, or `{}` if not built yet."""
+    if db is None or not project_id or not user_id:
+        return {}
+    try:
+        doc = await db["project_brains_v2"].find_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"_id": 0},
+        )
+    except Exception:
+        return {}
+    return doc or {}
+
+
+async def build_brain_v2(
+    db: AsyncIOMotorDatabase,
+    project_id: str,
+    user_id: str,
+    github_token: str,
+    github_owner: str,
+    github_repo: str,
+    branch: str = "main",
+) -> dict:
+    """Full structural scan — 5 parallel `_gh_list_files` calls + 2 small
+    `_gh_read_small` reads for stack detection. Persists to
+    `project_brains_v2` and returns the saved doc.
+
+    Cheap: only directory listings + 2 small file reads — no LLM, no full
+    repo walk."""
+    if db is None or not (github_token and github_owner and github_repo):
+        return {}
+
+    # 5 parallel directory listings (all cheap)
+    listings = await asyncio.gather(
+        _gh_list_files(github_token, github_owner, github_repo, "", branch),
+        _gh_list_files(github_token, github_owner, github_repo, "backend", branch),
+        _gh_list_files(github_token, github_owner, github_repo, "frontend/src", branch),
+        _gh_list_files(github_token, github_owner, github_repo, "backend/routers", branch),
+        _gh_list_files(github_token, github_owner, github_repo, "backend/services", branch),
+        return_exceptions=True,
+    )
+
+    def _safe(r):
+        return r if isinstance(r, list) else []
+
+    root_files     = _safe(listings[0])
+    backend_files  = _safe(listings[1])
+    frontend_files = _safe(listings[2])
+    routers_files  = _safe(listings[3])
+    services_files = _safe(listings[4])
+
+    def _has(files: list[str], keyword: str) -> bool:
+        kl = keyword.lower()
+        return any(kl in (f or "").lower() for f in files)
+
+    # ── structure
+    structure: dict = {}
+    if _has(backend_files, "main.py"):
+        structure["backend_root"] = "backend/"
+    if _has(frontend_files, "App.jsx") or _has(frontend_files, "App.tsx"):
+        structure["frontend_root"] = "frontend/src/"
+    if _has(frontend_files, "components"):
+        structure["components"] = "frontend/src/components/"
+    if _has(frontend_files, "pages"):
+        structure["pages"] = "frontend/src/pages/"
+    if _has(frontend_files, "hooks"):
+        structure["hooks"] = "frontend/src/hooks/"
+    if routers_files:
+        structure["routers"] = "backend/routers/"
+    if services_files:
+        structure["services"] = "backend/services/"
+    if _has(backend_files, "tests"):
+        structure["tests"] = "backend/tests/"
+
+    # ── stack (2 small reads, parallel)
+    stack: dict = {}
+    pkg_path = "package.json" if _has(root_files, "package.json") else (
+        "frontend/package.json"
+        if _has(_safe(await _gh_list_files(github_token, github_owner, github_repo, "frontend", branch)), "package.json")
+        else ""
+    )
+    req_path = ""
+    if _has(root_files, "requirements.txt"):
+        req_path = "requirements.txt"
+    elif _has(backend_files, "requirements.txt"):
+        req_path = "backend/requirements.txt"
+
+    pkg_text, req_text = await asyncio.gather(
+        _gh_read_small(github_token, github_owner, github_repo, pkg_path, branch) if pkg_path else _noop(),
+        _gh_read_small(github_token, github_owner, github_repo, req_path, branch) if req_path else _noop(),
+    )
+
+    pkg_l = (pkg_text or "").lower()
+    req_l = (req_text or "").lower()
+    languages: list[str] = []
+    if "react" in pkg_l:
+        stack["frontend"] = "React"
+        languages.append("JavaScript")
+    if "vite" in pkg_l and stack.get("frontend"):
+        stack["frontend"] = f"{stack['frontend']} + Vite"
+    if "next" in pkg_l:
+        stack["frontend"] = "Next.js"
+        if "JavaScript" not in languages:
+            languages.append("JavaScript")
+    if "typescript" in pkg_l:
+        languages.append("TypeScript")
+    if "fastapi" in req_l:
+        stack["backend"] = "FastAPI"
+        languages.append("Python")
+    elif "django" in req_l:
+        stack["backend"] = "Django"
+        languages.append("Python")
+    elif "flask" in req_l:
+        stack["backend"] = "Flask"
+        languages.append("Python")
+    if _has(root_files, "go.mod"):
+        stack["backend"] = "Go"
+        languages.append("Go")
+    if _has(root_files, "Cargo.toml"):
+        stack["backend"] = "Rust"
+        languages.append("Rust")
+    if "motor" in req_l or "pymongo" in req_l:
+        stack["db"] = "MongoDB"
+    elif "psycopg" in req_l or "asyncpg" in req_l:
+        stack["db"] = "PostgreSQL"
+    if "jwt" in req_l or "pyjwt" in req_l:
+        stack["auth"] = "JWT"
+    if languages:
+        stack["languages"] = sorted(set(languages))
+
+    # ── entry points
+    entry_points: dict = {}
+    if _has(backend_files, "main.py"):
+        entry_points["backend_main"] = "backend/main.py"
+    elif _has(root_files, "main.py"):
+        entry_points["backend_main"] = "main.py"
+    if _has(frontend_files, "App.jsx"):
+        entry_points["frontend_main"] = "frontend/src/App.jsx"
+    elif _has(frontend_files, "App.tsx"):
+        entry_points["frontend_main"] = "frontend/src/App.tsx"
+    if _has(backend_files, ".env"):
+        entry_points["env_file"] = "backend/.env"
+
+    # ── sensitive paths
+    sensitive: list[str] = []
+    for f in backend_files:
+        fl = (f or "").lower()
+        if (".env" in fl) or ("secret" in fl) or ("vault" in fl):
+            sensitive.append(f"backend/{f}")
+
+    # ── hot paths — seed with conventional CTO-app candidates that
+    # actually exist in this repo. update_brain_after_task() refines
+    # this from real commit frequency over time.
+    seed_candidates = [
+        "backend/routers/chat.py",
+        "frontend/src/components/ChatPanel.jsx",
+        "backend/services/orchestrator.py",
+        "backend/main.py",
+        "frontend/src/App.jsx",
+    ]
+    hot_paths: list[str] = []
+    for cand in seed_candidates:
+        parts = cand.split("/")
+        if parts[0] == "backend" and len(parts) >= 3 and parts[1] in ("routers", "services"):
+            target = routers_files if parts[1] == "routers" else services_files
+            if parts[2] in target:
+                hot_paths.append(cand)
+        elif cand == "backend/main.py" and _has(backend_files, "main.py"):
+            hot_paths.append(cand)
+        elif cand == "frontend/src/App.jsx" and _has(frontend_files, "App.jsx"):
+            hot_paths.append(cand)
+        elif cand.startswith("frontend/src/components/") and _has(frontend_files, "components"):
+            # Could exist — keep as a hint; updates will prune if wrong
+            hot_paths.append(cand)
+
+    now = time.time()
+    brain = {
+        "project_id": project_id,
+        "user_id":    user_id,
+        "version":    BRAIN_VERSION,
+        "task_count": 0,
+        "last_scan":  now,
+        "next_full_refresh_at": FULL_REFRESH_EVERY_N_TASKS,
+        "structure":    structure,
+        "stack":        stack,
+        "entry_points": entry_points,
+        "patterns": {
+            "api_style":        "REST + SSE streaming" if structure.get("routers") else "",
+            "component_style":  "functional + hooks" if structure.get("components") else "",
+            "naming_backend":   "snake_case" if structure.get("backend_root") else "",
+            "naming_frontend":  "camelCase + PascalCase components" if structure.get("frontend_root") else "",
+        },
+        "sensitive_paths": sensitive,
+        "hot_paths":      hot_paths,
+        "recent_changes": [],
+        "branch":         branch,
+    }
+
+    # Preserve existing task_count if the doc already exists (refresh path).
+    existing = await get_brain_v2(db, project_id, user_id)
+    if existing:
+        brain["task_count"] = existing.get("task_count", 0)
+        brain["next_full_refresh_at"] = (
+            brain["task_count"] + FULL_REFRESH_EVERY_N_TASKS
+        )
+        # Carry over learned hot_paths if more accurate than seed
+        learned_hot = existing.get("hot_paths") or []
+        if learned_hot:
+            brain["hot_paths"] = learned_hot
+        brain["recent_changes"] = (existing.get("recent_changes") or [])[:10]
+
+    try:
+        await db["project_brains_v2"].update_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"$set": brain},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("brain_v2 save failed for %s: %r", project_id, e)
+    return brain
+
+
+async def _noop() -> str:
+    """Placeholder coroutine for asyncio.gather when a path is empty."""
+    return ""
+
+
+async def update_brain_after_task(
+    db: Optional[AsyncIOMotorDatabase],
+    project_id: str,
+    user_id: str,
+    changed_files: list[str],
+    task_id: str,
+    github_token: str = "",
+    github_owner: str = "",
+    github_repo:  str = "",
+    branch: str = "main",
+) -> dict:
+    """Called fire-and-forget after every completed task:
+      1. increment task_count
+      2. push to recent_changes (cap at 10)
+      3. recompute hot_paths from frequency
+      4. if task_count >= next_full_refresh_at → call build_brain_v2()
+
+    Never raises — brain failure must never bubble into the task path."""
+    if db is None or not project_id or not user_id:
+        return {}
+
+    brain = await get_brain_v2(db, project_id, user_id)
+    if not brain:
+        # First task ever — build fresh if we have GitHub creds
+        if github_token and github_owner and github_repo:
+            return await build_brain_v2(
+                db, project_id, user_id,
+                github_token, github_owner, github_repo, branch,
+            )
+        return {}
+
+    now = time.time()
+    new_task_count = int(brain.get("task_count", 0)) + 1
+    next_refresh   = int(brain.get("next_full_refresh_at", FULL_REFRESH_EVERY_N_TASKS))
+
+    recent = list(brain.get("recent_changes") or [])
+    for f in (changed_files or []):
+        if not f:
+            continue
+        recent.insert(0, {"file": f, "task": task_id, "ts": now})
+    recent = recent[:10]
+
+    # Recompute hot_paths from recent_changes frequency
+    freq = Counter(e.get("file") for e in recent if e.get("file"))
+    if freq:
+        hot = [path for path, _ in freq.most_common(5)]
+        brain["hot_paths"] = hot
+
+    # Full refresh trigger
+    if new_task_count >= next_refresh and github_token and github_owner and github_repo:
+        refreshed = await build_brain_v2(
+            db, project_id, user_id,
+            github_token, github_owner, github_repo, branch,
+        )
+        # build_brain_v2 carries over task_count; bump it again so the
+        # refresh task itself is counted.
+        try:
+            await db["project_brains_v2"].update_one(
+                {"project_id": project_id, "user_id": user_id},
+                {"$set": {
+                    "task_count":            new_task_count,
+                    "next_full_refresh_at":  new_task_count + FULL_REFRESH_EVERY_N_TASKS,
+                    "recent_changes":        recent,
+                }},
+            )
+            refreshed["task_count"] = new_task_count
+            refreshed["next_full_refresh_at"] = new_task_count + FULL_REFRESH_EVERY_N_TASKS
+            refreshed["recent_changes"] = recent
+        except Exception as e:
+            logger.warning("brain_v2 refresh-count bump failed: %r", e)
+        return refreshed
+
+    # Incremental update
+    try:
+        await db["project_brains_v2"].update_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"$set": {
+                "task_count":     new_task_count,
+                "recent_changes": recent,
+                "hot_paths":      brain.get("hot_paths", []),
+                "last_task_at":   now,
+            }},
+        )
+    except Exception as e:
+        logger.warning("brain_v2 incremental update failed: %r", e)
+    brain["task_count"]     = new_task_count
+    brain["recent_changes"] = recent
+    return brain
+
+
+def format_brain_for_agent(brain: dict) -> str:
+    """Render the brain as a compact ~200-300 token string for system-prompt
+    injection. Returns "" if the brain is empty."""
+    if not brain:
+        return ""
+    lines: list[str] = ["[PROJECT BRAIN V2]"]
+
+    s = brain.get("structure") or {}
+    if s:
+        lines.append("Structure: " + " | ".join(f"{k}={v}" for k, v in s.items()))
+
+    st = brain.get("stack") or {}
+    if st:
+        bits = []
+        for k, v in st.items():
+            if isinstance(v, list):
+                v = ",".join(v[:4])
+            bits.append(f"{k}={v}")
+        lines.append("Stack: " + " | ".join(bits))
+
+    ep = brain.get("entry_points") or {}
+    if ep:
+        lines.append("Entry points: " + " | ".join(str(v) for v in ep.values() if v))
+
+    hot = brain.get("hot_paths") or []
+    if hot:
+        lines.append("Hot files: " + ", ".join(hot[:3]))
+
+    recent = brain.get("recent_changes") or []
+    if recent:
+        last = recent[0]
+        if last.get("file"):
+            lines.append("Last changed: " + str(last["file"]))
+
+    sensitive = brain.get("sensitive_paths") or []
+    if sensitive:
+        lines.append("Sensitive: " + ", ".join(sensitive[:2]))
+
+    tc = brain.get("task_count", 0)
+    lines.append(f"Tasks done: {tc}")
+    return "\n".join(lines)
+
 

@@ -1102,6 +1102,29 @@ async def chat_with_tools(
             + "=== END REPO CONTEXT ===\n"
         )
 
+    # Iter 165 — Brain V2 inject. Compact (~250 tok) structural map so
+    # agents stop blind-exploring on every turn. Hard-capped at 2s so a
+    # slow Mongo can never delay the chat turn.
+    if project_id and project_id != "home":
+        try:
+            from cto_services.db import get_db as _get_db
+            from services.project_brain import (
+                get_brain_v2 as _get_brain_v2,
+                format_brain_for_agent as _format_brain,
+            )
+            _db = _get_db()
+            if _db is not None:
+                _brain = await asyncio.wait_for(
+                    _get_brain_v2(_db, project_id, user_id or ""),
+                    timeout=2.0,
+                )
+                _brain_str = _format_brain(_brain)
+                if _brain_str:
+                    extra = extra.rstrip() + "\n\n" + _brain_str + "\n"
+        except Exception as _bex:
+            logger.debug("brain v2 inject skipped: %r", _bex)
+
+
     layered_persona = build_persona(prompt, extra, history_lines)
     base_system = layered_persona + (("\n\n" + extra) if extra.strip() else "")
     # First-iteration system prompt — full tool catalog + help.

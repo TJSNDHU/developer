@@ -182,6 +182,78 @@ async def _decrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
         return None    # tamper / wrong user → treat as missing token
 
 
+# Iter 165 — Brain V2 endpoints (manual rebuild + read-only inspect)
+
+
+@router.post("/projects/{project_id}/build-brain")
+async def build_project_brain(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Trigger a full Brain V2 scan for `project_id`.
+
+    Auto-called on `POST /projects/add`; also exposed manually so admin
+    or settings UI can rebuild after a major refactor or branch swap.
+    """
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    gh_owner = proj.get("github_owner") or ""
+    gh_repo  = proj.get("github_repo") or ""
+    branch   = proj.get("branch") or "main"
+    if not (gh_token and gh_owner and gh_repo):
+        raise HTTPException(400, "GitHub not connected to this project")
+
+    from services.project_brain import build_brain_v2
+    brain = await build_brain_v2(
+        db, project_id, user_id, gh_token, gh_owner, gh_repo, branch,
+    )
+    return {
+        "ok": True,
+        "brain_version":    brain.get("version"),
+        "structure_keys":   list((brain.get("structure") or {}).keys()),
+        "stack":            brain.get("stack") or {},
+        "task_count":       brain.get("task_count", 0),
+        "next_refresh_at":  brain.get("next_full_refresh_at"),
+        "hot_paths":        brain.get("hot_paths") or [],
+    }
+
+
+@router.get("/projects/{project_id}/brain")
+async def get_project_brain(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Read-only view of the V2 brain — for the Settings page so
+    users can confirm what the agent knows about their repo."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "project_id": 1},
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    from services.project_brain import get_brain_v2, format_brain_for_agent
+    brain = await get_brain_v2(db, project_id, user_id)
+    return {
+        "ok": True,
+        "exists": bool(brain),
+        "brain": brain,
+        "summary": format_brain_for_agent(brain) if brain else "",
+    }
+
+
+
 @router.get("/projects/{project_id}/check-pat")
 async def check_project_pat(
     project_id: str,
@@ -287,6 +359,19 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
         "created_at": time.time(),
     }
     await db.cto_projects.insert_one(doc)
+    # Iter 165 — fire-and-forget: build Brain V2 immediately on connect so
+    # the first chat turn already has the structural map injected. Pure
+    # background — failure cannot block project creation.
+    try:
+        import asyncio as _asyncio
+        from services.project_brain import build_brain_v2
+        _asyncio.create_task(build_brain_v2(
+            db=db, project_id=proj_id, user_id=me["user_id"],
+            github_token=pat, github_owner=owner, github_repo=repo,
+            branch=body.branch or "main",
+        ))
+    except Exception as _bbe:
+        logger.warning("brain v2 initial build skipped: %r", _bbe)
     return {"ok": True, "project_id": proj_id,
             "owner": owner, "repo": repo,
             "auth_method": doc["auth_method"]}
@@ -1882,6 +1967,24 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 ))
             except Exception:
                 pass
+            # Iter 165 — Brain V2 auto-update. Fire-and-forget so a
+            # slow GitHub never blocks task completion. Falls back to
+            # full rebuild every FULL_REFRESH_EVERY_N_TASKS tasks.
+            try:
+                from services.project_brain import update_brain_after_task
+                asyncio.create_task(update_brain_after_task(
+                    db=db,
+                    project_id=proj.get("project_id", ""),
+                    user_id=user_id,
+                    changed_files=list(edits.keys()),
+                    task_id=task_id,
+                    github_token=user_token or "",
+                    github_owner=proj.get("github_owner", "") or "",
+                    github_repo=proj.get("github_repo", "") or "",
+                    branch=proj.get("branch", "main") or "main",
+                ))
+            except Exception as _bv2e:
+                logger.warning("brain v2 update skipped: %r", _bv2e)
     except Exception as e:
         logger.exception(f"[cto-task-api {task_id}] failed")
         safe = str(e).replace(user_token or "", "***PAT***")
@@ -2077,6 +2180,22 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
                 ))
             except Exception:
                 pass
+            # Iter 165 — Brain V2 auto-update (git path parity).
+            try:
+                from services.project_brain import update_brain_after_task
+                asyncio.create_task(update_brain_after_task(
+                    db=db,
+                    project_id=proj.get("project_id", ""),
+                    user_id=user_id,
+                    changed_files=list(edits.keys()),
+                    task_id=task_id,
+                    github_token=user_token or "",
+                    github_owner=proj.get("github_owner", "") or "",
+                    github_repo=proj.get("github_repo", "") or "",
+                    branch=proj.get("branch", "main") or "main",
+                ))
+            except Exception as _bv2e:
+                logger.warning("brain v2 update (git path) skipped: %r", _bv2e)
     except Exception as e:
         logger.exception(f"[cto-task {task_id}] failed")
         # BUG 1 fix — scrub the PAT from the public error string. The API
