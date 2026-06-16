@@ -289,15 +289,15 @@ export default function KnowledgeGraph({
         type: isLiveEdge ? "animated" : "default",
         data: { animated: isLiveEdge, color: c?.bg },
         style: {
-          stroke: isLiveEdge ? "#22c55e" : c?.bg || "#6b7280",
-          strokeWidth: isLiveEdge ? 2 : 1,
-          opacity: matchLayer ? (isLiveEdge ? 1 : 0.35) : 0.04,
+          stroke: isLiveEdge ? "#22c55e" : c?.bg || "#94a3b8",
+          strokeWidth: isLiveEdge ? 2.5 : 1.8,
+          opacity: matchLayer ? (isLiveEdge ? 1 : 0.85) : 0.08,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isLiveEdge ? "#22c55e" : c?.bg || "#6b7280",
-          width: isLiveEdge ? 12 : 8,
-          height: isLiveEdge ? 12 : 8,
+          color: isLiveEdge ? "#22c55e" : c?.bg || "#94a3b8",
+          width: isLiveEdge ? 14 : 12,
+          height: isLiveEdge ? 14 : 12,
         },
       };
     });

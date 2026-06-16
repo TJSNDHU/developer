@@ -15,7 +15,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Loader2, Square, Paperclip, Github, Zap,
-  Eye, EyeOff, Trash2,
+  Eye, EyeOff, Trash2, Network,
 } from "lucide-react";
 import { api, streamChat } from "../lib/api";
 import { toast } from "./Toast";
@@ -1693,24 +1693,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               a real project is active so the toolbar stays clean on
               the home/scratch view. */}
           {activeProject?.project_id && activeProject.project_id !== "home" && (
-            <button
-              type="button"
-              data-testid="graph-toggle-btn"
+            <ToolButton
+              testid="graph-toggle-btn"
+              title="Codebase graph — visualise file relationships"
               onClick={() => setGraphOpen((v) => !v)}
-              title="Codebase graph"
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "5px 8px", borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: graphOpen
-                  ? "rgba(245,158,11,0.12)"
-                  : "transparent",
-                color: graphOpen ? "#f59e0b" : "var(--text-faint)",
-                cursor: "pointer", fontSize: 13, lineHeight: 1,
-              }}
-            >
-              📊
-            </button>
+              Icon={Network}
+              active={graphOpen}
+              wide
+            />
           )}
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works
