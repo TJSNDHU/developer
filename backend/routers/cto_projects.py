@@ -300,7 +300,7 @@ async def warm_start_project(
         "status":        "running",
         "started_at":    started_at,
         "agents_done":   [],
-        "agents_total":  ["brain", "recent", "structure", "stack"],
+        "agents_total":  ["brain", "recent", "structure", "stack", "graph"],
     })
 
     asyncio.create_task(_run_warm_agents(
@@ -436,10 +436,28 @@ async def _run_warm_agents(
         finally:
             await _mark_done("stack")
 
+    # Agent 5 — Codebase Graph (hybrid regex + LLM top 20).
+    # Skips the LLM step entirely if the graph was built < 1h ago.
+    async def agent_graph() -> None:
+        try:
+            from services.graph_builder import build_graph, get_graph
+            existing = await get_graph(db, project_id, user_id)
+            age = time.time() - float(existing.get("built_at", 0) or 0)
+            if not existing or age > 3600:
+                await build_graph(
+                    db, project_id, user_id,
+                    gh_token, gh_owner, gh_repo,
+                )
+        except Exception as e:
+            logger.warning("warm-start graph agent: %r", e)
+        finally:
+            await _mark_done("graph")
+
     try:
         await asyncio.gather(
             agent_brain(), agent_recent(),
             agent_structure(), agent_stack(),
+            agent_graph(),
             return_exceptions=True,
         )
         await db.warm_start_jobs.update_one(
@@ -452,6 +470,62 @@ async def _run_warm_agents(
             {"job_id": job_id},
             {"$set": {"status": "failed", "error": str(e)[:500]}},
         )
+
+
+# Iter 165 — Codebase Graph endpoints (hybrid regex + LLM top-20).
+
+
+@router.post("/projects/{project_id}/build-graph")
+async def build_project_graph(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Trigger a hybrid (regex + LLM-top-20) graph build in background.
+    Returns immediately — frontend polls `/projects/{id}/graph` until
+    `status == 'ready'`."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    gh_owner = proj.get("github_owner") or ""
+    gh_repo  = proj.get("github_repo") or ""
+    if not (gh_token and gh_owner and gh_repo):
+        raise HTTPException(400, "GitHub not connected")
+    from services.graph_builder import build_graph
+    asyncio.create_task(build_graph(
+        db, project_id, user_id, gh_token, gh_owner, gh_repo,
+    ))
+    return {"ok": True, "message": "Graph building in background"}
+
+
+@router.get("/projects/{project_id}/graph")
+async def get_project_graph(
+    project_id: str,
+    full: bool = False,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Light read by default (excludes heavy `nodes` field). Pass
+    `?full=true` to fetch the full expanded graph for FE detail view."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    from services.graph_builder import get_graph, get_graph_full
+    doc = (
+        await get_graph_full(db, project_id, user_id)
+        if full
+        else await get_graph(db, project_id, user_id)
+    )
+    if not doc:
+        return {"ok": True, "status": "not_built", "graph": None}
+    return {"ok": True, "status": "ready", "graph": doc}
+
+
 
 
 @router.get("/projects/warm-start/{job_id}/status")

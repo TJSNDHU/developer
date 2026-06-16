@@ -25,6 +25,7 @@ import ThinkingHint from "./ThinkingHint";
 import LiveTaskPopup from "./LiveTaskPopup";
 import WarmStatusBar from "./WarmStatusBar";
 import { useWarmStart } from "../hooks/useWarmStart";
+import GraphPanel from "./GraphPanel";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
@@ -361,6 +362,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const { status: warmStatus, progress: warmProgress } = useWarmStart(
     activeProject?.project_id
   );
+
+  // Iter 165 — Codebase Graph drawer toggle. The drawer also dispatches
+  // `ora-inject` events when a user clicks "Ask ORA about this file"
+  // which this component picks up below to seed the composer input.
+  const [graphOpen, setGraphOpen] = useState(false);
+  useEffect(() => {
+    const onInject = (e) => {
+      const text = e?.detail?.text;
+      if (typeof text === "string" && text.trim()) {
+        setInput(text);
+      }
+    };
+    window.addEventListener("ora-inject", onInject);
+    return () => window.removeEventListener("ora-inject", onInject);
+  }, []);
 
   // Iter 163 — chat toolbar (Show all / Clear chat) auto-hide on
   // typing, mirroring the top tabbar pattern. INDEPENDENT hot-zone:
@@ -1632,6 +1648,29 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             Icon={Paperclip}
             wide
           />
+          {/* Iter 165 — Codebase Graph drawer toggle. Visible only when
+              a real project is active so the toolbar stays clean on
+              the home/scratch view. */}
+          {activeProject?.project_id && activeProject.project_id !== "home" && (
+            <button
+              type="button"
+              data-testid="graph-toggle-btn"
+              onClick={() => setGraphOpen((v) => !v)}
+              title="Codebase graph"
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 8px", borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: graphOpen
+                  ? "rgba(245,158,11,0.12)"
+                  : "transparent",
+                color: graphOpen ? "#f59e0b" : "var(--text-faint)",
+                cursor: "pointer", fontSize: 13, lineHeight: 1,
+              }}
+            >
+              📊
+            </button>
+          )}
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works
               from the Projects page). Red dot = no repo configured.
@@ -1783,6 +1822,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         key={livePopupTaskId || "none"}
         taskId={livePopupTaskId}
         onClose={() => setLivePopupTaskId(null)}
+      />
+      {/* Iter 165 — Codebase Graph drawer (right side). */}
+      <GraphPanel
+        projectId={activeProject?.project_id}
+        open={graphOpen}
+        onClose={() => setGraphOpen(false)}
       />
     </div>
   );

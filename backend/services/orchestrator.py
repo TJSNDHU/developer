@@ -1122,6 +1122,20 @@ async def chat_with_tools(
                 if _brain_str:
                     extra = extra.rstrip() + "\n\n" + _brain_str + "\n"
 
+                # Iter 165 — Codebase Graph context (~300 tokens). Single
+                # find_one on `project_graphs` with the heavy `nodes`
+                # field projected out. Hard-capped at 1.5s.
+                try:
+                    from services.graph_builder import get_graph_for_agent
+                    _graph_ctx = await asyncio.wait_for(
+                        get_graph_for_agent(_db, project_id, user_id or ""),
+                        timeout=1.5,
+                    )
+                    if _graph_ctx:
+                        extra = extra.rstrip() + "\n\n" + _graph_ctx + "\n"
+                except Exception:
+                    pass
+
                 # Iter 165 — Warm Start cache. If the user just selected
                 # this project, four background agents may have already
                 # pre-loaded recent commits + file tree + stack. Inject
