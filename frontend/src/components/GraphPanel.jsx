@@ -10,6 +10,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { X, Search, GitBranch, RefreshCw } from "lucide-react";
 import { api } from "../lib/api";
+import KnowledgeGraph from "./KnowledgeGraph";
 
 const LAYER_COLORS = {
   API:     "#f59e0b",
@@ -35,7 +36,27 @@ export default function GraphPanel({ projectId, open, onClose }) {
   const [search, setSearch] = useState("");
   const [activeLayer, setActiveLayer] = useState(null);
   const [activeFile, setActiveFile] = useState(null);
+  const [view, setView] = useState("list"); // "list" | "graph"
+  const [liveFiles, setLiveFiles] = useState([]);
   const pollRef = useRef(null);
+  const liveTimerRef = useRef(null);
+
+  // Listen for ORA editing events from ChatPanel (dispatched on tool/patch progress).
+  useEffect(() => {
+    const handler = (e) => {
+      const files = e?.detail?.files;
+      if (!Array.isArray(files) || files.length === 0) return;
+      setLiveFiles(files);
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+      // Clear glow after 30s of inactivity.
+      liveTimerRef.current = setTimeout(() => setLiveFiles([]), 30000);
+    };
+    window.addEventListener("ora-editing", handler);
+    return () => {
+      window.removeEventListener("ora-editing", handler);
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open || !projectId) return undefined;
@@ -132,12 +153,16 @@ export default function GraphPanel({ projectId, open, onClose }) {
         data-testid="graph-panel"
         style={{
           position: "fixed", top: 0, right: 0, bottom: 0,
-          width: "min(460px, 100vw)",
+          width:
+            view === "graph"
+              ? "min(820px, 100vw)"
+              : "min(460px, 100vw)",
           background: "var(--panel)",
           borderLeft: "1px solid var(--border-strong)",
           zIndex: 8501,
           display: "flex", flexDirection: "column",
           animation: "slide-in-right 0.2s ease-out",
+          transition: "width 0.2s ease",
         }}
       >
         {/* Header */}
@@ -168,6 +193,45 @@ export default function GraphPanel({ projectId, open, onClose }) {
             )}
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {status === "ready" && graph && (
+              <div
+                data-testid="graph-view-toggle"
+                style={{
+                  display: "flex",
+                  gap: 2,
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  padding: 2,
+                  marginRight: 4,
+                }}
+              >
+                {[
+                  { id: "list", label: "≡ List" },
+                  { id: "graph", label: "◉ Graph" },
+                ].map((v) => (
+                  <button
+                    key={v.id}
+                    data-testid={`graph-view-${v.id}`}
+                    onClick={() => setView(v.id)}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 4,
+                      border: "none",
+                      fontSize: 10,
+                      background:
+                        view === v.id ? "var(--panel)" : "transparent",
+                      color:
+                        view === v.id ? "var(--text)" : "var(--text-faint)",
+                      cursor: "pointer",
+                      fontWeight: view === v.id ? 600 : 400,
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {status === "ready" && (
               <button
                 onClick={() => { setStatus("building"); triggerBuild(); }}
@@ -279,7 +343,28 @@ export default function GraphPanel({ projectId, open, onClose }) {
             </div>
           )}
 
-          {status === "ready" && graph && (
+          {status === "ready" && graph && view === "graph" && (
+            <div
+              data-testid="graph-panel-graph-view"
+              style={{
+                height: "calc(100vh - 70px)",
+                margin: "-14px",
+              }}
+            >
+              <KnowledgeGraph
+                graph={graph}
+                searchQuery={search}
+                liveFiles={liveFiles}
+                onNodeClick={(nodeData) => {
+                  setView("list");
+                  setActiveLayer(nodeData.layer);
+                  setActiveFile(nodeData.path);
+                }}
+              />
+            </div>
+          )}
+
+          {status === "ready" && graph && view === "list" && (
             <>
               <div
                 style={{

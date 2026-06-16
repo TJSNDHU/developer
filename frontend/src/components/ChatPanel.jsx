@@ -948,6 +948,28 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // frames during the tool-call loop so we can show a live counter +
       // a status label ("running 3 tools in parallel…").
       onThinking: (elapsed, activity, invocations) => {
+        // Iter 167 — fan out file paths from tool invocations so the
+        // KnowledgeGraph drawer can glow the nodes ORA is touching
+        // right now. Read / search tools count as "live" too — they
+        // tell the user what part of the repo the agent is inspecting.
+        try {
+          if (Array.isArray(invocations) && invocations.length) {
+            const files = [];
+            for (const inv of invocations) {
+              const a = inv?.args || {};
+              if (typeof a.path === "string") files.push(a.path);
+              if (Array.isArray(a.paths)) {
+                for (const p of a.paths) if (typeof p === "string") files.push(p);
+              }
+            }
+            if (files.length) {
+              window.dispatchEvent(new CustomEvent("ora-editing", {
+                detail: { files: Array.from(new Set(files)).slice(0, 50) },
+              }));
+            }
+          }
+        } catch { /* ignore */ }
+
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];

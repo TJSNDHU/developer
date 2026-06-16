@@ -32,9 +32,36 @@ LAYER_RULES = [
 ]
 
 SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".vite",
-    "dist", "build", ".next", "venv", "coverage",
+    # Package managers
+    "node_modules", ".npm", ".yarn", ".pnpm",
+    # Build outputs
+    "dist", "build", ".next", ".nuxt", "out",
+    ".vite", "__pycache__", ".pytest_cache",
+    # Version control
+    ".git",
+    # Virtual envs
+    "venv", ".venv", "env",
+    # Coverage
+    "coverage", ".coverage", "htmlcov",
+    # Vendor / agent skills (AUREM specific)
+    ".agent", "skills", ".understand-anything",
+    # IDE
+    ".idea", ".vscode",
+    # Migrations (too noisy)
+    "migrations", "alembic",
 }
+
+# Path-prefix filter — catches vendored bundles even when the dir name
+# alone is too generic to blacklist (e.g. `skills/` exists in many repos).
+SKIP_PATH_PREFIXES = (
+    ".agent/",
+    "skills/",
+    "node_modules/",
+    ".git/",
+    "vendor/",
+    "__pycache__/",
+    "third_party/",
+)
 
 CODE_EXTENSIONS = {
     ".py", ".js", ".jsx", ".ts", ".tsx",
@@ -212,7 +239,12 @@ async def build_graph(
         if not path:
             continue
         ext = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
-        if any(skip in path for skip in SKIP_DIRS):
+        # Skip by directory name (any path segment)
+        parts = path.split("/")
+        if any(part in SKIP_DIRS for part in parts):
+            continue
+        # Skip by path prefix (vendored bundles)
+        if any(path.startswith(pref) for pref in SKIP_PATH_PREFIXES):
             continue
         if ext not in CODE_EXTENSIONS:
             continue
