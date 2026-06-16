@@ -1100,6 +1100,32 @@ async def get_task(task_id: str, authorization: str = Header(None)) -> dict:
     return {"ok": True, "task": t}
 
 
+@router.get("/tasks/{task_id}/scan")
+async def get_task_scan(
+    task_id: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Iter 167 — return the post-task regex scan for a completed task.
+
+    Scan is populated by the worker right after `status=done`, so the
+    frontend polls this endpoint for up to ~10s after the task finishes.
+    Returns `{ok, status, scan}` where `scan` is null if no issues found.
+    """
+    me = await current_dev(authorization)
+    db = require_db()
+    t = await db.cto_tasks.find_one(
+        {"task_id": task_id, "user_id": me["user_id"]},
+        {"_id": 0, "post_scan": 1, "status": 1},
+    )
+    if not t:
+        raise HTTPException(404, "Task not found")
+    return {
+        "ok":     True,
+        "status": t.get("status"),
+        "scan":   t.get("post_scan"),
+    }
+
+
 @router.post("/tasks/{task_id}/retry")
 async def retry_task(
     task_id: str,
@@ -2254,6 +2280,35 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             logger.warning("task_diff/popup persistence failed: %r", _diff_e)
         await _emit(task_id, f"Done — {sha[:7]}", kind="done", pct=100)
         db = get_db()
+        # Iter 167 — post-task scan: regex-only security + import lint
+        # on the files ORA just shipped. Fire-and-forget guard so a slow
+        # scan never blocks the "done" emit.
+        if db is not None:
+            try:
+                from services.post_task_scanner import scan_changed_files
+                _scan_paths = list(edits.keys())
+                _scan_issues = await asyncio.wait_for(
+                    scan_changed_files(_scan_paths, edits),
+                    timeout=5.0,
+                )
+                if _scan_issues:
+                    await db.cto_tasks.update_one(
+                        {"task_id": task_id},
+                        {"$set": {"post_scan": {
+                            "issues":        _scan_issues,
+                            "scanned_at":    time.time(),
+                            "files_scanned": len(_scan_paths),
+                        }}},
+                    )
+                    for issue in _scan_issues:
+                        await _log(
+                            task_id,
+                            f"{issue.get('icon','⚠️')} {issue['message']} "
+                            f"in {issue['file']}:{issue['line']}",
+                            "warn",
+                        )
+            except Exception as _scan_err:
+                logger.debug("post_scan (api path) skipped: %r", _scan_err)
         if db is not None:
             await db.cto_projects.update_one(
                 {"project_id": proj["project_id"]},
@@ -2465,6 +2520,33 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
                           edits=_frontend_subset(edits),
                           completed_at=time.time())
         db = get_db()
+        # Iter 167 — post-task scan on git-path too (parity with API path).
+        if db is not None:
+            try:
+                from services.post_task_scanner import scan_changed_files
+                _scan_paths = list(edits.keys())
+                _scan_issues = await asyncio.wait_for(
+                    scan_changed_files(_scan_paths, edits),
+                    timeout=5.0,
+                )
+                if _scan_issues:
+                    await db.cto_tasks.update_one(
+                        {"task_id": task_id},
+                        {"$set": {"post_scan": {
+                            "issues":        _scan_issues,
+                            "scanned_at":    time.time(),
+                            "files_scanned": len(_scan_paths),
+                        }}},
+                    )
+                    for issue in _scan_issues:
+                        await _log(
+                            task_id,
+                            f"{issue.get('icon','⚠️')} {issue['message']} "
+                            f"in {issue['file']}:{issue['line']}",
+                            "warn",
+                        )
+            except Exception as _scan_err:
+                logger.debug("post_scan (git path) skipped: %r", _scan_err)
         if db is not None:
             await db.cto_projects.update_one(
                 {"project_id": proj["project_id"]},

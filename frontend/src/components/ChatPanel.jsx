@@ -29,6 +29,7 @@ import GraphPanel from "./GraphPanel";
 import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
+import PostTaskScan from "./PostTaskScan";
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
 // calls, and SSE stream control so each concern can be unit-tested
@@ -1293,6 +1294,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => {
+          // Iter 167 — task id of the last assistant turn (for the
+          // post-task scanner banner). Computed inline so the banner
+          // appears only beneath that bubble, never duplicated.
+          const lastTaskId = (
+            i === messages.length - 1 && m.role === "assistant"
+              ? (m.shipped_task_id || null)
+              : null
+          );
           // Iter 131 — when hideOlder is ON, skip messages older
           // than the last HIDE_OLDER_THRESHOLD. We still iterate the
           // full array so the `dbTurnIndex` math below stays
@@ -1392,6 +1401,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                     </button>
                   ))}
                 </div>
+              )}
+              {isLastAssistant && lastTaskId && activeProject?.project_id && (
+                <PostTaskScan
+                  taskId={lastTaskId}
+                  projectId={activeProject.project_id}
+                  onFixRequest={(prompt) => sendSuggestion(prompt)}
+                />
               )}
             </React.Fragment>
           );
