@@ -152,17 +152,29 @@ export default function GraphPanel({ projectId, open, onClose }) {
       <div
         data-testid="graph-panel"
         style={{
-          position: "fixed", top: 0, right: 0, bottom: 0,
+          position: "fixed",
+          // In graph view we leave room for the topbar (~64px) at the
+          // top and the chat input (~132px) at the bottom so the user
+          // never loses access to "Ask Advisor" or the chat composer
+          // while exploring the codebase.
+          top: view === "graph" ? 64 : 0,
+          right: 0,
+          bottom: view === "graph" ? 132 : 0,
           width:
             view === "graph"
-              ? "min(820px, 100vw)"
+              ? "min(880px, calc(100vw - 24px))"
               : "min(460px, 100vw)",
           background: "var(--panel)",
           borderLeft: "1px solid var(--border-strong)",
+          borderTop: view === "graph" ? "1px solid var(--border-strong)" : undefined,
+          borderBottom: view === "graph" ? "1px solid var(--border-strong)" : undefined,
+          borderTopLeftRadius: view === "graph" ? 12 : 0,
+          borderBottomLeftRadius: view === "graph" ? 12 : 0,
           zIndex: 8501,
           display: "flex", flexDirection: "column",
           animation: "slide-in-right 0.2s ease-out",
-          transition: "width 0.2s ease",
+          transition: "width 0.2s ease, top 0.2s ease, bottom 0.2s ease",
+          overflow: "hidden",
         }}
       >
         {/* Header */}
@@ -261,7 +273,14 @@ export default function GraphPanel({ projectId, open, onClose }) {
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+        <div
+          style={{
+            flex: 1,
+            position: "relative",
+            overflowY: view === "graph" ? "hidden" : "auto",
+            padding: view === "graph" ? 0 : 14,
+          }}
+        >
           {status === "loading" && (
             <div
               style={{
@@ -347,8 +366,9 @@ export default function GraphPanel({ projectId, open, onClose }) {
             <div
               data-testid="graph-panel-graph-view"
               style={{
-                height: "calc(100vh - 70px)",
-                margin: "-14px",
+                position: "absolute",
+                inset: 0,
+                overflow: "hidden",
               }}
             >
               <KnowledgeGraph

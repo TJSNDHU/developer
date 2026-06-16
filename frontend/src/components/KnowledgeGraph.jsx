@@ -40,17 +40,18 @@ const LAYER_COLORS = {
 function FileNode({ data, selected }) {
   const c = LAYER_COLORS[data.layer] || LAYER_COLORS.Other;
   const isLive = data.isLive;
+  const compact = (data.width || 200) < 170;
   return (
     <div
       data-testid={`node-${data.layer}`}
       style={{
-        padding: "8px 14px",
+        width: data.width || 200,
+        height: data.height || 95,
+        padding: compact ? "6px 8px" : "8px 14px",
         borderRadius: 10,
         border: `2px solid ${selected ? "#fff" : c.bg}`,
         background: isLive ? c.bg : `${c.bg}22`,
         color: isLive ? c.text : "#f1f5f9",
-        minWidth: 130,
-        maxWidth: 190,
         boxShadow: isLive
           ? `0 0 20px ${c.glow}, 0 0 40px ${c.glow}`
           : selected
@@ -59,6 +60,8 @@ function FileNode({ data, selected }) {
         transition: "all 0.2s ease",
         position: "relative",
         backdropFilter: "blur(4px)",
+        overflow: "hidden",
+        boxSizing: "border-box",
       }}
     >
       {isLive && (
@@ -76,11 +79,11 @@ function FileNode({ data, selected }) {
       )}
       <div
         style={{
-          fontSize: 9,
+          fontSize: compact ? 8 : 9,
           color: c.bg,
           fontWeight: 700,
           letterSpacing: "0.08em",
-          marginBottom: 3,
+          marginBottom: 2,
           textTransform: "uppercase",
           fontFamily: "monospace",
         }}
@@ -89,7 +92,7 @@ function FileNode({ data, selected }) {
       </div>
       <div
         style={{
-          fontSize: 12,
+          fontSize: compact ? 10 : 12,
           fontWeight: 600,
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -99,7 +102,7 @@ function FileNode({ data, selected }) {
       >
         {data.label}
       </div>
-      {data.description && (
+      {!compact && data.description && (
         <div
           style={{
             fontSize: 9,
@@ -116,7 +119,7 @@ function FileNode({ data, selected }) {
           {data.description}
         </div>
       )}
-      {data.symbolCount > 0 && (
+      {!compact && data.symbolCount > 0 && (
         <div
           style={{
             fontSize: 9,
@@ -158,29 +161,54 @@ function AnimatedEdge({
 const nodeTypes = { file: FileNode };
 const edgeTypes = { animated: AnimatedEdge };
 
-// Layout: group files by layer in columns. Pure deterministic.
-function layoutNodes(graphNodes, graphLayers) {
-  const COL_W = 230;
-  const ROW_H = 110;
-  const COLS = 3;
+// Adaptive layout — Iter 168 fix
+// -----------------------------------------------------------------
+// The previous layout hard-coded 3 cols per layer, which made a layer
+// with 180+ files (API) render as a 60-row stick while a layer with
+// 9 files stayed wide. Result: ReactFlow's fitView zoomed way out and
+// nothing was readable.
+//
+// New algorithm:
+//   • Per layer, cols = clamp(ceil(sqrt(N * aspect)), 1, 12).
+//     This keeps each layer block roughly aspect-ratio-shaped.
+//   • Node width shrinks for dense layers so a 180-node block doesn't
+//     blow past the viewport (graph stays ~1100px wide regardless).
+//   • Layers laid out as horizontal "shelves" — each layer gets its
+//     own row of (cols × ceil(N/cols)) cells, stacked vertically.
+//     This is far easier to scan than 9 side-by-side columns of wildly
+//     different heights.
+function layoutNodes(graphNodes, graphLayers, viewportAspect = 1.6) {
   const layerOrder = [
     "Config", "API", "Service", "Data",
     "UI", "Hook", "Util", "Test", "Other",
   ];
   const positions = {};
-  let colOffset = 0;
+  const sizes = {};  // path → {w, h}
+  let yCursor = 0;
+  const SHELF_GAP = 60;
+
   for (const layer of layerOrder) {
     const files = (graphLayers[layer] || []).filter((f) => graphNodes[f]);
     if (!files.length) continue;
+    const n = files.length;
+    // Cols target a roughly viewportAspect-shaped block per layer.
+    const cols = Math.min(12, Math.max(1, Math.ceil(Math.sqrt(n * viewportAspect))));
+    // Shrink cell size for dense layers so 180 nodes don't span 3000px.
+    const w = n > 100 ? 140 : n > 40 ? 170 : 200;
+    const h = n > 100 ? 60 : n > 40 ? 78 : 95;
+    const COL_W = w + 16;
+    const ROW_H = h + 14;
+    const rows = Math.ceil(n / cols);
     files.forEach((path, idx) => {
       positions[path] = {
-        x: (colOffset + (idx % COLS)) * COL_W,
-        y: Math.floor(idx / COLS) * ROW_H,
+        x: (idx % cols) * COL_W,
+        y: yCursor + Math.floor(idx / cols) * ROW_H,
       };
+      sizes[path] = { w, h };
     });
-    colOffset += COLS + 1; // gap between layer columns
+    yCursor += rows * ROW_H + SHELF_GAP;
   }
-  return positions;
+  return { positions, sizes };
 }
 
 export default function KnowledgeGraph({
@@ -196,13 +224,14 @@ export default function KnowledgeGraph({
   useEffect(() => {
     if (!graph?.nodes) return;
 
-    const positions = layoutNodes(graph.nodes, graph.layers || {});
+    const { positions, sizes } = layoutNodes(graph.nodes, graph.layers || {});
     const search = (searchQuery || "").toLowerCase();
     const liveSet = new Set(liveFiles || []);
 
     const rfNodes = Object.entries(graph.nodes).map(([path, node]) => {
       const name = path.split("/").pop();
       const pos = positions[path] || { x: 0, y: 0 };
+      const sz = sizes[path] || { w: 200, h: 95 };
       const isLive = liveSet.has(path);
       const matchSearch = search
         ? name.toLowerCase().includes(search) ||
@@ -221,10 +250,14 @@ export default function KnowledgeGraph({
           symbolCount: (node.symbols || []).length,
           path,
           isLive,
+          width: sz.w,
+          height: sz.h,
         },
         style: {
           opacity: (matchSearch && matchLayer) ? 1 : 0.08,
           zIndex: isLive ? 10 : 1,
+          width: sz.w,
+          height: sz.h,
         },
       };
     });
@@ -368,9 +401,10 @@ export default function KnowledgeGraph({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: 0.08, maxZoom: 1.2, minZoom: 0.08 }}
         minZoom={0.04}
         maxZoom={2.5}
+        nodesDraggable={false}
         style={{ background: "#080c14" }}
         proOptions={{ hideAttribution: true }}
       >
