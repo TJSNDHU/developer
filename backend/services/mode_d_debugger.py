@@ -143,6 +143,75 @@ def has_concrete_debug_signal(message: str) -> bool:
     return bool(_CONCRETE_DEBUG_PATTERN.search(message or ""))
 
 
+# Iter 175 — Known integration / service vocabulary used by
+# _extract_service_name(). When the user says "I saw issues in twilio"
+# we should NEVER bail with the "insufficient signal" template — we
+# already know which integration to read first. Mode D returns a
+# `force_search` action and the caller (chat.py) routes the turn back
+# into Mode A with the service name pre-seeded so ORA reads the repo
+# instead of giving up.
+_KNOWN_SERVICES: frozenset[str] = frozenset({
+    # Third-party SaaS
+    "twilio", "stripe", "github", "mongodb", "redis",
+    "postgres", "postgresql", "mysql", "firebase",
+    "sendgrid", "mailgun", "resend", "auth0", "clerk",
+    "supabase", "vercel", "netlify", "cloudflare",
+    "openai", "anthropic", "claude", "gemini", "groq",
+    "perplexity", "deepseek", "openrouter",
+    "aws", "s3", "lambda", "ses", "ec2", "rds",
+    "gcp", "azure", "datadog", "sentry", "posthog",
+    # Protocols / auth
+    "oauth", "oauth2", "jwt", "saml", "sso", "webhook",
+    "websocket", "sse", "graphql", "grpc", "rest",
+    "cors", "ssl", "tls", "csrf", "csp",
+    # Frameworks / runtimes
+    "fastapi", "django", "flask", "express", "nestjs",
+    "react", "nextjs", "vite", "webpack", "prisma",
+    "drizzle", "sqlalchemy", "motor", "pydantic",
+    "celery", "rq", "kafka", "rabbitmq", "nginx",
+    # Conceptual buckets (still useful — they hint where in the repo)
+    "auth", "login", "signup", "session", "logout",
+    "payment", "payments", "billing", "subscription",
+    "checkout", "deploy", "deployment", "ci", "cd",
+    "database", "db", "cache", "queue", "worker",
+    "api", "endpoint", "route", "middleware",
+    "email", "mailer", "sms", "push", "notification",
+    "upload", "download", "storage", "media",
+    "search", "filter", "pagination", "sort",
+    "admin", "dashboard", "settings", "profile",
+})
+
+_SERVICE_TOKEN_RX = re.compile(r"\b[a-z][a-z0-9_+\-]{1,28}\b", re.IGNORECASE)
+
+
+def _extract_service_name(prompt: str) -> str:
+    """Iter 175 — extract a service/library/feature name from a vague
+    debug prompt. Returns the FIRST match against `_KNOWN_SERVICES` or
+    an empty string if nothing matches.
+
+    Examples:
+        "issues in twilio"          → "twilio"
+        "stripe webhook failing"    → "stripe"
+        "auth not working"          → "auth"
+        "bug in the payment flow"   → "payment"
+        "debug this"                → ""    (no service hint)
+        "make it faster"            → ""    (no service hint)
+
+    This function is intentionally tolerant of plural forms — both
+    "payment" and "payments" match. It is NOT used to dispatch real
+    work; the caller passes the returned string back to Mode A as a
+    seed search term, and the LLM is responsible for actually reading
+    the relevant files.
+    """
+    if not prompt:
+        return ""
+    for raw in _SERVICE_TOKEN_RX.findall(prompt):
+        tok = raw.lower()
+        if tok in _KNOWN_SERVICES:
+            return tok
+    return ""
+
+
 def is_debug_request(message: str) -> bool:
     """True iff the message looks like a real debug request.
 
@@ -495,6 +564,60 @@ async def run_debug_session(
         error_ctx = extract_error_context_from_text(user_message)
 
     error_text = error_ctx["summary"] or user_message
+
+    # Iter 175 — FORCE repo search before bail-out.
+    #
+    # User reported: typing "i saw some issues in twilio can you debug"
+    # used to fall through to the clarify-bail below. But "twilio" is a
+    # concrete service name — we already know WHAT to inspect, we just
+    # haven't done it yet. Bailing here is a false "insufficient signal"
+    # diagnosis. Instead, signal back to the caller (`run_debug_session`
+    # → chat.py) that this turn should be re-routed into Mode A with
+    # the service name as a search seed, so ORA reads the relevant
+    # files instead of asking the user to paste a stack trace they
+    # don't have.
+    if (
+        not f12_payload
+        and not error_ctx.get("file_refs")
+        and not has_concrete_debug_signal(user_message)
+    ):
+        _svc = _extract_service_name(user_message)
+        if _svc:
+            search_reply = (
+                f"Let me check your **{_svc}** integration first — "
+                "reading the repo before I diagnose so I'm not guessing.\n\n"
+                "_Routing this through Mode A (read-then-plan)…_"
+            )
+            await log_conversational(
+                db=db,
+                mode="D",
+                user_message=user_message,
+                ora_reply=search_reply,
+                user_id=user_id,
+                project_id=project_id,
+            )
+            return {
+                # `action: force_search` is the contract with chat.py.
+                # The caller MUST re-dispatch this turn to Mode A with
+                # `query=_svc` as a seeded read target. Returning
+                # can_auto_fix=False prevents the diagnosis-shaped fallthrough.
+                "action":         "force_search",
+                "query":          _svc,
+                "diagnosis": {
+                    "cause":          f"Service mentioned: {_svc} — repo read required before diagnosis",
+                    "severity":       "low",
+                    "needs_commit":   False,
+                    "files_to_check": [],
+                },
+                "ora_reply":      search_reply,
+                "can_auto_fix":   False,
+                "commit_task":    "",
+                "files_to_read":  [],
+                "severity":       "low",
+                "error_count":    0,
+                "fast_path_used": False,
+                "clarify":        False,
+            }
 
     # Iter 171 — Clarify instead of bailing.
     #

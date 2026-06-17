@@ -1141,10 +1141,27 @@ async def chat_with_tools(
             + "=== END REPO CONTEXT ===\n"
         )
 
-    # Iter 165 — Brain V2 inject. Compact (~250 tok) structural map so
-    # agents stop blind-exploring on every turn. Hard-capped at 2s so a
-    # slow Mongo can never delay the chat turn.
+    # Iter 165 / 175 — PERMANENT warm context.
+    #
+    # Three INDEPENDENT context sources are injected for every chat turn
+    # against a real (non-home) project:
+    #
+    #   1. Brain V2          — compact ~250-token structural map,
+    #                          PERMANENT (no TTL). Never goes "cold".
+    #   2. Codebase Graph    — top-degree nodes + module clusters,
+    #                          PERMANENT (no TTL).
+    #   3. Warm-Start cache  — recent commits + file tree + stack,
+    #                          EXPIRES after 1h TTL.
+    #
+    # Iter 175 — these used to be nested: if Brain V2 failed/timed out
+    # the Graph and Warm-Start lookups were skipped, leaving the LLM
+    # cold-starting on every turn after a 2s mongo hiccup. They're now
+    # 3 independent try/except blocks so any one failing leaves the
+    # other two intact.
     if project_id and project_id != "home":
+        warm_ctx_parts: list[str] = []
+
+        # 1. Brain V2 (permanent)
         try:
             from cto_services.db import get_db as _get_db
             from services.project_brain import (
@@ -1159,29 +1176,32 @@ async def chat_with_tools(
                 )
                 _brain_str = _format_brain(_brain)
                 if _brain_str:
-                    extra = extra.rstrip() + "\n\n" + _brain_str + "\n"
+                    warm_ctx_parts.append(_brain_str)
+        except Exception as _bex:
+            logger.debug("brain v2 inject skipped: %r", _bex)
 
-                # Iter 165 — Codebase Graph context (~300 tokens). Single
-                # find_one on `project_graphs` with the heavy `nodes`
-                # field projected out. Hard-capped at 1.5s.
-                try:
-                    from services.graph_builder import get_graph_for_agent
-                    _graph_ctx = await asyncio.wait_for(
-                        get_graph_for_agent(_db, project_id, user_id or ""),
-                        timeout=1.5,
-                    )
-                    if _graph_ctx:
-                        extra = extra.rstrip() + "\n\n" + _graph_ctx + "\n"
-                except Exception:
-                    pass
+        # 2. Codebase Graph (permanent) — INDEPENDENT try-block.
+        try:
+            from cto_services.db import get_db as _get_db_g
+            from services.graph_builder import get_graph_for_agent
+            _db_g = _get_db_g()
+            if _db_g is not None:
+                _graph_ctx = await asyncio.wait_for(
+                    get_graph_for_agent(_db_g, project_id, user_id or ""),
+                    timeout=1.5,
+                )
+                if _graph_ctx:
+                    warm_ctx_parts.append(_graph_ctx)
+        except Exception as _gex:
+            logger.debug("graph inject skipped: %r", _gex)
 
-                # Iter 165 — Warm Start cache. If the user just selected
-                # this project, four background agents may have already
-                # pre-loaded recent commits + file tree + stack. Inject
-                # whichever payload arrived first so the first chat turn
-                # feels instant.
+        # 3. Warm-Start cache (1h TTL) — INDEPENDENT try-block.
+        try:
+            from cto_services.db import get_db as _get_db_w
+            _db_w = _get_db_w()
+            if _db_w is not None:
                 _warm = await asyncio.wait_for(
-                    _db.warm_start_jobs.find_one(
+                    _db_w.warm_start_jobs.find_one(
                         {
                             "project_id": project_id,
                             "user_id":    user_id or "",
@@ -1194,22 +1214,22 @@ async def chat_with_tools(
                     timeout=1.5,
                 )
                 if _warm:
-                    _warm_parts: list[str] = []
                     if _warm.get("recent_commits"):
-                        _warm_parts.append("RECENT COMMITS:\n" + _warm["recent_commits"][:500])
+                        warm_ctx_parts.append("RECENT COMMITS:\n" + _warm["recent_commits"][:500])
                     if _warm.get("file_tree"):
-                        _warm_parts.append("FILE TREE:\n" + _warm["file_tree"][:600])
+                        warm_ctx_parts.append("FILE TREE:\n" + _warm["file_tree"][:600])
                     if _warm.get("stack_raw"):
-                        _warm_parts.append("STACK:\n" + _warm["stack_raw"][:500])
-                    if _warm_parts:
-                        extra = (
-                            extra.rstrip()
-                            + "\n\n[WARM CONTEXT — pre-loaded on project select]\n"
-                            + "\n\n".join(_warm_parts)
-                            + "\n"
-                        )
-        except Exception as _bex:
-            logger.debug("brain v2 inject skipped: %r", _bex)
+                        warm_ctx_parts.append("STACK:\n" + _warm["stack_raw"][:500])
+        except Exception as _wex:
+            logger.debug("warm-start inject skipped: %r", _wex)
+
+        if warm_ctx_parts:
+            extra = (
+                extra.rstrip()
+                + "\n\n[PROJECT CONTEXT — pre-loaded]\n"
+                + "\n\n".join(warm_ctx_parts)
+                + "\n"
+            )
 
 
     layered_persona = build_persona(prompt, extra, history_lines)
