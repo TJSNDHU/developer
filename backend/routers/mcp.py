@@ -66,7 +66,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_projects",
         "description": (
-            "List all AUREM CTO projects owned by the authenticated user. "
+            "List all ORA by Aurem CTO projects owned by the authenticated user. "
             "Returns project_id, name, GitHub owner/repo, branch, task "
             "count, and last-task timestamp."
         ),
@@ -87,7 +87,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "ship_code",
         "description": (
-            "Queue a code-change task on the AUREM CTO worker (Mode C). "
+            "Queue a code-change task on the ORA by Aurem CTO worker (Mode C). "
             "ORA will read the connected GitHub repo, plan the edit, "
             "implement, run security scans, and commit directly to the "
             "project's branch. Returns the task_id for polling."
