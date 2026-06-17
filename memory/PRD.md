@@ -5557,3 +5557,19 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 - EDIT: `backend/routers/mcp.py` (+`_resolve_user`, +discovery, +4 key-lifecycle endpoints)
 - EDIT: `backend/main.py` (+root-level `/.well-known/mcp` alias via `app.add_route`)
 - ADD: `backend/tests/test_iter174_mcp_apikey.py` (11 tests)
+
+
+### Iter 178 — Landing hero logo + text layout (Feb 2026)
+**User ask**: Remove the legacy hero picture (`ora-hero.png`) from `Landing.jsx` and replace it with a clean logo-plus-wordmark layout — `ora-icon.png` (72×72 round) next to `ORA developers choice_` and `by Aurem CTO` text.
+
+**Implementation**
+- `frontend/src/pages/Landing.jsx` hero block now renders an `<img src="/ora-icon.png">` flanked by an inline `<div>` showing `ORA` (clamp 42–72px, amber 800-weight) and `developers choice_` plus a small `by Aurem CTO` caption.
+- All `ora-hero.png` references (including the JSX comment) removed.
+
+**Verification**
+- Validation script: `ora-icon.png ✓ | developers choice ✓ | by Aurem CTO ✓ | ora-hero.png absent ✓`.
+- `yarn build` → ✓ built in 6.96s, no errors.
+- Preview HTTP 200 on `/`.
+
+**Files touched**
+- EDIT: `frontend/src/pages/Landing.jsx` (hero JSX + comment cleanup)

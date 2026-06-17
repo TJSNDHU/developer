@@ -11,9 +11,9 @@
  * Pro tier now advertises the 100 Maxx-tasks/mo cap explicitly so the
  * commercial expectation is set up-front.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Check, Sparkles, ShieldCheck, Users } from "lucide-react";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 
 export const PRICING_TIERS = [
   {
@@ -100,8 +100,65 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
   const [billing, setBilling] = useState("monthly");
   const isAnnual = billing === "annual";
 
+  // Iter 176 — auto-resume upgrade after signup/login redirect.
+  //
+  // When an anon visitor clicks "Upgrade to Pro" we send them to
+  //   /signup?next=/pricing&intent=upgrade:pro
+  // After auth they land back here with the same intent in the URL.
+  // We snap the billing toggle to whatever they originally picked
+  // (pro vs pro_annual) and fire the upgrade exactly once so the
+  // checkout flow feels like a single uninterrupted click.
+  useEffect(() => {
+    if (!getToken()) return;
+    const params = new URLSearchParams(window.location.search);
+    const intent = params.get("intent");
+    if (!intent || !intent.startsWith("upgrade:")) return;
+    const planParam = intent.slice("upgrade:".length);
+    const isAnnualIntent = planParam.endsWith("_annual");
+    const tierId = isAnnualIntent
+      ? planParam.slice(0, -"_annual".length)
+      : planParam;
+    if (!tierId || tierId === "free") return;
+    // Strip the intent from the URL so a manual refresh doesn't
+    // re-trigger checkout against the user's wishes.
+    params.delete("intent");
+    const qs = params.toString();
+    window.history.replaceState(
+      {}, "",
+      window.location.pathname + (qs ? `?${qs}` : ""),
+    );
+    if (isAnnualIntent) setBilling("annual");
+    // Defer one tick so the billing state mutation lands before
+    // upgrade() reads it through isAnnual.
+    setTimeout(() => upgrade(tierId), 0);
+  }, []);
+
   async function upgrade(tierId) {
     setErr("");
+    // Iter 176 — Auth-aware upgrade.
+    //
+    // /pricing is a PUBLIC route — anonymous visitors land here from
+    // marketing pages. Previously, clicking "Upgrade to Pro" without
+    // a token POSTed to /payments/checkout and surfaced the raw
+    // backend error "Authorization header missing" in red at the
+    // bottom of the page. That confused users and looked like a bug.
+    //
+    // Now: if no JWT exists, we redirect to /signup with the chosen
+    // tier preserved as `?next=/pricing&intent=upgrade:<tier>:<billing>`
+    // so the post-signup landing can auto-resume the checkout flow
+    // without another click. Authenticated users still POST directly.
+    if (!getToken()) {
+      const planParam = isAnnual && tierId !== "free"
+        ? `${tierId}_annual` : tierId;
+      // Pack `intent` INSIDE the `next` URL (single-encoded) so the
+      // generic Login/Signup `?next=` handler doesn't need to know
+      // about pricing intents — it just navigate()s to the encoded
+      // path which already carries `?intent=upgrade:<plan>`.
+      const next = `/pricing?intent=upgrade:${planParam}`;
+      window.location.href =
+        `/signup?next=${encodeURIComponent(next)}`;
+      return;
+    }
     setBusy(tierId);
     try {
       const planParam = isAnnual && tierId !== "free"
@@ -117,11 +174,19 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
         setErr("Could not start checkout — please retry.");
       }
     } catch (e) {
-      setErr(
-        e?.response?.data?.detail
-        || e?.message
-        || "Checkout failed — please retry.",
-      );
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail || e?.message;
+      // 401 mid-flight means the token expired between page load and
+      // click — treat the same as anon and bounce to login.
+      if (status === 401) {
+        const planParam = isAnnual && tierId !== "free"
+          ? `${tierId}_annual` : tierId;
+        const next = `/pricing?intent=upgrade:${planParam}`;
+        window.location.href =
+          `/login?next=${encodeURIComponent(next)}`;
+        return;
+      }
+      setErr(detail || "Checkout failed — please retry.");
     } finally {
       setBusy(null);
     }

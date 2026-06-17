@@ -1,16 +1,33 @@
 /**
  * Pricing.jsx — Public pricing route (/pricing).
  *
- * Renders the 4-tier flat-fee PricingCards inside the standard Shell
- * chrome so visitors get the same sidebar/topbar as authenticated
- * pages. `currentTier="free"` is the conservative default; the
- * Settings page passes the user's real tier when shown to logged-in
- * visitors via that surface.
+ * Iter 176 — fetches the authenticated user's real tier so the
+ * "CURRENT" badge actually reflects what they're paying for. Anonymous
+ * visitors (no token) get `currentTier=""` so no plan is mis-labelled
+ * as their current. PricingCards.upgrade() itself handles redirect to
+ * /login when an anon visitor clicks "Upgrade".
  */
+import { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import PricingCards from "../components/PricingCards";
+import { api, getToken } from "../lib/api";
 
 export default function Pricing() {
+  const [currentTier, setCurrentTier] = useState("");
+
+  useEffect(() => {
+    // Only call the authenticated endpoint when a token actually
+    // exists — otherwise we just splash a 401 in the console for
+    // nothing. Anon visitors see no "CURRENT" badge anywhere.
+    if (!getToken()) return;
+    let alive = true;
+    api.get("/payments/my-plan")
+      .then((r) => { if (alive) setCurrentTier(r.data?.tier || ""); })
+      .catch(() => { /* logged-in user but plan lookup failed —
+                        leave the badge off, never throw a banner */ });
+    return () => { alive = false; };
+  }, []);
+
   return (
     <Shell>
       <div
@@ -26,7 +43,7 @@ export default function Pricing() {
             Ship 5 tasks or 500 — same price.
           </p>
         </div>
-        <PricingCards currentTier="free" />
+        <PricingCards currentTier={currentTier} />
       </div>
     </Shell>
   );

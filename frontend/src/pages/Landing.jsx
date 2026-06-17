@@ -116,52 +116,71 @@ export default function Landing() {
             <span className="dot" />
             ORA · by Aurem CTO · ships real commits · public beta
           </div>
-          <h1 className="serif" data-testid="hero-headline" style={{
-            fontSize: "clamp(38px, 6vw, 68px)",
-            lineHeight: 1.04, margin: 0, letterSpacing: "-0.015em",
+          {/* Iter 178 — Logo + text hero. Replaces the old H1 stack +
+              hero picture. The logo is the same PNG served as the
+              PWA + favicon source-of-truth, kept at 72×72 for crisp
+              1:1 retina on most screens. */}
+          <div data-testid="hero-headline" style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 20,
+            marginBottom: 16,
+            flexWrap: "wrap",
           }}>
-            ORA
-            <span style={{
-              fontSize: "0.5em",
-              display: "block",
-              color: "var(--text-faint)",
-              fontWeight: 400,
-              letterSpacing: "0.1em",
-              marginTop: 8,
-            }}>
-              developers choice · by Aurem CTO
-            </span>
-          </h1>
+            <img
+              src="/ora-icon.png"
+              alt="ORA logo"
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: "50%",
+                flexShrink: 0,
+              }}
+            />
+            <div style={{ textAlign: "left" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 12,
+              }}>
+                <span style={{
+                  fontSize: "clamp(42px, 8vw, 72px)",
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                  color: "#f59e0b",
+                  lineHeight: 1,
+                  fontFamily: "var(--font-mono, monospace)",
+                }}>
+                  ORA
+                </span>
+                <span style={{
+                  fontSize: "clamp(14px, 2vw, 18px)",
+                  color: "var(--text-dim, #94a3b8)",
+                  fontWeight: 400,
+                  letterSpacing: "0.05em",
+                }}>
+                  developers choice_
+                </span>
+              </div>
+              <div style={{
+                fontSize: "clamp(11px, 1.5vw, 13px)",
+                color: "var(--text-faint, #475569)",
+                marginTop: 4,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontFamily: "var(--font-mono, monospace)",
+              }}>
+                by Aurem CTO
+              </div>
+            </div>
+          </div>
           <p data-testid="hero-sub" style={{
             fontSize: 18, color: "var(--text-dim)",
             margin: "24px 0 36px", maxWidth: 660, lineHeight: 1.6,
           }}>
             AI engineer that reads your repo and ships code to GitHub. No IDE needed.
           </p>
-          {/* Iter 176 — Hero brand artwork. Used by the OG/Twitter image
-              meta tags as well (PNG kept for social unfurls), so social
-              link previews match what users see on auremcto.com.
-              Iter 177 — <picture> fallback: modern browsers fetch the
-              97 KB WebP (95% smaller than the 2.0 MB PNG); Safari/older
-              clients fall through to the PNG src. */}
-          <picture>
-            <source srcSet="/ora-hero.webp" type="image/webp" />
-            <img
-              src="/ora-hero.png"
-              alt="ORA — developers choice by Aurem CTO"
-              loading="eager"
-              decoding="async"
-              data-testid="hero-image"
-              style={{
-                width: "100%",
-                maxWidth: 1200,
-                borderRadius: 16,
-                margin: "32px auto",
-                display: "block",
-                boxShadow: "0 0 40px rgba(245,158,11,0.15)",
-              }}
-            />
-          </picture>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <Link to="/signup" data-testid="hero-cta-signup" className="btn-primary">
               Start free — 10 tasks <ArrowRight size={16} />
