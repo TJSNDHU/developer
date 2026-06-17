@@ -427,11 +427,22 @@ async def mcp_manifest(request: Request) -> JSONResponse:
     stream. But `curl https://…/mcp` is the most common smoke-test and
     we want it to return something useful instead of 405, so we serve
     the manifest plus the tool catalogue as JSON.
+
+    Iter 175 — `endpoint` field MUST be the public URL clients should
+    hit, not `request.url`. FastAPI's `request.url` reflects the
+    internal Kubernetes ingress URL (e.g.
+    `launch-pad-237.cluster-8.deploy.emergentcf.cloud`) AFTER the
+    public hostname has been stripped by the proxy. Claude Desktop /
+    Cursor would then try to connect to that internal URL and fail.
+    We use `_public_mcp_endpoint()` (env-driven, same source the
+    discovery doc uses) so the manifest always points at
+    `https://auremcto.com` in prod regardless of how the request was
+    routed internally.
     """
     payload = _server_manifest()
     payload["tools"] = TOOLS
     payload["transport"] = "streamable-http"
-    payload["endpoint"] = str(request.url)
+    payload["endpoint"] = _public_mcp_endpoint()
     return JSONResponse(payload)
 
 
