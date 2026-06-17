@@ -139,23 +139,29 @@ export default function Landing() {
             AI engineer that reads your repo and ships code to GitHub. No IDE needed.
           </p>
           {/* Iter 176 — Hero brand artwork. Used by the OG/Twitter image
-              meta tags as well, so social link unfurls match what the
-              user sees on auremcto.com. */}
-          <img
-            src="/ora-hero.png"
-            alt="ORA — developers choice by Aurem CTO"
-            loading="eager"
-            decoding="async"
-            data-testid="hero-image"
-            style={{
-              width: "100%",
-              maxWidth: 1200,
-              borderRadius: 16,
-              margin: "32px auto",
-              display: "block",
-              boxShadow: "0 20px 60px -20px rgba(245, 158, 11, 0.25)",
-            }}
-          />
+              meta tags as well (PNG kept for social unfurls), so social
+              link previews match what users see on auremcto.com.
+              Iter 177 — <picture> fallback: modern browsers fetch the
+              97 KB WebP (95% smaller than the 2.0 MB PNG); Safari/older
+              clients fall through to the PNG src. */}
+          <picture>
+            <source srcSet="/ora-hero.webp" type="image/webp" />
+            <img
+              src="/ora-hero.png"
+              alt="ORA — developers choice by Aurem CTO"
+              loading="eager"
+              decoding="async"
+              data-testid="hero-image"
+              style={{
+                width: "100%",
+                maxWidth: 1200,
+                borderRadius: 16,
+                margin: "32px auto",
+                display: "block",
+                boxShadow: "0 0 40px rgba(245,158,11,0.15)",
+              }}
+            />
+          </picture>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <Link to="/signup" data-testid="hero-cta-signup" className="btn-primary">
               Start free — 10 tasks <ArrowRight size={16} />
