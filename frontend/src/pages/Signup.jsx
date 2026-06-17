@@ -19,7 +19,7 @@ export default function Signup() {
   const [searchParams] = useSearchParams();
   const rawNext = searchParams.get("next") || "";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", password_confirm: "" });
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -30,6 +30,10 @@ export default function Signup() {
     e.preventDefault();
     if (!agreed) {
       setError("Please agree to the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
+    if (form.password !== form.password_confirm) {
+      setError("Passwords do not match. Please re-enter the same password in both fields.");
       return;
     }
     setBusy(true);
@@ -162,6 +166,33 @@ export default function Signup() {
                 value={form.password}
                 onChange={(e) => u("password", e.target.value)}
               />
+            </label>
+
+            <label>
+              <span className="label-mini">Confirm password</span>
+              <input
+                data-testid="signup-password-confirm"
+                className="input"
+                type="password"
+                required
+                minLength={6}
+                value={form.password_confirm}
+                onChange={(e) => u("password_confirm", e.target.value)}
+                placeholder="Re-enter password"
+              />
+              {form.password_confirm && form.password !== form.password_confirm && (
+                <span
+                  data-testid="signup-password-mismatch"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--danger, #ff6b6b)",
+                    marginTop: 6,
+                    display: "block",
+                  }}
+                >
+                  Passwords do not match
+                </span>
+              )}
             </label>
 
             {error && (
