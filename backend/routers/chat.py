@@ -499,6 +499,52 @@ _HANDOFF_FENCE_RE = re.compile(
     re.MULTILINE,
 )
 
+# Iter 172 — Detect when an aurem-handoff brief is actually a shell
+# command rather than a file-edit task spec.
+#
+# The persona explicitly forbids using ```aurem-handoff for terminal
+# commands (orchestrator.py line ~680) — handoffs commit code; bash
+# runs through the `execute_bash` tool. When the LLM violates that
+# rule and emits e.g. {"command": "pip install twilio", "files": []},
+# the ship-shortcut path used to enqueue that brief as a CTO task and
+# the worker would hang trying to interpret a shell command as a file
+# edit (the user reported a 365 s "thinking…" with no resolution).
+#
+# We catch this at the ship-shortcut entry point and at the clarify
+# guard so the user gets a clear "this needs a different mechanism"
+# message instead of a stalled task.
+_SHELL_COMMAND_TOKENS = (
+    "pip install", "pip3 install", "pip uninstall",
+    "npm install", "npm i ", "npm add", "yarn add", "yarn install",
+    "pnpm add", "pnpm install", "bun add", "bun install",
+    "apt-get", "apt install", "brew install", "brew tap",
+    "docker build", "docker run", "docker pull",
+    "kubectl ", "helm install",
+    "sudo ", "chmod ", "chown ", "rm -rf",
+    "git clone", "git fetch", "git pull",
+    "curl http", "wget http",
+    "python -m pip", "python3 -m pip",
+    "make install", "cargo install",
+)
+
+
+def _handoff_brief_is_shell_command(brief: str) -> bool:
+    """True iff a handoff brief is clearly a shell command instead of
+    a file-edit task. Matches both raw shell text ("pip install x")
+    and JSON envelopes ({"command": "pip install x", "files": []}).
+    """
+    if not brief:
+        return False
+    blob = brief.lower()
+    # Cheap empty-files signal: '"files": []' or '"files":[]' inside
+    # a JSON-shaped brief is a strong indicator the LLM wrapped a
+    # shell command instead of editing source.
+    has_empty_files = '"files": []' in blob or '"files":[]' in blob
+    has_command_key = '"command"' in blob
+    if has_empty_files and has_command_key:
+        return True
+    return any(tok in blob for tok in _SHELL_COMMAND_TOKENS)
+
 
 def _normalise_confirmation(prompt: str) -> str:
     return (prompt or "").strip().lower().rstrip(".!?")
@@ -550,6 +596,73 @@ async def _maybe_clarify_short_fix(*, body, user_id: str) -> Optional[str]:
     )
 
 
+async def _maybe_guard_shell_handoff_followup(
+    *, body, user_id: str,
+) -> Optional[str]:
+    """Iter 172 — Catch follow-ups to a shell-command handoff before
+    they reach the expensive orchestrator loop.
+
+    Failure mode this fixes:
+        Turn 1: User asks about Twilio
+        Turn 2: AUREM (wrongly) emits an ```aurem-handoff containing
+                {"command": "pip install twilio", "files": []}
+        Turn 3: User types something like "install", "do it",
+                "do it fix the issue properly", "now install it"
+        Turn 4: Old code → ship-shortcut OR orchestrator burns 180-365s
+                trying to "ship" a shell command. Hang from the user's POV.
+
+    Now: if the most recent assistant message has a shell-command
+    handoff fence AND the user's reply is a short follow-up (<= 60
+    chars, no file path, no new error context), we return a clear
+    "this needs a different mechanism" message instantly. Real
+    substantive replies (with file paths, errors, or >60 chars) fall
+    through to the normal path.
+    """
+    db = get_db()
+    if db is None:
+        return None
+    prompt = (body.prompt or "").strip()
+    if not prompt or len(prompt) > 60:
+        return None
+    # Cheap signal: the user is referencing a real path → let it through
+    if "/" in prompt or "\\" in prompt:
+        return None
+    sess = await db.chat_sessions.find_one(
+        {"user_id": user_id, "session_id": body.session_id},
+        {"messages": 1, "_id": 0},
+    )
+    msgs = (sess or {}).get("messages") or []
+    # Walk back at most 4 turns to find the most recent assistant
+    # handoff fence. If it's a shell command, intercept.
+    for m in reversed(msgs[-8:]):
+        if m.get("role") != "assistant":
+            continue
+        match = _HANDOFF_FENCE_RE.search(m.get("content") or "")
+        if not match:
+            # First assistant turn we saw had no handoff — nothing to
+            # guard against. Don't keep walking back further or we'll
+            # falsely fire on unrelated old handoffs.
+            return None
+        if _handoff_brief_is_shell_command(match.group(1)):
+            return (
+                "Heads-up: my previous spec was a shell command "
+                "(`pip install` / `npm install` / etc.), which the "
+                "`aurem-handoff` mechanism can't ship — it only "
+                "commits **file edits** to your repo.\n\n"
+                "What I CAN do instead:\n"
+                "• Add the dependency to your manifest "
+                "(`requirements.txt`, `package.json`, `Pipfile`, …) — "
+                "your deploy pipeline installs it on next deploy.\n\n"
+                "Reply with something like:\n"
+                "  - _\"add twilio to requirements.txt\"_\n"
+                "  - _\"add @stripe/stripe-js to package.json\"_\n\n"
+                "and I'll spec the file edit cleanly."
+            )
+        # Found a non-shell handoff → defer to normal flow.
+        return None
+    return None
+
+
 async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
     """Return an async generator that streams the ship-shortcut result,
     or None when the shortcut doesn't apply (caller falls through to
@@ -575,6 +688,52 @@ async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
             break
     if not brief:
         return None
+
+    # Iter 172 — Refuse to ship shell-command handoffs.
+    # The LLM sometimes wraps a shell command (pip/npm/etc.) inside an
+    # aurem-handoff fence, violating the persona rule. Enqueuing that
+    # as a CTO task makes the worker hang because there are no file
+    # edits to commit. Stream a clear message instead so the user
+    # knows exactly what went wrong and what to ask for next.
+    if _handoff_brief_is_shell_command(brief):
+        async def _shell_block_stream():
+            meta = {
+                "meta": True,
+                "session_id": body.session_id,
+                "provider": "aurem-handoff-guard",
+                "mode": "A",
+                "temperature": 0.0,
+                "thinking_s": 0.0,
+                "tool_calls_run": 0,
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+            msg = (
+                "I can't ship that brief — it's a shell command "
+                "(`pip install` / `npm install` / etc.), not a file "
+                "edit. The `aurem-handoff` mechanism only commits "
+                "code changes to your repo.\n\n"
+                "What you probably want instead:\n"
+                "• **Add the dependency to `requirements.txt` or "
+                "`package.json`** and I'll ship that file edit — your "
+                "deploy pipeline will install it.\n"
+                "• Or, if you need to run the command in the dev "
+                "container right now, run it locally — I can't `pip "
+                "install` into the live container from a ship task.\n\n"
+                "Want me to add `twilio` to `requirements.txt`? Reply "
+                "**\"add twilio to requirements\"** and I'll spec it."
+            )
+            for i in range(0, len(msg), 16):
+                yield f"data: {json.dumps({'token': msg[i:i+16]})}\n\n"
+            yield (
+                "data: " + json.dumps({
+                    "done": True,
+                    "session_id": body.session_id,
+                    "provider": "aurem-handoff-guard",
+                    "verified_paths": [],
+                    "blocked_reason": "shell_command_in_handoff",
+                }) + "\n\n"
+            )
+        return _shell_block_stream()
 
     # Stream a small confirmation turn and queue the task.
     async def _stream():
@@ -817,6 +976,15 @@ async def chat_stream(
     # file paths. Emits as a normal SSE turn so the chat UI renders it
     # the same as any other assistant reply.
     _clarify_text = await _maybe_clarify_short_fix(body=body, user_id=user_id)
+
+    # Iter 172 — broader guard: if the most recent assistant handoff
+    # was a shell command, intercept ANY short follow-up (not just
+    # exact ship confirmations) before it stalls the orchestrator.
+    if _clarify_text is None:
+        _clarify_text = await _maybe_guard_shell_handoff_followup(
+            body=body, user_id=user_id,
+        )
+
     if _clarify_text is not None:
         async def _clarify_stream():
             import time as _t, json as _j

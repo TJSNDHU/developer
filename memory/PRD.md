@@ -5439,3 +5439,43 @@ User frustration: "every time something new issue started… i'm going to leave 
 **Files touched**
 - EDIT: `backend/services/mode_d_debugger.py` (+helper + pre-flight clarify)
 - ADD:  `backend/tests/test_iter171_debug_clarify.py` (5 tests)
+
+
+
+### Iter 172 — Shell-command `aurem-handoff` guards (Feb 2026)
+**User report (screenshots, very frustrated)**:
+1. Asked "I saw some issues in twilio can you debug and show me" → got the OLD canned "insufficient signal" template (iter 171 fix is in preview but production hadn't redeployed yet).
+2. AUREM then emitted `aurem-handoff { "command": "pip install twilio", "files": [] }` — a SHELL COMMAND wrapped in the file-edit fence, **violating the explicit persona rule** (orchestrator.py line 680: handoffs are for file edits, not bash).
+3. User typed "install" → "do it fix the issue properly" → AUREM hung at **"thinking · 365.4s"** because the ship-shortcut OR orchestrator was trying to enqueue a shell command as a CTO task. Worker couldn't proceed — no files to commit.
+
+User quote: *"I'm going to leave Emergent and start Railway."*
+
+**Three layers of defense added (`backend/routers/chat.py`)**
+
+**1. Recogniser — `_handoff_brief_is_shell_command(brief)`**
+- Matches JSON envelopes (`{"command": "pip install …", "files": []}`)
+- Matches raw shell commands (pip/npm/yarn/pnpm/bun/apt/brew/docker/kubectl/sudo/chmod/rm/git clone/curl/wget/python -m pip/make install/cargo install)
+- Tested on 12 shell-command variants AND 4 legitimate file-edit briefs (all classified correctly).
+
+**2. Ship-shortcut refusal — `_maybe_ship_shortcut()`**
+- Before enqueueing, checks if the brief is a shell command. If yes, streams a clean SSE response with provider `aurem-handoff-guard` and `blocked_reason: shell_command_in_handoff`:
+  > _"I can't ship that brief — it's a shell command (`pip install` / `npm install` / etc.), not a file edit. The `aurem-handoff` mechanism only commits code changes to your repo. What you probably want instead: Add the dependency to `requirements.txt` / `package.json` and I'll ship that file edit. Reply 'add twilio to requirements' and I'll spec it."_
+
+**3. Follow-up guard — `_maybe_guard_shell_handoff_followup()`**
+- New chat-router pre-flight that catches **ANY short follow-up** (≤ 60 chars, no file path) when the most recent assistant handoff is a shell command. This closes the "do it fix the issue properly" loophole (27 chars, not in exact ship-confirmations set, used to fall through to the 180-365s orchestrator hang).
+- Returns the same clear "use requirements.txt instead" message instantly. Long/substantive follow-ups (>60 chars or containing a file path) fall through to the normal orchestrator path.
+
+**Verification (`tests/test_iter172_shell_handoff_guard.py`) — 10/10 PASS**
+- JSON envelope + raw shell command detection (12 variants) ✓
+- Legitimate file-edit briefs not flagged (4 variants) ✓
+- Ship-shortcut refusal streams correct SSE payload with `blocked_reason` ✓
+- Real file-edit handoff still ships via shortcut (no false-positive) ✓
+- Short follow-up intercepted: "install", "do it", "do it fix the issue properly", "now install it", "make it work", "fix it" ✓
+- Long/substantive follow-ups (>60 chars, contains path) fall through ✓
+- No prior handoff → guard returns None (no false fire) ✓
+
+**Regression**: 57/57 PASS across iter 50, 125, 162, 167, 169, 170, 171, 172.
+
+**Files touched**
+- EDIT: `backend/routers/chat.py` (+ recogniser, ship-shortcut guard, follow-up guard, wired into main chat handler)
+- ADD:  `backend/tests/test_iter172_shell_handoff_guard.py` (10 tests)
