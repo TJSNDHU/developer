@@ -1,8 +1,8 @@
 {
   "id": "/?source=pwa",
-  "name": "AUREM CTO — Autonomous AI Engineer",
-  "short_name": "AUREM",
-  "description": "ORA ships code directly to your GitHub repo. Direct commits, no PR needed. Project Brain memory, security scanner, 6 AI modes.",
+  "name": "ORA by Aurem CTO — developers choice",
+  "short_name": "ORA",
+  "description": "ORA — developers choice, by Aurem CTO. AI engineer that reads your GitHub repo, writes production code, and commits directly. No IDE needed. Flat $9/month.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
@@ -55,11 +55,11 @@
   ],
   "screenshots": [
     {
-      "src": "/og-image.jpg",
-      "type": "image/jpeg",
-      "sizes": "1200x630",
+      "src": "/ora-hero.png",
+      "type": "image/png",
+      "sizes": "1024x1024",
       "form_factor": "wide",
-      "label": "AUREM CTO — the ORA chat shipping code to GitHub"
+      "label": "ORA — developers choice, by Aurem CTO"
     }
   ],
   "related_applications": [
