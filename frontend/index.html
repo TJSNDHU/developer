@@ -8,7 +8,7 @@
     <!-- =============================================================== -->
     <!-- PRIMARY SEO                                                     -->
     <!-- =============================================================== -->
-    <title>AUREM CTO — Autonomous AI Engineer. Commits directly to GitHub.</title>
+    <title>ORA — developers choice | by Aurem CTO</title>
     <meta
       name="description"
       content="AUREM CTO is an autonomous AI engineer (ORA) with 22 native dev skills — reads your codebase, writes the code, runs a 25-pattern security scan, and commits directly to your GitHub branch (or opens a Pull Request if you prefer review). Free 10 tasks/month. Flat $9/$19/$49 pricing. Works on mobile."
@@ -51,10 +51,10 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="AUREM Dev" />
     <meta property="og:url" content="https://auremcto.com/" />
-    <meta property="og:title" content="AUREM CTO — Autonomous AI Engineer" />
+    <meta property="og:title" content="ORA — developers choice | by Aurem CTO" />
     <meta
       property="og:description"
-      content="ORA reads your repo, writes the code, security-scans it, then commits directly to your GitHub branch (or opens a PR if your team prefers review). 22 native dev skills. Flat $19/mo Pro. Free tier."
+      content="ORA reads your GitHub repo, writes production code, and commits directly — no IDE needed. Flat $9/mo. No token billing."
     />
     <meta property="og:image" content="https://auremcto.com/og-image.jpg" />
     <meta property="og:image:secure_url" content="https://auremcto.com/og-image.jpg" />
@@ -70,10 +70,10 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@aurem_live" />
     <meta name="twitter:creator" content="@aurem_live" />
-    <meta name="twitter:title" content="AUREM CTO — Autonomous AI Engineer" />
+    <meta name="twitter:title" content="ORA — developers choice | by Aurem CTO" />
     <meta
       name="twitter:description"
-      content="ORA commits directly to your GitHub branch (or opens a PR if you prefer review). 22 native dev skills. 25-pattern security scan pre-commit. Flat $19/mo Pro — no token billing."
+      content="AI engineer that ships code to GitHub. No IDE. No token billing. From $9/mo."
     />
     <meta name="twitter:image" content="https://auremcto.com/og-image.jpg" />
     <meta name="twitter:image:alt" content="AUREM CTO — autonomous AI engineer." />
@@ -148,66 +148,34 @@
         {
           "@type": "SoftwareApplication",
           "@id": "https://auremcto.com/#app",
-          "name": "AUREM Dev",
+          "name": "ORA",
+          "alternateName": ["Aurem CTO", "AUREM Dev", "ORA by Aurem CTO"],
           "applicationCategory": "DeveloperApplication",
           "applicationSubCategory": "AI Coding Agent",
-          "operatingSystem": "Web (any modern browser)",
+          "operatingSystem": "Web",
           "url": "https://auremcto.com/",
-          "description": "An autonomous AI engineer that connects to your GitHub repository, understands the full codebase, then plans, writes, tests and ships features for you — committing directly to your branch (or opening a Pull Request if you prefer review).",
-          "softwareVersion": "1.23",
+          "description": "AI engineer that reads your GitHub repo, writes production code, and commits directly. No IDE needed.",
+          "softwareVersion": "1.75",
           "datePublished": "2026-02-11",
           "image": "https://auremcto.com/og-image.jpg",
           "screenshot": "https://auremcto.com/og-image.jpg",
           "author": { "@id": "https://auremcto.com/#org" },
           "publisher": { "@id": "https://auremcto.com/#org" },
-          "offers": [
-            {
-              "@type": "Offer",
-              "name": "Free",
-              "price": "0",
-              "priceCurrency": "USD",
-              "description": "10 tasks/month free. Standard mode, GitHub PR delivery, Ship Wall. No card required."
-            },
-            {
-              "@type": "Offer",
-              "name": "Starter",
-              "price": "9",
-              "priceCurrency": "USD",
-              "description": "50 tasks/month. Project Brain memory, Ship Wall + ORA Wrapped, email support."
-            },
-            {
-              "@type": "Offer",
-              "name": "Pro",
-              "price": "19",
-              "priceCurrency": "USD",
-              "description": "300 tasks/month. Swift + Pro review modes (diff review), Project Brain memory, parallel agents, live preview pane, automations, priority support."
-            },
-            {
-              "@type": "Offer",
-              "name": "Team",
-              "price": "49",
-              "priceCurrency": "USD",
-              "description": "Per user / month. 400 tasks/user, all three review modes (Swift + Pro + Maxx with Claude Sonnet 4.5 watchdog), priority queue, team admin panel, dedicated support."
-            }
-          ],
+          "brand": { "@type": "Brand", "name": "Aurem CTO" },
+          "offers": {
+            "@type": "AggregateOffer",
+            "lowPrice": "9",
+            "highPrice": "49",
+            "priceCurrency": "USD",
+            "offerCount": "3"
+          },
           "featureList": [
-            "Direct GitHub commit via REST API — one atomic commit per task, lands on your configured branch (main by default)",
-            "Optional PR-based delivery — for teams that require review, AUREM opens a real Pull Request via the new github_deploy_service flow",
-            "22 native dev skills — find_usages, get_dependencies, get_env_vars, detect_framework, get_commit_history, list_issues, get_pr_comments, find_package_docs, validate_syntax, e2b_run_code, plus 12 code-reading + web tools",
-            "Project Brain — permanent per-repo memory of stack, decisions and past commits",
-            "Vanguard 007 security scanner — 25+ patterns blocked pre-commit (secrets, eval, dangerous deps)",
-            "Vanguard Verify Agent — Claude Sonnet 4.5 second-pass review before any code lands",
-            "Maxx mode — DeepSeek V3 generates, Claude Sonnet 4.5 reviews",
-            "Parallel agents across backend, frontend and tests with live sub-tape progress",
-            "Live preview pane (sandboxed iframe + Babel) for any shipped frontend code",
-            "F12 browser-error capture — paste errors into chat, Mode D debugs them",
-            "Automations — GitHub push webhooks trigger AI tasks",
-            "Web search + URL extract (Tavily) and JS-rendered scraping (Firecrawl) with cited sources",
-            "Per-user ORA Wrapped stats, public Ship Wall feed, monthly skill-usage analytics",
-            "VS Code extension with right-click 'Ship via AUREM'",
-            "GitHub Auto Deploy workflow — every shipped change opens an admin alert with commit-by-commit telemetry",
-            "Works on mobile — full web UI, no IDE required",
-            "Model-agnostic — bring your own Anthropic, OpenAI, Gemini or DeepSeek key, or use the managed Universal Key"
+            "AI code generation",
+            "Direct GitHub commits",
+            "No IDE required",
+            "Swift Pro Maxx modes",
+            "Project Brain memory",
+            "Codebase knowledge graph"
           ],
           "aggregateRating": {
             "@type": "AggregateRating",

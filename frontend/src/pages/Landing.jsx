@@ -50,6 +50,26 @@ export default function Landing() {
       .catch(() => setWallFeed([]));
   }, []);
 
+  // Iter 175 — SEO/AEO meta sync.
+  // SPA navigations don't re-evaluate index.html <head>, so AI crawlers
+  // arriving via /vs/devin → / would inherit the previous page's title.
+  // Set the canonical title + description on every Landing mount so
+  // ChatGPT Search / Perplexity / Google AI Overviews see the right copy.
+  useEffect(() => {
+    document.title = "ORA — developers choice | by Aurem CTO";
+    const desc = (
+      "ORA by Aurem CTO — AI engineer that reads your GitHub repo and " +
+      "commits production code directly. No IDE. Flat $9/month."
+    );
+    let tag = document.querySelector('meta[name="description"]');
+    if (!tag) {
+      tag = document.createElement("meta");
+      tag.setAttribute("name", "description");
+      document.head.appendChild(tag);
+    }
+    tag.setAttribute("content", desc);
+  }, []);
+
   return (
     <div
       data-testid="landing-root"
@@ -94,23 +114,29 @@ export default function Landing() {
         }}>
           <div className="eyebrow" style={{ marginBottom: 28 }}>
             <span className="dot" />
-            aurem cto · ships real commits · public beta
+            ORA · by Aurem CTO · ships real commits · public beta
           </div>
           <h1 className="serif" data-testid="hero-headline" style={{
             fontSize: "clamp(38px, 6vw, 68px)",
             lineHeight: 1.04, margin: 0, letterSpacing: "-0.015em",
           }}>
-            The AI engineer that{" "}
-            <span style={accentGradient}>commits directly</span>{" "}
-            to your GitHub.
+            ORA
+            <span style={{
+              fontSize: "0.5em",
+              display: "block",
+              color: "var(--text-faint)",
+              fontWeight: 400,
+              letterSpacing: "0.1em",
+              marginTop: 8,
+            }}>
+              developers choice · by Aurem CTO
+            </span>
           </h1>
           <p data-testid="hero-sub" style={{
             fontSize: 18, color: "var(--text-dim)",
             margin: "24px 0 36px", maxWidth: 660, lineHeight: 1.6,
           }}>
-            Flat fee. No token surprises. No PR needed. Aurem reads your
-            repo, writes the diff, runs the linter, pushes the commit —
-            while you watch it work in real time.
+            AI engineer that reads your repo and ships code to GitHub. No IDE needed.
           </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <Link to="/signup" data-testid="hero-cta-signup" className="btn-primary">

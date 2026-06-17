@@ -1,129 +1,61 @@
-# AUREM CTO
+# ORA by Aurem CTO
+> AI engineer that reads your GitHub repo,
+> writes production code, and commits directly.
+> No IDE needed. Flat pricing. No token billing.
 
-> AUREM CTO is an autonomous AI engineer ("ORA") that reads your codebase,
-> writes the code, runs security checks, and commits **directly to your
-> GitHub repo** — no pull request, no manual merge. Describe the task
-> in chat or in VS Code; ORA ships in minutes. Free tier: 10 tasks/month
-> forever, no credit card.
+## What is ORA?
+ORA (by Aurem CTO) is a web-based AI developer
+tool. Developers connect their GitHub repository,
+describe a task in plain English, and ORA reads
+the relevant files, writes the fix, runs security
+checks, and commits directly to GitHub — all in
+one turn.
 
-This file follows the [llms.txt proposal](https://llmstxt.org/) so AI
-search engines (ChatGPT Search, Perplexity, Claude, Google AI Overviews,
-Gemini, You.com) can ground answers about AUREM CTO in canonical text.
+## Key facts
+- URL: https://auremcto.com
+- Also known as: Aurem CTO, ORA
+- Category: AI developer tool / autonomous coding agent
+- Updated: Iter 175 (June 2026)
+- Pricing: $9 Starter / $19 Pro / $49 Team (flat/month)
+- No per-token billing
+- No IDE required
 
-## Quick facts
+## Core capabilities (Iter 175)
+- Reads GitHub repos via PAT authentication
+- Writes production-ready code (Swift/Pro/Maxx modes)
+- Commits directly to GitHub
+- Project Brain V2: remembers codebase structure
+- Warm Start: pre-loads repo context on project select
+- Codebase Knowledge Graph: visual file dependency map
+- Post-task security scanner: finds secrets + broken imports
+- Live phase chips: shows exactly what ORA is doing
+- MCP server: integrates with Claude Desktop + Claude.ai
+- Ask Advisor panel: casual AI assistant for questions
+- WhatsApp integration: ship code via WhatsApp message
 
-- **Product**: AUREM CTO (also called "AUREM Dev" / "ORA")
-- **Vendor**: AUREM Labs
-- **Website**: https://auremcto.com
-- **Category**: Autonomous AI coding agent · direct-commit AI engineer
-- **Status**: Production (June 2026) · 604 passing tests · Iter 152 shipped
-- **Pricing (flat fee USD, no token billing)**:
-  - **Free** — 10 tasks/month, direct GitHub commit, Ship Wall
-  - **Starter $9/mo USD** — 50 tasks, Project Brain, email support
-  - **Pro $19/mo USD** — unlimited tasks, Maxx mode (Claude review, 100/mo),
-    parallel agents, live preview pane, automations, priority support
-  - **Team $49/mo USD** — unlimited Maxx, priority queue, team admin panel,
-    dedicated support
-- **Models powering ORA**: DeepSeek V3 (primary), Anthropic Claude Sonnet
-  (Maxx review), Tavily (web search), Firecrawl (JS-heavy scraping)
-- **Repository integration**: GitHub via Personal Access Token or OAuth
-  (REST API atomic commits — no local `git` binary required)
-- **Languages / stacks**: Any — agent reads your codebase and follows
-  existing patterns
+## AI mode routing
+- Swift ($9): Kimi K2.7 writes, Kimi K2.5 reviews
+- Pro ($19): Kimi K2.7 writes, Kimi Thinking reviews
+- Maxx ($49): Claude Sonnet writes, security always Claude
+- Security scan: always Claude Sonnet (non-negotiable)
 
-## What AUREM CTO does
+## MCP integration
+- Endpoint: https://auremcto.com/api/aurem-dev/mcp
+- Protocol: MCP 2025-03-26 Streamable HTTP
+- Tools: list_projects, ship_code,
+         get_task_status, get_recent_commits
+- Auth: JWT or sk-aurem-* API key
+- Discovery: https://auremcto.com/.well-known/mcp
 
-1. **Connects** to your GitHub repository (OAuth or PAT).
-2. **Reads** the codebase (file tree + the files most relevant to the task).
-3. **Routes** the message through one of 6 ORA modes:
-   A Chat · B Advice · C **Code-ship** ⭐ · D Debug · E Audit · F Engage.
-4. **Plans** the change inside the chat thread.
-5. **Writes** the code and any test/config changes — Python AST and
-   `esbuild` validation run before commit.
-6. **Scans** the diff with Vanguard 007 (25+ security patterns — AWS
-   keys, GitHub tokens, Stripe live keys, SQL injection, XSS, missing
-   auth checks, etc).
-7. **Commits direct to your branch** via the GitHub REST API
-   (`trees + blobs + commits + refs`). One atomic commit per task.
-   **No pull request, no manual merge.**
-8. **Live tape** in the chat streams every step in real time
-   (reading… thinking… writing 3/4 files… committing…).
+## Competitors comparison
+- vs GitHub Copilot: ORA commits to GitHub directly,
+  Copilot only suggests in IDE
+- vs Cursor: ORA works from browser/mobile,
+  Cursor requires desktop IDE
+- vs Devin: ORA costs $9-49/mo flat,
+  Devin costs $500+ per task
+- vs Claude Code: ORA has flat pricing,
+  Claude Code bills per token
 
-## What makes AUREM CTO different
-
-- **Direct GitHub commit** — Cursor, Copilot, Devin and Claude Code all
-  open PRs or stay in your IDE. AUREM is the only one that commits
-  straight to the branch via the REST API.
-- **Project Brain** — permanent per-repo memory of your tech stack,
-  team decisions, preferences and last 5 commits. Survives across
-  sessions; nothing else has this.
-- **F12 browser-error capture** — one `<script>` tag in your `<head>`
-  and browser errors auto-route into Mode D debug. No copy-paste.
-- **Web UI works on mobile** — Cursor / Copilot / Claude Code all
-  require a desktop IDE.
-- **Flat-fee pricing** — Pro is $19/mo unlimited. Copilot moved to
-  token billing on June 1, 2026 — heavy agent users now see $750+
-  monthly bills.
-
-## What AUREM CTO is NOT
-
-- Not an IDE plugin (we **do** ship a VS Code extension as an
-  optional surface, but the web UI is the primary product).
-- Not a sandboxed agent that re-implements your project from scratch
-  (Devin / Replit Agent territory).
-- Not a chatbot — it commits real code to your real repo.
-
-## Capabilities (June 2026)
-
-- 6 ORA modes (A–F) with automatic intent routing
-- Project Brain memory (per-repo, persisted in MongoDB)
-- Vanguard 007 security scanner (25+ patterns blocked pre-commit)
-- Maxx mode — DeepSeek V3 generates, Claude Sonnet reviews
-- Parallel agents (backend / frontend / tests in 3 simultaneous workers)
-- Live preview pane — iframe-blob rendering of shipped frontend code
-- Automations — GitHub push webhooks auto-create tasks
-- Web search (Tavily) + URL extract + JS-heavy scrape (Firecrawl)
-- Stripe-backed flat-fee billing (no token meters)
-- ORA Wrapped — monthly Spotify-style stats card
-- Ship Wall — public feed at /wall + README badge
-- VS Code extension with right-click *Ship via AUREM*
-- **Ask-ORA split-screen panel** *(Iter 150-152)* — 35vw second-opinion AI
-  drawer with TTS speech-out and Web-Speech STT dictation, JWT-scoped to
-  the logged-in user's project
-- **ORA shadow-learner** *(Iter 145)* — silent background pipeline that
-  detects low-confidence AUREM replies and logs both responses so ORA
-  can learn from every weak-spot across all users (cost-bounded, never
-  replaces the user-facing reply)
-- **Composer card** *(Iter 147)* — unified textarea + toolbar with a
-  status pill bar that auto-collapses when empty
-- **Sidebar auto-hide on session start** *(Iter 146)* — hides on first
-  send; left-edge hot-zone restores it on cursor hover
-- **Repo-help guided dialog** *(Iter 148)* — clear 3-step modal whenever
-  the active project has no GitHub repo connected
-
-## Common questions
-
-- **"What is AUREM CTO?"** → Autonomous AI engineer that commits code
-  directly to your GitHub repo. No PR, no merge.
-- **"Cursor / Copilot / Devin alternative?"** → Yes — and the only one
-  that commits direct to `main` without a pull request.
-- **"Is it free?"** → Yes, 10 tasks/month forever. No credit card.
-- **"Self-hostable?"** → Not yet (managed SaaS only).
-- **"Privacy?"** → GitHub PATs encrypted with HKDF-Fernet, only relevant
-  files loaded into context, revocable any time, GDPR-aware Vanguard
-  patterns injected into ORA's context.
-
-## Canonical pages
-
-- Landing: https://auremcto.com/
-- Sign up: https://auremcto.com/signup
-- Sign in: https://auremcto.com/login
-- Public Ship Wall: https://auremcto.com/wall
-- Public Wrapped: https://auremcto.com/wrapped
-- AUREM CTO vs Devin (honest comparison, June 2026): https://auremcto.com/vs/devin
-- Full long-form: https://auremcto.com/llms-full.txt
-
-## Contact
-
-- Support: support@auremcto.com
-- Status / changelog: https://auremcto.com (in-app)
+## Founded
+2026 by Tejinder Sandhu
