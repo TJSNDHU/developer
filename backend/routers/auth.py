@@ -88,15 +88,25 @@ async def login(body: LoginBody) -> dict:
         )
     if not bcrypt.checkpw(body.password.encode(), user["password"].encode()):
         raise HTTPException(401, "Invalid credentials")
-    # Auto-promote whoever matches ADMIN_EMAIL env var (cheap, idempotent)
-    admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
+    # Auto-promote whoever matches ADMIN_EMAIL or ADMIN_EMAILS env var
+    # (cheap, idempotent). ADMIN_EMAIL kept for backward compat — single
+    # address. Iter 181 — ADMIN_EMAILS added as a comma-separated list so
+    # we can grant multiple QA / staff accounts admin without rotating
+    # the legacy var and breaking existing setups.
+    admin_email  = os.environ.get("ADMIN_EMAIL", "").lower().strip()
+    admin_emails = {
+        e.strip().lower()
+        for e in os.environ.get("ADMIN_EMAILS", "").split(",")
+        if e.strip()
+    }
+    user_email_lc = user["email"].lower()
     # Founder allow-list takes precedence over admin email — founder implies
     # admin + unlimited tokens. Idempotent: writes only when the DB row is
     # missing the founder bits.
     is_founder = is_founder_email(user["email"])
     is_admin = bool(user.get("is_admin")) or is_founder or (
-        admin_email and user["email"].lower() == admin_email
-    )
+        admin_email and user_email_lc == admin_email
+    ) or (user_email_lc in admin_emails)
     promote: dict = {}
     if is_admin and not user.get("is_admin"):
         promote["is_admin"] = True
