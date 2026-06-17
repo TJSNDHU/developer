@@ -38,6 +38,7 @@ from routers.upload import router as upload_router
 from routers.admin import router as admin_router
 from routers.support import router as support_router
 from routers.payments import router as payments_router
+from routers.mcp import router as mcp_router
 from routers.usage import router as usage_router
 from routers.lint_preview import router as lint_preview_router
 from routers.shipwall import router as shipwall_router
@@ -872,3 +873,4 @@ app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
+app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server

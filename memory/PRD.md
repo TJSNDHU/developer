@@ -5479,3 +5479,47 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 **Files touched**
 - EDIT: `backend/routers/chat.py` (+ recogniser, ship-shortcut guard, follow-up guard, wired into main chat handler)
 - ADD:  `backend/tests/test_iter172_shell_handoff_guard.py` (10 tests)
+
+
+
+### Iter 173 — MCP (Model Context Protocol) server endpoint (Feb 2026)
+**User ask**: Build an MCP server for AUREM CTO exposing 4 tools (list_projects, ship_code, get_task_status, get_recent_commits). Follow MCP Streamable HTTP spec. Auth via existing JWT.
+
+**Spec compliance**: Followed the [MCP 2025-03-26 Streamable HTTP transport spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports). (User mentioned "MCP 2.4" — no such version exists; current revisions are 2025-03-26 and Nov 2025. Implemented 2025-03-26 baseline.)
+
+**Endpoint (`backend/routers/mcp.py`, wired into `main.py` at `/api/aurem-dev/mcp`)**
+- `GET /mcp` — convenience JSON manifest (server info + capabilities + tool catalogue + transport). Strict MCP only uses GET for SSE; we additionally serve the manifest as JSON so `curl https://…/mcp` returns something useful instead of 405.
+- `POST /mcp` — JSON-RPC 2.0 dispatch. Supports `initialize`, `tools/list`, `tools/call`. Batches handled. Parse errors → -32700, invalid request → -32600, unknown method/tool → -32601, invalid params → -32602, unauthorized → -32001 (custom), tool failure → -32002 (custom).
+- Auth: existing JWT bearer (same as rest of `/api/aurem-dev`). `initialize` is the only method allowed without auth (so clients can probe).
+
+**Tools exposed**
+1. **`list_projects`** — paginated list of the user's projects (max 100). Encrypted PAT excluded from responses.
+2. **`ship_code`** — wraps `_enqueue_cto_task()` to queue a Mode C ship task. Returns `task_id`. Validates task ≥ 10 chars.
+3. **`get_task_status`** — Mongo lookup scoped to `user_id`; returns status, commit_sha, error, and last 20 step events.
+4. **`get_recent_commits`** — GitHub `/repos/{owner}/{repo}/commits?sha={branch}` proxied with the project's decrypted PAT; capped at 50 commits.
+
+**Live verification (curl on preview)**
+- `GET /mcp` → 200, manifest with 4 tools ✓
+- `POST initialize` (no auth) → 200, server info ✓
+- `POST tools/list` (no auth) → -32001 "Missing Authorization header" ✓
+- `POST tools/list` (with JWT) → 4 tools returned ✓
+- `POST tools/call list_projects` → real project data with `content[]` + `data` + `elapsedMs: 12` ✓
+- `POST tools/call bogus` → -32601 ✓
+- `POST tools/call get_task_status t_doesnotexist` → -32002 "Task not found" ✓
+- Batch `[initialize, tools/list]` → returns array of 2 results ✓
+- `--data-raw '{not json'` → 400, -32700 "Invalid JSON" ✓
+
+**Pytest (`tests/test_iter173_mcp_server.py`) — 14/14 PASS**
+- Manifest shape + 4 tools enumerated
+- `initialize` skips auth
+- `tools/list`/`tools/call` enforce auth → -32001
+- `list_projects` returns real cursor data, `content[]` text block, structured `data`
+- `get_task_status` happy path + 404
+- `ship_code` validates min length, dispatches to `_enqueue_cto_task`
+- Unknown tool → -32601, unknown method → -32601
+- Batch returns array; wrong `jsonrpc` version → -32600; bad JSON → -32700
+
+**Files touched**
+- ADD: `backend/routers/mcp.py` (single file, ~400 lines incl. schemas)
+- EDIT: `backend/main.py` (+import, +include_router at `/api/aurem-dev`)
+- ADD: `backend/tests/test_iter173_mcp_server.py` (14 tests)
