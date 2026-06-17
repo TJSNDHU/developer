@@ -173,13 +173,66 @@ TOOLS: list[dict[str, Any]] = [
 
 
 # ── Auth helper ───────────────────────────────────────────────────────
+# Iter 174 — API-key auth mode.
+#
+# External MCP clients (Claude Desktop, Cursor, Cline …) don't have an
+# easy way to obtain a JWT from our login flow — they need a stable
+# bearer they can paste once. We support two formats interchangeably:
+#
+#   1. `Bearer <jwt>`               — existing browser-issued token
+#   2. `Bearer sk-aurem-<urlsafe>`  — long-lived API key issued by
+#                                     POST /mcp/keys, stored in Mongo
+#                                     with `active: true`.
+#
+# The API-key path looks the key up in `db.api_keys`, refuses when
+# inactive/missing, and returns the same `{"user_id": …}` shape the
+# JWT path returns. All MCP tool calls thereafter behave identically
+# regardless of which auth mode the client used.
+API_KEY_PREFIX = "sk-aurem-"
+
+
+async def _resolve_user(authorization: Optional[str]) -> dict:
+    """Accept JWT or `sk-aurem-…` API key.
+
+    Returns the user dict ({"user_id": …}). Raises a ValueError with
+    a human-readable reason on any auth failure — callers map that to
+    the appropriate JSON-RPC error code.
+    """
+    if not authorization:
+        raise ValueError("Missing Authorization header")
+    token = authorization.replace("Bearer ", "", 1).strip()
+    if not token:
+        raise ValueError("Empty bearer token")
+
+    if token.startswith(API_KEY_PREFIX):
+        db = get_db()
+        if db is None:
+            raise ValueError("Database unavailable")
+        rec = await db.api_keys.find_one({"key": token, "active": True})
+        if not rec or not rec.get("user_id"):
+            raise ValueError("API key invalid or revoked")
+        # Best-effort last-used touch; ignore errors so a slow write
+        # never blocks the tool call.
+        try:
+            await db.api_keys.update_one(
+                {"key": token}, {"$set": {"last_used_at": time.time()}}
+            )
+        except Exception:
+            pass
+        return {"user_id": rec["user_id"]}
+
+    # Fall through to the existing JWT path (current_dev parses the
+    # `Authorization: Bearer …` header itself).
+    return await current_dev(authorization)
+
+
 async def _auth_or_error(authorization: Optional[str]) -> tuple[Optional[dict], Optional[dict]]:
     """Returns (user_dict, None) on success or (None, error_payload) on failure."""
-    if not authorization:
-        return None, {"code": _RPC_UNAUTHORIZED, "message": "Missing Authorization header"}
     try:
-        me = await current_dev(authorization)
+        me = await _resolve_user(authorization)
         return me, None
+    except ValueError as e:
+        return None, {"code": _RPC_UNAUTHORIZED, "message": str(e)}
     except Exception as e:
         return None, {"code": _RPC_UNAUTHORIZED, "message": f"Unauthorized: {e}"}
 
@@ -491,3 +544,166 @@ def _json_safe_dumps(obj: Any) -> str:
     odd types (datetime, ObjectId, etc.) instead of throwing."""
     import json
     return json.dumps(obj, default=str, ensure_ascii=False)
+
+
+
+# ── Iter 174 — well-known discovery + API-key generation ──────────────
+# Both routes are intentionally mounted UNDER the same router as the
+# main `/mcp` endpoint so they inherit the `/api/aurem-dev` prefix
+# applied in main.py:
+#
+#     GET  /api/aurem-dev/mcp/.well-known/mcp   — discovery
+#     POST /api/aurem-dev/mcp/keys              — issue API key
+#
+# An additional root-level alias for the discovery endpoint
+# (`/.well-known/mcp` with no `/api` prefix) is mounted in main.py
+# because the well-known URL standard expects discovery documents at
+# the domain root.
+
+def _public_mcp_endpoint() -> str:
+    """The canonical public URL clients should hit. Configurable via
+    AUREM_PUBLIC_BASE_URL so the same code serves auremcto.com in
+    production and the *.preview.emergentagent.com URL in dev."""
+    import os
+    base = (os.getenv("AUREM_PUBLIC_BASE_URL") or "https://auremcto.com").rstrip("/")
+    return f"{base}/api/aurem-dev/mcp"
+
+
+def _discovery_payload() -> dict:
+    return {
+        "mcp_endpoint":     _public_mcp_endpoint(),
+        "protocol_version": MCP_PROTOCOL_VERSION,
+        "server_name":      MCP_SERVER_NAME,
+        "auth": {
+            "type":        "bearer",
+            "description": (
+                "JWT token from auremcto.com login, OR a long-lived "
+                "API key starting with `sk-aurem-` issued via "
+                "POST /api/aurem-dev/mcp/keys."
+            ),
+            "formats": ["jwt", "api_key"],
+            "api_key_prefix": API_KEY_PREFIX,
+        },
+    }
+
+
+@router.get("/.well-known/mcp")
+async def mcp_discovery() -> dict:
+    """MCP discovery endpoint — spec compliant (well-known URL pattern).
+
+    Returned at:
+      • /api/aurem-dev/mcp/.well-known/mcp   (via this router)
+      • /.well-known/mcp                     (root alias in main.py)
+    Both serve the same payload so clients can introspect the server
+    without knowing the AUREM-specific URL prefix.
+    """
+    return _discovery_payload()
+
+
+# Exported so main.py can mount the same handler at the domain-root
+# `/.well-known/mcp` path without re-implementing the logic.
+async def mcp_discovery_root(_request):
+    return JSONResponse(_discovery_payload())
+
+
+@router.post("/keys")
+async def create_mcp_key(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Issue an API key for external MCP clients (Claude Desktop,
+    Cursor, etc.). The key is `sk-aurem-{urlsafe-secret}` and
+    inherits the calling user's permissions.
+
+    The user is identified via JWT (this endpoint deliberately does
+    NOT accept API keys — only a real logged-in browser session can
+    mint new keys, otherwise a stolen key could mint more keys).
+    """
+    import secrets
+    from fastapi import HTTPException
+    if not authorization:
+        raise HTTPException(401, "Authorization header required")
+    raw = authorization.replace("Bearer ", "", 1).strip()
+    if raw.startswith(API_KEY_PREFIX):
+        raise HTTPException(
+            403,
+            "API keys cannot mint new API keys — sign in to the dashboard first.",
+        )
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database unavailable")
+
+    key = f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
+    await db.api_keys.insert_one({
+        "key":        key,
+        "user_id":    user["user_id"],
+        "created_at": time.time(),
+        "active":     True,
+        "label":      "MCP API Key",
+    })
+    return {
+        "ok":    True,
+        "key":   key,
+        "usage": "Use as Bearer token in MCP clients",
+        "note":  "Store this immediately — it is shown only once.",
+    }
+
+
+@router.get("/keys")
+async def list_mcp_keys(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """List the calling user's API keys with their last-used metadata.
+    Returns the key prefix only (masked tail) so the dashboard can
+    show "sk-aurem-…3a7b" without leaking the secret."""
+    from fastapi import HTTPException
+    if not authorization:
+        raise HTTPException(401, "Authorization header required")
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database unavailable")
+    out = []
+    cursor = db.api_keys.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0, "key": 1, "label": 1, "created_at": 1,
+         "last_used_at": 1, "active": 1},
+    )
+    async for k in cursor:
+        full = k.get("key") or ""
+        masked = f"{full[:13]}…{full[-4:]}" if len(full) > 20 else "…"
+        out.append({
+            "key_masked":   masked,
+            "label":        k.get("label"),
+            "created_at":   k.get("created_at"),
+            "last_used_at": k.get("last_used_at"),
+            "active":       bool(k.get("active")),
+        })
+    return {"keys": out, "count": len(out)}
+
+
+@router.delete("/keys/{key_tail}")
+async def revoke_mcp_key(
+    key_tail: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Revoke an API key by its 4-char tail (shown in the masked
+    listing). Idempotent — returns ok=true even if nothing matched.
+    Scoped to the calling user's keys so users can never revoke
+    other users' keys."""
+    from fastapi import HTTPException
+    if not authorization:
+        raise HTTPException(401, "Authorization header required")
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database unavailable")
+    if not key_tail or len(key_tail) < 4:
+        raise HTTPException(400, "key_tail must be ≥ 4 chars")
+    res = await db.api_keys.update_many(
+        {"user_id": user["user_id"],
+         "key": {"$regex": f"{key_tail[-12:]}$"},   # cheap tail match
+         "active": True},
+        {"$set": {"active": False, "revoked_at": time.time()}},
+    )
+    return {"ok": True, "revoked": res.modified_count}

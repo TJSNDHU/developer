@@ -5523,3 +5523,37 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 - ADD: `backend/routers/mcp.py` (single file, ~400 lines incl. schemas)
 - EDIT: `backend/main.py` (+import, +include_router at `/api/aurem-dev`)
 - ADD: `backend/tests/test_iter173_mcp_server.py` (14 tests)
+
+
+
+### Iter 174 — MCP well-known discovery + API-key auth (Feb 2026)
+**User ask**: Two additions — (1) `/.well-known/mcp` discovery endpoint mounted both under the router and at the domain root, (2) `sk-aurem-…` API-key auth alongside JWT so external MCP clients (Claude Desktop, Cursor) can authenticate without our browser login flow.
+
+**Discovery endpoint** (`/.well-known/mcp`)
+- Returns `{ mcp_endpoint, protocol_version, server_name, auth }` per spec.
+- Mounted at TWO paths: `/api/aurem-dev/mcp/.well-known/mcp` (router) AND `/.well-known/mcp` (root alias via `app.add_route` in main.py).
+- `_public_mcp_endpoint()` reads `AUREM_PUBLIC_BASE_URL` env (default `https://auremcto.com`).
+
+**API-key auth** (`sk-aurem-{urlsafe-32}`)
+- `_resolve_user(authorization)` accepts either `Bearer <jwt>` or `Bearer sk-aurem-…`. Both produce the same `{user_id: …}` payload.
+- Mongo lookup in `db.api_keys` with `active=true` check. Touches `last_used_at` best-effort.
+- Revoked/unknown keys → JSON-RPC `-32001 "API key invalid or revoked"`.
+
+**Key lifecycle endpoints** (JWT-only — API keys cannot mint other keys)
+- `POST /mcp/keys` — mint new key, returns full `sk-aurem-…` once.
+- `GET /mcp/keys` — list with masked tail (`sk-aurem-XXXX…YYYY`) + `last_used_at`.
+- `DELETE /mcp/keys/{tail}` — revoke by last-4 chars, scoped to caller's user_id.
+- API-key bearer → POST `/mcp/keys` → HTTP 403 (prevents key-chain escalation).
+
+**Live verification (curl)**
+- `curl http://localhost:8001/.well-known/mcp` → discovery JSON ✓
+- Mint key (52 chars) → use as Bearer → tools/list 4 tools ✓ → tools/call list_projects count=1 ✓
+- API key minting another key → 403 ✓ | Bogus key → -32001 ✓
+- GET /mcp/keys → masked list ✓ | DELETE /mcp/keys/{tail} → revoked=1 ✓ | Revoked key → -32001 ✓
+
+**Pytest**: `tests/test_iter174_mcp_apikey.py` — **11/11 PASS**. Regression iter 173 — **14/14 PASS**. Total **25/25**.
+
+**Files touched**
+- EDIT: `backend/routers/mcp.py` (+`_resolve_user`, +discovery, +4 key-lifecycle endpoints)
+- EDIT: `backend/main.py` (+root-level `/.well-known/mcp` alias via `app.add_route`)
+- ADD: `backend/tests/test_iter174_mcp_apikey.py` (11 tests)
