@@ -43,6 +43,7 @@ const AdminOverview     = lazy(() => import("./pages/AdminOverview"));
 const AdminIntegrations = lazy(() => import("./pages/AdminIntegrations"));
 const AdminFinancials   = lazy(() => import("./pages/AdminFinancials"));
 const AdminVanguard     = lazy(() => import("./pages/AdminVanguard"));
+const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
 const ShipWall          = lazy(() => import("./pages/ShipWall"));
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="/admin/integrations" element={<AdminIntegrations />} />
           <Route path="/admin/financials"   element={<AdminFinancials />} />
           <Route path="/admin/vanguard"     element={<AdminVanguard />} />
+          <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
           <Route path="/terms"          element={<PolicyPage slug="terms" />} />
           <Route path="/acceptable-use" element={<PolicyPage slug="acceptable-use" />} />

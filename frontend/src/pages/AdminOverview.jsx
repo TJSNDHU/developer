@@ -136,6 +136,19 @@ export default function AdminOverview() {
               cursor: "pointer", textDecoration: "none",
             }}
           >🛡️ Vanguard →</a>
+          <a
+            data-testid="goto-api-keys"
+            href="/admin/api-keys"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >🔑 API Keys →</a>
         </div>
       </Section>
 
