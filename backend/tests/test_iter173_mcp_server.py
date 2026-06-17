@@ -63,7 +63,7 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["protocolVersion"], "2025-03-26")
-        self.assertEqual(data["serverInfo"]["name"], "aurem-cto")
+        self.assertEqual(data["serverInfo"]["name"], "ORA by Aurem CTO")
         self.assertEqual(data["transport"], "streamable-http")
         names = sorted(t["name"] for t in data["tools"])
         self.assertEqual(names, sorted([

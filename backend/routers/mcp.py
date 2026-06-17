@@ -47,7 +47,7 @@ router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 # Protocol constants ───────────────────────────────────────────────────
 MCP_PROTOCOL_VERSION = "2025-03-26"
-MCP_SERVER_NAME      = "aurem-cto"
+MCP_SERVER_NAME      = "ORA by Aurem CTO"
 MCP_SERVER_VERSION   = "1.0.0"
 
 # JSON-RPC 2.0 error codes (spec)
@@ -412,9 +412,8 @@ def _server_manifest() -> dict:
             "tools": {"listChanged": False},
         },
         "instructions": (
-            "AUREM CTO MCP server. Authenticate with a JWT bearer token "
-            "issued by /api/aurem-dev/auth/login. Use `tools/list` to "
-            "enumerate available tools and `tools/call` to invoke them."
+            "ORA by Aurem CTO — AI engineer that reads "
+            "your repo and ships code to GitHub. No IDE needed."
         ),
     }
 

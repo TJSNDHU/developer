@@ -130,7 +130,7 @@ class TestWellKnown(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         d = r.json()
         self.assertEqual(d["protocol_version"], "2025-03-26")
-        self.assertEqual(d["server_name"], "aurem-cto")
+        self.assertEqual(d["server_name"], "ORA by Aurem CTO")
         self.assertEqual(d["auth"]["type"], "bearer")
         self.assertIn("api_key", d["auth"]["formats"])
         self.assertEqual(d["auth"]["api_key_prefix"], "sk-aurem-")
@@ -142,7 +142,7 @@ class TestWellKnown(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         d = r.json()
         self.assertEqual(d["protocol_version"], "2025-03-26")
-        self.assertEqual(d["server_name"], "aurem-cto")
+        self.assertEqual(d["server_name"], "ORA by Aurem CTO")
 
 
 # ─────────────────────────────────────────────────────────────────────
