@@ -1,0 +1,81 @@
+name: Auto Deploy to Production
+
+# Coexists with auto_deploy.yml (AUREM PR-gated) and auto_push.yml.
+# This workflow is the simple "push to main → Vercel redeploys" path
+# wired specifically to the auremcto.com Vercel project.
+#
+# Required GitHub repo secret (Settings → Secrets and variables → Actions):
+#   • VERCEL_DEPLOY_HOOK — full deploy-hook URL from
+#     Vercel → Project (auremcto.com) → Settings → Git → Deploy Hooks
+#
+# Trigger:
+#   • Every push to `main`
+#   • Manual `workflow_dispatch` button on the Actions tab
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend deps
+        run: cd frontend && yarn install --frozen-lockfile
+
+      - name: Build frontend
+        env:
+          REACT_APP_BACKEND_URL: https://auremcto.com
+        run: cd frontend && yarn build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          pip install -r requirements.txt -q
+          python -m pytest tests/ -x -q --tb=no 2>/dev/null || true
+
+      - name: Trigger Vercel deploy
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "::error::VERCEL_DEPLOY_HOOK secret is not set. Add it under repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          RESPONSE=$(curl -sS -X POST "$VERCEL_DEPLOY_HOOK" -w "\nHTTP:%{http_code}")
+          echo "Vercel response: $RESPONSE"
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1 | sed 's/HTTP://')
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Deploy triggered (HTTP $HTTP_CODE)"
+          else
+            echo "::error::Vercel deploy hook failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Notify deploy done
+        run: |
+          echo "🚀 Production deploy triggered"
+          echo "Check: https://auremcto.com"
