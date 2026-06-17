@@ -1,8 +1,8 @@
-# Privacy Policy — AUREM CTO Dev
-**Last updated: February 7, 2026**
-**Effective: February 7, 2026**
+# Privacy Policy — ORA by Aurem CTO
+**Last updated: June 16, 2026**
+**Effective: June 16, 2026**
 
-Polaris Built Inc ("we", "us") operates auremcto.com. This policy explains what data we collect, how we use it, and your rights.
+Polaris Built Inc ("we", "us") operates ORA by Aurem CTO at auremcto.com. This policy explains what data we collect, how we use it, and your rights. ORA is an AI engineer that reads your GitHub repo, writes production code, and commits directly — no IDE needed.
 
 ---
 
@@ -33,6 +33,14 @@ Polaris Built Inc ("we", "us") operates auremcto.com. This policy explains what 
 ### Payment Data
 - Billing handled by Stripe — we store only: plan name, subscription status, Stripe customer ID
 - We never store credit card numbers
+
+### MCP API Keys (Iter 174)
+When you mint an MCP API key (POST /api/aurem-dev/mcp/keys) for use with Claude Desktop, Cursor, or other MCP clients, we store:
+- The full key (prefix `sk-aurem-…`) — required to validate inbound requests
+- The `user_id` it belongs to, `created_at`, `active` flag, and `last_used_at` timestamp
+- **No additional PII is attached** — the key is purely an auth token scoped to your existing account
+- You can list and **revoke any key at any time** via the dashboard or `DELETE /api/aurem-dev/mcp/keys/{tail}`. Revoked keys are immediately rejected on every subsequent request.
+- MCP tool calls (`list_projects`, `ship_code`, `get_task_status`, `get_recent_commits`) are logged identically to in-app actions for security audit purposes.
 
 ---
 
@@ -128,7 +136,7 @@ Depending on your location, you may have the right to:
 - Challenge accuracy of your data
 - Withdraw consent (by deleting account)
 
-To exercise any right: email ora@aurem.live or use Settings in the app.
+To exercise any right: email **teji.ss1986@gmail.com** (founder) or **ora@aurem.live** (support), or use Settings → Delete Account in the app.
 
 ---
 
