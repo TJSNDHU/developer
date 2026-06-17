@@ -175,7 +175,17 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
       }
     } catch (e) {
       const status = e?.response?.status;
-      const detail = e?.response?.data?.detail || e?.message;
+      const data   = e?.response?.data;
+      // Iter 179 — when the edge (Cloudflare) intercepts a 5xx and
+      // returns an HTML error page, axios surfaces `data` as a string.
+      // Showing "<!doctype html>…" in the red error pill confuses users,
+      // so detect that case and show a friendly "service unavailable"
+      // message instead.
+      const isHtmlError =
+        typeof data === "string" && data.trimStart().toLowerCase().startsWith("<");
+      const detail = isHtmlError
+        ? "Payment service is temporarily unreachable. Please retry in a moment — if it keeps failing, email support@auremcto.com."
+        : (data?.detail || e?.message);
       // 401 mid-flight means the token expired between page load and
       // click — treat the same as anon and bounce to login.
       if (status === 401) {
@@ -199,10 +209,15 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
       const url = r.data?.portal_url || r.data?.url;
       if (url) window.location.href = url;
     } catch (e) {
+      const data = e?.response?.data;
+      const isHtmlError =
+        typeof data === "string" && data.trimStart().toLowerCase().startsWith("<");
       setErr(
-        e?.response?.data?.detail
-        || e?.message
-        || "Could not open billing portal.",
+        isHtmlError
+          ? "Billing portal is temporarily unreachable. Please retry in a moment."
+          : (data?.detail
+             || e?.message
+             || "Could not open billing portal."),
       );
     }
   }

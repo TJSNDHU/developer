@@ -68,8 +68,15 @@ def _configure_stripe_http_timeouts() -> None:
 async def _stripe_call(fn, *args, **kwargs):
     """Run a blocking stripe.* SDK call on a worker thread with a hard
     wall-clock cap so the async event loop never stalls. Raises an
-    HTTPException(502) on timeout so the user sees a clean error rather
-    than a hung connection."""
+    HTTPException(502/504) on timeout/unexpected error so the user sees
+    a clean JSON error rather than a hung connection or worker crash.
+
+    Iter 179 — added a catch-all for non-Stripe exceptions (ImportError,
+    AttributeError, ConnectionError, SSLError, etc.) so the worker
+    NEVER bubbles a raw Python exception up to uvicorn. A bubbled
+    exception in production has been observed to make the edge
+    (Cloudflare) return a generic 502 HTML page instead of our JSON,
+    which breaks the frontend error UI."""
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(fn, *args, **kwargs),
@@ -84,6 +91,25 @@ async def _stripe_call(fn, *args, **kwargs):
             504,
             f"Stripe API timed out after {STRIPE_CALL_TIMEOUT:.0f}s — "
             "please retry. If this persists, Stripe may be having an outage.",
+        )
+    except HTTPException:
+        raise
+    except stripe.error.StripeError:
+        # Caller-formatted Stripe errors carry user_message — re-raise
+        # so callers can produce nicer messages.
+        raise
+    except Exception as e:
+        # Anything else (ImportError, AttributeError, ConnectionError,
+        # SSL handshake failure, segfault wrapper, ...) becomes a clean
+        # 502 JSON. This was the prod crash path causing CF 502 HTML.
+        logger.exception(
+            "stripe call %s failed unexpectedly: %r",
+            getattr(fn, "__qualname__", fn), e,
+        )
+        raise HTTPException(
+            502,
+            "Payment provider unavailable — please retry in a moment. "
+            "If this persists, contact support@auremcto.com.",
         )
 
 
@@ -211,6 +237,16 @@ async def create_checkout(
     except stripe.error.StripeError as e:
         logger.warning("stripe checkout create failed: %r", e)
         raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', str(e))}")
+    except Exception as e:
+        # Iter 179 — final defensive net so the worker never bubbles a
+        # raw exception up to uvicorn/Cloudflare (which would turn it
+        # into a generic 502 HTML page).
+        logger.exception("checkout create unexpected failure: %r", e)
+        raise HTTPException(
+            502,
+            "Could not start checkout — payment provider is unavailable. "
+            "Please retry in a moment.",
+        )
 
     db = require_db()
     await db.cto_payments.insert_one({
@@ -245,6 +281,13 @@ async def payment_status(
         raise
     except stripe.error.StripeError as e:
         raise HTTPException(502, f"Stripe error: {e}")
+    except Exception as e:
+        # Iter 179 — defensive catch-all.
+        logger.exception("payment status retrieve unexpected failure: %r", e)
+        raise HTTPException(
+            502,
+            "Could not fetch payment status — please retry shortly.",
+        )
 
     paid = session.payment_status == "paid"
     update = {
@@ -383,5 +426,12 @@ async def billing_portal(
     except stripe.error.StripeError as e:
         logger.warning("portal create failed: %r", e)
         raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', str(e))}")
+    except Exception as e:
+        # Iter 179 — defensive catch-all (see create_checkout).
+        logger.exception("portal create unexpected failure: %r", e)
+        raise HTTPException(
+            502,
+            "Could not open billing portal — payment provider is unavailable.",
+        )
 
     return {"portal_url": portal.url, "url": portal.url}

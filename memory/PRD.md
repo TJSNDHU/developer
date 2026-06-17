@@ -5573,3 +5573,38 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 
 **Files touched**
 - EDIT: `frontend/src/pages/Landing.jsx` (hero JSX + comment cleanup)
+
+
+### Iter 179 — Payments defensive layer + friendly CF error UI (Feb 2026)
+**User-reported bug**: On production (`auremcto.com`) clicking "Upgrade to Pro" surfaced a raw Cloudflare 502 HTML body in the red pricing-error pill ("The origin web server returned an invalid or incomplete response to Cloudflare").
+
+**Root-cause diagnosis (curl-confirmed)**
+- ✅ Preview `/api/aurem-dev/payments/checkout` returns Stripe URL in <1s.
+- ❌ Prod returns HTTP 502 (CF HTML body, `<!DOCTYPE html>... 502: Bad gateway`) in ~0.3s — meaning the prod worker is bubbling a non-Stripe exception up to uvicorn, which the edge converts to a generic 502 page. Validation-only and unauthenticated paths return clean JSON, so only the actual Stripe SDK call path crashes.
+
+**Backend defensive layer (`backend/routers/payments.py`)**
+- `_stripe_call` now catches a final `Exception` branch (after `TimeoutError → 504`, `HTTPException` re-raise, `StripeError` re-raise) and converts ANY other failure (ImportError, AttributeError, ConnectionError, SSL handshake error, segfault wrapper, etc.) into `HTTPException(502, "Payment provider unavailable — please retry in a moment. If this persists, contact support@auremcto.com.")` — guarantees the worker never bubbles a raw Python exception to uvicorn/Cloudflare again.
+- `create_checkout`, `billing_portal`, `payment_status` each grew a parallel `except Exception` final clause for any failure paths outside `_stripe_call`.
+
+**Frontend friendlier error UI (`frontend/src/components/PricingCards.jsx`)**
+- Both `upgrade()` and `openPortal()` now sniff `e.response.data` — if it's a string starting with `<` it's treated as an HTML edge-proxy page and replaced with a one-line "Payment service is temporarily unreachable. Please retry in a moment — if it keeps failing, email support@auremcto.com." so the red pill never again shows a wall of HTML.
+
+**Tests** — `tests/test_iter179_payments_defensive.py` (5/5 PASS)
+- Generic Exception in threaded stripe call → 502 ✓
+- ImportError → 502 ✓
+- StripeError → preserved for caller formatting ✓
+- HTTPException → propagated unchanged ✓
+- Slow call > STRIPE_CALL_TIMEOUT → 504 ✓
+
+**Verification**
+- Backend restart clean.
+- Preview live curl: valid `pro` → 200 + Stripe URL ✓ | invalid `bogus` → 400 JSON ✓ | no auth → 401 JSON ✓.
+- Frontend `yarn build` → ✓ built in 6.70s.
+
+**Files touched**
+- EDIT: `backend/routers/payments.py` (defensive catch-all in `_stripe_call` + 3 handlers)
+- EDIT: `frontend/src/components/PricingCards.jsx` (HTML-error detection in `upgrade()` + `openPortal()`)
+- ADD: `backend/tests/test_iter179_payments_defensive.py` (5 tests)
+
+**Production note**
+- The underlying prod-only worker crash still needs to be diagnosed in the deployed pod (likely missing/stale env var or stripe SDK import path mismatch). Until that's fixed, users will at minimum see a clean JSON error message instead of a Cloudflare HTML page. Recommended next steps: (1) redeploy preview → prod with these defensive guards in place, (2) if 502 persists in prod after redeploy, contact Emergent Support with the prod backend logs around the `payments/checkout` request.
