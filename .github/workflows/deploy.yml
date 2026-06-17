@@ -13,9 +13,7 @@ name: Auto Deploy to Production
 #   • Manual `workflow_dispatch` button on the Actions tab
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # manual only — push pe trigger nahi hoga
 
 permissions:
   contents: read
