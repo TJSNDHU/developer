@@ -120,6 +120,29 @@ DEBUG_PATTERN = HARD_DEBUG_PATTERN
 DEBUG_SIGNALS = HARD_DEBUG_SIGNALS                                   # noqa: F811
 
 
+# Iter 171 — "debug" verb without concrete signal.
+#
+# A user typing "I saw some issues in X can you debug?" used to fall
+# through to llm_diagnosis() which (correctly) bailed with the
+# "insufficient signal" template. The result was a wall of unhelpful
+# canned text. Better UX: detect the no-signal case BEFORE the LLM
+# call and ask the user for the specific info we need.
+_CONCRETE_DEBUG_SIGNALS = [
+    s for s in HARD_DEBUG_SIGNALS
+    if s not in (r"\bdebug\b", r"\bdiagnose\b", r"\binvestigate\b")
+]
+_CONCRETE_DEBUG_PATTERN = re.compile("|".join(_CONCRETE_DEBUG_SIGNALS), re.IGNORECASE)
+
+
+def has_concrete_debug_signal(message: str) -> bool:
+    """True iff the message itself carries a real diagnostic clue:
+    HTTP code, exception class, stack-frame fragment, [object …] marker,
+    F12 reference, etc. The bare verbs "debug" / "diagnose" /
+    "investigate" do NOT count — they signal *intent*, not symptom.
+    """
+    return bool(_CONCRETE_DEBUG_PATTERN.search(message or ""))
+
+
 def is_debug_request(message: str) -> bool:
     """True iff the message looks like a real debug request.
 
@@ -472,6 +495,53 @@ async def run_debug_session(
         error_ctx = extract_error_context_from_text(user_message)
 
     error_text = error_ctx["summary"] or user_message
+
+    # Iter 171 — Clarify instead of bailing.
+    #
+    # When the user typed "debug X" / "investigate Y" but gave no
+    # concrete signal (no HTTP code, no exception, no stack frame, no
+    # F12 payload, no extractable file_refs), the LLM bail template
+    # was being streamed back as a literal answer. That's useless. Ask
+    # the user for the missing context instead — they can re-send with
+    # a screenshot, an F12 capture, or a specific symptom and we'll
+    # diagnose properly on the next turn.
+    if (
+        not f12_payload
+        and not error_ctx.get("file_refs")
+        and not has_concrete_debug_signal(user_message)
+    ):
+        clarify_reply = (
+            "I need a bit more to diagnose this. Share **any one** of:\n\n"
+            "• The exact error text (red console line, toast, traceback)\n"
+            "• A screenshot of the broken screen — drag-drop it into the chat\n"
+            "• An F12 capture — open DevTools → Console → copy any red errors\n"
+            "• Which page/action triggers it (e.g. \"login button on mobile does nothing\")\n\n"
+            "Even one of these and I'll pinpoint the root cause + fix in the next reply."
+        )
+        await log_conversational(
+            db=db,
+            mode="D",
+            user_message=user_message,
+            ora_reply=clarify_reply,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        return {
+            "diagnosis": {
+                "cause": "Awaiting concrete error context from user",
+                "severity": "low",
+                "needs_commit": False,
+                "files_to_check": [],
+            },
+            "ora_reply": clarify_reply,
+            "can_auto_fix": False,
+            "commit_task": "",
+            "files_to_read": [],
+            "severity": "low",
+            "error_count": 0,
+            "fast_path_used": False,
+            "clarify": True,
+        }
 
     # 2. Try fast-path first (no LLM cost)
     diagnosis = fast_path_diagnosis(error_text)

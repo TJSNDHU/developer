@@ -5407,3 +5407,35 @@ frames.
 
 **Files touched**
 - EDIT: `frontend/src/components/PreviewPanel.jsx` (filename helper + flexShrink + conditional label)
+
+
+
+### Iter 171 — Mode D clarifies instead of bailing on vague debug requests (Feb 2026)
+**User report (video)**: Typed "I saw some issues in hello can you debug and show me" → got the same canned wall of text three times in a row:
+```
+Root cause: Insufficient signal to diagnose
+Fix: Reproduce the error with a real stack trace or 4xx/5xx HTTP status, then rerun debug.
+Files to check: [none]
+This fix doesn't require a code change — you can apply it manually.
+```
+User frustration: "every time something new issue started… i'm going to leave emergent and go to railway."
+
+**Root cause**: `is_debug_request()` matches the bare verb "debug" (HARD_DEBUG signal) → routes to Mode D → `llm_diagnosis()` correctly bails per the anti-hallucination rules → the bail template was being streamed as a final answer. The system prompt asked the LLM to "prefer a probing READ plan over bailing" but the model ignored that nuance.
+
+**Fix (`backend/services/mode_d_debugger.py`)**
+- Added `has_concrete_debug_signal(message)` helper. Returns True only for **actual** diagnostic clues (HTTP codes, exception classes, stack frames, [object …] markers, F12 references). The bare verbs `debug` / `diagnose` / `investigate` are excluded — they signal intent, not symptom.
+- Added a pre-flight short-circuit in `run_debug_session()`: if there's no F12 payload AND no extractable file_refs AND no concrete signal in the message, return a **clarifying question** instead of running the LLM. The reply asks for ANY ONE of: exact error text, screenshot, F12 capture, or a specific symptom.
+- The clarify response carries `clarify: True` so the chat router/UI can render it differently if desired.
+
+**Verification (`tests/test_iter171_debug_clarify.py`) — 5/5 PASS**
+- Intent-only messages ("can you debug", "investigate", "I saw issues debug and show me") → `has_concrete_debug_signal = False`
+- Concrete signals (TypeError, 500, traceback, CORS, ECONNREFUSED, [object Object], stack-frame, "f12 says") → True
+- `is_debug_request("debug this please")` still True — we route into Mode D, just clarify there
+- Vague debug request now returns clarify reply (no "insufficient signal" text)
+- Message WITH concrete signal still reaches `llm_diagnosis()` (no false short-circuit)
+
+**Regression**: `test_iter162_mode_d_tightening.py` + `test_iter50_anti_hallucination.py` + `test_iter170_codebase_browse.py` — **25/25 PASS**.
+
+**Files touched**
+- EDIT: `backend/services/mode_d_debugger.py` (+helper + pre-flight clarify)
+- ADD:  `backend/tests/test_iter171_debug_clarify.py` (5 tests)
