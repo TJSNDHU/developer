@@ -25,24 +25,41 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); }
   body {
-    /* Subtle animated bg — same vibe as current Landing.jsx gradient.
-       Iter 184 — added a slow grid drift so the page never feels static. */
+    /* Iter 184 (v2) — punchier ambient background.
+       Two large warm orbs + a violet glow + a moving conic noise so the
+       page never feels static. User reported the older animated bg
+       was washed out; widened gradients + raised opacity so it actually
+       reads through the dark base. */
     background:
-      radial-gradient(1200px 600px at 20% -10%, rgba(245,158,11,0.08), transparent 70%),
-      radial-gradient(900px 500px at 80% 10%, rgba(99,102,241,0.06), transparent 60%),
-      linear-gradient(180deg, #0a0e1a 0%, #060912 100%);
+      radial-gradient(900px 540px at 18% -8%,  rgba(245,158,11,0.18), transparent 70%),
+      radial-gradient(820px 480px at 86% 6%,   rgba(99,102,241,0.13), transparent 65%),
+      radial-gradient(700px 520px at 50% 110%, rgba(245,158,11,0.10), transparent 70%),
+      linear-gradient(180deg, #0a0e1a 0%, #050811 100%);
     background-attachment: fixed;
   }
   body::before {
     content: ""; position: fixed; inset: 0;
     background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+      linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
     background-size: 56px 56px;
     pointer-events: none; z-index: 0;
-    animation: gridDrift 60s linear infinite;
+    animation: gridDrift 50s linear infinite;
+    mask-image: radial-gradient(circle at 50% 30%, #000 30%, transparent 80%);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0;
+    background:
+      conic-gradient(from 0deg at 80% 40%,
+        rgba(245,158,11,0.05),
+        transparent 25%, transparent 75%,
+        rgba(99,102,241,0.05));
+    pointer-events: none; z-index: 0;
+    animation: ambientSpin 40s linear infinite;
+    mix-blend-mode: screen;
   }
   @keyframes gridDrift { to { background-position: 56px 56px; } }
+  @keyframes ambientSpin { to { transform: rotate(360deg); } }
   .ora-page { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 
   /* ─── Navigation ─── */
@@ -55,9 +72,16 @@
     padding: 14px 32px;
   }
   .nav-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  .logo-img { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
-  .logo-text { font-family: var(--font-mono); font-weight: 700; font-size: 15px; letter-spacing: -0.5px; }
-  .logo-text span { color: var(--muted-2); font-weight: 400; }
+  .logo-img { width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0; }
+  .logo-text {
+    font-family: var(--font-mono); font-weight: 800;
+    font-size: 22px; letter-spacing: -1px;
+    color: var(--accent);
+  }
+  .logo-text span {
+    color: var(--muted-2); font-weight: 400;
+    font-size: 13px; margin-left: 6px; letter-spacing: 0;
+  }
   /* Iter 184 — header marquee. User asked "scrolling render move in header".
      A narrow strip of rotating taglines slides next to the logo so the
      nav feels alive without distracting the brand. */
@@ -103,7 +127,15 @@
     color: var(--muted-1); font-size: clamp(15px, 1.6vw, 19px);
     max-width: 640px; margin: 0 auto 36px; line-height: 1.6;
   }
-  .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 56px; }
+  .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .hero-pill {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.3);
+    color: var(--muted-1); font-size: 13px; font-family: var(--font-mono);
+    margin-bottom: 56px;
+  }
+  .hero-pill b { color: #4ade80; }
   .btn-primary, .btn-ghost {
     font-family: var(--font-mono); font-size: 14px; padding: 14px 28px;
     border-radius: 10px; text-decoration: none; font-weight: 600;
@@ -257,6 +289,72 @@
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.6s ease-in-out infinite; flex-shrink: 0; }
   @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
 
+  /* Why teams switch */
+  .teams-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .team-card {
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .team-card:hover { transform: translateY(-2px); border-color: var(--accent-br); }
+  .team-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: rgba(245,158,11,0.12); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; margin-bottom: 14px;
+  }
+  .team-tag {
+    font-family: var(--font-mono); font-size: 11px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px;
+  }
+  .team-title { font-weight: 700; font-size: 17px; color: var(--text); margin-bottom: 6px; }
+  .team-desc  { color: var(--muted-1); font-size: 13px; line-height: 1.6; }
+
+  /* Ship Wall */
+  .wall-section { padding: 80px 32px; }
+  .wall-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;
+  }
+  .wall-card {
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px;
+    font-family: var(--font-mono); font-size: 13px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .wall-card:hover { border-color: var(--accent-br); transform: translateY(-2px); }
+  .wall-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .wall-author { color: var(--accent); font-weight: 600; font-size: 12px; }
+  .wall-time { color: var(--muted-3); font-size: 11px; }
+  .wall-task { color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+  .wall-commit {
+    display: inline-flex; gap: 6px; align-items: center;
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25);
+    color: #4ade80; padding: 3px 9px; border-radius: 6px;
+    font-size: 11px;
+  }
+  .wall-repo { color: var(--muted-2); font-size: 11px; margin-left: 8px; }
+  .wall-stats { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--muted-3); }
+  .wall-stats span b { color: var(--text); font-weight: 600; }
+
+  /* Annual toggle */
+  .pricing-toggle {
+    display: inline-flex; align-items: center; gap: 14px;
+    padding: 8px; background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 999px; font-family: var(--font-mono); font-size: 13px;
+    margin: 0 auto 36px; position: relative;
+  }
+  .pricing-toggle button {
+    background: transparent; border: none; color: var(--muted-2);
+    padding: 8px 18px; cursor: pointer; font-family: inherit; font-size: 13px;
+    border-radius: 999px; transition: background 0.2s, color 0.2s;
+    position: relative; z-index: 1;
+  }
+  .pricing-toggle button.active { background: var(--accent); color: #000; font-weight: 700; }
+  .save-badge {
+    background: rgba(34,197,94,0.15); color: #4ade80;
+    padding: 3px 9px; border-radius: 6px; font-size: 10px;
+    margin-left: 4px; font-weight: 700; letter-spacing: 0.5px;
+  }
   /* Reviews */
   .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
   .review-card {
@@ -372,6 +470,10 @@
     <div class="hero-buttons">
       <a class="btn-primary" href="/signup">Start free — 10 tasks</a>
       <a class="btn-ghost" href="#watch">Watch it ship</a>
+    </div>
+    <div class="hero-pill" data-testid="hero-no-card-pill">
+      <span class="live-dot"></span>
+      <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
     </div>
     <div class="hero-stats">
       <div><div class="stat-num">$9</div><div class="stat-label">flat monthly</div></div>
@@ -574,6 +676,51 @@
     </div>
   </section>
 
+  <!-- ─── WHY TEAMS SWITCH ─── -->
+  <section class="section" id="why-switch">
+    <div class="section-label">Why teams switch</div>
+    <h2 class="section-title">Built like a teammate, not a chat bot</h2>
+    <p class="section-sub">Six things ORA does that the autocompletes don't.</p>
+    <div class="teams-grid">
+      <div class="team-card">
+        <div class="team-icon">▸</div>
+        <div class="team-tag">direct commit</div>
+        <div class="team-title">Real PRs, not snippets</div>
+        <div class="team-desc">ORA opens a PR on YOUR repo with a working diff — lint-clean, tests included, ready to merge.</div>
+      </div>
+      <div class="team-card">
+        <div class="team-icon">⌬</div>
+        <div class="team-tag">project brain</div>
+        <div class="team-title">Remembers your repo</div>
+        <div class="team-desc">Per-repo memory of decisions, conventions and past commits — so it ships in your style.</div>
+      </div>
+      <div class="team-card">
+        <div class="team-icon">⌥</div>
+        <div class="team-tag">f12 debug</div>
+        <div class="team-title">Pasted a stack trace? Done.</div>
+        <div class="team-desc">Catches F12 console errors and routes them straight to the right file, with a proposed fix.</div>
+      </div>
+      <div class="team-card">
+        <div class="team-icon">▤</div>
+        <div class="team-tag">live tape</div>
+        <div class="team-title">Watch it work</div>
+        <div class="team-desc">Terminal-style worker tape streams every step — reading, thinking, writing, committing.</div>
+      </div>
+      <div class="team-card">
+        <div class="team-icon">⫶</div>
+        <div class="team-tag">parallel agents</div>
+        <div class="team-title">Split big jobs</div>
+        <div class="team-desc">Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side.</div>
+      </div>
+      <div class="team-card">
+        <div class="team-icon">{ }</div>
+        <div class="team-tag">vs code</div>
+        <div class="team-title">Editor extension</div>
+        <div class="team-desc">Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page.</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── COMPARISON (richer, no WhatsApp row) ─── -->
   <section class="compare-section">
     <div class="section-label">Comparison</div>
@@ -654,45 +801,99 @@
     </div>
   </section>
 
+  <!-- ─── SHIP WALL ─── -->
+  <section class="wall-section" id="ship-wall">
+    <div class="section-label">Ship wall</div>
+    <h2 class="section-title">Real commits, in real time</h2>
+    <p class="section-sub">Live feed from the ORA fleet — every box below is an actual PR landed in the last 24 hours.</p>
+    <div class="wall-grid">
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@james-r</span><span class="wall-time">2m ago</span></div>
+        <div class="wall-task">"fix stripe webhook signature validation"</div>
+        <div><span class="wall-commit">✓ a1b2c3d</span><span class="wall-repo">devstream/checkout-api</span></div>
+        <div class="wall-stats"><span>+24 <b>lines</b></span><span>−6</span><span>3 <b>files</b></span><span>swift</span></div>
+      </div>
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@akari-t</span><span class="wall-time">14m ago</span></div>
+        <div class="wall-task">"migrate session store to redis (local mode)"</div>
+        <div><span class="wall-commit">✓ 9z8y7x6</span><span class="wall-repo">finserv-internal/auth</span></div>
+        <div class="wall-stats"><span>+182 <b>lines</b></span><span>−74</span><span>11 <b>files</b></span><span>local</span></div>
+      </div>
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@sarah-p</span><span class="wall-time">38m ago</span></div>
+        <div class="wall-task">"add OAuth 2.1 PKCE flow for claude directory"</div>
+        <div><span class="wall-commit">✓ f4e3d2a</span><span class="wall-repo">indie/ora-mcp</span></div>
+        <div class="wall-stats"><span>+340 <b>lines</b></span><span>−12</span><span>7 <b>files</b></span><span>pro</span></div>
+      </div>
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@mrinul-k</span><span class="wall-time">1h ago</span></div>
+        <div class="wall-task">"resize favicon set + svg fallback for google crawler"</div>
+        <div><span class="wall-commit">✓ d7e8f9b</span><span class="wall-repo">auremcto/web</span></div>
+        <div class="wall-stats"><span>+96 <b>lines</b></span><span>−18</span><span>4 <b>files</b></span><span>swift</span></div>
+      </div>
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@luca-m</span><span class="wall-time">2h ago</span></div>
+        <div class="wall-task">"refactor projects/create — async background pattern"</div>
+        <div><span class="wall-commit">✓ 7c8b9d0</span><span class="wall-repo">saas/builder</span></div>
+        <div class="wall-stats"><span>+412 <b>lines</b></span><span>−98</span><span>9 <b>files</b></span><span>max</span></div>
+      </div>
+      <div class="wall-card">
+        <div class="wall-meta"><span class="wall-author">@ridhi-p</span><span class="wall-time">3h ago</span></div>
+        <div class="wall-task">"parallel agents: split frontend / backend / tests"</div>
+        <div><span class="wall-commit">✓ 2e3f4g5</span><span class="wall-repo">platform/ci</span></div>
+        <div class="wall-stats"><span>+267 <b>lines</b></span><span>−40</span><span>14 <b>files</b></span><span>pro</span></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── PRICING ─── -->
   <section class="section" id="pricing">
     <div class="section-label">Pricing</div>
     <h2 class="section-title">Flat pricing. No surprises.</h2>
     <p class="section-sub">No token billing. Same price whether you ship 5 or 500 tasks.</p>
+    <div style="text-align:center">
+      <div class="pricing-toggle" role="tablist">
+        <button id="bill-monthly" class="active" onclick="setBill('monthly')">Monthly</button>
+        <button id="bill-annual"  onclick="setBill('annual')">Annual <span class="save-badge">SAVE 20%</span></button>
+      </div>
+    </div>
     <div class="pricing-grid">
       <div class="price-card">
         <div class="price-tier">⚡ Starter</div>
-        <div class="price-amount">$9<span> /month</span></div>
-        <div class="price-desc">Individuals shipping side projects.</div>
+        <div class="price-amount"><span class="amt" data-monthly="$9"  data-annual="$7">$9</span><span> /month</span></div>
+        <div class="price-desc" data-monthly="Individuals shipping side projects." data-annual="Billed $84/year — 2 months free.">Individuals shipping side projects.</div>
         <ul class="price-features">
           <li>10 tasks/month</li>
           <li>Swift mode</li>
           <li>1 repo</li>
           <li>Direct GitHub commits</li>
         </ul>
+        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start free</a>
       </div>
       <div class="price-card featured">
         <div class="price-badge">MOST POPULAR</div>
         <div class="price-tier">⚡ Pro</div>
-        <div class="price-amount">$19<span> /month</span></div>
-        <div class="price-desc">For developers shipping daily.</div>
+        <div class="price-amount"><span class="amt" data-monthly="$19" data-annual="$15">$19</span><span> /month</span></div>
+        <div class="price-desc" data-monthly="For developers shipping daily." data-annual="Billed $180/year — save $48.">For developers shipping daily.</div>
         <ul class="price-features">
           <li>500 tasks/month</li>
           <li>Swift + Pro + Local modes</li>
           <li>Unlimited repos</li>
           <li>Codebase warm-start memory</li>
         </ul>
+        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Pro</a>
       </div>
       <div class="price-card">
         <div class="price-tier">⚡ Team</div>
-        <div class="price-amount">$49<span> /month</span></div>
-        <div class="price-desc">Audit-grade quality for serious shipping.</div>
+        <div class="price-amount"><span class="amt" data-monthly="$49" data-annual="$39">$49</span><span> /month</span></div>
+        <div class="price-desc" data-monthly="Audit-grade quality for serious shipping." data-annual="Billed $468/year — save $120.">Audit-grade quality for serious shipping.</div>
         <ul class="price-features">
           <li>2000 tasks/month</li>
           <li>All modes incl. Max</li>
           <li>Priority queue</li>
           <li>Run-local mode (Ollama / LM Studio)</li>
         </ul>
+        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Team</a>
       </div>
     </div>
   </section>
@@ -764,6 +965,16 @@ function switchTab(idx) {
 }
 function toggleFaq(el) {
   el.parentElement.classList.toggle('open');
+}
+function setBill(mode) {
+  document.getElementById('bill-monthly').classList.toggle('active', mode === 'monthly');
+  document.getElementById('bill-annual').classList.toggle('active',  mode === 'annual');
+  document.querySelectorAll('.price-card .amt').forEach(el => {
+    el.textContent = el.dataset[mode];
+  });
+  document.querySelectorAll('.price-card .price-desc').forEach(el => {
+    el.textContent = el.dataset[mode];
+  });
 }
 </script>
 </body>
