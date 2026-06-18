@@ -39,6 +39,7 @@ from routers.admin import router as admin_router
 from routers.support import router as support_router
 from routers.payments import router as payments_router
 from routers.mcp import router as mcp_router, mcp_discovery_root
+from routers.oauth import router as oauth_router
 from routers.usage import router as usage_router
 from routers.lint_preview import router as lint_preview_router
 from routers.shipwall import router as shipwall_router
@@ -299,6 +300,26 @@ async def lifespan(app: FastAPI):
             logger.info("🔥 warm_start_jobs TTL index ensured (1h)")
         except Exception as _e:
             logger.warning(f"warm_start_jobs TTL index failed: {_e}")
+
+        # Iter 182 — OAuth 2.1 + PKCE TTL indexes (for Claude Directory).
+        # oauth_codes self-purge 10 min after `expires_at`, api_keys after
+        # `expires_at` (30-day token TTL). Mongo's TTL monitor runs every
+        # 60s so worst-case cleanup is ~60s past expiry — fine for OAuth.
+        try:
+            await app.state.db.oauth_codes.create_index(
+                "expires_at",
+                expireAfterSeconds=0,
+                background=True,
+            )
+            await app.state.db.api_keys.create_index(
+                "expires_at",
+                expireAfterSeconds=0,
+                background=True,
+                partialFilterExpression={"source": "oauth"},
+            )
+            logger.info("🔐 oauth TTL indexes ensured (codes + api_keys[oauth])")
+        except Exception as _e:
+            logger.warning(f"oauth TTL indexes failed: {_e}")
 
         # Iter 123 — wire deploy_logger.
         try:
@@ -874,6 +895,7 @@ app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
+app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so
 # clients can probe `https://auremcto.com/.well-known/mcp` without
 # knowing our internal /api/aurem-dev prefix.

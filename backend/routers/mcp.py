@@ -443,6 +443,22 @@ async def mcp_manifest(request: Request) -> JSONResponse:
     payload["tools"] = TOOLS
     payload["transport"] = "streamable-http"
     payload["endpoint"] = _public_mcp_endpoint()
+    # Iter 182 — surface the OAuth 2.1 + PKCE endpoints on the manifest
+    # so MCP clients (Claude Desktop, Cursor) can auto-discover the
+    # authorization flow without a separate trip to
+    # /.well-known/oauth-authorization-server. PKCE is REQUIRED — we
+    # only accept S256.
+    api_base = _public_mcp_endpoint().rsplit("/mcp", 1)[0]
+    payload["oauth"] = {
+        "authorization_endpoint": f"{api_base}/oauth/authorize",
+        "token_endpoint":         f"{api_base}/oauth/token",
+        "userinfo_endpoint":      f"{api_base}/oauth/userinfo",
+        "discovery":              f"{api_base}/.well-known/oauth-authorization-server",
+        "scopes":                 ["mcp"],
+        "pkce_required":          True,
+        "code_challenge_methods": ["S256"],
+        "grant_types":            ["authorization_code"],
+    }
     return JSONResponse(payload)
 
 

@@ -5662,3 +5662,56 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 - Redeploy preview → prod for the projects.py + auth.py + signup.jsx fixes to land
 - Add Emergent prod env var: `ADMIN_EMAILS=qa-admin@aurem.dev` (or comma-list multiple)
 - After redeploy, re-run TestSprite — DB provisioning, Analytics, and password-mismatch tests should all pass; project-creation will still be blocked by the github.com OAuth limitation documented in test_credentials.md.
+
+
+### Iter 182 — OAuth 2.1 + PKCE for Claude Directory MCP listing (Feb 2026)
+
+**Why**: Claude Directory rejects MCP servers that only support custom bearer keys. To submit `auremcto.com` to the public directory we need RFC 6749 §4.1 + RFC 7636 (S256) compliant OAuth.
+
+**New router** — `backend/routers/oauth.py`:
+- `GET /.well-known/oauth-authorization-server` — RFC 8414 discovery (issuer = `https://auremcto.com/api/aurem-dev`).
+- `GET /oauth/authorize` — branded consent HTML (login form + scope list + cancel). Enforces `response_type=code`, `code_challenge` present, `code_challenge_method=S256`.
+- `POST /oauth/authorize` — verifies email/password with `bcrypt.checkpw` (mirrors `routers/auth.login`), issues a 10-min auth code in `db.oauth_codes`, 302s to the client's `redirect_uri` with `?code=&state=`. Bad creds bounce back to the form with `?error=invalid_credentials` — never leak to the client.
+- `POST /oauth/authorize/deny` — RFC-compliant 302 with `?error=access_denied`.
+- `POST /oauth/token` — `grant_type=authorization_code`. Validates code freshness, redirect-uri match, S256 PKCE (`sha256(verifier) == challenge`), burns the code (single-use replay prevention), issues a 30-day `sk-aurem-oauth-*` access token persisted in `db.api_keys` so the existing `mcp.py::_resolve_user` accepts it transparently — no second wiring.
+- `GET /oauth/userinfo` — `sub`/`email`/`name`/`scope` claims. Accepts both JWT and `sk-aurem-*` tokens.
+
+**MCP manifest update** — `routers/mcp.py::mcp_manifest`:
+- `GET /mcp` now exposes an `oauth` block (`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `discovery`, `scopes=["mcp"]`, `pkce_required=True`, `code_challenge_methods=["S256"]`, `grant_types=["authorization_code"]`) so Claude Desktop / Cursor auto-discover the flow from a single round-trip.
+
+**Lifespan TTL indexes** — `main.py`:
+- `db.oauth_codes` → `expireAfterSeconds=0` on `expires_at` (auto-purge ~60s past code expiry).
+- `db.api_keys` → `expireAfterSeconds=0` partial-filtered on `source: "oauth"` so OAuth tokens auto-cleanup at 30 days while manually-generated `sk-aurem-*` admin keys live forever.
+
+**Files touched**
+- ADD: `backend/routers/oauth.py` (RFC 6749/7636/8414 compliant — ~340 LOC, lint clean)
+- EDIT: `backend/main.py` (import + `include_router` with `/api/aurem-dev` prefix + 2 TTL indexes)
+- EDIT: `backend/routers/mcp.py` (manifest `oauth` block)
+- ADD: `backend/tests/test_iter182_oauth_pkce.py` (9 tests — all PASS)
+
+**Tests** — `tests/test_iter182_oauth_pkce.py` **9/9 PASS**:
+- Discovery doc shape (RFC 8414) ✓
+- Consent page renders with required form fields ✓
+- Missing PKCE challenge → 400 ✓
+- `code_challenge_method=plain` rejected (S256 only) ✓
+- Full happy path: consent → 302+code → token exchange → MCP `initialize` works → `userinfo` returns claims → replay rejected ✓
+- Wrong PKCE verifier → 400 `invalid_grant: PKCE verification failed` ✓
+- Invalid creds bounce back to form (never leak to client redirect_uri) ✓
+- Deny → 302 with `access_denied` + preserved `state` ✓
+- MCP manifest exposes `oauth` block ✓
+
+**Live curl verification (preview)**
+- `/api/aurem-dev/.well-known/oauth-authorization-server` → 200 JSON, all 7 RFC 8414 fields present ✓
+- `GET /oauth/authorize` → 200 HTML, 5.6 kb, includes the Authorize button ✓
+- E2E PKCE flow: PKCE pair gen → 302 with code+state → token = `sk-aurem-oauth-s6g...` → MCP `initialize` returns serverInfo → `userinfo` returns user claims → replay rejected ✓
+
+**Endpoints exposed to Claude Directory**
+- Discovery: `https://auremcto.com/api/aurem-dev/.well-known/oauth-authorization-server`
+- Authorize: `https://auremcto.com/api/aurem-dev/oauth/authorize`
+- Token: `https://auremcto.com/api/aurem-dev/oauth/token`
+- Userinfo: `https://auremcto.com/api/aurem-dev/oauth/userinfo`
+- MCP server: `https://auremcto.com/api/aurem-dev/mcp` (Streamable HTTP, manifest exposes `oauth` block)
+
+**Production action required (user side)**
+- Redeploy preview → prod for these routes to land. Current prod returns 404 on `/api/aurem-dev/.well-known/oauth-authorization-server` until redeploy.
+- After redeploy, submit `auremcto.com` to Claude Directory; the OAuth + PKCE + MCP combo should satisfy the listing criteria.
