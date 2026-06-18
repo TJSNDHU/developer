@@ -289,6 +289,87 @@
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.6s ease-in-out infinite; flex-shrink: 0; }
   @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
 
+  /* Three-windows workspace showcase */
+  .windows-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 18px;
+  }
+  .win-card {
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+    transition: transform 0.25s, border-color 0.25s;
+  }
+  .win-card:hover { transform: translateY(-3px); border-color: var(--accent-br); }
+  .win-chrome {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; background: rgba(255,255,255,0.025);
+    border-bottom: 1px solid var(--line-2);
+  }
+  .win-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .win-dot.r { background: #ef4444; }
+  .win-dot.y { background: #eab308; }
+  .win-dot.g { background: #22c55e; }
+  .win-title {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+    margin-left: 8px; text-transform: uppercase; letter-spacing: 1px;
+    flex: 1;
+  }
+  .win-pill {
+    background: rgba(245,158,11,0.12); color: var(--accent);
+    padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.5px;
+  }
+  .win-body { padding: 18px; min-height: 240px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+  .win-code { background: #050810; }
+  .win-code .ln  { color: var(--muted-3); margin-right: 12px; user-select: none; }
+  .win-code .kw  { color: #c084fc; }
+  .win-code .fn  { color: #fbbf24; }
+  .win-code .str { color: #4ade80; }
+  .win-code .cm  { color: var(--muted-3); font-style: italic; }
+  .win-preview { background: linear-gradient(135deg, #0a0e1a 0%, #1e293b 100%); font-family: var(--font-sans); }
+  .win-preview .browser-bar {
+    background: #1e293b; color: var(--muted-2);
+    padding: 5px 10px; border-radius: 6px;
+    font-size: 10px; margin-bottom: 16px;
+    display: inline-block; font-family: var(--font-mono);
+  }
+  .win-preview .live-tag {
+    float: right; background: rgba(34,197,94,0.15); color: #4ade80;
+    padding: 2px 8px; border-radius: 999px; font-size: 9px;
+    border: 1px solid rgba(34,197,94,0.35); margin-top: 4px;
+    font-family: var(--font-mono);
+  }
+  .win-preview h4 { color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  .win-preview p  { color: var(--muted-1); font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+  .win-preview .preview-btn {
+    background: var(--accent); color: #000; padding: 6px 14px;
+    border-radius: 6px; font-size: 11px; font-weight: 700;
+    display: inline-block; font-family: var(--font-mono);
+  }
+  .win-advisor { background: linear-gradient(180deg, #0a0e1a 0%, #060912 100%); }
+  .advisor-msg {
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 10px 10px 10px 2px; padding: 9px 13px;
+    color: var(--muted-1); margin-bottom: 9px;
+    font-family: var(--font-sans); font-size: 12px; line-height: 1.5;
+  }
+  .advisor-msg.user {
+    background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.25);
+    border-radius: 10px 10px 2px 10px;
+    color: var(--text);
+    margin-left: 32px;
+  }
+  .advisor-msg.bot b { color: var(--accent); }
+  .advisor-typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+  .advisor-typing span {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    animation: typing 1.2s ease-in-out infinite;
+  }
+  .advisor-typing span:nth-child(2) { animation-delay: 0.15s; }
+  .advisor-typing span:nth-child(3) { animation-delay: 0.30s; }
+  @keyframes typing { 0%,60%,100% { opacity: 0.25; } 30% { opacity: 1; } }
+
   /* Why teams switch */
   .teams-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
   .team-card {
@@ -585,6 +666,80 @@
     </div>
   </section>
 
+  <!-- ─── THREE-WINDOWS WORKSPACE ─── -->
+  <section class="section" id="workspace">
+    <div class="section-label">The workspace</div>
+    <h2 class="section-title">Three windows. One agent.</h2>
+    <p class="section-sub">Code, Live Preview and Advisor — side by side. Switch tabs, never switch tools.</p>
+    <div class="windows-grid">
+
+      <!-- 1. CODE WINDOW -->
+      <div class="win-card">
+        <div class="win-chrome">
+          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+          <span class="win-title">Code · auth.py</span>
+          <span class="win-pill">DIFF +24 / −6</span>
+        </div>
+        <div class="win-body win-code">
+<span class="ln">12</span><span class="kw">def</span> <span class="fn">login</span>(email, pw):<br>
+<span class="ln">13</span>  <span class="cm"># Iter 184 — bcrypt + rate-limit</span><br>
+<span class="ln">14</span>  user = db.users.find_one({<span class="str">"email"</span>: email})<br>
+<span class="ln">15</span>  <span class="kw">if</span> <span class="kw">not</span> user:<br>
+<span class="ln">16</span>    <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br>
+<span class="ln">17</span>  <span class="kw">if</span> bcrypt.<span class="fn">checkpw</span>(pw, user[<span class="str">"hash"</span>]):<br>
+<span class="ln">18</span>    <span class="kw">return</span> <span class="fn">create_token</span>(user)<br>
+<span class="ln">19</span>  <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br>
+        </div>
+      </div>
+
+      <!-- 2. LIVE PREVIEW WINDOW -->
+      <div class="win-card">
+        <div class="win-chrome">
+          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+          <span class="win-title">Live preview</span>
+          <span class="win-pill">localhost:3000</span>
+        </div>
+        <div class="win-body win-preview">
+          <span class="browser-bar">▸ https://auremcto.com/login</span>
+          <span class="live-tag">● live</span>
+          <div style="clear:both;margin-top:14px">
+            <h4>Welcome back</h4>
+            <p>Sign in to ship your next commit.</p>
+            <div class="preview-btn">Login →</div>
+            <div style="margin-top:14px; font-size:11px; color:var(--muted-3); font-family:var(--font-mono);">
+              <span style="color:#4ade80">✓</span> hot reload · 142ms<br>
+              <span style="color:#4ade80">✓</span> tests pass · 38 / 38<br>
+              <span style="color:#4ade80">✓</span> lint clean
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. ASK ADVISOR WINDOW -->
+      <div class="win-card">
+        <div class="win-chrome">
+          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+          <span class="win-title">Ask advisor</span>
+          <span class="win-pill">ORA · Pro</span>
+        </div>
+        <div class="win-body win-advisor">
+          <div class="advisor-msg user">Why are we using bcrypt over argon2 here?</div>
+          <div class="advisor-msg bot">
+            <b>ORA:</b> Your repo's been on bcrypt since `auth.py` was first written (Iter 04).
+            Argon2 is stronger but you'd need a migration: re-hash on next login + add an
+            <code style="color:var(--accent)">algo</code> column. Want me to draft the PR?
+          </div>
+          <div class="advisor-msg user">Yes — and keep bcrypt as fallback for older rows.</div>
+          <div class="advisor-msg bot">
+            <span class="advisor-typing"><span></span><span></span><span></span></span>
+            planning across 3 files…
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
   <!-- ─── MODES (now with Local mode) ─── -->
   <section class="section">
     <div class="section-label">Modes</div>
@@ -601,7 +756,7 @@
       <div class="tab-content active" id="tab-0">
         <div class="tab-info">
           <h3>Swift mode</h3>
-          <p>Fast, cheap, reliable. GPT-4o-mini class. Perfect for quick fixes and everyday tasks.</p>
+          <p>Fast, cheap, reliable. <b>GPT-4o-mini / Claude Haiku 4.5</b> class. Perfect for quick fixes and everyday tasks.</p>
           <ul class="tab-features">
             <li>~30 seconds end-to-end</li>
             <li>Minimum-diff commits</li>
@@ -620,7 +775,7 @@
       <div class="tab-content" id="tab-1">
         <div class="tab-info">
           <h3>Pro mode</h3>
-          <p>Balanced quality + depth. Claude Sonnet 4.5 class. Best default for production work.</p>
+          <p>Balanced quality + depth. <b>Claude Sonnet 4.5 / GPT-5.2</b> class. Best default for production work.</p>
           <ul class="tab-features">
             <li>Multi-file reasoning</li>
             <li>Test scaffolds auto-included</li>
@@ -638,7 +793,7 @@
       <div class="tab-content" id="tab-2">
         <div class="tab-info">
           <h3>Max mode</h3>
-          <p>Deep, thorough, audit-grade. GPT-5.2 / Claude Opus. For refactors and risky changes.</p>
+          <p>Deep, thorough, audit-grade. <b>Claude Opus 4.5 / GPT-5.2 / Gemini 3 Pro</b>. For refactors and risky changes.</p>
           <ul class="tab-features">
             <li>Full repo grep + AST scan</li>
             <li>RCA on every regression</li>
@@ -660,13 +815,13 @@
           <p>Point ORA at a local Ollama / LM Studio endpoint. Your repo and prompts never leave your box. Same MCP tools, zero cloud inference.</p>
           <ul class="tab-features">
             <li>Works with Ollama / LM Studio / llama.cpp</li>
-            <li>Code-Llama / Qwen 2.5 / DeepSeek-Coder</li>
+            <li>Code Llama 70B · Mistral · Phi-3 · open-source backbones</li>
             <li>End-to-end on localhost — air-gapped friendly</li>
             <li>Same `sk-aurem-*` token, same MCP server</li>
           </ul>
         </div>
         <div class="terminal">
-<span class="prompt">$</span> export ORA_LLM=ollama://qwen2.5-coder
+<span class="prompt">$</span> export ORA_LLM=ollama://codellama-70b
 <span class="prompt">$</span> ora ship "tidy README typos"
 <span class="gray">→</span> connecting to localhost:11434 …
 <span class="gray">→</span> writing patch on-device …
