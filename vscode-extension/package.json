@@ -1,12 +1,23 @@
 {
   "name": "aurem-cto",
-  "displayName": "AUREM CTO — AI Engineer for Your Repo",
-  "description": "ORA AI chat sidebar. Right-click to ship code directly to GitHub.",
-  "version": "0.1.0",
+  "displayName": "ORA by Aurem CTO",
+  "description": "AI engineer that reads your GitHub repo and ships code directly. No IDE needed. developers choice by Aurem CTO.",
+  "version": "0.2.0",
   "publisher": "auremcto",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
-  "keywords": ["ai", "github", "agent", "commit", "aurem", "ora"],
+  "keywords": [
+    "ai",
+    "github",
+    "agent",
+    "commit",
+    "ora",
+    "aurem",
+    "developer",
+    "copilot-alternative",
+    "no-ide",
+    "autonomous"
+  ],
   "icon": "assets/icon.png",
   "galleryBanner": {
     "color": "#0a0c10",
@@ -16,10 +27,10 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "aurem.openChat", "title": "AUREM: Open ORA Chat" },
-      { "command": "aurem.shipSelection", "title": "Ship via AUREM CTO" },
-      { "command": "aurem.login", "title": "AUREM: Connect GitHub" },
-      { "command": "aurem.logout", "title": "AUREM: Disconnect" }
+      { "command": "aurem.openChat", "title": "ORA: Open Chat" },
+      { "command": "aurem.shipSelection", "title": "Ship via ORA" },
+      { "command": "aurem.login", "title": "ORA: Connect GitHub" },
+      { "command": "aurem.logout", "title": "ORA: Disconnect" }
     ],
     "menus": {
       "editor/context": [
@@ -28,7 +39,7 @@
     },
     "viewsContainers": {
       "activitybar": [
-        { "id": "aurem-sidebar", "title": "AUREM ORA", "icon": "assets/sidebar-icon.svg" }
+        { "id": "aurem-sidebar", "title": "ORA by Aurem CTO", "icon": "assets/sidebar-icon.svg" }
       ]
     },
     "views": {
@@ -37,12 +48,12 @@
       ]
     },
     "configuration": {
-      "title": "AUREM CTO",
+      "title": "ORA by Aurem CTO",
       "properties": {
         "aurem.serverUrl": {
           "type": "string",
           "default": "https://auremcto.com",
-          "description": "AUREM backend URL"
+          "description": "ORA backend URL"
         }
       }
     }
