@@ -25,17 +25,23 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); }
   body {
-    /* Iter 184 (v2) — punchier ambient background.
-       Two large warm orbs + a violet glow + a moving conic noise so the
-       page never feels static. User reported the older animated bg
-       was washed out; widened gradients + raised opacity so it actually
-       reads through the dark base. */
+    /* Iter 184 (v3) — composite background: old aurem-bg image as base,
+       warm radials on top, animated grid overlay, conic ambient spin.
+       User asked for the "older background image" to come back. */
     background:
-      radial-gradient(900px 540px at 18% -8%,  rgba(245,158,11,0.18), transparent 70%),
-      radial-gradient(820px 480px at 86% 6%,   rgba(99,102,241,0.13), transparent 65%),
+      radial-gradient(900px 540px at 18% -8%,  rgba(245,158,11,0.20), transparent 70%),
+      radial-gradient(820px 480px at 86% 6%,   rgba(99,102,241,0.14), transparent 65%),
       radial-gradient(700px 520px at 50% 110%, rgba(245,158,11,0.10), transparent 70%),
-      linear-gradient(180deg, #0a0e1a 0%, #050811 100%);
-    background-attachment: fixed;
+      linear-gradient(180deg, rgba(10,14,26,0.78) 0%, rgba(5,8,17,0.92) 100%),
+      url('/aurem-bg.webp') center top / cover no-repeat,
+      #050811;
+    background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
+  }
+  @media (max-width: 720px) {
+    body { background-image:
+      radial-gradient(700px 420px at 50% -4%, rgba(245,158,11,0.18), transparent 70%),
+      linear-gradient(180deg, rgba(10,14,26,0.82) 0%, rgba(5,8,17,0.94) 100%),
+      url('/aurem-bg-mobile.webp') center top / cover no-repeat; }
   }
   body::before {
     content: ""; position: fixed; inset: 0;
@@ -952,51 +958,6 @@
         <div class="review-stars">★★★★★</div>
         <div class="review-text">"Linux dev. No IDE, no problem. ORA via Claude Code in terminal is the cleanest workflow I've ever had."</div>
         <div class="review-author"><div class="review-avatar" style="background:rgba(244,63,94,0.2);color:#fb7185">RP</div><div><div class="review-name">Ridhi P.</div><div class="review-role">Platform team lead</div></div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── SHIP WALL ─── -->
-  <section class="wall-section" id="ship-wall">
-    <div class="section-label">Ship wall</div>
-    <h2 class="section-title">Real commits, in real time</h2>
-    <p class="section-sub">Live feed from the ORA fleet — every box below is an actual PR landed in the last 24 hours.</p>
-    <div class="wall-grid">
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@james-r</span><span class="wall-time">2m ago</span></div>
-        <div class="wall-task">"fix stripe webhook signature validation"</div>
-        <div><span class="wall-commit">✓ a1b2c3d</span><span class="wall-repo">devstream/checkout-api</span></div>
-        <div class="wall-stats"><span>+24 <b>lines</b></span><span>−6</span><span>3 <b>files</b></span><span>swift</span></div>
-      </div>
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@akari-t</span><span class="wall-time">14m ago</span></div>
-        <div class="wall-task">"migrate session store to redis (local mode)"</div>
-        <div><span class="wall-commit">✓ 9z8y7x6</span><span class="wall-repo">finserv-internal/auth</span></div>
-        <div class="wall-stats"><span>+182 <b>lines</b></span><span>−74</span><span>11 <b>files</b></span><span>local</span></div>
-      </div>
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@sarah-p</span><span class="wall-time">38m ago</span></div>
-        <div class="wall-task">"add OAuth 2.1 PKCE flow for claude directory"</div>
-        <div><span class="wall-commit">✓ f4e3d2a</span><span class="wall-repo">indie/ora-mcp</span></div>
-        <div class="wall-stats"><span>+340 <b>lines</b></span><span>−12</span><span>7 <b>files</b></span><span>pro</span></div>
-      </div>
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@mrinul-k</span><span class="wall-time">1h ago</span></div>
-        <div class="wall-task">"resize favicon set + svg fallback for google crawler"</div>
-        <div><span class="wall-commit">✓ d7e8f9b</span><span class="wall-repo">auremcto/web</span></div>
-        <div class="wall-stats"><span>+96 <b>lines</b></span><span>−18</span><span>4 <b>files</b></span><span>swift</span></div>
-      </div>
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@luca-m</span><span class="wall-time">2h ago</span></div>
-        <div class="wall-task">"refactor projects/create — async background pattern"</div>
-        <div><span class="wall-commit">✓ 7c8b9d0</span><span class="wall-repo">saas/builder</span></div>
-        <div class="wall-stats"><span>+412 <b>lines</b></span><span>−98</span><span>9 <b>files</b></span><span>max</span></div>
-      </div>
-      <div class="wall-card">
-        <div class="wall-meta"><span class="wall-author">@ridhi-p</span><span class="wall-time">3h ago</span></div>
-        <div class="wall-task">"parallel agents: split frontend / backend / tests"</div>
-        <div><span class="wall-commit">✓ 2e3f4g5</span><span class="wall-repo">platform/ci</span></div>
-        <div class="wall-stats"><span>+267 <b>lines</b></span><span>−40</span><span>14 <b>files</b></span><span>pro</span></div>
       </div>
     </div>
   </section>
