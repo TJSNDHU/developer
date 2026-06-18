@@ -81,14 +81,20 @@
     <!-- =============================================================== -->
     <!-- ICONS & PWA                                                     -->
     <!-- =============================================================== -->
-    <!-- Iter 176 — ORA favicon -->
-    <link rel="icon" type="image/png" href="/ora-icon.png" />
-    <link rel="apple-touch-icon" href="/ora-icon.png" />
-    <!-- Legacy favicons kept as additional hints for older crawlers -->
-    <link rel="icon" href="/favicon.ico?v=molten" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=molten" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png?v=molten" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=molten" />
+    <!-- Iter 183 — ORA favicon (multi-size, ICO-first for crawlers) -->
+    <!-- Google's crawler picks favicon.ico if present; explicit PNG
+         sizes help modern browsers and dark-mode hints. The giant
+         /ora-icon.png is intentionally NOT the primary <link rel=icon>
+         anymore — it confused crawlers into downsampling 1024×1024 →
+         16×16 and produced a muddy result on Google search. -->
+    <link rel="icon" href="/favicon.ico?v=iter183" sizes="any" />
+    <link rel="icon" type="image/png" sizes="16x16"  href="/favicon-16.png?v=iter183" />
+    <link rel="icon" type="image/png" sizes="32x32"  href="/favicon-32.png?v=iter183" />
+    <link rel="icon" type="image/png" sizes="48x48"  href="/favicon-48.png?v=iter183" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png?v=iter183" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=iter183" />
+    <link rel="icon" type="image/svg+xml" href="/ora-logo.svg?v=iter183" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/favicon-192.png?v=iter183" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=molten" />
     <link rel="manifest" href="/site.webmanifest" />
 

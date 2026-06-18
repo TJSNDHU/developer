@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ORA by Aurem CTO">
+  <title>ORA by Aurem CTO</title>
+  <circle cx="50" cy="50" r="48" fill="#f59e0b" stroke="#0a0e1a" stroke-width="2"/>
+  <text x="50" y="65"
+        text-anchor="middle"
+        font-family="monospace"
+        font-weight="bold"
+        font-size="42"
+        fill="#0a0e1a">O</text>
+</svg>
