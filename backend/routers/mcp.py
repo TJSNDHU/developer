@@ -83,6 +83,15 @@ TOOLS: list[dict[str, Any]] = [
             },
             "additionalProperties": False,
         },
+        # Iter 183 — MCP tool annotations (per MCP spec). Hints the
+        # client UI (Claude Desktop, Cursor) about behaviour: title
+        # for the chrome, readOnlyHint to skip the "agent will modify
+        # data" warning, destructiveHint to flag dangerous tools.
+        "annotations": {
+            "title":           "List ORA Projects",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
     },
     {
         "name": "ship_code",
@@ -121,6 +130,11 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["task"],
             "additionalProperties": False,
         },
+        "annotations": {
+            "title":           "Ship Code to GitHub",
+            "readOnlyHint":    False,
+            "destructiveHint": False,
+        },
     },
     {
         "name": "get_task_status",
@@ -141,6 +155,11 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["task_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "Get Task Status",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
         },
     },
     {
@@ -167,6 +186,11 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["project_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "Get Recent Commits",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
         },
     },
 ]
