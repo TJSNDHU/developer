@@ -259,7 +259,24 @@ async def create_checkout(
         "payment_status": "pending",
         "created_at":  time.time(),
     })
-    return {"url": session.url, "checkout_url": session.url, "session_id": session.id}
+
+    # Iter 183 — Stripe sometimes returns the new `/g/pay/` (Guest /
+    # Link-optimized) checkout URL which currently renders a generic
+    # "Something went wrong … the link might be expired" page for our
+    # account (live, subscription mode). The exact same session_id
+    # loads perfectly at the canonical `/c/pay/` hosted-Checkout path,
+    # so we rewrite the URL before returning to the client. This is
+    # safe — both routes accept the same session token in the URL
+    # fragment — and it's the difference between "broken checkout" and
+    # "user can actually pay us" for affected sessions.
+    checkout_url = session.url or ""
+    if "/g/pay/" in checkout_url:
+        checkout_url = checkout_url.replace("/g/pay/", "/c/pay/", 1)
+        logger.info(
+            "rewrote stripe /g/pay/ → /c/pay/ for session %s", session.id,
+        )
+
+    return {"url": checkout_url, "checkout_url": checkout_url, "session_id": session.id}
 
 
 # ── /payments/status — frontend poll after the redirect ─────────────────

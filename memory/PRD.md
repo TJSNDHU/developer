@@ -13,6 +13,18 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 183 — Stripe `/g/pay/` → `/c/pay/` URL Rewrite (Feb 2026) ✅
+**Bug**: New `Landing.jsx` payment plans were "showing errors / not reaching Stripe checkout". Root cause: Stripe SDK was intermittently returning the new `/g/pay/` Guest/Link-optimized URL format for our live subscription account. The exact same `cs_live_…` session_id renders a generic *"Something went wrong … the link might be expired"* page on `/g/pay/` but a fully functional payment form on canonical `/c/pay/`.
+
+**Fix**: `routers/payments.py::create_checkout` now rewrites any `/g/pay/` URL Stripe returns to `/c/pay/` before sending it back to the frontend. Single-line, safe (both paths accept the same session token in the URL fragment).
+
+**Verified**:
+- 5/5 fresh sessions now consistently return `/c/pay/` URLs
+- End-to-end browser test: anon → signup auto-resume flow already worked; authed click on `Upgrade to Pro` → POST `/payments/checkout` → 200 → redirect → Stripe form loads "Subscribe to Pro US$19.00/month"
+- Regression suite: `backend/tests/test_iter183_stripe_gpay_rewrite.py` (2 tests, both pass)
+
+
+
 ### Iter 1–4 (Jan 2026)
 - MVP: auth, chat, session persistence, SSE streaming, session titles
 - Single-provider DeepSeek V3 via OpenRouter (privacy-locked: `data_collection: deny`)
