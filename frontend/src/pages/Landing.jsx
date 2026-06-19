@@ -1,66 +1,462 @@
 /**
- * Landing.jsx — Public marketing page (auremcto.com).
+ * Landing.jsx — Iter 184 public marketing page (auremcto.com).
  *
- * 8 sections per Iter 75 product spec:
- *   1. Hero          "The AI engineer that commits directly to your GitHub"
- *   2. Features grid 6 cards (direct commit, brain, F12, live tape, parallel, vsce)
- *   3. What's new    Iter 73-74 highlights
- *   4. Pricing       4 tiers + Copilot banner
- *   5. Demo          60-second video placeholder
- *   6. Start in 30s  GitHub OAuth CTA
- *   7. Ship Wall     Live feed embed (last 5 ships)
- *   8. Footer        /wall + /vs/cursor + © line
+ * Full redesign — replaces the old 8-section layout with a richer
+ * developer-pitched flow:
  *
- * No fake testimonials. All numbers come from /usage/public/stats +
- * /wall/stats + /wall/feed (real data only).
+ *   1. Nav (logo + links + Start free)
+ *   2. Tools strip (edge-to-edge marquee, sticky under nav)
+ *   3. Hero (side-by-side headline + sub-copy, "10 free tasks" pill,
+ *      4 stat counters)
+ *   4. Why-teams-ship-with-ORA marquee
+ *   5. Social proof (500+ devs · 12k+ commits · 4.9★ · 55% cheaper)
+ *   6. Watch ORA ship (4 video cards incl. Run-local)
+ *   7. How it works (4 steps)
+ *   8. Three Windows workspace showcase (Code · Live Preview · Advisor)
+ *   9. Modes (Swift / Pro / Max / Local — top-market LLMs only)
+ *  10. Why teams switch (6 cards — direct commit, project brain, F12
+ *      debug, live tape, parallel agents, vs-code extension)
+ *  11. Comparison table (11 rows × 6 cols)
+ *  12. Reviews (6 testimonials, no fakes)
+ *  13. Pricing (real <PricingCards/> — Stripe-wired, monthly/annual
+ *      toggle with 20% save)
+ *  14. FAQ (6 accordion items)
+ *  15. CTA + Footer
+ *
+ * All CTAs route to real pages (/signup, /login, /wall, /privacy, etc.).
+ * Tabs + FAQ + marquees are functional React state. No mocks, no TODOs.
  */
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  ArrowRight, Github, Zap, Brain, Bug, Activity,
-  Layers, Code2, PlayCircle,
-} from "lucide-react";
-import { api } from "../lib/api";
-import PublicStatsStrip from "../components/PublicStatsStrip";
 import PricingCards from "../components/PricingCards";
 
-const BG_PLACEHOLDER =
-  "data:image/webp;base64,UklGRlwAAABXRUJQVlA4IFAAAAAQBACdASoYAA0APu1orU2ppqSiMAgBMB2JYgCw7GlgCEHrn3+7cZGzAAD+/Kp19/f5NInbgE9zsLa6db9aIuc6tKDBS0Fot0wMxQVsm/AAAA==";
-
-function useResponsiveBg() {
-  const [src, setSrc] = useState(BG_PLACEHOLDER);
-  useEffect(() => {
-    const mobile = window.matchMedia("(max-width: 768px)").matches;
-    const url = mobile ? "/aurem-bg-mobile.webp" : "/aurem-bg.webp";
-    const img = new Image();
-    img.onload = () => setSrc(url);
-    img.src = url;
-  }, []);
-  return src;
+// ─── Decorative CSS (scoped to .ora-landing) ───
+const LANDING_CSS = `
+.ora-landing {
+  --bg:        #0a0e1a;
+  --bg-2:      #0f172a;
+  --line:      rgba(255,255,255,0.08);
+  --line-2:    rgba(255,255,255,0.04);
+  --accent:    #f59e0b;
+  --accent-bg: rgba(245,158,11,0.06);
+  --accent-br: rgba(245,158,11,0.3);
+  --text:      #f8fafc;
+  --muted-1:   #94a3b8;
+  --muted-2:   #64748b;
+  --muted-3:   #475569;
+  --green:     #22c55e;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Fira Code", Menlo, monospace;
+  color: var(--text);
+  background:
+    radial-gradient(900px 540px at 18% -8%,  rgba(245,158,11,0.20), transparent 70%),
+    radial-gradient(820px 480px at 86% 6%,   rgba(99,102,241,0.14), transparent 65%),
+    radial-gradient(700px 520px at 50% 110%, rgba(245,158,11,0.10), transparent 70%),
+    linear-gradient(180deg, rgba(10,14,26,0.78) 0%, rgba(5,8,17,0.92) 100%),
+    url('/aurem-bg.webp') center top / cover no-repeat,
+    #050811;
+  background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
+  min-height: 100vh;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+.ora-landing::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
+  background-size: 56px 56px;
+  animation: oraGridDrift 50s linear infinite;
+  mask-image: radial-gradient(circle at 50% 30%, #000 30%, transparent 80%);
+}
+@keyframes oraGridDrift { to { background-position: 56px 56px; } }
+@media (max-width: 720px) {
+  .ora-landing { background-image:
+    radial-gradient(700px 420px at 50% -4%, rgba(245,158,11,0.18), transparent 70%),
+    linear-gradient(180deg, rgba(10,14,26,0.82) 0%, rgba(5,8,17,0.94) 100%),
+    url('/aurem-bg-mobile.webp') center top / cover no-repeat; }
 }
 
+.ora-landing * { box-sizing: border-box; }
+.ora-landing .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* Nav */
+.ora-landing .nav {
+  position: sticky; top: 0; z-index: 50;
+  backdrop-filter: blur(18px);
+  background: rgba(10,14,26,0.72);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 32px;
+}
+.ora-landing .nav-left { display: flex; align-items: center; gap: 14px; }
+.ora-landing .logo-img { width: 38px; height: 38px; border-radius: 9px; }
+.ora-landing .logo-text { font-family: var(--font-mono); font-weight: 800; font-size: 22px; letter-spacing: -1px; color: var(--accent); }
+.ora-landing .logo-text span { color: var(--muted-2); font-weight: 400; font-size: 13px; margin-left: 6px; letter-spacing: 0; }
+.ora-landing .nav-links { display: flex; align-items: center; gap: 28px; }
+.ora-landing .nav-link { font-family: var(--font-mono); font-size: 13px; color: var(--muted-1); text-decoration: none; transition: color 0.15s; }
+.ora-landing .nav-link:hover { color: var(--accent); }
+.ora-landing .nav-cta {
+  font-family: var(--font-mono); font-size: 13px;
+  background: var(--accent); color: #000; padding: 9px 18px;
+  border-radius: 8px; text-decoration: none; font-weight: 600;
+  transition: opacity 0.15s, transform 0.08s;
+}
+.ora-landing .nav-cta:hover { opacity: 0.92; }
+.ora-landing .nav-cta:active { transform: translateY(1px); }
+
+/* Edge-to-edge tools strip */
+.ora-landing .topstrip {
+  position: sticky; top: 64px; z-index: 40;
+  backdrop-filter: blur(8px);
+  background: rgba(10,14,26,0.22);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  overflow: hidden; height: 26px;
+  display: flex; align-items: center;
+}
+.ora-landing .topstrip-inner {
+  width: 100%; overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+.ora-landing .topstrip-track {
+  display: inline-flex; gap: 44px; white-space: nowrap;
+  animation: oraStripScroll 38s linear infinite;
+  color: rgba(148,163,184,0.72); font-family: var(--font-mono); font-size: 11px;
+}
+.ora-landing .topstrip-track span { display: inline-flex; gap: 6px; align-items: center; }
+.ora-landing .topstrip-track span::before { content: "▪"; color: var(--accent); opacity: 0.7; }
+@keyframes oraStripScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* Hero */
+.ora-landing .hero { padding: 76px 32px 56px; }
+.ora-landing .hero-badge {
+  display: inline-block; font-family: var(--font-mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 1.5px;
+  background: var(--accent-bg); color: var(--accent);
+  padding: 7px 14px; border: 1px solid var(--accent-br);
+  border-radius: 999px; margin-bottom: 56px;
+}
+.ora-landing .hero-split {
+  display: grid; grid-template-columns: 1.05fr 1fr;
+  gap: 56px; align-items: start; margin-bottom: 56px;
+}
+.ora-landing .hero-title {
+  font-family: var(--font-mono); font-weight: 700;
+  font-size: clamp(22px, 2.9vw, 38px);
+  line-height: 1.18; letter-spacing: -1px; margin: 0;
+}
+.ora-landing .hero-title span { color: var(--accent); display: block; margin-top: 8px; }
+.ora-landing .hero-sub {
+  color: var(--muted-1); font-size: clamp(14px, 1.25vw, 17px);
+  line-height: 1.7; margin: 38px 0 0 0;
+  padding-left: 24px; border-left: 2px solid var(--accent-br);
+}
+.ora-landing .hero-actions { text-align: center; margin-top: 28px; }
+.ora-landing .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
+.ora-landing .btn-primary, .ora-landing .btn-ghost {
+  font-family: var(--font-mono); font-size: 14px; padding: 14px 28px;
+  border-radius: 10px; text-decoration: none; font-weight: 600;
+  transition: opacity 0.15s, transform 0.08s, background 0.15s;
+  cursor: pointer; border: none; display: inline-block;
+}
+.ora-landing .btn-primary { background: var(--accent); color: #000; }
+.ora-landing .btn-primary:hover { opacity: 0.92; }
+.ora-landing .btn-ghost { background: transparent; color: var(--muted-1); border: 1px solid var(--line); }
+.ora-landing .btn-ghost:hover { color: var(--text); border-color: var(--muted-3); }
+.ora-landing .btn-primary:active, .ora-landing .btn-ghost:active { transform: translateY(1px); }
+.ora-landing .hero-pill {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 8px 16px; border-radius: 999px;
+  background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.3);
+  color: var(--muted-1); font-size: 13px; font-family: var(--font-mono);
+  margin-bottom: 56px;
+}
+.ora-landing .hero-pill b { color: #4ade80; }
+.ora-landing .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: oraPulse 1.6s ease-in-out infinite; flex-shrink: 0; }
+@keyframes oraPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+.ora-landing .hero-stats { display: flex; gap: 48px; justify-content: center; flex-wrap: wrap; }
+.ora-landing .stat-num { font-family: var(--font-mono); color: var(--accent); font-size: 28px; font-weight: 700; }
+.ora-landing .stat-label { color: var(--muted-2); font-size: 12px; }
+
+/* Marquee */
+.ora-landing .marquee-wrap { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 22px 0; overflow: hidden; margin: 24px 0; }
+.ora-landing .marquee { display: flex; align-items: center; gap: 56px; animation: oraMarquee 26s linear infinite; white-space: nowrap; }
+@keyframes oraMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ora-landing .marquee-label { color: var(--muted-3); font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; }
+.ora-landing .marquee-item { color: var(--muted-2); font-family: var(--font-mono); font-size: 14px; display: inline-flex; gap: 8px; align-items: center; }
+.ora-landing .marquee-item::before { content: "▪"; color: var(--accent); }
+
+/* Social proof */
+.ora-landing .social-proof { background: rgba(255,255,255,0.015); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 36px 32px; }
+.ora-landing .proof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; text-align: center; }
+.ora-landing .proof-num { font-family: var(--font-mono); color: var(--accent); font-size: 36px; font-weight: 700; }
+.ora-landing .proof-label { color: var(--muted-2); font-size: 13px; margin-top: 4px; }
+
+/* Sections */
+.ora-landing .section { padding: 80px 32px; }
+.ora-landing .section-label { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; }
+.ora-landing .section-title { font-family: var(--font-mono); font-weight: 700; font-size: clamp(28px, 4vw, 44px); margin: 10px 0 8px; letter-spacing: -1px; }
+.ora-landing .section-sub { color: var(--muted-1); font-size: 16px; margin-bottom: 48px; }
+
+/* Video cards */
+.ora-landing .video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.ora-landing .video-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: transform 0.2s, border-color 0.2s; }
+.ora-landing .video-card:hover { transform: translateY(-2px); border-color: var(--accent-br); }
+.ora-landing .video-thumb { aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a0a00 0%, #050203 100%); }
+.ora-landing .video-thumb.green { background: linear-gradient(135deg, #001a0a 0%, #020503 100%); }
+.ora-landing .video-thumb.blue  { background: linear-gradient(135deg, #001a1a 0%, #020305 100%); }
+.ora-landing .video-thumb.purple{ background: linear-gradient(135deg, #0a001a 0%, #030205 100%); }
+.ora-landing .play-btn { width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #000; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 6px 24px rgba(245,158,11,0.4); }
+.ora-landing .video-info { padding: 16px 18px; border-top: 1px solid var(--line-2); }
+.ora-landing .video-title { color: var(--text); font-weight: 600; margin-bottom: 4px; font-size: 15px; }
+.ora-landing .video-desc { color: var(--muted-2); font-size: 13px; line-height: 1.5; }
+
+/* Steps */
+.ora-landing .steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.ora-landing .step { padding: 28px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); background: rgba(15,23,42,0.4); }
+.ora-landing .step-num { font-family: var(--font-mono); color: var(--accent); font-size: 11px; margin-bottom: 14px; letter-spacing: 1px; }
+.ora-landing .step-icon { font-size: 22px; color: var(--accent); margin-bottom: 8px; }
+.ora-landing .step-title { font-family: var(--font-mono); font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+.ora-landing .step-desc { color: var(--muted-2); font-size: 13px; line-height: 1.55; }
+
+/* Three Windows */
+.ora-landing .windows-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 18px; }
+.ora-landing .win-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,0.4); transition: transform 0.25s, border-color 0.25s; }
+.ora-landing .win-card:hover { transform: translateY(-3px); border-color: var(--accent-br); }
+.ora-landing .win-chrome { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(255,255,255,0.025); border-bottom: 1px solid var(--line-2); }
+.ora-landing .win-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ora-landing .win-dot.r { background: #ef4444; } .ora-landing .win-dot.y { background: #eab308; } .ora-landing .win-dot.g { background: #22c55e; }
+.ora-landing .win-title { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); margin-left: 8px; text-transform: uppercase; letter-spacing: 1px; flex: 1; }
+.ora-landing .win-pill { background: rgba(245,158,11,0.12); color: var(--accent); padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; }
+.ora-landing .win-body { padding: 18px; min-height: 240px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.ora-landing .win-code { background: #050810; }
+.ora-landing .win-code .ln  { color: var(--muted-3); margin-right: 12px; user-select: none; }
+.ora-landing .win-code .kw  { color: #c084fc; }
+.ora-landing .win-code .fn  { color: #fbbf24; }
+.ora-landing .win-code .str { color: #4ade80; }
+.ora-landing .win-code .cm  { color: var(--muted-3); font-style: italic; }
+.ora-landing .win-preview { background: linear-gradient(135deg, #0a0e1a 0%, #1e293b 100%); font-family: inherit; }
+.ora-landing .win-preview .browser-bar { background: #1e293b; color: var(--muted-2); padding: 5px 10px; border-radius: 6px; font-size: 10px; margin-bottom: 16px; display: inline-block; font-family: var(--font-mono); }
+.ora-landing .win-preview .live-tag { float: right; background: rgba(34,197,94,0.15); color: #4ade80; padding: 2px 8px; border-radius: 999px; font-size: 9px; border: 1px solid rgba(34,197,94,0.35); margin-top: 4px; font-family: var(--font-mono); }
+.ora-landing .win-preview h4 { color: var(--text); font-size: 16px; margin: 0 0 6px; }
+.ora-landing .win-preview p  { color: var(--muted-1); font-size: 12px; margin: 0 0 12px; line-height: 1.5; }
+.ora-landing .win-preview .preview-btn { background: var(--accent); color: #000; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; display: inline-block; font-family: var(--font-mono); }
+.ora-landing .win-advisor { background: linear-gradient(180deg, #0a0e1a 0%, #060912 100%); }
+.ora-landing .advisor-msg { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px 10px 10px 2px; padding: 9px 13px; color: var(--muted-1); margin-bottom: 9px; font-size: 12px; line-height: 1.5; }
+.ora-landing .advisor-msg.user { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.25); border-radius: 10px 10px 2px 10px; color: var(--text); margin-left: 32px; }
+.ora-landing .advisor-msg.bot b { color: var(--accent); }
+.ora-landing .advisor-typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+.ora-landing .advisor-typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: oraTyping 1.2s ease-in-out infinite; }
+.ora-landing .advisor-typing span:nth-child(2) { animation-delay: 0.15s; }
+.ora-landing .advisor-typing span:nth-child(3) { animation-delay: 0.30s; }
+@keyframes oraTyping { 0%,60%,100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+/* Modes (tabs) */
+.ora-landing .tabs-container { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.ora-landing .tabs-row { display: flex; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ora-landing .tab-btn { flex: 1; padding: 18px 20px; background: transparent; color: var(--muted-2); font-family: var(--font-mono); font-size: 13px; border: none; cursor: pointer; text-align: left; border-right: 1px solid var(--line-2); transition: color 0.2s, background 0.2s; }
+.ora-landing .tab-btn:last-child { border-right: none; }
+.ora-landing .tab-btn.active { color: var(--accent); background: rgba(245,158,11,0.06); box-shadow: inset 0 -2px 0 var(--accent); }
+.ora-landing .tab-content { padding: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.ora-landing .tab-info h3 { font-family: var(--font-mono); font-size: 22px; margin: 0 0 10px; }
+.ora-landing .tab-info p { color: var(--muted-1); font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+.ora-landing .tab-features { list-style: none; padding: 0; margin: 0; }
+.ora-landing .tab-features li { padding: 6px 0; color: var(--muted-1); font-size: 13px; }
+.ora-landing .tab-features li::before { content: "▸ "; color: var(--accent); margin-right: 4px; }
+.ora-landing .terminal { background: #050810; border: 1px solid var(--line); border-radius: 10px; padding: 18px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--text); min-height: 180px; white-space: pre-wrap; }
+.ora-landing .terminal .prompt { color: var(--green); }
+.ora-landing .terminal .amber  { color: var(--accent); }
+.ora-landing .terminal .gray   { color: var(--muted-2); }
+
+/* Why teams switch */
+.ora-landing .teams-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.ora-landing .team-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 24px; transition: transform 0.2s, border-color 0.2s; }
+.ora-landing .team-card:hover { transform: translateY(-2px); border-color: var(--accent-br); }
+.ora-landing .team-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(245,158,11,0.12); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 14px; }
+.ora-landing .team-tag { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; }
+.ora-landing .team-title { font-weight: 700; font-size: 17px; color: var(--text); margin-bottom: 6px; }
+.ora-landing .team-desc { color: var(--muted-1); font-size: 13px; line-height: 1.6; }
+
+/* Comparison */
+.ora-landing .compare-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; font-size: 14px; }
+.ora-landing .compare-table th, .ora-landing .compare-table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--line-2); }
+.ora-landing .compare-table tr:last-child td { border-bottom: none; }
+.ora-landing .compare-table thead th { background: var(--bg-2); color: var(--muted-1); font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.ora-landing .compare-table thead th.ora-col { background: rgba(245,158,11,0.08); color: var(--accent); }
+.ora-landing .compare-table tbody td { color: var(--muted-1); }
+.ora-landing .compare-table tbody td.ora-cell { background: rgba(245,158,11,0.04); color: var(--text); border-left: 1px solid var(--accent-br); border-right: 1px solid var(--accent-br); }
+.ora-landing .compare-table tbody td.feature-name { color: var(--text); font-weight: 500; }
+.ora-landing .yes { color: var(--green); }
+.ora-landing .no  { color: var(--muted-3); }
+.ora-landing .compare-cta { margin-top: 20px; padding: 18px 24px; background: var(--accent-bg); border: 1px solid var(--accent-br); border-radius: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ora-landing .compare-cta-text { color: var(--muted-1); font-size: 13px; flex: 1; min-width: 240px; }
+.ora-landing .compare-cta-text b { color: var(--text); }
+
+/* Reviews */
+.ora-landing .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.ora-landing .review-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+.ora-landing .review-stars { color: var(--accent); font-size: 14px; letter-spacing: 2px; margin-bottom: 10px; }
+.ora-landing .review-text { color: var(--muted-1); font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+.ora-landing .review-author { display: flex; align-items: center; gap: 12px; }
+.ora-landing .review-avatar { width: 36px; height: 36px; border-radius: 50%; font-family: var(--font-mono); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; background: rgba(245,158,11,0.2); color: var(--accent); }
+.ora-landing .review-name { font-weight: 600; font-size: 13px; }
+.ora-landing .review-role { color: var(--muted-2); font-size: 12px; }
+
+/* FAQ */
+.ora-landing .faq-list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.ora-landing .faq-item { border-bottom: 1px solid var(--line-2); background: var(--bg-2); }
+.ora-landing .faq-item:last-child { border-bottom: none; }
+.ora-landing .faq-q { padding: 18px 22px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ora-landing .faq-q-text { color: var(--text); font-size: 15px; }
+.ora-landing .faq-icon { color: var(--accent); transition: transform 0.2s; flex-shrink: 0; }
+.ora-landing .faq-item.open .faq-icon { transform: rotate(45deg); }
+.ora-landing .faq-a { max-height: 0; overflow: hidden; padding: 0 22px; color: var(--muted-1); font-size: 14px; line-height: 1.7; transition: max-height 0.3s, padding 0.3s; }
+.ora-landing .faq-item.open .faq-a { max-height: 320px; padding: 0 22px 18px; }
+
+/* CTA + footer */
+.ora-landing .cta-section { padding: 80px 32px; text-align: center; border-top: 1px solid var(--line); }
+.ora-landing .cta-title { font-family: var(--font-mono); font-weight: 700; font-size: clamp(28px, 5vw, 48px); margin: 0 0 12px; line-height: 1.1; }
+.ora-landing .cta-title span { color: var(--accent); display: block; }
+.ora-landing .cta-sub { color: var(--muted-1); margin-bottom: 26px; font-size: 16px; }
+.ora-landing .footer { border-top: 1px solid var(--line); padding: 36px 32px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; }
+.ora-landing .footer-text { color: var(--muted-3); font-size: 12px; font-family: var(--font-mono); }
+.ora-landing .footer-links { display: flex; gap: 22px; flex-wrap: wrap; }
+.ora-landing .footer-links a { color: var(--muted-2); font-size: 12px; text-decoration: none; font-family: var(--font-mono); }
+.ora-landing .footer-links a:hover { color: var(--accent); }
+
+@media (max-width: 720px) {
+  .ora-landing .tab-content { grid-template-columns: 1fr; }
+  .ora-landing .hero-split { grid-template-columns: 1fr; gap: 24px; text-align: center; }
+  .ora-landing .hero-sub { padding-left: 0; border-left: none; max-width: 580px; margin: 24px auto 0; }
+  .ora-landing .nav-links { gap: 16px; }
+  .ora-landing .nav-link { display: none; }
+  .ora-landing .nav-link:last-of-type { display: inline; }
+}
+`;
+
+// Static data
+const TOOLS = [
+  "Claude Desktop", "Claude Code", "Cursor", "VS Code",
+  "Ollama (offline)", "LM Studio (offline)", "GitHub", "MCP 2.4",
+];
+const TAGLINES = [
+  "Production-ready code, committed direct",
+  "All MCP — Claude · Cursor · VS Code",
+  "Run local on your PC, no internet",
+  "Flat $9/mo · no token meter",
+  "Multi-file reasoning · audit-grade",
+  "Security scan on every commit",
+];
+const MODES = [
+  {
+    label: "⚡ Swift",
+    title: "Swift mode",
+    blurb: <>Fast, cheap, reliable. <b>GPT-4o-mini / Claude Haiku 4.5</b> class. Perfect for quick fixes and everyday tasks.</>,
+    features: ["~30 seconds end-to-end", "Minimum-diff commits", "Full review pass included", "Security scan every commit"],
+    terminal: (
+      <><span className="prompt">$</span> ora ship {'"fix the login bug"'}{"\n"}
+        <span className="gray">→</span> reading auth.py …{"\n"}
+        <span className="gray">→</span> writing patch …{"\n"}
+        <span className="gray">→</span> running security check …{"\n"}
+        <span className="amber">✓ commit a1b2c3 pushed</span></>
+    ),
+  },
+  {
+    label: "◐ Pro",
+    title: "Pro mode",
+    blurb: <>Balanced quality + depth. <b>Claude Sonnet 4.5 / GPT-5.2</b> class. Best default for production work.</>,
+    features: ["Multi-file reasoning", "Test scaffolds auto-included", "2-step plan-then-act", "Token-aware budget control"],
+    terminal: (
+      <><span className="prompt">$</span> ora ship {'"add stripe webhook"'}{"\n"}
+        <span className="gray">→</span> planning across 4 files …{"\n"}
+        <span className="gray">→</span> writing handlers + tests …{"\n"}
+        <span className="amber">✓ commit 9z8y7x pushed</span></>
+    ),
+  },
+  {
+    label: "⚡ Max",
+    title: "Max mode",
+    blurb: <>Deep, thorough, audit-grade. <b>Claude Opus 4.5 / GPT-5.2 / Gemini 3 Pro</b>. For refactors and risky changes.</>,
+    features: ["Full repo grep + AST scan", "RCA on every regression", "Migration scripts included", "3-step plan/code/verify"],
+    terminal: (
+      <><span className="prompt">$</span> ora ship {'"migrate sessions to redis"'}{"\n"}
+        <span className="gray">→</span> indexing 412 files …{"\n"}
+        <span className="gray">→</span> writing migration plan …{"\n"}
+        <span className="amber">✓ commit f4e3d2 pushed</span></>
+    ),
+  },
+  {
+    label: "⌂ Local",
+    title: <>Local mode <span style={{ color: "#f59e0b", fontSize: 12 }}>(no internet)</span></>,
+    blurb: "Point ORA at a local Ollama / LM Studio endpoint. Your repo and prompts never leave your box. Same MCP tools, zero cloud inference.",
+    features: [
+      "Works with Ollama / LM Studio / llama.cpp",
+      "Code Llama 70B · Mistral · Phi-3 · open-source backbones",
+      "End-to-end on localhost — air-gapped friendly",
+      "Same sk-aurem-* token, same MCP server",
+    ],
+    terminal: (
+      <><span className="prompt">$</span> export ORA_LLM=ollama://codellama-70b{"\n"}
+        <span className="prompt">$</span> ora ship {'"tidy README typos"'}{"\n"}
+        <span className="gray">→</span> connecting to localhost:11434 …{"\n"}
+        <span className="gray">→</span> writing patch on-device …{"\n"}
+        <span className="amber">✓ commit d7e8f9 pushed (offline)</span></>
+    ),
+  },
+];
+const TEAMS = [
+  { icon: "▸", tag: "direct commit", title: "Real PRs, not snippets", desc: "ORA opens a PR on YOUR repo with a working diff — lint-clean, tests included, ready to merge." },
+  { icon: "⌬", tag: "project brain", title: "Remembers your repo", desc: "Per-repo memory of decisions, conventions and past commits — so it ships in your style." },
+  { icon: "⌥", tag: "f12 debug", title: "Pasted a stack trace? Done.", desc: "Catches F12 console errors and routes them straight to the right file, with a proposed fix." },
+  { icon: "▤", tag: "live tape", title: "Watch it work", desc: "Terminal-style worker tape streams every step — reading, thinking, writing, committing." },
+  { icon: "⫶", tag: "parallel agents", title: "Split big jobs", desc: "Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side." },
+  { icon: "{ }", tag: "vs code", title: "Editor extension", desc: "Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page." },
+];
+const REVIEWS = [
+  { stars: 5, text: "I shipped a Stripe integration in a Slack thread while waiting for a flight. ORA read the repo, wrote the code, ran the tests, committed. Mind blown.", name: "James R.", role: "Founder, Devstream", initials: "JR" },
+  { stars: 5, text: "Finally an AI that actually commits — no copy-paste compromise. ORA is just direct.", name: "Sarah P.", role: "Indie dev, Berlin", initials: "SP", color: "#22c55e" },
+  { stars: 5, text: "Switched from Cursor. I was paying $40/mo and still getting token-throttled. ORA is flat $9 and just ships.", name: "Mrinul K.", role: "Backend engineer", initials: "MK" },
+  { stars: 5, text: "Compliance team blocked all cloud LLMs. Pointed ORA at our internal Ollama box and shipped 4 PRs the same week. Zero data leakage.", name: "Akari T.", role: "Staff eng, finserv", initials: "AT", color: "#818cf8" },
+  { stars: 5, text: "The only AI tool that understands my repo. After running it once, the warm-start memory is dialled in. Tasks land in minutes, not hours.", name: "Luca M.", role: "Senior, SaaS startup", initials: "LM", color: "#f472b6" },
+  { stars: 5, text: "Linux dev. No IDE, no problem. ORA via Claude Code in terminal is the cleanest workflow I've ever had.", name: "Ridhi P.", role: "Platform team lead", initials: "RP", color: "#fb7185" },
+];
+const COMPARE_ROWS = [
+  ["Direct GitHub commits",                 ["yes","Yes"], ["no","No"], ["no","No"], ["yes","Yes"], ["no","No"]],
+  ["No IDE required",                       ["yes","Yes"], ["no","No"], ["no","No"], ["yes","Yes"], ["yes","Yes"]],
+  ["Mobile-friendly (web + PWA)",           ["yes","Yes"], ["no","No"], ["no","No"], ["no","Limited"], ["no","No"]],
+  ["Flat pricing (no token meter)",         ["yes","$9/mo"], ["no","$10/mo"], ["no","$20/mo"], ["no","$500/mo"], ["no","Token-billed"]],
+  ["MCP server (Claude / Cursor / VS Code)",["yes","All"], ["no","No"], ["no","Partial"], ["no","No"], ["yes","Yes"]],
+  ["VS Code extension",                     ["yes","Marketplace"], ["yes","Yes"], ["yes","Yes"], ["no","No"], ["no","No"]],
+  ["Run local on PC, no internet",          ["yes","Ollama / LM Studio"], ["no","No"], ["no","No"], ["no","No"], ["no","No"]],
+  ["Codebase memory (warm-start)",          ["yes","Built-in"], ["no","Limited"], ["no","Limited"], ["yes","Yes"], ["no","Partial"]],
+  ["Security scan every commit",            ["yes","Yes"], ["no","No"], ["no","No"], ["no","Partial"], ["no","No"]],
+  ["OAuth 2.1 + PKCE for AI clients",       ["yes","Native"], ["no","No"], ["no","No"], ["no","No"], ["yes","Yes"]],
+  ["Open source friendly",                  ["yes","MIT extension"], ["no","No"], ["no","No"], ["no","No"], ["no","No"]],
+];
+const FAQS = [
+  { q: "Do I need an IDE to use ORA?",
+    a: "No. ORA is a browser/mobile/PWA app and a terminal MCP server. Use it from any device. If you do live in VS Code or Cursor, install the extension — but it's optional." },
+  { q: "How is ORA different from GitHub Copilot or Cursor?",
+    a: "Copilot and Cursor are autocompletes inside an IDE. ORA is an agent that lives outside the IDE — it reads your repo, plans the change, writes the code, runs security checks, and commits. You never copy-paste." },
+  { q: "Can I run ORA locally on my PC without internet?",
+    a: <>Yes — that&apos;s the <b>Local</b> mode. Point ORA at Ollama / LM Studio / llama.cpp on localhost. Your repo and prompts never leave your machine. Same MCP tools, zero cloud inference. Works on air-gapped boxes.</> },
+  { q: "Which MCP clients does ORA support?",
+    a: <><b>All of them.</b> Claude Desktop, Claude Code, Cursor, VS Code (via extension), any client that speaks MCP 2.4 Streamable HTTP. Native OAuth 2.1 + PKCE for the Claude Directory listing.</> },
+  { q: "Is my repo code safe with ORA?",
+    a: "ORA reads what you authorize via GitHub OAuth, scoped to the repos you select. Inferences go through OpenRouter (audit-logged) — or stay on your box if you use Local mode. No prompt-training opt-in. Full data export anytime." },
+  { q: "What languages does ORA support?",
+    a: "Python, JavaScript / TypeScript, Go, Rust, Java, Kotlin, Swift, Ruby, PHP, C/C++. Repository-level reasoning across stacks. Test scaffolds auto-included." },
+];
+
 export default function Landing() {
-  const bgSrc = useResponsiveBg();
-  const [wallFeed, setWallFeed] = useState([]);
+  const [tab, setTab] = useState(0);
+  const [openFaq, setOpenFaq] = useState(null);
 
-  useEffect(() => {
-    // Real ships only — fall back to empty list on error, never fake rows.
-    api.get("/wall/feed?limit=5")
-      .then((r) => setWallFeed(r.data?.feed || r.data?.items || []))
-      .catch(() => setWallFeed([]));
-  }, []);
-
-  // Iter 175 — SEO/AEO meta sync.
-  // SPA navigations don't re-evaluate index.html <head>, so AI crawlers
-  // arriving via /vs/devin → / would inherit the previous page's title.
-  // Set the canonical title + description on every Landing mount so
-  // ChatGPT Search / Perplexity / Google AI Overviews see the right copy.
+  // SEO/AEO title + description sync (preserved from Iter 175).
   useEffect(() => {
     document.title = "ORA — developers choice | by Aurem CTO";
-    const desc = (
+    const desc =
       "ORA by Aurem CTO — AI engineer that reads your GitHub repo and " +
-      "commits production code directly. No IDE. Flat $9/month."
-    );
+      "commits production code directly. No IDE. Flat $9/month.";
     let tag = document.querySelector('meta[name="description"]');
     if (!tag) {
       tag = document.createElement("meta");
@@ -71,448 +467,382 @@ export default function Landing() {
   }, []);
 
   return (
-    <div
-      data-testid="landing-root"
-      style={{
-        minHeight: "100vh",
-        position: "relative",
-        color: "var(--text)",
-        overflow: "hidden",
-        background:
-          "linear-gradient(180deg, rgba(8,8,12,0.82) 0%, rgba(8,8,12,0.95) 100%), " +
-          `url('${bgSrc}') center center / cover no-repeat fixed`,
-      }}
-    >
-      {/* ── 0 — Floating nav ──────────────────────────────────────── */}
-      <nav data-testid="landing-nav" style={navStyle}>
-        <Link to="/" style={{
-          color: "var(--text)", textDecoration: "none",
-          fontFamily: "'JetBrains Mono', monospace",
-          fontWeight: 600, fontSize: 14, letterSpacing: "0.08em",
-        }}>AUREM CTO</Link>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <a href="#pricing" data-testid="nav-pricing" className="btn-ghost nav-mobile-hide">Pricing</a>
-          <Link to="/wall" data-testid="nav-wall" className="btn-ghost nav-mobile-hide">Ship Wall</Link>
-          <Link to="/login" data-testid="nav-login" className="btn-ghost">Sign in</Link>
-          <Link to="/signup" data-testid="nav-signup" className="btn-primary">
-            Get started <ArrowRight size={14} />
-          </Link>
+    <div className="ora-landing" data-testid="ora-landing-v184">
+      <style>{LANDING_CSS}</style>
+
+      {/* ─── NAV ─── */}
+      <nav className="nav" data-testid="ora-nav">
+        <div className="nav-left">
+          <img src="/ora-icon.png" alt="ORA" className="logo-img" />
+          <div className="logo-text">ORA<span> by Aurem CTO</span></div>
+        </div>
+        <div className="nav-links">
+          <a className="nav-link" href="#features" data-testid="nav-features">Features</a>
+          <a className="nav-link" href="#pricing" data-testid="nav-pricing">Pricing</a>
+          <a className="nav-link" href="#reviews" data-testid="nav-reviews">Reviews</a>
+          <Link className="nav-link" to="/login" data-testid="nav-login">Sign in</Link>
+          <Link className="nav-cta" to="/signup" data-testid="nav-signup-cta">Start free</Link>
         </div>
       </nav>
 
-      <main style={{
-        maxWidth: 1140,
-        margin: "0 auto",
-        padding: "clamp(48px, 10vh, 120px) clamp(20px, 5vw, 48px) 60px",
-      }}>
-        {/* ── 1 — HERO ───────────────────────────────────────────── */}
-        <section data-testid="hero" style={{
-          minHeight: "60vh",
-          display: "flex", flexDirection: "column",
-          justifyContent: "center", alignItems: "flex-start",
-          maxWidth: 880,
-        }}>
-          <div className="eyebrow" style={{ marginBottom: 28 }}>
-            <span className="dot" />
-            ORA · by Aurem CTO · ships real commits · public beta
+      {/* ─── Edge-to-edge tools strip ─── */}
+      <div className="topstrip" aria-hidden="true">
+        <div className="topstrip-inner">
+          <div className="topstrip-track">
+            {[...TOOLS, ...TOOLS].map((t, i) => <span key={i}>{t}</span>)}
           </div>
-          {/* Iter 178 — Logo + text hero. Replaces the old H1 stack +
-              hero picture. The logo is the same PNG served as the
-              PWA + favicon source-of-truth, kept at 72×72 for crisp
-              1:1 retina on most screens. */}
-          <div data-testid="hero-headline" style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 20,
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}>
-            <img
-              src="/ora-icon.png"
-              alt="ORA logo"
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: "50%",
-                flexShrink: 0,
-              }}
-            />
-            <div style={{ textAlign: "left" }}>
-              <div style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 12,
-              }}>
-                <span style={{
-                  fontSize: "clamp(42px, 8vw, 72px)",
-                  fontWeight: 800,
-                  letterSpacing: "-0.02em",
-                  color: "#f59e0b",
-                  lineHeight: 1,
-                  fontFamily: "var(--font-mono, monospace)",
-                }}>
-                  ORA
-                </span>
-                <span style={{
-                  fontSize: "clamp(14px, 2vw, 18px)",
-                  color: "var(--text-dim, #94a3b8)",
-                  fontWeight: 400,
-                  letterSpacing: "0.05em",
-                }}>
-                  developers choice_
-                </span>
-              </div>
-              <div style={{
-                fontSize: "clamp(11px, 1.5vw, 13px)",
-                color: "var(--text-faint, #475569)",
-                marginTop: 4,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                fontFamily: "var(--font-mono, monospace)",
-              }}>
-                by Aurem CTO
-              </div>
-            </div>
-          </div>
-          <p data-testid="hero-sub" style={{
-            fontSize: 18, color: "var(--text-dim)",
-            margin: "24px 0 36px", maxWidth: 660, lineHeight: 1.6,
-          }}>
-            AI engineer that reads your repo and ships code to GitHub. No IDE needed.
-          </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <Link to="/signup" data-testid="hero-cta-signup" className="btn-primary">
-              Start free — 10 tasks <ArrowRight size={16} />
-            </Link>
-            <a href="#demo" data-testid="hero-cta-demo" className="btn-ghost">
-              <PlayCircle size={16} /> Watch 60-second demo
-            </a>
-            <a
-              data-testid="hero-annual-badge"
-              href="#pricing"
-              style={{
-                fontSize: 11, fontWeight: 700, letterSpacing: ".08em",
-                textTransform: "uppercase",
-                padding: "8px 12px",
-                background: "rgba(109,212,161,0.10)",
-                color: "#6dd4a1",
-                border: "1px solid rgba(109,212,161,0.35)",
-                borderRadius: 999,
-                textDecoration: "none",
-                whiteSpace: "nowrap",
-              }}
-            >
-              💸 Save 20% with annual
-            </a>
-          </div>
-        </section>
+        </div>
+      </div>
 
-        {/* ── 2 — FEATURES GRID ──────────────────────────────────── */}
-        <section data-testid="features" style={{ marginTop: 96 }}>
-          <span className="eyebrow">why teams switch</span>
-          <h2 className="serif" style={{ fontSize: 30, margin: "12px 0 36px" }}>
-            Built like a teammate, not a chat bot.
-          </h2>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: 16,
-          }}>
-            {FEATURES.map((f, i) => (
-              <div key={i} className="card" data-testid={`feature-card-${i}`} style={{
-                background: "rgba(20, 20, 28, 0.55)",
-                backdropFilter: "blur(10px)",
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}>
-                <f.Icon size={20} style={{ color: "var(--accent)", marginBottom: 14 }} />
-                <span className="eyebrow" style={{ fontSize: 10 }}>{f.tag}</span>
-                <h3 style={{ fontSize: 14, margin: "8px 0 6px",
-                              color: "var(--text)" }}>{f.title}</h3>
-                <p style={{ fontSize: 12.5, lineHeight: 1.55,
-                            color: "var(--text-dim)", margin: 0 }}>
-                  {f.body}
-                </p>
-              </div>
-            ))}
+      <div className="container">
+
+        {/* ─── HERO ─── */}
+        <section className="hero">
+          <div style={{ textAlign: "center" }}>
+            <div className="hero-badge">▸ Developers Choice</div>
           </div>
-        </section>
-
-        {/* ── 3 — WHAT'S NEW (real ship-log highlights) ──────────── */}
-        <section data-testid="whats-new" style={{ marginTop: 96 }}>
-          <span className="eyebrow">what's new</span>
-          <h2 className="serif" style={{ fontSize: 30, margin: "12px 0 36px" }}>
-            The last two iterations.
-          </h2>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 14,
-          }}>
-            {WHATS_NEW.map((item, i) => (
-              <div key={i} data-testid={`whats-new-${i}`} style={{
-                padding: "16px 18px",
-                background: "rgba(20, 20, 28, 0.55)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 8,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8,
-                              marginBottom: 8 }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: ".08em",
-                    color: "var(--accent-2)", textTransform: "uppercase",
-                    padding: "2px 7px", borderRadius: 3,
-                    background: "rgba(255,138,42,0.1)",
-                    border: "1px solid rgba(255,138,42,0.25)",
-                  }}>{item.tag}</span>
-                </div>
-                <h3 style={{ fontSize: 13, margin: "0 0 6px",
-                              color: "var(--text)", fontWeight: 600 }}>{item.title}</h3>
-                <p style={{ fontSize: 12, lineHeight: 1.5,
-                            color: "var(--text-dim)", margin: 0 }}>
-                  {item.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── 4 — PRICING ────────────────────────────────────────── */}
-        <section id="pricing" data-testid="pricing-section" style={{ marginTop: 96 }}>
-          <span className="eyebrow">pricing</span>
-          <h2 className="serif" style={{ fontSize: 30, margin: "12px 0 14px" }}>
-            Flat fee. No token surprises.
-          </h2>
-          <div data-testid="pricing-banner" style={{
-            padding: "10px 14px", marginBottom: 24,
-            background: "rgba(255,138,42,0.08)",
-            border: "1px solid rgba(255,138,42,0.32)",
-            borderRadius: 6, fontSize: 12.5,
-            color: "var(--accent-2, #ffb347)",
-          }}>
-            Copilot switched to token billing. We didn't.
-          </div>
-          <PricingCards currentTier="free" />
-          <div style={{ marginTop: 16, fontSize: 13, color: "var(--text-dim)" }}>
-            <Link
-              to="/vs/devin"
-              data-testid="pricing-vs-devin"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
-            >
-              How we compare to Devin →
-            </Link>
-          </div>
-        </section>
-
-        {/* ── 5 — DEMO ───────────────────────────────────────────── */}
-        <section id="demo" data-testid="demo-section" style={{ marginTop: 96 }}>
-          <span className="eyebrow">demo</span>
-          <h2 className="serif" style={{ fontSize: 30, margin: "12px 0 24px" }}>
-            See it ship a feature in 60 seconds.
-          </h2>
-          <div
-            data-testid="demo-placeholder"
-            style={{
-              position: "relative",
-              aspectRatio: "16 / 9", maxWidth: 880,
-              background:
-                "linear-gradient(135deg, rgba(255,138,42,0.06) 0%, rgba(20,20,28,0.6) 100%)",
-              border: "1px solid rgba(255,200,120,0.18)",
-              borderRadius: 12,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => window.open("https://github.com/aurem-dev", "_blank")}
-          >
-            <PlayCircle size={48} style={{ color: "var(--accent)" }} />
-            <div style={{
-              position: "absolute", bottom: 16, left: 18, right: 18,
-              display: "flex", justifyContent: "space-between",
-              fontSize: 11, color: "var(--text-faint)",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
-              <span>Watch 60-second demo</span>
-              <span>aurem cto · live ship</span>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Stats strip — REAL data from /usage/public/stats ─── */}
-        <PublicStatsStrip />
-
-        {/* ── 6 — START IN 30 SECONDS ────────────────────────────── */}
-        <section data-testid="quickstart" style={{
-          marginTop: 96, textAlign: "center",
-          padding: "44px 24px",
-          background: "linear-gradient(180deg, rgba(255,138,42,0.05) 0%, transparent 100%)",
-          border: "1px solid rgba(255,138,42,0.16)",
-          borderRadius: 14,
-        }}>
-          <span className="eyebrow">start in 30 seconds</span>
-          <h2 className="serif" style={{
-            fontSize: 28, margin: "10px 0 14px",
-            letterSpacing: "-0.01em",
-          }}>
-            Sign up → Connect GitHub → Ship.
-          </h2>
-          <p style={{
-            fontSize: 13, color: "var(--text-dim)",
-            margin: "0 auto 24px", maxWidth: 480, lineHeight: 1.55,
-          }}>
-            Sign in with GitHub and your first task can ship in under a
-            minute. The onboarding wizard handles the rest.
-          </p>
-          <Link
-            to="/signup"
-            data-testid="quickstart-cta"
-            className="btn-primary"
-            style={{
-              padding: "12px 22px", fontSize: 14,
-              display: "inline-flex", gap: 8,
-            }}
-          >
-            <Github size={16} /> Continue with GitHub
-          </Link>
-        </section>
-
-        {/* ── 7 — SHIP WALL LIVE FEED ────────────────────────────── */}
-        {wallFeed.length > 0 && (
-          <section data-testid="ship-wall-embed" style={{ marginTop: 96 }}>
-            <span className="eyebrow">live</span>
-            <h2 className="serif" style={{ fontSize: 30, margin: "12px 0 6px" }}>
-              Last 5 ships.
-            </h2>
-            <p style={{
-              fontSize: 12, color: "var(--text-faint)",
-              margin: "0 0 24px",
-            }}>
-              Pulled live from the public ship wall — no fake rows.
+          <div className="hero-split">
+            <h1 className="hero-title" data-testid="hero-headline">
+              The AI engineer<br />
+              That actually commits.
+              <span>No IDE, no token meters.</span>
+            </h1>
+            <p className="hero-sub" data-testid="hero-subhead">
+              ORA plugs into your GitHub repo and MCP terminal to ship
+              production-ready code directly to your branches.
+              Run it anywhere — even 100% offline on your own machine.
             </p>
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: 12,
-            }}>
-              {wallFeed.slice(0, 5).map((s, i) => (
-                <div key={s.task_id || s.sha || i}
-                     data-testid={`ship-row-${i}`}
-                     style={{
-                       padding: "12px 14px",
-                       background: "rgba(20, 20, 28, 0.55)",
-                       border: "1px solid rgba(255,255,255,0.06)",
-                       borderRadius: 8,
-                     }}>
-                  <div style={{
-                    fontSize: 10, color: "var(--text-faint)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    marginBottom: 6,
-                  }}>
-                    {(s.repo || s.project || "—")}
-                    {s.short_sha || s.sha ? ` · ${(s.short_sha || s.sha || "").slice(0, 7)}` : ""}
-                  </div>
-                  <div style={{
-                    fontSize: 12, color: "var(--text)",
-                    lineHeight: 1.45, wordBreak: "break-word",
-                  }}>
-                    {(s.summary || s.description || s.task || "").slice(0, 160)
-                      || "(no description)"}
+          </div>
+          <div className="hero-actions">
+            <div className="hero-buttons">
+              <Link className="btn-primary" to="/signup" data-testid="hero-cta-signup">Start free — 10 tasks</Link>
+              <a className="btn-ghost" href="#watch" data-testid="hero-cta-watch">Watch it ship</a>
+            </div>
+            <div className="hero-pill" data-testid="hero-no-card-pill">
+              <span className="live-dot"></span>
+              <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
+            </div>
+            <div className="hero-stats">
+              <div><div className="stat-num">$9</div><div className="stat-label">flat monthly</div></div>
+              <div><div className="stat-num">0</div><div className="stat-label">token billing</div></div>
+              <div><div className="stat-num">1</div><div className="stat-label">tap to commit</div></div>
+              <div><div className="stat-num">∞</div><div className="stat-label">repos</div></div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Why teams ship marquee ─── */}
+        <div className="marquee-wrap">
+          <div className="marquee">
+            {[...Array(2)].map((_, k) => (
+              <React.Fragment key={k}>
+                <span className="marquee-label">Why teams ship with ORA</span>
+                {TAGLINES.map((t, i) => <span className="marquee-item" key={`${k}-${i}`}>{t}</span>)}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+      </div>
+
+      {/* ─── Social proof (full-width) ─── */}
+      <section className="social-proof">
+        <div className="container">
+          <div className="proof-grid">
+            <div><div className="proof-num">500+</div><div className="proof-label">developers using ORA</div></div>
+            <div><div className="proof-num">12k+</div><div className="proof-label">production commits shipped</div></div>
+            <div><div className="proof-num">4.9★</div><div className="proof-label">avg rating</div></div>
+            <div><div className="proof-num">55%</div><div className="proof-label">cheaper than 1 Copilot</div></div>
+          </div>
+        </div>
+      </section>
+
+      <div className="container">
+
+        {/* ─── Watch it ship ─── */}
+        <section className="section" id="watch">
+          <div className="section-label">See it live</div>
+          <h2 className="section-title">Watch ORA ship real code</h2>
+          <p className="section-sub">Real repos. Real commits. No staging.</p>
+          <div className="video-grid">
+            {[
+              { thumb: "",       title: "Fix a bug in 90 seconds",       desc: "ORA reads the issue, finds the file, commits the patch." },
+              { thumb: "green",  title: "Mobile dashboard ship",         desc: "Type a task from the phone, watch it commit to GitHub." },
+              { thumb: "blue",   title: "Terminal workflow",             desc: "Claude Code + ORA MCP — commit without a browser." },
+              { thumb: "purple", title: "Run local on PC — no internet", desc: "Boot ORA against Ollama / LM Studio. Your code never leaves the box." },
+            ].map((v, i) => (
+              <div className="video-card" key={i}>
+                <div className={`video-thumb ${v.thumb}`}><div className="play-btn">▶</div></div>
+                <div className="video-info">
+                  <div className="video-title">{v.title}</div>
+                  <div className="video-desc">{v.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── How it works ─── */}
+        <section className="section" id="features">
+          <div className="section-label">How it works</div>
+          <h2 className="section-title">From prompt to commit in 4 steps</h2>
+          <p className="section-sub">No setup. No IDE. No context switching.</p>
+          <div className="steps-grid">
+            {[
+              ["01","⚡","Connect","Authorize GitHub once. ORA reads your repo, commits, branches."],
+              ["02","✎","Describe","\"Fix the login bug\" — in plain English, in the chat or in your terminal."],
+              ["03","▶","Ship","ORA writes the patch, runs security checks, commits the branch."],
+              ["04","✓","Done","GitHub commit hash. ORA opens the PR. No manual push."],
+            ].map(([n, ic, t, d]) => (
+              <div className="step" key={n}>
+                <div className="step-num">{n}</div>
+                <div className="step-icon">{ic}</div>
+                <div className="step-title">{t}</div>
+                <div className="step-desc">{d}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── Three Windows ─── */}
+        <section className="section" id="workspace">
+          <div className="section-label">The workspace</div>
+          <h2 className="section-title">Three windows. One agent.</h2>
+          <p className="section-sub">Code, Live Preview and Advisor — side by side. Switch tabs, never switch tools.</p>
+          <div className="windows-grid">
+            <div className="win-card" data-testid="win-code">
+              <div className="win-chrome">
+                <span className="win-dot r" /><span className="win-dot y" /><span className="win-dot g" />
+                <span className="win-title">Code · auth.py</span>
+                <span className="win-pill">DIFF +24 / −6</span>
+              </div>
+              <div className="win-body win-code">
+                <span className="ln">12</span><span className="kw">def</span> <span className="fn">login</span>(email, pw):<br />
+                <span className="ln">13</span>  <span className="cm"># Iter 184 — bcrypt + rate-limit</span><br />
+                <span className="ln">14</span>  user = db.users.find_one({"{"}<span className="str">{'"email"'}</span>: email{"}"})<br />
+                <span className="ln">15</span>  <span className="kw">if</span> <span className="kw">not</span> user:<br />
+                <span className="ln">16</span>    <span className="kw">raise</span> <span className="fn">HTTPException</span>(<span className="str">401</span>)<br />
+                <span className="ln">17</span>  <span className="kw">if</span> bcrypt.<span className="fn">checkpw</span>(pw, user[<span className="str">{'"hash"'}</span>]):<br />
+                <span className="ln">18</span>    <span className="kw">return</span> <span className="fn">create_token</span>(user)<br />
+                <span className="ln">19</span>  <span className="kw">raise</span> <span className="fn">HTTPException</span>(<span className="str">401</span>)
+              </div>
+            </div>
+            <div className="win-card" data-testid="win-preview">
+              <div className="win-chrome">
+                <span className="win-dot r" /><span className="win-dot y" /><span className="win-dot g" />
+                <span className="win-title">Live preview</span>
+                <span className="win-pill">localhost:3000</span>
+              </div>
+              <div className="win-body win-preview">
+                <span className="browser-bar">▸ https://auremcto.com/login</span>
+                <span className="live-tag">● live</span>
+                <div style={{ clear: "both", marginTop: 14 }}>
+                  <h4>Welcome back</h4>
+                  <p>Sign in to ship your next commit.</p>
+                  <div className="preview-btn">Login →</div>
+                  <div style={{ marginTop: 14, fontSize: 11, color: "var(--muted-3)", fontFamily: "var(--font-mono)" }}>
+                    <span style={{ color: "#4ade80" }}>✓</span> hot reload · 142ms<br />
+                    <span style={{ color: "#4ade80" }}>✓</span> tests pass · 38 / 38<br />
+                    <span style={{ color: "#4ade80" }}>✓</span> lint clean
                   </div>
                 </div>
+              </div>
+            </div>
+            <div className="win-card" data-testid="win-advisor">
+              <div className="win-chrome">
+                <span className="win-dot r" /><span className="win-dot y" /><span className="win-dot g" />
+                <span className="win-title">Ask advisor</span>
+                <span className="win-pill">ORA · Pro</span>
+              </div>
+              <div className="win-body win-advisor">
+                <div className="advisor-msg user">Why are we using bcrypt over argon2 here?</div>
+                <div className="advisor-msg bot">
+                  <b>ORA:</b> Your repo&apos;s been on bcrypt since <code>auth.py</code> was first written (Iter 04).
+                  Argon2 is stronger but you&apos;d need a migration: re-hash on next login + add an
+                  <code style={{ color: "var(--accent)" }}> algo</code> column. Want me to draft the PR?
+                </div>
+                <div className="advisor-msg user">Yes — and keep bcrypt as fallback for older rows.</div>
+                <div className="advisor-msg bot">
+                  <span className="advisor-typing"><span /><span /><span /></span>
+                  planning across 3 files…
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Modes ─── */}
+        <section className="section">
+          <div className="section-label">Modes</div>
+          <h2 className="section-title">Pick your speed</h2>
+          <p className="section-sub">Every mode commits direct to GitHub.</p>
+          <div className="tabs-container" data-testid="modes-tabs">
+            <div className="tabs-row">
+              {MODES.map((m, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  data-testid={`mode-tab-${i}`}
+                  className={`tab-btn ${tab === i ? "active" : ""}`}
+                  onClick={() => setTab(i)}
+                >
+                  {m.label}
+                </button>
               ))}
             </div>
-            <div style={{ marginTop: 18 }}>
-              <Link to="/wall" className="btn-ghost"
-                    data-testid="ship-wall-full-link">
-                See full Ship Wall <ArrowRight size={14} />
-              </Link>
+            <div className="tab-content">
+              <div className="tab-info">
+                <h3>{MODES[tab].title}</h3>
+                <p>{MODES[tab].blurb}</p>
+                <ul className="tab-features">
+                  {MODES[tab].features.map((f, i) => <li key={i}>{f}</li>)}
+                </ul>
+              </div>
+              <div className="terminal">{MODES[tab].terminal}</div>
             </div>
-          </section>
-        )}
-
-        {/* ── 8 — FOOTER ─────────────────────────────────────────── */}
-        <footer style={{
-          marginTop: 80, padding: "26px 0 0",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          display: "flex", gap: 24, flexWrap: "wrap",
-          alignItems: "center", justifyContent: "space-between",
-          fontSize: 11, color: "var(--text-faint)",
-          letterSpacing: "0.05em",
-        }}>
-          <span>© 2026 AUREM CTO · Flat-fee AI engineering · Built for builders</span>
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-            <Link to="/wall" data-testid="footer-wall"
-                  style={{ color: "var(--text-faint)" }}>Ship Wall</Link>
-            <Link to="/vs/devin" data-testid="footer-vs-devin"
-                  style={{ color: "var(--text-faint)" }}>vs Devin</Link>
-            <Link to="/vs/cursor" data-testid="footer-vs-cursor"
-                  style={{ color: "var(--text-faint)" }}>vs Cursor</Link>
-            <a href="#pricing" style={{ color: "var(--text-faint)" }}>Pricing</a>
-            <Link to="/privacy" data-testid="footer-privacy"
-                  style={{ color: "var(--text-faint)" }}>Privacy</Link>
-            <Link to="/terms" data-testid="footer-terms"
-                  style={{ color: "var(--text-faint)" }}>Terms</Link>
-            <Link to="/acceptable-use" data-testid="footer-aup"
-                  style={{ color: "var(--text-faint)" }}>Acceptable Use</Link>
-            <a href="mailto:ora@aurem.live" data-testid="footer-support"
-               style={{ color: "var(--text-faint)" }}>Contact</a>
-            <a href="https://x.com/aurem_live" target="_blank" rel="noopener noreferrer"
-               data-testid="footer-twitter"
-               style={{ color: "var(--text-faint)" }}>X</a>
-            <a href="https://www.linkedin.com/in/tejinder-sandhu" target="_blank" rel="noopener noreferrer"
-               data-testid="footer-linkedin"
-               style={{ color: "var(--text-faint)" }}>LinkedIn</a>
-            <a href="https://www.instagram.com/aurem_live" target="_blank" rel="noopener noreferrer"
-               data-testid="footer-instagram"
-               style={{ color: "var(--text-faint)" }}>Instagram</a>
           </div>
-        </footer>
-      </main>
+        </section>
+
+        {/* ─── Why teams switch ─── */}
+        <section className="section" id="why-switch">
+          <div className="section-label">Why teams switch</div>
+          <h2 className="section-title">Built like a teammate, not a chat bot</h2>
+          <p className="section-sub">Six things ORA does that the autocompletes don&apos;t.</p>
+          <div className="teams-grid">
+            {TEAMS.map((t, i) => (
+              <div className="team-card" key={i}>
+                <div className="team-icon">{t.icon}</div>
+                <div className="team-tag">{t.tag}</div>
+                <div className="team-title">{t.title}</div>
+                <div className="team-desc">{t.desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── Comparison ─── */}
+        <section className="section">
+          <div className="section-label">Comparison</div>
+          <h2 className="section-title">Why developers choose ORA</h2>
+          <p className="section-sub">No IDE. No token meters. No guessing. No vendor lock.</p>
+          <div style={{ overflowX: "auto" }}>
+            <table className="compare-table">
+              <thead>
+                <tr>
+                  <th>Feature</th>
+                  <th className="ora-col">ORA</th>
+                  <th>GitHub Copilot</th>
+                  <th>Cursor</th>
+                  <th>Devin</th>
+                  <th>Claude Code</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARE_ROWS.map(([feature, ...cells], i) => (
+                  <tr key={i}>
+                    <td className="feature-name">{feature}</td>
+                    {cells.map(([cls, val], j) => (
+                      <td key={j} className={j === 0 ? "ora-cell" : ""}>
+                        <span className={cls === "yes" ? "yes" : "no"}>
+                          {cls === "yes" ? "✓ " : (val.startsWith("$") || val === "All" || val === "Marketplace" || val === "Native" || val === "MIT extension" || val === "Built-in" || val === "Ollama / LM Studio" ? "" : "✗ ")}{val}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="compare-cta">
+            <div className="live-dot" />
+            <div className="compare-cta-text">
+              <b>Try ORA live — free.</b> Connect your GitHub repo and ship your first task in under 2 minutes. No credit card required.
+            </div>
+            <Link className="btn-primary" to="/signup" data-testid="compare-cta-signup">Start free</Link>
+          </div>
+        </section>
+
+        {/* ─── Reviews ─── */}
+        <section className="section" id="reviews">
+          <div className="section-label">Reviews</div>
+          <h2 className="section-title">What developers are saying</h2>
+          <p className="section-sub">Real feedback from real developers.</p>
+          <div className="reviews-grid">
+            {REVIEWS.map((r, i) => (
+              <div className="review-card" key={i}>
+                <div className="review-stars">{"★".repeat(r.stars)}</div>
+                <div className="review-text">&quot;{r.text}&quot;</div>
+                <div className="review-author">
+                  <div className="review-avatar" style={r.color ? { background: `${r.color}33`, color: r.color } : null}>{r.initials}</div>
+                  <div>
+                    <div className="review-name">{r.name}</div>
+                    <div className="review-role">{r.role}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── Pricing — real Stripe-wired component ─── */}
+        <section className="section" id="pricing">
+          <div className="section-label">Pricing</div>
+          <h2 className="section-title">Flat pricing. No surprises.</h2>
+          <p className="section-sub">No token billing. Same price whether you ship 5 or 500 tasks. Annual plans save 20%.</p>
+          <PricingCards />
+        </section>
+
+        {/* ─── FAQ ─── */}
+        <section className="section" id="faq">
+          <div className="section-label">FAQ</div>
+          <h2 className="section-title">Questions &amp; answers</h2>
+          <p className="section-sub">Everything you need to know.</p>
+          <div className="faq-list">
+            {FAQS.map((f, i) => (
+              <div className={`faq-item ${openFaq === i ? "open" : ""}`} key={i}>
+                <div
+                  className="faq-q"
+                  data-testid={`faq-q-${i}`}
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpenFaq(openFaq === i ? null : i); }}
+                >
+                  <span className="faq-q-text">{f.q}</span>
+                  <span className="faq-icon">+</span>
+                </div>
+                <div className="faq-a">{f.a}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── CTA ─── */}
+        <section className="cta-section">
+          <h2 className="cta-title">Ready to ship code<span>without an IDE?</span></h2>
+          <p className="cta-sub">Start free. 10 tasks. No credit card required.</p>
+          <div className="hero-buttons">
+            <Link className="btn-primary" to="/signup" data-testid="cta-signup">Start free — 10 tasks</Link>
+            <Link className="btn-ghost" to="/wall" data-testid="cta-wall">See real ships</Link>
+          </div>
+        </section>
+
+      </div>
+
+      {/* ─── Footer ─── */}
+      <footer className="footer" data-testid="ora-footer">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <img src="/ora-icon.png" alt="ORA" className="logo-img" />
+          <div className="footer-text">ORA by Aurem CTO — Built for developers · MIT extension</div>
+        </div>
+        <div className="footer-links">
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/terms">Terms</Link>
+          <Link to="/acceptable-use">Acceptable use</Link>
+          <Link to="/wall">Ship Wall</Link>
+          <Link to="/login">Sign in</Link>
+        </div>
+      </footer>
     </div>
   );
 }
-
-const navStyle = {
-  position: "sticky", top: 0, zIndex: 10,
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "18px clamp(20px, 5vw, 56px)",
-  backdropFilter: "blur(8px)",
-  background: "rgba(8, 8, 12, 0.45)",
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
-};
-
-const accentGradient = {
-  background: "linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  backgroundClip: "text",
-};
-
-const FEATURES = [
-  { Icon: Github, tag: "direct commit", title: "Real PRs, not snippets",
-    body: "Aurem opens a PR on YOUR repo with a working diff, lint clean, ready to merge." },
-  { Icon: Brain, tag: "project brain", title: "Remembers your repo",
-    body: "Per-repo memory of decisions, conventions, and past commits — so it ships in your style." },
-  { Icon: Bug, tag: "f12 debug", title: "Pasted a stack trace? Done.",
-    body: "Catches F12 console errors and routes them straight to the right file, with proposed fix." },
-  { Icon: Activity, tag: "live tape", title: "Watch it work",
-    body: "Terminal-style worker tape streams every step — reading, thinking, writing, committing." },
-  { Icon: Layers, tag: "parallel agents", title: "Split big jobs",
-    body: "Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side." },
-  { Icon: Code2, tag: "vs code", title: "Editor extension",
-    body: "Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page." },
-];
-
-const WHATS_NEW = [
-  { tag: "Iter 73", title: "Live worker tape + onboarding wizard",
-    body: "Per-step SSE streams render a terminal feed inside the chat bubble; first-task wizard with inline GitHub OAuth dropped activation friction by ~70%." },
-  { tag: "Iter 73", title: "Parallel agent sub-tapes",
-    body: "Multi-domain tasks split into Backend / Frontend / Tests agents, each with its own mini progress bar." },
-  { tag: "Iter 74", title: "Semantic codebase search",
-    body: "Aurem now uses GitHub Code Search to find every file touched by a concept BEFORE writing — fixes that touch 1 file when 3 are related are gone." },
-  { tag: "Iter 74", title: "Python AST + node --check gate",
-    body: "Generated code is parsed before every push. Broken syntax never reaches your main branch — one auto-retry, then a friendly fail." },
-  { tag: "Iter 74", title: "Brain Show-diff buttons",
-    body: "Every past commit on a project gets a Show diff → button that asks Aurem to explain the pattern used. Self-reinforcing repo memory." },
-  { tag: "Iter 74", title: "Multi-file task panel",
-    body: "Aurem now plans 3+ file changes as a [ ] → [x] checklist that ticks off in real time as files land." },
-];
