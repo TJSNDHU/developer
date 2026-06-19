@@ -88,19 +88,36 @@
     color: var(--muted-2); font-weight: 400;
     font-size: 13px; margin-left: 6px; letter-spacing: 0;
   }
-  /* Iter 184 — header marquee. User asked "scrolling render move in header".
-     A narrow strip of rotating taglines slides next to the logo so the
-     nav feels alive without distracting the brand. */
-  .nav-marquee {
-    overflow: hidden; max-width: 320px; height: 22px; position: relative;
-    border-left: 1px solid var(--line); padding-left: 14px; margin-left: 6px;
-    color: var(--muted-2); font-family: var(--font-mono); font-size: 12px;
-    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  /* Iter 184 — narrow tools strip pinned directly below the nav.
+     Replaces the wide tools marquee that previously sat between hero
+     and social-proof. The wide one moved down to where the nav-pill
+     used to live (right after the hero). */
+  .topstrip {
+    position: sticky; top: 64px; z-index: 40;
+    backdrop-filter: blur(14px);
+    background: rgba(10,14,26,0.62);
+    border-bottom: 1px solid var(--line);
+    overflow: hidden; height: 38px;
+    display: flex; align-items: center;
+    /* user asked for narrower — content max-width 880px, centered */
+    padding: 0;
   }
-  .nav-marquee-track { display: inline-block; white-space: nowrap; animation: navMarquee 28s linear infinite; }
-  .nav-marquee-track span { display: inline-block; padding: 0 24px; }
-  .nav-marquee-track span::before { content: "▸ "; color: var(--accent); }
-  @keyframes navMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .topstrip-inner {
+    max-width: 880px; margin: 0 auto; width: 100%; overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  }
+  .topstrip-track {
+    display: inline-flex; gap: 38px; white-space: nowrap;
+    animation: stripScroll 36s linear infinite;
+    color: var(--muted-2); font-family: var(--font-mono); font-size: 12px;
+  }
+  .topstrip-track span {
+    display: inline-flex; gap: 7px; align-items: center;
+  }
+  .topstrip-track span::before {
+    content: "▪"; color: var(--accent);
+  }
+  @keyframes stripScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   .nav-links { display: flex; align-items: center; gap: 28px; }
   .nav-link { font-family: var(--font-mono); font-size: 13px; color: var(--muted-1); text-decoration: none; transition: color 0.15s; }
   .nav-link:hover { color: var(--accent); }
@@ -532,18 +549,6 @@
   <div class="nav-left">
     <img src="/ora-icon.png" alt="ORA" class="logo-img" />
     <div class="logo-text">ORA<span> by Aurem CTO</span></div>
-    <div class="nav-marquee" aria-hidden="true">
-      <div class="nav-marquee-track">
-        <span>Production-ready code, committed direct</span>
-        <span>All MCP — Claude · Cursor · VS Code</span>
-        <span>Run local on your PC, no internet</span>
-        <span>Flat $9/mo · no token meter</span>
-        <span>Production-ready code, committed direct</span>
-        <span>All MCP — Claude · Cursor · VS Code</span>
-        <span>Run local on your PC, no internet</span>
-        <span>Flat $9/mo · no token meter</span>
-      </div>
-    </div>
   </div>
   <div class="nav-links">
     <a class="nav-link" href="#features">Features</a>
@@ -552,6 +557,33 @@
     <a class="nav-cta" href="/signup">Start free</a>
   </div>
 </nav>
+
+<!-- Iter 184 — narrow tools strip directly under the nav.
+     Old position: between hero and social-proof.
+     User asked: yeh wala render hadder k neecha lgao + width kmm kr k. -->
+<div class="topstrip" aria-hidden="true">
+  <div class="topstrip-inner">
+    <div class="topstrip-track">
+      <span>Claude Desktop</span>
+      <span>Claude Code</span>
+      <span>Cursor</span>
+      <span>VS Code</span>
+      <span>Ollama (offline)</span>
+      <span>LM Studio (offline)</span>
+      <span>GitHub</span>
+      <span>MCP 2.4</span>
+      <!-- duplicate for seamless loop -->
+      <span>Claude Desktop</span>
+      <span>Claude Code</span>
+      <span>Cursor</span>
+      <span>VS Code</span>
+      <span>Ollama (offline)</span>
+      <span>LM Studio (offline)</span>
+      <span>GitHub</span>
+      <span>MCP 2.4</span>
+    </div>
+  </div>
+</div>
 
 <div class="ora-page">
 
@@ -590,28 +622,24 @@
     </div>
   </section>
 
-  <!-- ─── MARQUEE (no WhatsApp) ─── -->
+  <!-- ─── MARQUEE (was the narrow nav-strip — moved down here per user) ─── -->
   <div class="marquee-wrap">
     <div class="marquee">
-      <span class="marquee-label">Works with your tools</span>
-      <span class="marquee-item">Claude Desktop</span>
-      <span class="marquee-item">Claude Code</span>
-      <span class="marquee-item">Cursor</span>
-      <span class="marquee-item">VS Code</span>
-      <span class="marquee-item">Ollama (offline)</span>
-      <span class="marquee-item">LM Studio (offline)</span>
-      <span class="marquee-item">GitHub</span>
-      <span class="marquee-item">MCP 2.4</span>
+      <span class="marquee-label">Why teams ship with ORA</span>
+      <span class="marquee-item">Production-ready code, committed direct</span>
+      <span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
+      <span class="marquee-item">Run local on your PC, no internet</span>
+      <span class="marquee-item">Flat $9/mo · no token meter</span>
+      <span class="marquee-item">Multi-file reasoning · audit-grade</span>
+      <span class="marquee-item">Security scan on every commit</span>
       <!-- duplicated for seamless loop -->
-      <span class="marquee-label">Works with your tools</span>
-      <span class="marquee-item">Claude Desktop</span>
-      <span class="marquee-item">Claude Code</span>
-      <span class="marquee-item">Cursor</span>
-      <span class="marquee-item">VS Code</span>
-      <span class="marquee-item">Ollama (offline)</span>
-      <span class="marquee-item">LM Studio (offline)</span>
-      <span class="marquee-item">GitHub</span>
-      <span class="marquee-item">MCP 2.4</span>
+      <span class="marquee-label">Why teams ship with ORA</span>
+      <span class="marquee-item">Production-ready code, committed direct</span>
+      <span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
+      <span class="marquee-item">Run local on your PC, no internet</span>
+      <span class="marquee-item">Flat $9/mo · no token meter</span>
+      <span class="marquee-item">Multi-file reasoning · audit-grade</span>
+      <span class="marquee-item">Security scan on every commit</span>
     </div>
   </div>
 
