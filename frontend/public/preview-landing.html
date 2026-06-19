@@ -114,24 +114,30 @@
   .nav-cta:active { transform: translateY(1px); }
 
   /* ─── Hero ─── */
-  .hero { padding: 96px 32px 64px; text-align: center; }
+  .hero { padding: 76px 32px 56px; text-align: center; }
   .hero-badge {
     display: inline-block; font-family: var(--font-mono); font-size: 11px;
     text-transform: uppercase; letter-spacing: 1.5px;
     background: var(--accent-bg); color: var(--accent);
     padding: 7px 14px; border: 1px solid var(--accent-br);
-    border-radius: 999px; margin-bottom: 24px;
+    border-radius: 999px; margin-bottom: 22px;
   }
   .hero-title {
     font-family: var(--font-mono); font-weight: 700;
-    font-size: clamp(36px, 7vw, 76px);
-    line-height: 1.05; letter-spacing: -2px;
-    margin-bottom: 22px;
+    font-size: clamp(28px, 4.4vw, 54px);
+    line-height: 1.1; letter-spacing: -1.5px;
+    margin-bottom: 20px;
+    max-width: 880px; margin-left: auto; margin-right: auto;
   }
-  .hero-title span { color: var(--accent); display: block; }
+  .hero-title span {
+    color: var(--accent);
+    display: inline; /* same line on desktop, wraps naturally on small screens */
+  }
+  .hero-title br + span,
+  .hero-title span { display: block; margin-top: 6px; }
   .hero-sub {
-    color: var(--muted-1); font-size: clamp(15px, 1.6vw, 19px);
-    max-width: 640px; margin: 0 auto 36px; line-height: 1.6;
+    color: var(--muted-1); font-size: clamp(14px, 1.35vw, 17px);
+    max-width: 600px; margin: 0 auto 32px; line-height: 1.6;
   }
   .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
   .hero-pill {
