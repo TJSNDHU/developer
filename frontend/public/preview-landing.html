@@ -114,7 +114,7 @@
   .nav-cta:active { transform: translateY(1px); }
 
   /* ─── Hero ─── */
-  .hero { padding: 76px 32px 56px; text-align: center; }
+  .hero { padding: 76px 32px 56px; }
   .hero-badge {
     display: inline-block; font-family: var(--font-mono); font-size: 11px;
     text-transform: uppercase; letter-spacing: 1.5px;
@@ -122,22 +122,28 @@
     padding: 7px 14px; border: 1px solid var(--accent-br);
     border-radius: 999px; margin-bottom: 22px;
   }
+  .hero-split {
+    display: grid; grid-template-columns: 1.05fr 1fr;
+    gap: 56px; align-items: center; margin-bottom: 36px;
+  }
   .hero-title {
     font-family: var(--font-mono); font-weight: 700;
-    font-size: clamp(28px, 4.4vw, 54px);
-    line-height: 1.1; letter-spacing: -1.5px;
-    margin-bottom: 20px;
-    max-width: 880px; margin-left: auto; margin-right: auto;
+    font-size: clamp(28px, 3.8vw, 50px);
+    line-height: 1.12; letter-spacing: -1.5px;
+    margin: 0;
   }
   .hero-title span {
-    color: var(--accent);
-    display: inline; /* same line on desktop, wraps naturally on small screens */
+    color: var(--accent); display: block; margin-top: 10px;
   }
-  .hero-title br + span,
-  .hero-title span { display: block; margin-top: 6px; }
   .hero-sub {
-    color: var(--muted-1); font-size: clamp(14px, 1.35vw, 17px);
-    max-width: 600px; margin: 0 auto 32px; line-height: 1.6;
+    color: var(--muted-1); font-size: clamp(14px, 1.25vw, 17px);
+    line-height: 1.7; margin: 0;
+    padding-left: 24px; border-left: 2px solid var(--accent-br);
+  }
+  .hero-actions { text-align: center; }
+  @media (max-width: 880px) {
+    .hero-split { grid-template-columns: 1fr; gap: 24px; text-align: center; }
+    .hero-sub { padding-left: 0; border-left: none; max-width: 580px; margin: 0 auto; }
   }
   .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
   .hero-pill {
@@ -551,28 +557,36 @@
 
   <!-- ─── HERO ─── -->
   <section class="hero">
-    <div class="hero-badge">▸ Developers Choice</div>
-    <h1 class="hero-title">
-      The AI engineer that actually commits.
-      <span>No IDE, no token meters.</span>
-    </h1>
-    <p class="hero-sub">
-      ORA plugs into your GitHub repo and MCP terminal to ship production-ready code
-      directly to your branches. Run it anywhere — even 100% offline on your own machine.
-    </p>
-    <div class="hero-buttons">
-      <a class="btn-primary" href="/signup">Start free — 10 tasks</a>
-      <a class="btn-ghost" href="#watch">Watch it ship</a>
+    <div style="text-align:center">
+      <div class="hero-badge">▸ Developers Choice</div>
     </div>
-    <div class="hero-pill" data-testid="hero-no-card-pill">
-      <span class="live-dot"></span>
-      <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
+    <div class="hero-split">
+      <h1 class="hero-title">
+        The AI engineer<br>
+        That actually commits.
+        <span>No IDE, no token meters.</span>
+      </h1>
+      <p class="hero-sub">
+        ORA plugs into your GitHub repo and MCP terminal to ship
+        production-ready code directly to your branches.
+        Run it anywhere — even 100% offline on your own machine.
+      </p>
     </div>
-    <div class="hero-stats">
-      <div><div class="stat-num">$9</div><div class="stat-label">flat monthly</div></div>
-      <div><div class="stat-num">0</div><div class="stat-label">token billing</div></div>
-      <div><div class="stat-num">1</div><div class="stat-label">tap to commit</div></div>
-      <div><div class="stat-num">∞</div><div class="stat-label">repos</div></div>
+    <div class="hero-actions">
+      <div class="hero-buttons">
+        <a class="btn-primary" href="/signup">Start free — 10 tasks</a>
+        <a class="btn-ghost" href="#watch">Watch it ship</a>
+      </div>
+      <div class="hero-pill" data-testid="hero-no-card-pill">
+        <span class="live-dot"></span>
+        <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
+      </div>
+      <div class="hero-stats">
+        <div><div class="stat-num">$9</div><div class="stat-label">flat monthly</div></div>
+        <div><div class="stat-num">0</div><div class="stat-label">token billing</div></div>
+        <div><div class="stat-num">1</div><div class="stat-label">tap to commit</div></div>
+        <div><div class="stat-num">∞</div><div class="stat-label">repos</div></div>
+      </div>
     </div>
   </section>
 
