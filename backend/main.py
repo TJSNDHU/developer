@@ -775,6 +775,19 @@ async def healthz():
     return {"ok": True}
 
 
+# Iter 189 — Mirror the fast healthz at the prefix-less paths
+# Kubernetes liveness/readiness probes hit by default when configured
+# against the pod directly (bypassing ingress). Emergent's pod-level
+# probe hits `/healthz` on pod IP:8001 — without these routes that
+# returns 404 and the pod is restarted in a loop, even though the
+# ingress-level health check at `/api/healthz` is green.
+@app.get("/healthz")
+@app.get("/health")
+@app.get("/ping")
+async def healthz_root():
+    return {"ok": True}
+
+
 # Iter 140 — Versioned health endpoint. Stable contract for v1 API
 # consumers (mobile apps, third-party integrations) so /api/health
 # stays free to evolve. Pings MongoDB so callers can distinguish a
