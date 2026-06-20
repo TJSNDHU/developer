@@ -15,6 +15,19 @@
 import React, { useEffect, useRef, useState } from "react";
 import { X, Send, Square, Volume2, VolumeX, Mic, MicOff } from "lucide-react";
 import { useTextToVoice } from "../hooks/useTextToVoice";
+import { api } from "../lib/api";
+
+// Iter 186 — keywords that trigger an auto-draft of a support email
+// in parallel with the user's normal Ask Advisor message. Kept short
+// and case-insensitive; matches anywhere in the prompt.
+const SUPPORT_KEYWORDS = [
+  "not working", "broken", "error", "bug",
+  "issue", "problem", "help", "support",
+  "failed", "cant", "can't", "doesn't work",
+];
+
+const isSupportRequest = (text) =>
+  SUPPORT_KEYWORDS.some((k) => (text || "").toLowerCase().includes(k));
 
 export default function ORASidePanel({
   open, messages, busy, projectId,
@@ -27,6 +40,12 @@ export default function ORASidePanel({
   // `onSend` no longer receives a mode argument from this panel.
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [listening, setListening] = useState(false);
+  // Iter 186 — support-email drafting state. `supportDraft` holds the
+  // backend response ({subject, to, body, context}); the preview card
+  // renders when it's non-null and `supportSent` is false.
+  const [supportDraft, setSupportDraft] = useState(null);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportSent, setSupportSent] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -81,10 +100,68 @@ export default function ORASidePanel({
     setListening(false);
   };
 
+  // Iter 186 — draft a support email via the backend Ask Advisor
+  // endpoint. The endpoint pulls the user's tier, last task and
+  // (optional) project info from MongoDB and asks DeepSeek to write a
+  // 100-word polite issue summary; we wrap it with the structured
+  // context block on the server side.
+  async function handleSupportEmail(issueText) {
+    const txt = (issueText || "").trim();
+    if (!txt) return;
+    setSupportLoading(true);
+    setSupportDraft(null);
+    setSupportSent(false);
+    try {
+      const r = await api.post("/chat/ora/draft-support-email", {
+        issue: txt,
+        project_id: projectId || null,
+      });
+      if (r.data?.ok) setSupportDraft(r.data);
+    } catch (e) {
+      // Silent failure — the regular Ask Advisor reply still lands in
+      // the message list, so the user isn't blocked. Logged for ops.
+      // eslint-disable-next-line no-console
+      console.error("Support draft failed", e);
+    } finally {
+      setSupportLoading(false);
+    }
+  }
+
+  function sendSupportEmail() {
+    if (!supportDraft) return;
+    try {
+      const subject = encodeURIComponent(supportDraft.subject || "");
+      const emailBody = encodeURIComponent(supportDraft.body || "");
+      const to = encodeURIComponent(supportDraft.to || "");
+      // mailto: opens the user's mail client with everything filled in.
+      // We use window.open so it works across browsers without
+      // navigating away from the panel.
+      window.open(`mailto:${to}?subject=${subject}&body=${emailBody}`);
+      setSupportSent(true);
+      // Auto-clear the card after 3 s so a follow-up draft can take
+      // its place without manual dismissal.
+      setTimeout(() => {
+        setSupportDraft(null);
+        setSupportSent(false);
+      }, 3000);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("Send failed", e);
+    }
+  }
+
   const handleSend = () => {
     if (!input.trim() || busy) return;
-    onSend(input.trim());
+    const txt = input.trim();
+    onSend(txt);
     setInput("");
+    // Iter 186 — if the prompt sounds like a support request, fire
+    // an email draft in parallel. The Advisor still answers the
+    // question; the draft sits below the message list with a Send
+    // button so the user can escalate to email in one click.
+    if (isSupportRequest(txt)) {
+      handleSupportEmail(txt);
+    }
   };
 
   const handleKey = (e) => {
@@ -252,6 +329,160 @@ export default function ORASidePanel({
           ))}
           <div ref={bottomRef} />
         </div>
+
+        {/* Iter 186 — Support email draft card. Sits between the
+            message list and the composer so the user sees it the
+            moment the backend finishes drafting. Only one card at a
+            time; auto-dismisses 3 s after Send. */}
+        {supportLoading && (
+          <div
+            data-testid="ora-support-loading"
+            style={{
+              padding: "10px 14px",
+              margin: "0 14px 8px",
+              background: "rgba(245,158,11,0.06)",
+              border: "1px solid rgba(245,158,11,0.15)",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "#f59e0b",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            Drafting support email…
+          </div>
+        )}
+
+        {supportDraft && !supportSent && (
+          <div
+            data-testid="ora-support-draft"
+            style={{
+              margin: "0 14px 8px",
+              background: "#0f172a",
+              border: "1px solid rgba(245,158,11,0.2)",
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
+            <div style={{
+              padding: "10px 14px",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <span style={{
+                fontSize: 12, fontWeight: 600,
+                color: "#f59e0b",
+                fontFamily: "'JetBrains Mono', monospace",
+              }}>
+                Support Email Draft
+              </span>
+              <button
+                data-testid="ora-support-dismiss"
+                onClick={() => setSupportDraft(null)}
+                style={{
+                  background: "none", border: "none",
+                  color: "#64748b", cursor: "pointer",
+                  fontSize: 16, lineHeight: 1,
+                }}
+              >×</button>
+            </div>
+
+            <div style={{ padding: "12px 14px" }}>
+              <div style={{
+                fontSize: 10, color: "#64748b",
+                marginBottom: 4,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}>
+                To: {supportDraft.to}
+              </div>
+              <div style={{
+                fontSize: 10, color: "#64748b",
+                marginBottom: 10,
+                fontFamily: "'JetBrains Mono', monospace",
+                wordBreak: "break-word",
+              }}>
+                Subject: {supportDraft.subject}
+              </div>
+              <div
+                data-testid="ora-support-body"
+                style={{
+                  fontSize: 12, color: "#94a3b8",
+                  lineHeight: 1.6,
+                  background: "rgba(0,0,0,0.2)",
+                  borderRadius: 6,
+                  padding: "10px 12px",
+                  maxHeight: 160,
+                  overflowY: "auto",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {supportDraft.body}
+              </div>
+            </div>
+
+            <div style={{
+              padding: "10px 14px",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              gap: 8,
+            }}>
+              <button
+                data-testid="ora-support-send"
+                onClick={sendSupportEmail}
+                style={{
+                  flex: 1,
+                  padding: "9px 0",
+                  background: "#f59e0b",
+                  color: "#0a0e1a",
+                  border: "none",
+                  borderRadius: 7,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                Send Email
+              </button>
+              <button
+                data-testid="ora-support-discard"
+                onClick={() => setSupportDraft(null)}
+                style={{
+                  padding: "9px 16px",
+                  background: "transparent",
+                  color: "#64748b",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 7,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {supportSent && (
+          <div
+            data-testid="ora-support-sent"
+            style={{
+              margin: "0 14px 8px",
+              padding: "10px 14px",
+              background: "rgba(34,197,94,0.08)",
+              border: "1px solid rgba(34,197,94,0.2)",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "#22c55e",
+              fontFamily: "'JetBrains Mono', monospace",
+              textAlign: "center",
+            }}
+          >
+            Email opened in your mail app
+          </div>
+        )}
 
         {/* Composer — uses the same composer-card aesthetic as ChatPanel. */}
         <div style={{

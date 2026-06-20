@@ -2251,3 +2251,130 @@ async def _generate_done_followup(original: str, summary: str,
     if not text:
         return _build_done_fallback(original, summary, files, sha)
     return text
+
+
+
+# ── Iter 186 — Ask Advisor: draft a support email from issue + context ─
+#
+# Endpoint:  POST /api/aurem-dev/chat/ora/draft-support-email
+# Body:      {"issue": str, "project_id": str|None}
+# Returns:   {ok, subject, to, from, body, context}
+#
+# The frontend (ORASidePanel.jsx) calls this when the user describes
+# an issue in the Ask Advisor panel. The LLM drafts a short, polite
+# support email; we attach an auto-generated context block (user,
+# plan, last task id/status, project, timestamp) so the support inbox
+# has everything needed to triage without back-and-forth.
+@router.post("/ora/draft-support-email")
+async def draft_support_email(
+    body: dict,
+    authorization: Optional[str] = Header(None),
+):
+    """Draft a support email from the user's issue + their account
+    context. Returns a structured email payload the UI renders as a
+    preview card with a `Send` button (mailto: handoff)."""
+    from services.llm import call_openrouter_model
+
+    user = await current_dev(authorization)
+    user_id = user["user_id"]
+    db = get_db()
+
+    issue = (body or {}).get("issue", "").strip()
+    if not issue:
+        raise HTTPException(400, "Issue description required")
+
+    # Account context.
+    tier = user.get("tier", "free")
+    email = user.get("email", "") or ""
+
+    # Last task — used by support to correlate with worker logs.
+    last_task = None
+    if db is not None:
+        try:
+            last_task = await db.cto_tasks.find_one(
+                {"user_id": user_id},
+                sort=[("created_at", -1)],
+                projection={"_id": 0, "task_id": 1, "status": 1, "task": 1},
+            )
+        except Exception as _e:
+            logger.warning("draft-support-email: last_task lookup failed: %r", _e)
+
+    # Project context if the user is asking from inside a project tab.
+    project = None
+    pid = (body or {}).get("project_id")
+    if db is not None and pid:
+        try:
+            project = await db.cto_projects.find_one(
+                {"project_id": pid, "user_id": user_id},
+                projection={"_id": 0, "name": 1, "github_repo": 1,
+                            "github_owner": 1},
+            )
+        except Exception as _e:
+            logger.warning("draft-support-email: project lookup failed: %r", _e)
+
+    context_lines = [
+        f"User: {email}",
+        f"Plan: {tier.upper()}",
+        f"User ID: {user_id}",
+    ]
+    if project:
+        context_lines.append(
+            f"Project: {project.get('name', '')} "
+            f"({project.get('github_owner', '')}"
+            f"/{project.get('github_repo', '')})"
+        )
+    if last_task:
+        context_lines.append(
+            f"Last Task ID: {last_task.get('task_id', '')}"
+        )
+        context_lines.append(
+            f"Last Task Status: {last_task.get('status', '')}"
+        )
+    context_lines.append(
+        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}"
+    )
+
+    prompt = (
+        "Draft a clear, professional support email for this issue:\n\n"
+        f"Issue: {issue}\n\n"
+        "Keep it concise (max 100 words). "
+        "Start with 'Hi ORA Support Team,'. "
+        "Describe the issue clearly. "
+        "End with 'Thank you'.\n"
+        "Return ONLY the email body, no subject line."
+    )
+
+    email_body = await call_openrouter_model(
+        model="deepseek/deepseek-chat",
+        system="You write clear, concise support emails.",
+        user=prompt,
+        max_tokens=300,
+        temperature=0.3,
+    )
+
+    # Graceful fallback when the LLM returns empty (key missing /
+    # upstream outage) — we still want the user to be able to send.
+    if not (email_body or "").strip():
+        email_body = (
+            "Hi ORA Support Team,\n\n"
+            f"{issue}\n\n"
+            "Thank you"
+        )
+
+    context_block = "\n".join(context_lines)
+    full_body = (
+        f"{email_body.strip()}\n\n"
+        f"---\n"
+        f"Auto-generated context:\n"
+        f"{context_block}"
+    )
+    subject = f"Support Request — {email} [{tier.upper()}]"
+
+    return {
+        "ok": True,
+        "subject": subject,
+        "to": "teji.ss1986@gmail.com",
+        "from": email,
+        "body": full_body,
+        "context": context_block,
+    }
