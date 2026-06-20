@@ -17,13 +17,14 @@ export default function AdminOverview() {
   const [council, setCouncil] = useState(null);
   const [telemetry, setTelemetry] = useState(null);
   const [dbHealth, setDbHealth]   = useState(null);   // iter 118
+  const [metrics, setMetrics] = useState(null);       // iter 188
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
@@ -31,6 +32,7 @@ export default function AdminOverview() {
           api.get("/admin/council/stats",   { headers: h }),
           api.get("/admin/mode-telemetry",  { headers: h }),
           api.get("/admin/db-health",       { headers: h }),
+          api.get("/admin/overview-metrics", { headers: h }),
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
@@ -38,6 +40,7 @@ export default function AdminOverview() {
       if (councilRes.status  === "fulfilled") setCouncil(councilRes.value.data);
       if (telRes.status      === "fulfilled") setTelemetry(telRes.value.data);
       if (dbHealthRes.status === "fulfilled") setDbHealth(dbHealthRes.value.data);
+      if (metricsRes.status  === "fulfilled") setMetrics(metricsRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -151,6 +154,73 @@ export default function AdminOverview() {
           >🔑 API Keys →</a>
         </div>
       </Section>
+
+      {/* ── Iter 188 — Live metric cards ─────────────────────
+          One pull from /admin/overview-metrics drives the whole
+          grid. Refreshes every 60 s along with the rest of the
+          overview (parent interval). */}
+      {metrics && (
+        <Section title="Live metrics — last 24 h / 7 d / 30 d">
+          <div data-testid="admin-overview-metrics-grid" style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 10,
+          }}>
+            <MetricCard label="Active users today" value={metrics.active_users_today ?? 0} />
+            <MetricCard label="Tasks today" value={metrics.tasks_today ?? 0} />
+            <MetricCard
+              label="Tasks completed today"
+              value={metrics.tasks_done_today ?? 0}
+            />
+            <MetricCard
+              label="Avg task time"
+              value={metrics.avg_task_seconds
+                ? `${Math.round(metrics.avg_task_seconds)}s`
+                : "—"}
+            />
+            <MetricCard
+              label="MCP keys (30 d active / total)"
+              value={`${metrics.mcp_keys_active_30d ?? 0} / ${metrics.mcp_keys_total ?? 0}`}
+            />
+            <MetricCard
+              label="Warm start success (24 h)"
+              value={metrics.warm_total_24h
+                ? `${metrics.warm_success_rate_pct}%`
+                : "—"}
+            />
+            <MetricCard
+              label="Post-scan critical (7 d)"
+              value={metrics.postscan_critical_7d ?? 0}
+            />
+            <MetricCard
+              label="Post-scan warnings (7 d)"
+              value={metrics.postscan_warning_7d ?? 0}
+            />
+            <MetricCard
+              label="Most active project (7 d)"
+              value={metrics.most_active_project?.name
+                ? `${metrics.most_active_project.name} · ${metrics.most_active_project.task_count}`
+                : "—"}
+            />
+            <MetricCard
+              label="Revenue (30 d)"
+              value={`$${(metrics.revenue_30d || 0).toFixed(2)}`}
+            />
+            <MetricCard
+              label="Swift mode (30 d)"
+              value={metrics.mode_distribution_30d?.swift ?? 0}
+            />
+            <MetricCard
+              label="Pro mode (30 d)"
+              value={metrics.mode_distribution_30d?.pro ?? 0}
+            />
+            <MetricCard
+              label="Maxx mode (30 d)"
+              value={metrics.mode_distribution_30d?.maxx ?? 0}
+            />
+          </div>
+        </Section>
+      )}
 
       {/* ── System mapping (Iter 152) ─────────────────────────
           Architectural at-a-glance — same content as README so admins,

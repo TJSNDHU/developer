@@ -1886,3 +1886,377 @@ async def skills_usage(
         "skills":      rows,
         "hint":        "skills with share<0.02 are prune candidates (industry ceiling target: 18 skills)",
     }
+
+
+# ─── Iter 188 — extended overview metrics + new admin surfaces ────────
+#
+# Single aggregator endpoint that fuels the new metric cards on the
+# Overview tab AND the new sidebar sections (MCP Usage, Warm Start,
+# Graph Status, Agent Performance, Post-scan Issues, Revenue). One
+# round-trip → multiple cards. All counts are scoped to the last
+# 24 h / 7 d windows defined inline so the UI can render
+# date-stamped chips without doing date math.
+
+@router.get("/overview-metrics")
+async def admin_overview_metrics(
+    authorization: Optional[str] = Header(None),
+):
+    """Extended metrics for the Admin Overview tab.
+
+    Returns one flat object with every metric the new cards need:
+      - active_users_today, tasks_today, tasks_done_today
+      - avg_task_seconds (over last 100 done tasks)
+      - mcp_keys_total / mcp_keys_active_30d
+      - warm_starts_24h with success_rate_pct
+      - postscan_findings_7d (critical + warning split)
+      - most_active_project (name + task_count last 7 d)
+      - mode_distribution_30d (swift/pro/maxx counts)
+      - revenue_30d (sum of completed cto_payments)
+    """
+    await _require_admin(authorization)
+    db = require_db()
+
+    now = time.time()
+    day_ago = now - 86_400
+    week_ago = now - 7 * 86_400
+    month_ago = now - 30 * 86_400
+
+    # Active users today — distinct user_id touching cto_tasks in 24 h.
+    active_users_today = 0
+    try:
+        active_users_today = len(
+            await db.cto_tasks.distinct(
+                "user_id", {"created_at": {"$gte": day_ago}}
+            )
+        )
+    except Exception as e:
+        logger.warning("overview-metrics: active_users_today: %r", e)
+
+    tasks_today = 0
+    tasks_done_today = 0
+    try:
+        tasks_today = await db.cto_tasks.count_documents(
+            {"created_at": {"$gte": day_ago}}
+        )
+        tasks_done_today = await db.cto_tasks.count_documents(
+            {"created_at": {"$gte": day_ago}, "status": "done"}
+        )
+    except Exception as e:
+        logger.warning("overview-metrics: tasks_today: %r", e)
+
+    # Average task time over the last 100 completed tasks. Computed as
+    # finished_at - created_at when both are present; sub-second values
+    # ignored so a misset timestamp doesn't drag the mean down.
+    avg_task_seconds = 0
+    try:
+        pipeline = [
+            {"$match": {"status": "done",
+                        "created_at": {"$gte": month_ago},
+                        "finished_at": {"$exists": True}}},
+            {"$sort": {"finished_at": -1}},
+            {"$limit": 100},
+            {"$project": {
+                "_id": 0,
+                "secs": {"$subtract": ["$finished_at", "$created_at"]},
+            }},
+            {"$match": {"secs": {"$gt": 1}}},
+            {"$group": {"_id": None, "avg": {"$avg": "$secs"}}},
+        ]
+        async for row in db.cto_tasks.aggregate(pipeline):
+            avg_task_seconds = round(float(row.get("avg") or 0), 2)
+            break
+    except Exception as e:
+        logger.warning("overview-metrics: avg_task_seconds: %r", e)
+
+    # MCP usage — keys minted via the /mcp/keys flow. The api_keys
+    # collection holds rows shaped {key, user_id, client_id, scope,
+    # last_used_at, …}.
+    mcp_keys_total = 0
+    mcp_keys_active_30d = 0
+    try:
+        mcp_keys_total = await db.api_keys.count_documents({})
+        mcp_keys_active_30d = await db.api_keys.count_documents(
+            {"last_used_at": {"$gte": month_ago}}
+        )
+    except Exception as e:
+        logger.warning("overview-metrics: mcp_keys: %r", e)
+
+    # Warm-start success rate over 24 h.
+    warm_total_24h = 0
+    warm_done_24h = 0
+    warm_success_rate_pct = 0
+    try:
+        warm_total_24h = await db.warm_start_jobs.count_documents(
+            {"created_at": {"$gte": day_ago}}
+        )
+        warm_done_24h = await db.warm_start_jobs.count_documents(
+            {"created_at": {"$gte": day_ago}, "status": "done"}
+        )
+        if warm_total_24h:
+            warm_success_rate_pct = round(
+                100 * warm_done_24h / warm_total_24h, 1
+            )
+    except Exception as e:
+        logger.warning("overview-metrics: warm_start: %r", e)
+
+    # Post-scan issues last 7 d — vanguard findings recorded after
+    # each task. Counts critical (block) vs warning (notify) buckets.
+    postscan_critical_7d = 0
+    postscan_warning_7d = 0
+    try:
+        postscan_critical_7d = await db.post_task_scans.count_documents(
+            {"created_at": {"$gte": week_ago}, "severity": "critical"}
+        )
+        postscan_warning_7d = await db.post_task_scans.count_documents(
+            {"created_at": {"$gte": week_ago},
+             "severity": {"$in": ["warning", "warn"]}}
+        )
+    except Exception as e:
+        logger.warning("overview-metrics: postscan: %r", e)
+
+    # Most active project over the last 7 d.
+    most_active_project = {"name": None, "task_count": 0}
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": week_ago},
+                        "project_id": {"$ne": None}}},
+            {"$group": {"_id": "$project_id", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+            {"$limit": 1},
+        ]
+        async for row in db.cto_tasks.aggregate(pipeline):
+            pid = row.get("_id")
+            n = int(row.get("n") or 0)
+            proj = await db.cto_projects.find_one(
+                {"project_id": pid}, {"_id": 0, "name": 1}
+            )
+            most_active_project = {
+                "name": (proj or {}).get("name") or pid,
+                "task_count": n,
+            }
+            break
+    except Exception as e:
+        logger.warning("overview-metrics: most_active: %r", e)
+
+    # Mode distribution over 30 d (Swift / Pro / Maxx).
+    mode_distribution_30d = {"swift": 0, "pro": 0, "maxx": 0}
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": month_ago},
+                        "mode": {"$in": ["swift", "pro", "maxx"]}}},
+            {"$group": {"_id": "$mode", "n": {"$sum": 1}}},
+        ]
+        async for row in db.cto_tasks.aggregate(pipeline):
+            m = row.get("_id")
+            if m in mode_distribution_30d:
+                mode_distribution_30d[m] = int(row.get("n") or 0)
+    except Exception as e:
+        logger.warning("overview-metrics: mode_dist: %r", e)
+
+    # Revenue over 30 d — sum of `amount` from completed payments.
+    revenue_30d = 0.0
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": month_ago},
+                        "status": {"$in": ["paid", "complete", "completed",
+                                            "succeeded"]}}},
+            {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
+        ]
+        async for row in db.cto_payments.aggregate(pipeline):
+            revenue_30d = round(float(row.get("sum") or 0), 2)
+            break
+    except Exception as e:
+        logger.warning("overview-metrics: revenue_30d: %r", e)
+
+    return {
+        "active_users_today":     active_users_today,
+        "tasks_today":            tasks_today,
+        "tasks_done_today":       tasks_done_today,
+        "avg_task_seconds":       avg_task_seconds,
+        "mcp_keys_total":         mcp_keys_total,
+        "mcp_keys_active_30d":    mcp_keys_active_30d,
+        "warm_total_24h":         warm_total_24h,
+        "warm_done_24h":          warm_done_24h,
+        "warm_success_rate_pct":  warm_success_rate_pct,
+        "postscan_critical_7d":   postscan_critical_7d,
+        "postscan_warning_7d":    postscan_warning_7d,
+        "most_active_project":    most_active_project,
+        "mode_distribution_30d":  mode_distribution_30d,
+        "revenue_30d":            revenue_30d,
+        "generated_at":           now,
+    }
+
+
+# Lightweight list endpoints powering the new sidebar sections.
+
+@router.get("/mcp-usage")
+async def admin_mcp_usage(
+    authorization: Optional[str] = Header(None),
+    limit: int = 50,
+):
+    """Recent MCP API keys with usage timestamps for the MCP Usage tab."""
+    await _require_admin(authorization)
+    db = require_db()
+    rows: list[dict] = []
+    try:
+        cursor = db.api_keys.find(
+            {},
+            {"_id": 0, "user_id": 1, "client_id": 1, "scope": 1,
+             "created_at": 1, "last_used_at": 1, "expires_at": 1, "key": 1},
+            sort=[("last_used_at", -1), ("created_at", -1)],
+            limit=max(1, min(int(limit or 50), 200)),
+        )
+        async for r in cursor:
+            k = r.get("key") or ""
+            r["key_tail"] = k[-6:] if k else ""
+            r.pop("key", None)
+            rows.append(r)
+    except Exception as e:
+        logger.warning("admin/mcp-usage: %r", e)
+    return {"rows": rows, "count": len(rows)}
+
+
+@router.get("/warm-start-stats")
+async def admin_warm_start_stats(
+    authorization: Optional[str] = Header(None),
+):
+    """Warm-start latency & success metrics for the dedicated tab.
+
+    `avg_seconds` covers the last 100 done jobs over 30 d; the breakdown
+    shows the per-status counts over 7 d so we can spot a stuck queue."""
+    await _require_admin(authorization)
+    db = require_db()
+    now = time.time()
+    week_ago = now - 7 * 86_400
+    month_ago = now - 30 * 86_400
+
+    breakdown: dict[str, int] = {}
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": week_ago}}},
+            {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+        ]
+        async for row in db.warm_start_jobs.aggregate(pipeline):
+            breakdown[str(row.get("_id") or "unknown")] = int(row.get("n") or 0)
+    except Exception as e:
+        logger.warning("admin/warm-start-stats breakdown: %r", e)
+
+    avg_seconds = 0.0
+    try:
+        pipeline = [
+            {"$match": {"status": "done",
+                        "created_at": {"$gte": month_ago},
+                        "finished_at": {"$exists": True}}},
+            {"$sort": {"finished_at": -1}},
+            {"$limit": 100},
+            {"$project": {"_id": 0,
+                          "secs": {"$subtract": ["$finished_at", "$created_at"]}}},
+            {"$match": {"secs": {"$gt": 0.1}}},
+            {"$group": {"_id": None, "avg": {"$avg": "$secs"}}},
+        ]
+        async for row in db.warm_start_jobs.aggregate(pipeline):
+            avg_seconds = round(float(row.get("avg") or 0), 2)
+            break
+    except Exception as e:
+        logger.warning("admin/warm-start-stats avg: %r", e)
+
+    return {
+        "avg_seconds":  avg_seconds,
+        "breakdown_7d": breakdown,
+        "window_days":  7,
+    }
+
+
+@router.get("/graph-status")
+async def admin_graph_status(
+    authorization: Optional[str] = Header(None),
+    limit: int = 60,
+):
+    """Which projects have a Knowledge Graph built (and how recently)."""
+    await _require_admin(authorization)
+    db = require_db()
+    rows: list[dict] = []
+    try:
+        cursor = db.cto_projects.find(
+            {},
+            {"_id": 0, "project_id": 1, "name": 1, "user_id": 1,
+             "graph_built_at": 1, "graph_node_count": 1,
+             "github_owner": 1, "github_repo": 1},
+            sort=[("graph_built_at", -1), ("created_at", -1)],
+            limit=max(1, min(int(limit or 60), 200)),
+        )
+        async for r in cursor:
+            r["has_graph"] = bool(r.get("graph_built_at"))
+            rows.append(r)
+    except Exception as e:
+        logger.warning("admin/graph-status: %r", e)
+    return {"rows": rows, "count": len(rows)}
+
+
+@router.get("/agent-performance")
+async def admin_agent_performance(
+    authorization: Optional[str] = Header(None),
+):
+    """Smart-router agent stats — model usage + per-mode latency."""
+    await _require_admin(authorization)
+    db = require_db()
+    now = time.time()
+    month_ago = now - 30 * 86_400
+
+    per_model: list[dict] = []
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": month_ago},
+                        "model": {"$ne": None}}},
+            {"$group": {
+                "_id": "$model",
+                "n": {"$sum": 1},
+                "avg_secs": {"$avg": {
+                    "$subtract": ["$finished_at", "$created_at"]
+                }},
+                "done": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "done"]}, 1, 0]}
+                },
+            }},
+            {"$sort": {"n": -1}},
+            {"$limit": 20},
+        ]
+        async for row in db.cto_tasks.aggregate(pipeline):
+            per_model.append({
+                "model":     row.get("_id"),
+                "calls":     int(row.get("n") or 0),
+                "done":      int(row.get("done") or 0),
+                "avg_secs":  round(float(row.get("avg_secs") or 0), 2),
+            })
+    except Exception as e:
+        logger.warning("admin/agent-performance: %r", e)
+
+    return {"per_model_30d": per_model}
+
+
+@router.get("/postscan-issues")
+async def admin_postscan_issues(
+    authorization: Optional[str] = Header(None),
+    limit: int = 50,
+):
+    """Recent post-task scanner findings (vanguard regex + lint)."""
+    await _require_admin(authorization)
+    db = require_db()
+    rows: list[dict] = []
+    try:
+        cursor = db.post_task_scans.find(
+            {},
+            {"_id": 0, "task_id": 1, "project_id": 1, "user_id": 1,
+             "severity": 1, "rule": 1, "file": 1, "match": 1,
+             "created_at": 1},
+            sort=[("created_at", -1)],
+            limit=max(1, min(int(limit or 50), 200)),
+        )
+        async for r in cursor:
+            m = (r.get("match") or "")[:80]
+            r["match"] = m
+            rows.append(r)
+    except Exception as e:
+        logger.warning("admin/postscan-issues: %r", e)
+    return {"rows": rows, "count": len(rows)}
+

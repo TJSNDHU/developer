@@ -2254,26 +2254,33 @@ async def _generate_done_followup(original: str, summary: str,
 
 
 
-# ── Iter 186 — Ask Advisor: draft a support email from issue + context ─
+# ── Iter 187 — Ask Advisor: 2-step support flow ────────────────────────
 #
 # Endpoint:  POST /api/aurem-dev/chat/ora/draft-support-email
-# Body:      {"issue": str, "project_id": str|None}
-# Returns:   {ok, subject, to, from, body, context}
+# Body:      {issue, project_id, advisor_analysis, user_agent, page_url}
+# Returns:   {ok, subject, to, from_email, body}
 #
-# The frontend (ORASidePanel.jsx) calls this when the user describes
-# an issue in the Ask Advisor panel. The LLM drafts a short, polite
-# support email; we attach an auto-generated context block (user,
-# plan, last task id/status, project, timestamp) so the support inbox
-# has everything needed to triage without back-and-forth.
+# Flow:
+#   1. Advisor gives a fix in chat.
+#   2. UI shows "Did this fix your issue?" Yes/No.
+#   3. On "No", UI calls this endpoint with the Advisor's reply text
+#      (advisor_analysis) attached so the email can mention "the
+#      suggested fix did not work".
+#   4. Endpoint pulls last 5 tasks, top 3 projects, account age,
+#      browser, page URL — everything support needs to triage in one
+#      shot — and asks DeepSeek to write an 80-word body.
 @router.post("/ora/draft-support-email")
 async def draft_support_email(
     body: dict,
     authorization: Optional[str] = Header(None),
 ):
-    """Draft a support email from the user's issue + their account
-    context. Returns a structured email payload the UI renders as a
-    preview card with a `Send` button (mailto: handoff)."""
+    """Draft a support email AFTER the Advisor's fix didn't resolve
+    the user's issue. The frontend confirms "did this fix?" first and
+    only calls this on "No, contact support". The reply is a
+    structured email payload the UI renders as a preview card with a
+    `Send` button (mailto: handoff)."""
     from services.llm import call_openrouter_model
+    import datetime as _dt
 
     user = await current_dev(authorization)
     user_id = user["user_id"]
@@ -2283,98 +2290,139 @@ async def draft_support_email(
     if not issue:
         raise HTTPException(400, "Issue description required")
 
-    # Account context.
     tier = user.get("tier", "free")
     email = user.get("email", "") or ""
 
-    # Last task — used by support to correlate with worker logs.
-    last_task = None
+    # Last 5 tasks with error details — gives support a quick view of
+    # the failure pattern (which task, which error) without opening
+    # Mongo. Status icon makes the body scannable in Gmail.
+    recent_tasks: list[str] = []
     if db is not None:
         try:
-            last_task = await db.cto_tasks.find_one(
+            tasks_cursor = db.cto_tasks.find(
                 {"user_id": user_id},
+                {"_id": 0, "task_id": 1, "status": 1,
+                 "error": 1, "result": 1,
+                 "created_at": 1, "project_id": 1},
                 sort=[("created_at", -1)],
-                projection={"_id": 0, "task_id": 1, "status": 1, "task": 1},
+                limit=5,
             )
+            async for t in tasks_cursor:
+                status_icon = "✅" if t.get("status") == "done" else "❌"
+                task_line = (
+                    f"{status_icon} {t.get('task_id', '')} "
+                    f"— {t.get('status', 'unknown')}"
+                )
+                if t.get("error"):
+                    task_line += f"\n   Error: {str(t['error'])[:100]}"
+                recent_tasks.append(task_line)
         except Exception as _e:
-            logger.warning("draft-support-email: last_task lookup failed: %r", _e)
+            logger.warning("draft-support-email: tasks fetch failed: %r", _e)
 
-    # Project context if the user is asking from inside a project tab.
-    project = None
-    pid = (body or {}).get("project_id")
-    if db is not None and pid:
+    # Top 3 projects so support can correlate the issue to a repo
+    # without asking back.
+    user_projects: list[str] = []
+    if db is not None:
         try:
-            project = await db.cto_projects.find_one(
-                {"project_id": pid, "user_id": user_id},
-                projection={"_id": 0, "name": 1, "github_repo": 1,
-                            "github_owner": 1},
+            projects_cursor = db.cto_projects.find(
+                {"user_id": user_id},
+                {"_id": 0, "name": 1, "github_owner": 1,
+                 "github_repo": 1, "branch": 1, "project_id": 1},
+                limit=3,
             )
+            async for p in projects_cursor:
+                user_projects.append(
+                    f"• {p.get('name', '')} — "
+                    f"{p.get('github_owner', '')}"
+                    f"/{p.get('github_repo', '')} "
+                    f"[{p.get('branch', 'main')}]"
+                )
         except Exception as _e:
-            logger.warning("draft-support-email: project lookup failed: %r", _e)
+            logger.warning("draft-support-email: projects fetch failed: %r", _e)
+
+    # Account age (when did they sign up). Falls back to "unknown" if
+    # the row predates the created_at instrumentation.
+    created = user.get("created_at", 0)
+    if created:
+        try:
+            age = _dt.datetime.utcfromtimestamp(
+                float(created)
+            ).strftime("%Y-%m-%d")
+        except Exception:
+            age = "unknown"
+    else:
+        age = "unknown"
 
     context_lines = [
-        f"User: {email}",
+        "=== ACCOUNT ===",
+        f"Email: {email}",
         f"Plan: {tier.upper()}",
         f"User ID: {user_id}",
+        f"Member since: {age}",
+        "",
+        "=== PROJECTS ===",
     ]
-    if project:
-        context_lines.append(
-            f"Project: {project.get('name', '')} "
-            f"({project.get('github_owner', '')}"
-            f"/{project.get('github_repo', '')})"
-        )
-    if last_task:
-        context_lines.append(
-            f"Last Task ID: {last_task.get('task_id', '')}"
-        )
-        context_lines.append(
-            f"Last Task Status: {last_task.get('status', '')}"
-        )
-    context_lines.append(
-        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}"
-    )
+    context_lines.extend(user_projects or ["No projects connected"])
+    context_lines.extend(["", "=== RECENT TASKS ==="])
+    context_lines.extend(recent_tasks or ["No tasks yet"])
 
+    context_lines.extend([
+        "",
+        "=== SYSTEM ===",
+        f"Browser: {(body or {}).get('user_agent', 'unknown')[:80]}",
+        f"Page: {(body or {}).get('page_url', 'unknown')}",
+        f"Build: iter187",
+        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}",
+    ])
+
+    advisor_analysis = (body or {}).get("advisor_analysis", "") or ""
+
+    # LLM draft — explicitly tells the model the suggested fix didn't
+    # work so the email tone matches the user's escalation intent.
     prompt = (
-        "Draft a clear, professional support email for this issue:\n\n"
-        f"Issue: {issue}\n\n"
-        "Keep it concise (max 100 words). "
-        "Start with 'Hi ORA Support Team,'. "
-        "Describe the issue clearly. "
-        "End with 'Thank you'.\n"
-        "Return ONLY the email body, no subject line."
+        "Draft a clear support email for this issue:\n\n"
+        f"User Issue: {issue}\n\n"
+        f"Our AI Advisor already tried this fix:\n"
+        f"{advisor_analysis or 'No fix attempted yet'}\n\n"
+        "The user confirmed this did NOT resolve the issue.\n\n"
+        "Write a professional 80-word email starting with "
+        "'Hi ORA Support Team,'. Mention the issue clearly "
+        "and that the suggested fix did not work. "
+        "Return ONLY the email body."
     )
 
     email_body = await call_openrouter_model(
         model="deepseek/deepseek-chat",
-        system="You write clear, concise support emails.",
+        system="You write concise support emails.",
         user=prompt,
-        max_tokens=300,
+        max_tokens=250,
         temperature=0.3,
     )
 
-    # Graceful fallback when the LLM returns empty (key missing /
-    # upstream outage) — we still want the user to be able to send.
     if not (email_body or "").strip():
+        # Graceful fallback so the user is never blocked when the LLM
+        # is down or the OpenRouter key is missing.
         email_body = (
             "Hi ORA Support Team,\n\n"
             f"{issue}\n\n"
+            "The suggested fix from the in-app Advisor did not "
+            "resolve this. Please assist.\n\n"
             "Thank you"
         )
 
     context_block = "\n".join(context_lines)
     full_body = (
         f"{email_body.strip()}\n\n"
-        f"---\n"
-        f"Auto-generated context:\n"
+        f"{'=' * 40}\n"
+        f"AUTO-GENERATED CONTEXT (do not edit):\n"
+        f"{'=' * 40}\n"
         f"{context_block}"
     )
-    subject = f"Support Request — {email} [{tier.upper()}]"
 
     return {
         "ok": True,
-        "subject": subject,
+        "subject": f"[{tier.upper()}] Support — {email}",
         "to": "teji.ss1986@gmail.com",
-        "from": email,
+        "from_email": email,
         "body": full_body,
-        "context": context_block,
     }

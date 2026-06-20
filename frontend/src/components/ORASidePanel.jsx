@@ -41,11 +41,19 @@ export default function ORASidePanel({
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   // Iter 186 — support-email drafting state. `supportDraft` holds the
-  // backend response ({subject, to, body, context}); the preview card
-  // renders when it's non-null and `supportSent` is false.
+  // backend response ({subject, to, body}); the preview card renders
+  // when it's non-null and `supportSent` is false.
+  // Iter 187 — added a confirmation gate ("Did this fix your
+  // issue?") so we only draft an email when the Advisor's reply
+  // didn't actually solve the problem. `pendingIssueText` survives
+  // across the confirm step so we can ship the full LLM analysis as
+  // `advisor_analysis` to the backend draft endpoint.
   const [supportDraft, setSupportDraft] = useState(null);
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportSent, setSupportSent] = useState(false);
+  const [showSupportConfirm, setShowSupportConfirm] = useState(false);
+  const [pendingIssueText, setPendingIssueText] = useState("");
+  const [advisorAnalysis, setAdvisorAnalysis] = useState("");
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -71,6 +79,21 @@ export default function ORASidePanel({
     lastSpokenRef.current = last.content;
     speak(last.content);
   }, [messages, voiceEnabled, speak]);
+
+  // Iter 187 — after the Advisor finishes replying to a support-flagged
+  // prompt, capture the reply as `advisorAnalysis` and surface the
+  // "Did this fix your issue?" confirmation. The 2 s delay lets the
+  // user read at least the first line before the buttons appear so
+  // the confirm feels like a follow-up rather than an interruption.
+  useEffect(() => {
+    if (!pendingIssueText) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || last.streaming) return;
+    if (!last.content) return;
+    setAdvisorAnalysis(last.content);
+    const t = setTimeout(() => setShowSupportConfirm(true), 2000);
+    return () => clearTimeout(t);
+  }, [messages, pendingIssueText]);
 
   const sttSupported =
     typeof window !== "undefined" &&
@@ -100,21 +123,26 @@ export default function ORASidePanel({
     setListening(false);
   };
 
-  // Iter 186 — draft a support email via the backend Ask Advisor
-  // endpoint. The endpoint pulls the user's tier, last task and
-  // (optional) project info from MongoDB and asks DeepSeek to write a
-  // 100-word polite issue summary; we wrap it with the structured
-  // context block on the server side.
-  async function handleSupportEmail(issueText) {
-    const txt = (issueText || "").trim();
+  // Iter 187 — draft a support email AFTER the user confirms that
+  // the Advisor's fix didn't resolve the issue. Pulls the latest
+  // assistant reply text out of `advisorAnalysis` so the backend can
+  // tell the LLM "this fix didn't work" and write an escalation-tone
+  // email. Also ships the browser UA + current page URL so support
+  // can reproduce environment-specific issues.
+  async function handleSupportEmail() {
+    const txt = (pendingIssueText || "").trim();
     if (!txt) return;
     setSupportLoading(true);
     setSupportDraft(null);
     setSupportSent(false);
+    setShowSupportConfirm(false);
     try {
       const r = await api.post("/chat/ora/draft-support-email", {
         issue: txt,
         project_id: projectId || null,
+        advisor_analysis: advisorAnalysis || "",
+        user_agent: (typeof navigator !== "undefined" && navigator.userAgent) || "",
+        page_url: (typeof window !== "undefined" && window.location?.href) || "",
       });
       if (r.data?.ok) setSupportDraft(r.data);
     } catch (e) {
@@ -125,6 +153,12 @@ export default function ORASidePanel({
     } finally {
       setSupportLoading(false);
     }
+  }
+
+  function dismissSupportConfirm() {
+    setShowSupportConfirm(false);
+    setPendingIssueText("");
+    setAdvisorAnalysis("");
   }
 
   function sendSupportEmail() {
@@ -139,10 +173,14 @@ export default function ORASidePanel({
       window.open(`mailto:${to}?subject=${subject}&body=${emailBody}`);
       setSupportSent(true);
       // Auto-clear the card after 3 s so a follow-up draft can take
-      // its place without manual dismissal.
+      // its place without manual dismissal. Iter 187 — also clear
+      // the pending issue + advisor analysis so the next support
+      // request starts from a clean slate.
       setTimeout(() => {
         setSupportDraft(null);
         setSupportSent(false);
+        setPendingIssueText("");
+        setAdvisorAnalysis("");
       }, 3000);
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -155,12 +193,16 @@ export default function ORASidePanel({
     const txt = input.trim();
     onSend(txt);
     setInput("");
-    // Iter 186 — if the prompt sounds like a support request, fire
-    // an email draft in parallel. The Advisor still answers the
-    // question; the draft sits below the message list with a Send
-    // button so the user can escalate to email in one click.
+    // Iter 187 — instead of drafting an email in parallel with the
+    // Advisor's reply (Iter 186 behaviour), gate it behind a "Did
+    // this fix your issue?" confirmation. We stash the user's
+    // prompt as `pendingIssueText` so the draft endpoint can ship it
+    // with the Advisor's analysis later. The confirm card itself is
+    // surfaced by the useEffect below once the assistant settles.
     if (isSupportRequest(txt)) {
-      handleSupportEmail(txt);
+      setPendingIssueText(txt);
+      setAdvisorAnalysis("");
+      setShowSupportConfirm(false);
     }
   };
 
@@ -330,10 +372,69 @@ export default function ORASidePanel({
           <div ref={bottomRef} />
         </div>
 
-        {/* Iter 186 — Support email draft card. Sits between the
-            message list and the composer so the user sees it the
-            moment the backend finishes drafting. Only one card at a
-            time; auto-dismisses 3 s after Send. */}
+        {/* Iter 187 — "Did this fix your issue?" confirmation card.
+            Shows 2 s after the Advisor finishes a reply to a
+            support-flagged prompt. Yes clears the pending state;
+            No drafts the escalation email with the Advisor's
+            analysis included. */}
+        {showSupportConfirm && !supportDraft && !supportLoading && (
+          <div
+            data-testid="ora-support-confirm"
+            style={{
+              margin: "0 14px 8px",
+              padding: "12px 14px",
+              background: "rgba(245,158,11,0.06)",
+              border: "1px solid rgba(245,158,11,0.2)",
+              borderRadius: 10,
+            }}
+          >
+            <div style={{
+              fontSize: 12,
+              color: "#f8fafc",
+              marginBottom: 10,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              Did the above fix resolve your issue?
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                data-testid="ora-support-confirm-yes"
+                onClick={dismissSupportConfirm}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  background: "rgba(34,197,94,0.1)",
+                  border: "1px solid rgba(34,197,94,0.3)",
+                  borderRadius: 7,
+                  color: "#22c55e",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                ✅ Yes, fixed!
+              </button>
+              <button
+                data-testid="ora-support-confirm-no"
+                onClick={handleSupportEmail}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  background: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: 7,
+                  color: "#f87171",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                ❌ No, contact support
+              </button>
+            </div>
+          </div>
+        )}
+
         {supportLoading && (
           <div
             data-testid="ora-support-loading"

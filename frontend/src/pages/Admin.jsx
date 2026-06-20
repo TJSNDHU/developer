@@ -9,6 +9,7 @@ import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
   Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
   LogOut, ExternalLink, ArrowLeft, Loader2, Brain, Eye, Terminal,
+  Mail, Activity, Plug, GitBranch, Zap, ShieldAlert, DollarSign,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
@@ -536,6 +537,251 @@ function ComingSoon({ title, note }) {
         <h3 style={{ fontSize: 14, marginBottom: 8 }}>{title}</h3>
         <div style={{ fontSize: 12 }}>{note}</div>
       </Card>
+    </div>
+  );
+}
+
+// ── Iter 188 — new admin sections ──────────────────────────────────────
+// Each section maps 1:1 to a backend endpoint added in the same iter:
+//   /admin/agent-performance, /admin/mcp-usage, /admin/warm-start-stats,
+//   /admin/graph-status, /admin/postscan-issues, /admin/overview-metrics.
+// All pages share the same loading-skeleton + Card/Table primitives
+// used by the existing tabs so the UI stays consistent.
+
+function AgentPerformancePage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/agent-performance").then((r) => setD(r.data)).catch(() => setD({ per_model_30d: [] }));
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const rows = d.per_model_30d || [];
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Agent performance — last 30 days ({rows.length} models)
+      </h3>
+      <Card>
+        <Table
+          cols={["Model", "Calls", "Done", "Success", "Avg latency"]}
+          rows={rows.map((r) => [
+            <span key="m" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {r.model || "—"}
+            </span>,
+            r.calls,
+            r.done,
+            r.calls ? `${Math.round(100 * r.done / r.calls)}%` : "—",
+            r.avg_secs ? `${r.avg_secs}s` : "—",
+          ])}
+        />
+      </Card>
+      {!rows.length && (
+        <Card style={{ padding: 16, marginTop: 12, color: "var(--text-faint)", fontSize: 12 }}>
+          No model usage yet in the last 30 days. Run a task to populate this view.
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function McpUsagePage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/mcp-usage", { params: { limit: 100 } })
+      .then((r) => setD(r.data)).catch(() => setD({ rows: [] }));
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const rows = d.rows || [];
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        MCP API keys ({rows.length})
+      </h3>
+      <Card>
+        <Table
+          cols={["Key", "User", "Client", "Scope", "Last used", "Created"]}
+          rows={rows.map((r) => [
+            <span key="k" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              …{r.key_tail || "??????"}
+            </span>,
+            <span key="u" style={{ color: "var(--text-faint)", fontSize: 11 }}>
+              {(r.user_id || "").slice(0, 12)}
+            </span>,
+            <Badge key="c">{r.client_id || "—"}</Badge>,
+            <span key="s" style={{ fontSize: 11, color: "var(--text-dim)" }}>{r.scope || "mcp"}</span>,
+            <span key="lu" style={{ color: "var(--text-faint)" }}>
+              {r.last_used_at ? ago(r.last_used_at) : "never"}
+            </span>,
+            <span key="ca" style={{ color: "var(--text-faint)" }}>{ago(r.created_at)}</span>,
+          ])}
+        />
+      </Card>
+      {!rows.length && (
+        <Card style={{ padding: 16, marginTop: 12, color: "var(--text-faint)", fontSize: 12 }}>
+          No MCP keys yet. Users mint keys from Settings → MCP keys.
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function WarmStartPage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/warm-start-stats").then((r) => setD(r.data)).catch(() => setD({ breakdown_7d: {} }));
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const breakdown = d.breakdown_7d || {};
+  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  const done = breakdown.done || 0;
+  const successPct = total ? Math.round(100 * done / total) : 0;
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Avg warm time" value={d.avg_seconds ? `${d.avg_seconds}s` : "—"}
+                sub="Last 100 done jobs · 30 d" />
+        <MCard label="Success rate (7 d)" value={total ? `${successPct}%` : "—"}
+                accent={successPct >= 90 ? "var(--ok)" : successPct >= 70 ? "var(--warn)" : "var(--danger)"}
+                sub={`${done}/${total} jobs`} />
+        <MCard label="Total jobs (7 d)" value={total} sub={`${d.window_days}-day window`} />
+      </div>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Status breakdown
+      </h3>
+      <Card>
+        <Table
+          cols={["Status", "Count"]}
+          rows={Object.entries(breakdown).map(([k, v]) => [
+            <Badge key="s" color={k === "done" ? "var(--ok)" : k === "failed" ? "var(--danger)" : undefined}>{k}</Badge>,
+            v,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function GraphStatusPage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/graph-status", { params: { limit: 100 } })
+      .then((r) => setD(r.data)).catch(() => setD({ rows: [] }));
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const rows = d.rows || [];
+  const built = rows.filter((r) => r.has_graph).length;
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Projects with graph" value={built} sub={`of ${rows.length} shown`} />
+        <MCard label="Coverage" value={rows.length ? `${Math.round(100 * built / rows.length)}%` : "—"}
+                accent={rows.length && built / rows.length >= 0.6 ? "var(--ok)" : "var(--warn)"} />
+        <MCard label="Total projects" value={rows.length} />
+      </div>
+      <Card>
+        <Table
+          cols={["Name", "Repo", "Graph?", "Nodes", "Built"]}
+          rows={rows.map((r) => [
+            r.name || r.project_id,
+            <span key="repo" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {r.github_owner ? `${r.github_owner}/${r.github_repo}` : "—"}
+            </span>,
+            <Badge key="g" color={r.has_graph ? "var(--ok)" : "var(--text-faint)"}>
+              {r.has_graph ? "yes" : "no"}
+            </Badge>,
+            r.graph_node_count ?? "—",
+            <span key="b" style={{ color: "var(--text-faint)" }}>
+              {r.graph_built_at ? ago(r.graph_built_at) : "—"}
+            </span>,
+          ])}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function PostScanPage() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/postscan-issues", { params: { limit: 100 } })
+      .then((r) => setD(r.data)).catch(() => setD({ rows: [] }));
+  }, []);
+  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const rows = d.rows || [];
+  const critical = rows.filter((r) => r.severity === "critical").length;
+  const warning  = rows.filter((r) => ["warning", "warn"].includes(r.severity)).length;
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Critical findings" value={critical} accent="var(--danger)"
+                sub="Commit blockers" />
+        <MCard label="Warnings" value={warning} accent="var(--warn)" />
+        <MCard label="Total shown" value={rows.length} />
+      </div>
+      <Card>
+        <Table
+          cols={["Severity", "Rule", "File", "Match", "Task", "When"]}
+          rows={rows.map((r) => [
+            <Badge key="s" color={r.severity === "critical" ? "var(--danger)" : "var(--warn)"}>
+              {r.severity}
+            </Badge>,
+            <span key="r" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {r.rule || "—"}
+            </span>,
+            <span key="f" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                                    maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap", display: "block" }}>
+              {r.file || "—"}
+            </span>,
+            <span key="m" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                                    color: "var(--text-faint)",
+                                    maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap", display: "block" }}>
+              {r.match || ""}
+            </span>,
+            <span key="t" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {(r.task_id || "").slice(0, 10)}
+            </span>,
+            <span key="w" style={{ color: "var(--text-faint)" }}>{ago(r.created_at)}</span>,
+          ])}
+        />
+      </Card>
+      {!rows.length && (
+        <Card style={{ padding: 16, marginTop: 12, color: "var(--text-faint)", fontSize: 12 }}>
+          No post-scan findings recorded. Vanguard 007 runs on every commit — empty here
+          means clean ships.
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function RevenuePage() {
+  const [m, setM] = useState(null);
+  const [pnl, setPnl] = useState(null);
+  useEffect(() => {
+    api.get("/admin/overview-metrics").then((r) => setM(r.data)).catch(() => setM({}));
+    api.get("/admin/token-pnl").then((r) => setPnl(r.data)).catch(() => setPnl({}));
+  }, []);
+  if (!m || !pnl) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  return (
+    <div style={{ padding: 24 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Stripe subscription revenue
+      </h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+        <MCard label="Revenue (30 d)" value={fmtMoney(m.revenue_30d || 0)}
+                accent="var(--ok)" sub="paid checkouts" />
+        <MCard label="Revenue (mo)" value={fmtMoney(pnl.revenue_month || 0)}
+                sub="Stripe pending" />
+        <MCard label="AI cost (mo)" value={fmtMoney(pnl.ai_cost_month || 0)}
+                accent="var(--danger)" />
+        <MCard label="Net profit" value={fmtMoney(pnl.net_profit || 0)}
+                accent={(pnl.net_profit || 0) >= 0 ? "var(--ok)" : "var(--danger)"} />
+      </div>
     </div>
   );
 }
@@ -1137,6 +1383,10 @@ function ThinkingHintsConfigCard() {
 }
 
 // ── Shell ──────────────────────────────────────────────────────────────
+// Iter 188 — sidebar expanded with seven new sections: Support Emails
+// (renamed from Support), Agent Performance, MCP Usage, Graph Status,
+// Warm Start, Post-scan Issues, Revenue. Each maps to a real backend
+// endpoint under /admin/* added in the same iteration.
 const NAV = [
   { id: "overview", label: "Overview", Icon: Eye },
   { id: "dash", label: "Dashboard", Icon: LayoutDashboard },
@@ -1144,8 +1394,14 @@ const NAV = [
   { id: "projects", label: "Projects", Icon: Folder },
   { id: "tasks", label: "Tasks", Icon: ListChecks },
   { id: "tokens", label: "Token P&L", Icon: Cpu },
+  { id: "agent_perf", label: "Agent Performance", Icon: Activity },
+  { id: "mcp", label: "MCP Usage", Icon: Plug },
+  { id: "warm", label: "Warm Start", Icon: Zap },
+  { id: "graph", label: "Graph Status", Icon: GitBranch },
+  { id: "postscan", label: "Post-scan Issues", Icon: ShieldAlert },
+  { id: "revenue", label: "Revenue", Icon: DollarSign },
   { id: "payments", label: "Payments", Icon: CreditCard },
-  { id: "support", label: "Support", Icon: MessageCircle },
+  { id: "support", label: "Support Emails", Icon: Mail },
   { id: "arch", label: "Architecture", Icon: SitemapIcon },
   { id: "ora", label: "ORA Council", Icon: Brain },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
@@ -1219,6 +1475,12 @@ export default function Admin({ initialTab = "overview" }) {
       case "projects": return <ProjectsPage />;
       case "tasks": return <TasksPage />;
       case "tokens": return <TokenPnL />;
+      case "agent_perf": return <AgentPerformancePage />;
+      case "mcp": return <McpUsagePage />;
+      case "warm": return <WarmStartPage />;
+      case "graph": return <GraphStatusPage />;
+      case "postscan": return <PostScanPage />;
+      case "revenue": return <RevenuePage />;
       case "payments": return <PaymentsPage />;
       case "support": return <SupportPage />;
       case "arch": return <Architecture />;
