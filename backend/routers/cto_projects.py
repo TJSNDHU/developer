@@ -2511,6 +2511,23 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             )
         except Exception as _diff_e:
             logger.warning("task_diff/popup persistence failed: %r", _diff_e)
+        # Iter 184 — fire a `task_handoff` frame on the task SSE stream
+        # immediately before the terminal `done` frame so any client
+        # subscribed to /tasks/{task_id}/stream (notably the ChatPanel
+        # LiveTaskPopup that auto-attaches when the assistant message
+        # carries a `shipped_task_id`) sees the canonical handoff
+        # event. chat.py already emits this frame on the chat SSE
+        # stream for Mode D→C / ship-shortcut handoffs; mirroring it
+        # here covers the HTTP `/tasks/submit` path which never goes
+        # through the chat stream — the popup was silently missing
+        # for those tasks.
+        await _emit(
+            task_id, "task_handoff",
+            kind="task_handoff",
+            project_id=proj.get("project_id"),
+            sha=(sha[:7] if sha else ""),
+            source="task_worker_done",
+        )
         await _emit(task_id, f"Done — {sha[:7]}", kind="done", pct=100)
         db = get_db()
         # Iter 167 — post-task scan: regex-only security + import lint
