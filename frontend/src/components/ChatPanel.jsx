@@ -17,7 +17,7 @@ import {
   Send, Loader2, Square, Paperclip, Github, Zap,
   Eye, EyeOff, Trash2, Network,
 } from "lucide-react";
-import { api, streamChat } from "../lib/api";
+import { api, streamChat, API_BASE, getToken } from "../lib/api";
 import { toast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
@@ -640,6 +640,106 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     })();
     return () => { cancelled = true; };
   }, [latestAssistant?.shipped_task_id]);
+
+  // Iter 184 — Fix B: background SSE listener for HTTP `/tasks/submit`
+  // (or MCP) flows where <TaskLiveTape> may never mount inside a chat
+  // bubble. We open the same /cto/tasks/{taskId}/stream the tape uses,
+  // watch for the new `task_handoff` frame the worker emits right
+  // before `done`, and dispatch the `ora-task-handoff` window event
+  // so the floating popup latches on. The TaskLiveTape change in this
+  // iter also dispatches the same event when the tape IS mounted, but
+  // this listener guarantees coverage when it isn't.
+  useEffect(() => {
+    const taskId = latestAssistant?.shipped_task_id;
+    if (!taskId) return;
+
+    // Immediately surface the popup — same behaviour the chat-handoff
+    // path has had since iter 114. The SSE stream below augments this
+    // with handoff/done telemetry for any consumers wired off the
+    // `ora-task-handoff` window event.
+    setLivePopupTaskId(taskId);
+
+    let aborted = false;
+    const ctrl = new AbortController();
+
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch(
+          `${API_BASE}/cto/tasks/${taskId}/stream`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: ctrl.signal,
+          },
+        );
+        if (!res.ok || !res.body) return;
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (!aborted) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) break;
+          buf += decoder.decode(value, { stream: true });
+          const frames = buf.split("\n\n");
+          buf = frames.pop() || "";
+          for (const frame of frames) {
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            let p;
+            try { p = JSON.parse(line.slice(5).trim()); }
+            catch { continue; }
+            if (!p || p.type === "ping") continue;
+
+            if (p.type === "task_handoff") {
+              try {
+                window.dispatchEvent(
+                  new CustomEvent("ora-task-handoff", {
+                    detail: {
+                      task_id: taskId,
+                      sha: p.sha || "",
+                      project_id: p.project_id || "",
+                      source: p.source || "chatpanel_bg_stream",
+                    },
+                  }),
+                );
+              } catch { /* CustomEvent unsupported */ }
+            }
+            if (
+              p.type === "done" || p.type === "fail" ||
+              p.type === "failed" || p.type === "cancelled"
+            ) {
+              aborted = true;
+              break;
+            }
+          }
+        }
+      } catch { /* aborted on cleanup or network glitch — both fine */ }
+    })();
+
+    return () => {
+      aborted = true;
+      try { ctrl.abort(); } catch { /* ignore */ }
+    };
+  }, [latestAssistant?.shipped_task_id]);
+
+  // Iter 184 — window-event bridge: TaskLiveTape (mounted in chat
+  // bubbles) and the background SSE listener above both dispatch
+  // `ora-task-handoff` when the worker emits the handoff frame. We
+  // latch the floating popup onto that task id so it stays visible
+  // for the entire commit phase — covering chat-handoff,
+  // ship-shortcut, HTTP /tasks/submit, and MCP-triggered tasks.
+  useEffect(() => {
+    const taskHandoffHandler = (e) => {
+      const tid = e?.detail?.task_id;
+      if (tid) setLivePopupTaskId(tid);
+    };
+    window.addEventListener("ora-task-handoff", taskHandoffHandler);
+    return () => {
+      window.removeEventListener("ora-task-handoff", taskHandoffHandler);
+    };
+  }, []);
 
   // Auto-open preview when a project with a preview_url is selected
   useEffect(() => {

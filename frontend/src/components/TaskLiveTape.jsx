@@ -80,6 +80,27 @@ export default function TaskLiveTape({ taskId, onDone }) {
               }));
             }
 
+            // Iter 184 — relay `task_handoff` frames (emitted by the
+            // backend worker immediately before the terminal `done`
+            // frame) up to ChatPanel via a window CustomEvent so the
+            // floating LiveTaskPopup latches on. We do this BEFORE the
+            // terminal-type check below because handoff is NOT terminal
+            // — the `done` frame still arrives right after.
+            if (d.type === "task_handoff") {
+              try {
+                window.dispatchEvent(
+                  new CustomEvent("ora-task-handoff", {
+                    detail: {
+                      task_id: taskId,
+                      sha: d.sha || "",
+                      project_id: d.project_id || "",
+                      source: d.source || "task_stream",
+                    },
+                  }),
+                );
+              } catch { /* ignore CustomEvent failures in old browsers */ }
+            }
+
             if (d.step) setSteps((p) => [...p, d]);
             if (typeof d.pct === "number") setPct(d.pct);
             const terminalTypes = ["done", "fail", "failed", "cancelled", "blocked"];
