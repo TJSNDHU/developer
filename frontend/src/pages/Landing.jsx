@@ -201,10 +201,22 @@ const LANDING_CSS = `
 .ora-landing .video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
 .ora-landing .video-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: transform 0.2s, border-color 0.2s; }
 .ora-landing .video-card:hover { transform: translateY(-2px); border-color: var(--accent-br); }
-.ora-landing .video-thumb { aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a0a00 0%, #050203 100%); }
-.ora-landing .video-thumb.green { background: linear-gradient(135deg, #001a0a 0%, #020503 100%); }
-.ora-landing .video-thumb.blue  { background: linear-gradient(135deg, #001a1a 0%, #020305 100%); }
-.ora-landing .video-thumb.purple{ background: linear-gradient(135deg, #0a001a 0%, #030205 100%); }
+/* Iter 190 — real video assets. Wrapper provides the 16:9 frame so
+   different source aspect ratios render uniformly across the grid;
+   actual <video> element fills the frame and uses object-fit: cover
+   so the focal area stays centered without letterboxing the card. */
+.ora-landing .video-thumb { aspect-ratio: 16/9; position: relative; background: #000; overflow: hidden; }
+.ora-landing .video-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.ora-landing .video-thumb.tinted-orange::after,
+.ora-landing .video-thumb.tinted-green::after,
+.ora-landing .video-thumb.tinted-blue::after,
+.ora-landing .video-thumb.tinted-purple::after,
+.ora-landing .video-thumb.tinted-amber::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.45) 100%);
+}
+.ora-landing .video-badge { position: absolute; top: 10px; left: 10px; padding: 4px 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(0,0,0,0.6); color: var(--text); border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; backdrop-filter: blur(8px); z-index: 2; }
+.ora-landing .video-badge.featured { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.4); color: #fcd34d; }
 .ora-landing .play-btn { width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #000; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 6px 24px rgba(245,158,11,0.4); }
 .ora-landing .video-info { padding: 16px 18px; border-top: 1px solid var(--line-2); }
 .ora-landing .video-title { color: var(--text); font-weight: 600; margin-bottom: 4px; font-size: 15px; }
@@ -560,19 +572,73 @@ export default function Landing() {
       <div className="container">
 
         {/* ─── Watch it ship ─── */}
+        {/* Iter 190 — replaced the 4 placeholder thumbnails with the
+            5 real product videos. The COMPARISON clip is featured
+            (badge + first slot) because head-to-head proof converts
+            skeptics fastest; the rest order from "practical use" →
+            "easy" → "reliable" → "overview" to walk the visitor
+            through value before features. */}
         <section className="section" id="watch">
           <div className="section-label">See it live</div>
           <h2 className="section-title">Watch ORA ship real code</h2>
           <p className="section-sub">Real repos. Real commits. No staging.</p>
           <div className="video-grid">
             {[
-              { thumb: "",       title: "Fix a bug in 90 seconds",       desc: "ORA reads the issue, finds the file, commits the patch." },
-              { thumb: "green",  title: "Mobile dashboard ship",         desc: "Type a task from the phone, watch it commit to GitHub." },
-              { thumb: "blue",   title: "Terminal workflow",             desc: "Claude Code + ORA MCP — commit without a browser." },
-              { thumb: "purple", title: "Run local on PC — no internet", desc: "Boot ORA against Ollama / LM Studio. Your code never leaves the box." },
+              {
+                src:   "https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/3nop2ow4_ora%20compariso%20video.mp4",
+                tint:  "tinted-amber",
+                badge: "featured",
+                badgeText: "vs Copilot",
+                title: "ORA vs Copilot — head-to-head",
+                desc:  "Same prompt, two tools. ORA ships a commit; the other still wants you to copy-paste.",
+              },
+              {
+                src:   "https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/yp58fz0r_prectical%20workflow%20tool%20ora%20.mp4",
+                tint:  "tinted-orange",
+                badge: "",
+                badgeText: "Workflow",
+                title: "Practical workflow — prompt to commit",
+                desc:  "Watch ORA read the issue, find the file, write the patch, and push to GitHub.",
+              },
+              {
+                src:   "https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/9ioe1ylh_ora%20easy%20to%20use%20video.mp4",
+                tint:  "tinted-green",
+                badge: "",
+                badgeText: "Easy to use",
+                title: "Plain English in, code out",
+                desc:  "No IDE. No setup. Describe what you want — ORA handles the rest.",
+              },
+              {
+                src:   "https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/rhq9ed86_reliable%20ORA%20video.mp4",
+                tint:  "tinted-blue",
+                badge: "",
+                badgeText: "Reliable",
+                title: "Reliable shipping, every time",
+                desc:  "Vanguard 007 + verify agent gate every commit. Clean ships, no surprises.",
+              },
+              {
+                src:   "https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/52yyaahf_ora%20video%202%20.mp4",
+                tint:  "tinted-purple",
+                badge: "",
+                badgeText: "Overview",
+                title: "ORA in 60 seconds",
+                desc:  "The whole loop — chat to commit — at a glance.",
+              },
             ].map((v, i) => (
-              <div className="video-card" key={i}>
-                <div className={`video-thumb ${v.thumb}`}><div className="play-btn">▶</div></div>
+              <div className="video-card" key={i} data-testid={`landing-video-${i}`}>
+                <div className={`video-thumb ${v.tint}`}>
+                  {v.badge && (
+                    <span className={`video-badge ${v.badge}`}>{v.badgeText}</span>
+                  )}
+                  {!v.badge && <span className="video-badge">{v.badgeText}</span>}
+                  <video
+                    src={v.src}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    poster=""
+                  />
+                </div>
                 <div className="video-info">
                   <div className="video-title">{v.title}</div>
                   <div className="video-desc">{v.desc}</div>
