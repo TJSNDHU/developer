@@ -604,6 +604,13 @@ export default function MessageBubble({
           {m.role === "assistant" && !m.streaming && (
             <PatRequiredCTA text={m.content} />
           )}
+          {/* Iter 209 — typed `system_signal` banners (Core 3).
+              Backend's ToolExecutor emits structured signals when a
+              tool fails; we render them here so the LLM never has to
+              describe the error itself. */}
+          {m.role === "assistant" && !m.streaming && (
+            <SystemSignalBanner signals={m.system_signals} />
+          )}
           {/* Inline HTML preview directly inside the bubble (separate from side PreviewPanel) */}
           {m.role === "assistant" && !m.streaming && (() => {
             const html = extractInlineHTML(m.content);

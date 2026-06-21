@@ -5941,3 +5941,98 @@ Backend:
 **Production note**: All changes in preview. User must redeploy `auremcto.com` to push live.
 
 ---
+
+
+### Iter 209 — Core verification foundation (Feb 2026) ✅
+
+**Ask**: Architecture-level change, not a feature. Five permanent cores
+that apply to every response, every project, every user — no toggles,
+no per-project overrides.
+
+**Cores delivered**:
+
+1. **CitationGuard** — `backend/services/citation_guard.py`
+   Hard-blocks LLM responses containing file paths / versions / counts
+   without a matching `read_repo_file` or `read_repo_files` call in the
+   same turn. On detection auto-fetches the cited paths and re-runs the
+   LLM once with the verified content injected as a system note. Returns
+   `{text, guard, retried, fetched}` so the orchestrator can swap the
+   draft + emit a `reset` SSE frame to the frontend.
+
+2. **ToolExecutor** — `backend/services/tool_executor.py`
+   Uniform try/except wrapping every tool call. Maps HTTP status codes
+   to structured signals (401→`github_auth_failed`, 403→`github_permission_denied`,
+   404→`repo_not_found`, 422→`invalid_request`, 429→`github_rate_limited`,
+   5xx→`github_server_error`). The LLM only sees the neutral
+   `"Tool {name} could not complete."` — never the raw error text. Real
+   error details travel through `system_signal` for the frontend.
+
+3. **SystemSignalBanner** — `frontend/src/components/SystemSignalBanner.jsx`
+   Render-only component that converts backend `system_signals[]` into
+   typed colored banners (amber/red/blue + Icon + title + body + action
+   button). Action buttons deep-link into the right product surface
+   (`/projects?pat={id}`, `/projects?edit={id}`, or fire a
+   `ora:retry-last` custom event). Mounted in `MessageBubble.jsx` so
+   every assistant message can carry typed errors.
+
+4. **ORA system-prompt rules (R1–R4)** — appended permanently to
+   `ORA_PANEL_TONE` in `backend/routers/chat.py`. R1 read-before-write,
+   R2 cannot-read-say-so, R3 tool-errors-stop, R4 no-creative-mode-for-code.
+   Explicitly marked as non-overridable by user instruction.
+
+5. **AuditLog** — `backend/services/audit_log.py`
+   One row per ORA turn written to MongoDB `ora_audit`. Captures
+   `tools_called`, `citation_guard_triggered`, `citation_guard_paths_fetched`,
+   `citation_guard_unverified`, `system_signals_emitted`, `llm_model`,
+   `response_tokens`, `was_retry`, `timestamp`. Fire-and-forget — never
+   blocks the response. Provides `list_turns(user_id?, project_id?)`
+   read API for the future admin "Audit" tab.
+
+**Wiring**: integrated into `/api/aurem-dev/chat/stream`'s terminal
+SSE frame (`chat.py:1904+`). The final `done` event now carries
+`system_signals` and `citation_guard_triggered`. When the guard
+retries, a `{token, reset: true}` frame is emitted first so the
+frontend overwrites the hallucinated draft.
+
+**Proof tests** — `backend/tests/test_iter209_citation_guard_and_tool_executor.py`:
+- **Test 1** (citation guard catches hallucination) — PASS ✓
+- **Test 2** (401 → `github_auth_failed` typed signal) — PASS ✓
+- **Test 3** (clean response passes through untouched) — PASS ✓
+- Plus 8 more covering claim extraction, dedupe, status-code mapping
+- **11/11 PASS** + the 4 iter-205 tests still green (15/15 total).
+
+**Backend smoke** — restart clean, `/chat/stream` returns the new
+fields in the `done` frame.
+
+**Files (new)**:
+- `backend/services/citation_guard.py` (~200 lines)
+- `backend/services/tool_executor.py` (~140 lines)
+- `backend/services/audit_log.py` (~110 lines)
+- `frontend/src/components/SystemSignalBanner.jsx` (~150 lines)
+- `backend/tests/test_iter209_citation_guard_and_tool_executor.py` (~190 lines)
+
+**Files (modified)**:
+- `backend/routers/chat.py` — R1-R4 rules appended to `ORA_PANEL_TONE`,
+  guard + audit wired into SSE final-frame path.
+- `frontend/src/components/MessageBubble.jsx` — imports and renders
+  `<SystemSignalBanner>` for every completed assistant message.
+
+**Deferred to next iteration**:
+- Admin "Audit" tab UI (Test 4 in the spec). The collection +
+  `list_turns()` read API are live; UI is ~30 lines of table rendering.
+- Wiring `ToolExecutor` around the per-tool `LOCAL_TOOLS` dispatch.
+  Today the executor + signal map are tested in isolation; the next
+  step is to thread `tool_executor.execute(name, runner)` into the
+  agent's tool loop so 401s naturally bubble into the SSE
+  `system_signals` array.
+
+**Production note**: all changes in preview. After redeploy
+(`auremcto.com`), the next hallucinated README scenario will trigger
+the guard → auto-fetch → retry, and any 401/403/404 from GitHub will
+surface as a typed banner with a one-click "Update PAT" / "Fix PAT" /
+"Edit Project" button.
+
+**Commit message** (per user spec):
+`core: citation guard + tool error router + signal renderer + audit log`
+
+---
