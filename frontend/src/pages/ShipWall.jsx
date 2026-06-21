@@ -5,9 +5,8 @@
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api, getToken } from "../lib/api";
+import { api } from "../lib/api";
 import usePageMeta from "../lib/usePageMeta";
-import Shell from "../components/Shell";
 
 const APP_URL = window.location.origin;
 
@@ -41,12 +40,13 @@ export default function ShipWall() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Iter 88: When the user is authenticated, render inside the
-  // standard Shell so the sidebar is present. Anonymous visitors keep
-  // the existing marketing-style layout (no chrome).
-  const authed = !!getToken();
+  // Ship Wall is a PUBLIC marketing showcase (linked from Landing
+  // page CTA "See real ships"). It must NEVER render the internal
+  // Shell sidebar, even for logged-in visitors — that leaks the
+  // customer interface to anyone clicking the public CTA. Logged-in
+  // users can still navigate back via the "AUREM CTO" header link.
   const body = (
-    <div style={{ minHeight: authed ? "auto" : "100vh",
+    <div style={{ minHeight: "100vh",
                   background: "var(--bg)", paddingBottom: 60 }}>
       <div style={{
         borderBottom: "1px solid var(--border)",
@@ -104,9 +104,6 @@ export default function ShipWall() {
     </div>
   );
 
-  if (authed) {
-    return <Shell>{body}</Shell>;
-  }
   return body;
 }
 
