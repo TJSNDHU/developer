@@ -958,10 +958,14 @@ async def chat_stream(
 
     # Iter 38: ORA is founder-only. The ORA API key is shared across all
     # founders, so we gate at the surface to avoid customer quota burn.
+    # Iter 205 — The Ask Advisor side panel (ORASidePanel) hardcodes
+    # `agent="ora"` for every user. Instead of 403'ing free-tier users
+    # (breaking Ask Advisor entirely), silently downgrade to the default
+    # orchestrator so they get Claude/DeepSeek from their own quota.
     if (body.agent or "").lower() == "ora":
         from services.usage import is_founder_email
         if not is_founder_email(user.get("email")):
-            raise HTTPException(403, "ORA agent is founder-only")
+            body.agent = "auto"
 
     # Iter 157 — COLD START FIX.
     # Three context-builders below used to run sequentially with NO

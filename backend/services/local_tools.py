@@ -44,15 +44,39 @@ MAX_FILES_BULK = 6        # max files in one read_repo_files call
 # ── Helper: resolve project from DB ──────────────────────────────────────────
 
 async def _resolve_project(user_id: str, project_id: str) -> dict | None:
-    """Return project doc or None if not found."""
+    """Return project doc or None if not found.
+
+    Iter 205 — Critical fix: `cto_projects.github_token` is stored as
+    ENCRYPTED ciphertext (Fernet `v1:…`). Tool functions calling GitHub's
+    API with the raw ciphertext got `401 Bad credentials`. We now decrypt
+    in-place and, when the project has no PAT (e.g. OAuth-only flow),
+    fall back to the user's GitHub OAuth `access_token`.
+
+    All downstream tools keep reading `proj.get("github_token")` and just
+    work.
+    """
     if not user_id or not project_id or project_id == "home":
         return None
     db = get_db()
     if db is None:
         return None
-    return await db.cto_projects.find_one(
+    proj = await db.cto_projects.find_one(
         {"project_id": project_id, "user_id": user_id}
     )
+    if not proj:
+        return None
+    # Decrypt the per-project PAT (if present), else fall back to OAuth.
+    try:
+        from routers.cto_projects import _decrypt_pat, _user_gh_token
+        raw_token = proj.get("github_token") or ""
+        decrypted = await _decrypt_pat(user_id, raw_token) if raw_token else None
+        if not decrypted:
+            decrypted = await _user_gh_token(user_id)
+        proj["github_token"] = decrypted or None
+    except Exception as e:                       # noqa: BLE001
+        logger.warning("local_tools._resolve_project: token decrypt failed: %r", e)
+        proj["github_token"] = None
+    return proj
 
 
 def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[str, bool]:

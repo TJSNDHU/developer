@@ -37,14 +37,31 @@ PYPI_API = "https://pypi.org/pypi"
 # ── Helper: resolve project (copy from local_tools to avoid cycle) ────
 
 async def _resolve_project(user_id: str, project_id: str) -> dict | None:
+    """Iter 205 — same fix as local_tools._resolve_project: decrypt the
+    project's PAT before downstream skills hit the GitHub API, with OAuth
+    fallback when no PAT is stored.
+    """
     if not user_id or not project_id or project_id == "home":
         return None
     db = get_db()
     if db is None:
         return None
-    return await db.cto_projects.find_one(
+    proj = await db.cto_projects.find_one(
         {"project_id": project_id, "user_id": user_id}
     )
+    if not proj:
+        return None
+    try:
+        from routers.cto_projects import _decrypt_pat, _user_gh_token
+        raw_token = proj.get("github_token") or ""
+        decrypted = await _decrypt_pat(user_id, raw_token) if raw_token else None
+        if not decrypted:
+            decrypted = await _user_gh_token(user_id)
+        proj["github_token"] = decrypted or None
+    except Exception as e:                       # noqa: BLE001
+        logger.warning("dev_skills._resolve_project: token decrypt failed: %r", e)
+        proj["github_token"] = None
+    return proj
 
 
 def _gh_headers(token: Optional[str]) -> dict:
