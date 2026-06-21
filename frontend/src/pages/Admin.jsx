@@ -1268,12 +1268,222 @@ function SettingsPage() {
         {busy ? "Saving…" : "Save settings"}
       </button>
 
+      {/* Iter 191 — Stripe API key card with edit/save + live ping
+          (green/red status light, account info, error reason). */}
+      <StripeApiKeyCard />
+
       {/* Iter 158 — thinking-hint manager (tier-aware upsell pills
           shown next to the chat spinner). Full CRUD + global toggle
           + delay slider. */}
       <ThinkingHintsConfigCard />
       <AdminThinkingHints />
     </div>
+  );
+}
+
+// ─── Iter 191 — Stripe API key card ──────────────────────────────────
+// Live status indicator (green = key verified via Account.retrieve,
+// red = the exact reason returned by Stripe). Edit/Save flow validates
+// the new key BEFORE persisting so a broken key can never overwrite a
+// working one.
+function StripeApiKeyCard() {
+  const [data, setData] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function refresh() {
+    try {
+      const r = await api.get("/admin/stripe-config");
+      setData(r.data);
+    } catch (e) {
+      setData({ configured: false, status: "error",
+                error: e?.response?.data?.detail || "Could not load Stripe config" });
+    }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  async function save() {
+    if (!newKey.trim()) return;
+    setSaving(true);
+    try {
+      await api.post("/admin/stripe-config", { api_key: newKey.trim() });
+      toast({ message: "Stripe key validated & saved ✓", kind: "success" });
+      setNewKey("");
+      setEditing(false);
+      await refresh();
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Validation failed",
+        kind: "error",
+      });
+    } finally { setSaving(false); }
+  }
+
+  if (!data) {
+    return (
+      <Card style={{ padding: 18, marginTop: 24 }}>
+        <div style={{ color: "var(--text-faint)", fontSize: 12 }}>
+          Loading Stripe status…
+        </div>
+      </Card>
+    );
+  }
+
+  const ok = data.status === "ok";
+  const dot = ok ? "#22c55e" : "#ef4444";
+  const dotShadow = ok ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)";
+  const acct = data.account || {};
+
+  return (
+    <Card style={{ padding: 18, marginTop: 24 }} data-testid="admin-stripe-card">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                    marginBottom: 12, gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            data-testid="admin-stripe-status-dot"
+            style={{
+              width: 12, height: 12, borderRadius: "50%",
+              background: dot,
+              boxShadow: `0 0 0 4px ${dotShadow}, 0 0 12px ${dot}`,
+              animation: ok ? "pulseDot 2.4s ease-in-out infinite" : "none",
+              flexShrink: 0,
+            }}
+          />
+          <h3 style={{ fontSize: 13, margin: 0 }}>Stripe API key</h3>
+          {data.mode && data.mode !== "unknown" && (
+            <Badge color={data.mode === "live" ? "var(--ok)" : "var(--warn)"}>
+              {data.mode}
+            </Badge>
+          )}
+          {data.source && (
+            <span style={{ fontSize: 10, color: "var(--text-faint)",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              source: {data.source}
+            </span>
+          )}
+        </div>
+        {!editing && (
+          <button
+            data-testid="admin-stripe-edit"
+            className="btn-secondary"
+            style={{ fontSize: 12, padding: "6px 14px" }}
+            onClick={() => { setNewKey(""); setEditing(true); }}
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
+      {!editing && (
+        <>
+          {ok ? (
+            <div data-testid="admin-stripe-ok"
+                 style={{
+                   padding: "10px 12px", marginBottom: 8,
+                   background: "rgba(34,197,94,0.06)",
+                   border: "1px solid rgba(34,197,94,0.18)",
+                   borderRadius: 8,
+                   fontSize: 12, color: "#86efac",
+                   fontFamily: "'JetBrains Mono', monospace",
+                 }}>
+              ● Connected — sk_{data.mode}_…{data.last4}
+            </div>
+          ) : (
+            <div data-testid="admin-stripe-err"
+                 style={{
+                   padding: "10px 12px", marginBottom: 8,
+                   background: "rgba(239,68,68,0.06)",
+                   border: "1px solid rgba(239,68,68,0.2)",
+                   borderRadius: 8,
+                   fontSize: 12, color: "#fca5a5",
+                   lineHeight: 1.5,
+                 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>● Not working</div>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+                {data.error || "Unknown error"}
+              </div>
+            </div>
+          )}
+
+          {ok && (
+            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr",
+                          gap: "6px 14px", fontSize: 11,
+                          color: "var(--text-faint)",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          marginTop: 4 }}>
+              <span>Account</span><span style={{ color: "var(--text)" }}>{acct.id || "—"}</span>
+              <span>Business</span><span style={{ color: "var(--text)" }}>{acct.business_name || "—"}</span>
+              <span>Email</span><span style={{ color: "var(--text)" }}>{acct.email || "—"}</span>
+              <span>Country</span><span style={{ color: "var(--text)" }}>{acct.country || "—"}</span>
+              <span>Charges</span>
+              <span style={{ color: acct.charges_enabled ? "var(--ok)" : "var(--danger)" }}>
+                {acct.charges_enabled ? "enabled" : "disabled"}
+              </span>
+              <span>Payouts</span>
+              <span style={{ color: acct.payouts_enabled ? "var(--ok)" : "var(--danger)" }}>
+                {acct.payouts_enabled ? "enabled" : "disabled"}
+              </span>
+            </div>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <div style={{ marginTop: 8 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)",
+                          display: "block", marginBottom: 6,
+                          fontFamily: "'JetBrains Mono', monospace",
+                          textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Paste new key (sk_live_… or sk_test_…)
+          </label>
+          <input
+            data-testid="admin-stripe-key-input"
+            className="input"
+            type="password"
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="sk_live_……"
+            autoFocus
+            style={{ width: "100%", fontFamily: "'JetBrains Mono', monospace",
+                     fontSize: 12 }}
+          />
+          <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+            <button
+              data-testid="admin-stripe-save"
+              className="btn-primary"
+              onClick={save}
+              disabled={saving || !newKey.trim()}
+              style={{ fontSize: 12 }}>
+              {saving ? "Validating with Stripe…" : "Save"}
+            </button>
+            <button
+              data-testid="admin-stripe-cancel"
+              className="btn-secondary"
+              onClick={() => { setEditing(false); setNewKey(""); }}
+              disabled={saving}
+              style={{ fontSize: 12 }}>
+              Cancel
+            </button>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10, color: "var(--text-faint)",
+                        lineHeight: 1.5 }}>
+            Key is validated via a live <code>Account.retrieve()</code> call
+            before saving. If Stripe rejects it, nothing is persisted and the
+            old key keeps working.
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulseDot {
+          0%, 100% { box-shadow: 0 0 0 4px ${dotShadow}, 0 0 12px ${dot}; }
+          50%      { box-shadow: 0 0 0 8px ${dotShadow}, 0 0 18px ${dot}; }
+        }
+      `}</style>
+    </Card>
   );
 }
 

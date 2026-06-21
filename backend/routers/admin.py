@@ -10,6 +10,8 @@ Mounted under /api/aurem-dev/admin/* by main.py.
 from __future__ import annotations
 
 import logging
+import os
+import asyncio
 import time
 from typing import Optional
 
@@ -2259,4 +2261,186 @@ async def admin_postscan_issues(
     except Exception as e:
         logger.warning("admin/postscan-issues: %r", e)
     return {"rows": rows, "count": len(rows)}
+
+
+
+# ─── Iter 191 — Stripe API key admin panel + live ping ─────────────────
+#
+# GET  /admin/stripe-config   — current key (masked) + live ping status
+# POST /admin/stripe-config   — validate + save a new key, hot-swap at
+#                                runtime via payments.set_runtime_stripe_key
+#
+# The current key resolution prefers (in order): runtime override (set
+# at boot from this DB row), env var, .env file. The admin panel always
+# writes to MongoDB so changes survive across replica pods AND across
+# deploys without touching the secrets manager.
+
+@router.get("/stripe-config")
+async def admin_get_stripe_config(
+    authorization: Optional[str] = Header(None),
+):
+    """Return the current Stripe key (masked) + live ping result."""
+    await _require_admin(authorization)
+    from routers.payments import _stripe_key, set_runtime_stripe_key
+    import stripe as _stripe
+
+    db = require_db()
+
+    # If there's an admin override in DB and it hasn't been loaded yet,
+    # load it now so the green/red light reflects the actual key in use.
+    db_key = ""
+    try:
+        row = await db.admin_settings.find_one({"_id": "stripe_api_key"})
+        if row:
+            db_key = (row.get("value") or "").strip()
+            if db_key:
+                set_runtime_stripe_key(db_key)
+    except Exception as e:
+        logger.warning("admin/stripe-config: DB lookup failed: %r", e)
+
+    key = _stripe_key()
+    if not key:
+        return {
+            "configured": False,
+            "status": "error",
+            "error": "No Stripe key configured. Click Edit and paste your sk_live_… or sk_test_… key.",
+            "source": "none",
+            "last4": "",
+            "mode": "unknown",
+        }
+
+    # Detect source for the UI badge.
+    if db_key and db_key == key:
+        source = "db_override"
+    elif (os.environ.get("STRIPE_SECRET_KEY") or
+          os.environ.get("STRIPE_API_KEY")) == key:
+        source = "env"
+    else:
+        source = "dotenv"
+
+    mode = "live" if key.startswith("sk_live_") else (
+        "test" if key.startswith("sk_test_") else "unknown"
+    )
+    last4 = key[-4:] if len(key) >= 8 else ""
+
+    # Live ping — Account.retrieve is the canonical "is this key valid"
+    # check. Cheap, free of charge, and surfaces capability/restrictions.
+    _stripe.api_key = key
+    try:
+        acct = await asyncio.to_thread(_stripe.Account.retrieve)
+        return {
+            "configured": True,
+            "status":  "ok",
+            "error":   "",
+            "source":  source,
+            "last4":   last4,
+            "mode":    mode,
+            "account": {
+                "id":             acct.get("id"),
+                "email":          acct.get("email"),
+                "business_name":  acct.get("business_profile", {}).get("name")
+                                   or acct.get("settings", {}).get("dashboard", {}).get("display_name")
+                                   or "",
+                "country":        acct.get("country"),
+                "charges_enabled":  bool(acct.get("charges_enabled")),
+                "payouts_enabled":  bool(acct.get("payouts_enabled")),
+                "details_submitted": bool(acct.get("details_submitted")),
+            },
+        }
+    except _stripe.error.AuthenticationError as e:
+        return {
+            "configured": True, "status": "error",
+            "error": f"Invalid key — Stripe rejected authentication ({getattr(e,'user_message',None) or str(e)})",
+            "source": source, "last4": last4, "mode": mode,
+        }
+    except _stripe.error.PermissionError as e:
+        return {
+            "configured": True, "status": "error",
+            "error": f"Key is missing the `rak_read_only` or account-read permission ({e})",
+            "source": source, "last4": last4, "mode": mode,
+        }
+    except _stripe.error.APIConnectionError as e:
+        return {
+            "configured": True, "status": "error",
+            "error": f"Can't reach Stripe ({e}). Network or DNS issue from the deploy pod.",
+            "source": source, "last4": last4, "mode": mode,
+        }
+    except _stripe.error.StripeError as e:
+        return {
+            "configured": True, "status": "error",
+            "error": f"Stripe error: {getattr(e,'user_message',None) or str(e)}",
+            "source": source, "last4": last4, "mode": mode,
+        }
+    except Exception as e:
+        return {
+            "configured": True, "status": "error",
+            "error": f"Unexpected error: {e}",
+            "source": source, "last4": last4, "mode": mode,
+        }
+
+
+@router.post("/stripe-config")
+async def admin_set_stripe_config(
+    body: dict,
+    authorization: Optional[str] = Header(None),
+):
+    """Validate a new Stripe key, save it to admin_settings, and
+    hot-swap it into the running process. Refuses any key that fails
+    a live Account.retrieve()."""
+    user = await _require_admin(authorization)
+    from routers.payments import set_runtime_stripe_key
+    import stripe as _stripe
+
+    new_key = ((body or {}).get("api_key") or "").strip()
+    if not new_key:
+        raise HTTPException(400, "api_key required")
+    if not (new_key.startswith("sk_live_") or new_key.startswith("sk_test_")):
+        raise HTTPException(400, "Key must start with sk_live_ or sk_test_")
+    if new_key.startswith("sk_test_emergent"):
+        raise HTTPException(400, "Refusing to save the Emergent sandbox placeholder")
+
+    # Validate via live ping BEFORE saving — never persist a broken key.
+    _stripe.api_key = new_key
+    try:
+        acct = await asyncio.to_thread(_stripe.Account.retrieve)
+    except _stripe.error.AuthenticationError:
+        raise HTTPException(400, "Stripe rejected this key — authentication failed")
+    except _stripe.error.PermissionError as e:
+        raise HTTPException(400, f"Key missing required permissions: {e}")
+    except _stripe.error.StripeError as e:
+        raise HTTPException(400, f"Stripe error: {getattr(e,'user_message',None) or str(e)}")
+    except Exception as e:
+        raise HTTPException(400, f"Could not validate key: {e}")
+
+    # Persist + hot-swap.
+    db = require_db()
+    try:
+        await db.admin_settings.update_one(
+            {"_id": "stripe_api_key"},
+            {"$set": {
+                "_id":       "stripe_api_key",
+                "value":     new_key,
+                "updated_at": time.time(),
+                "updated_by": user.get("email") or user.get("user_id"),
+                "mode":      "live" if new_key.startswith("sk_live_") else "test",
+                "account_id": acct.get("id"),
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error("admin/stripe-config: DB save failed: %r", e)
+        raise HTTPException(500, f"Saved to memory but DB persistence failed: {e}")
+
+    set_runtime_stripe_key(new_key)
+    logger.info("Stripe key hot-swapped by admin=%s account=%s mode=%s",
+                user.get("email"), acct.get("id"),
+                "live" if new_key.startswith("sk_live_") else "test")
+
+    return {
+        "ok": True,
+        "last4": new_key[-4:],
+        "mode": "live" if new_key.startswith("sk_live_") else "test",
+        "account_id": acct.get("id"),
+        "message": "Stripe key saved, validated, and now live.",
+    }
 

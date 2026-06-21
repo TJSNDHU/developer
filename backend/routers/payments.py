@@ -122,7 +122,17 @@ def _stripe_key() -> str:
     real key loaded from `.env`. We treat that placeholder as "not
     configured" and reach into the .env via dotenv_values so the real
     key always wins.
+
+    Iter 191 — also honors a runtime admin override saved in
+    `admin_settings.stripe_api_key` (set via POST /admin/stripe-config).
+    The DB value wins over env so a founder can hot-swap the key from
+    the admin panel without redeploying.
     """
+    # Runtime admin override has highest priority.
+    runtime_key = globals().get("_RUNTIME_STRIPE_KEY") or ""
+    if runtime_key and not runtime_key.startswith("sk_test_emergent"):
+        return runtime_key
+
     candidates = [
         os.environ.get("STRIPE_SECRET_KEY"),
         os.environ.get("STRIPE_API_KEY"),
@@ -143,6 +153,21 @@ def _stripe_key() -> str:
     except Exception:
         pass
     return ""
+
+
+# Iter 191 — runtime override populated either at boot (from
+# admin_settings.stripe_api_key) or via POST /admin/stripe-config. We
+# keep it as a module-level mutable string so _stripe_key() can read
+# it without a DB round-trip on every Stripe call.
+_RUNTIME_STRIPE_KEY: str = ""
+
+
+def set_runtime_stripe_key(key: str) -> None:
+    """Hot-swap the Stripe secret key for this process."""
+    global _RUNTIME_STRIPE_KEY
+    _RUNTIME_STRIPE_KEY = (key or "").strip()
+    if _RUNTIME_STRIPE_KEY:
+        stripe.api_key = _RUNTIME_STRIPE_KEY
 
 
 _TIMEOUTS_CONFIGURED = False
