@@ -1537,7 +1537,7 @@ function SettingsPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 560 }}>
+    <div style={{ padding: 24, maxWidth: 960 }}>
       <h3 style={{ fontSize: 13, margin: "0 0 14px" }}>Upgrade your plan</h3>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
         {[
@@ -1601,6 +1601,20 @@ function SettingsPage() {
           + delay slider. */}
       <ThinkingHintsConfigCard />
       <AdminThinkingHints />
+
+      {/* Iter 195 — ORA Council moved into Settings (was its own
+          sidebar tab). Council settings live alongside other admin
+          tunables (Stripe key, thinking hints) so configuration
+          surfaces are in one place. */}
+      <div style={{ marginTop: 28, paddingTop: 20,
+                     borderTop: "1px solid var(--line, rgba(255,255,255,0.06))" }}>
+        <h3 style={{ fontSize: 13, margin: "0 0 14px",
+                      display: "flex", alignItems: "center", gap: 8 }}>
+          <Brain size={14} style={{ color: "var(--accent, #ff8a2a)" }} />
+          ORA Council
+        </h3>
+        <AuremAdminPanel />
+      </div>
     </div>
   );
 }
@@ -1937,7 +1951,6 @@ const NAV = [
   { id: "reliability", label: "Reliability", Icon: ShieldAlert },
   { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
   { id: "support", label: "Support Emails", Icon: Mail },
-  { id: "ora", label: "ORA Council", Icon: Brain },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -2014,7 +2027,6 @@ export default function Admin({ initialTab = "overview" }) {
       case "reliability": return <ReliabilityPage />;
       case "payments": return <PaymentsPage />;
       case "support": return <SupportPage />;
-      case "ora": return <AuremAdminPanel />;
       case "settings": return <SettingsPage />;
       default: return <Dashboard />;
     }
@@ -2068,18 +2080,6 @@ export default function Admin({ initialTab = "overview" }) {
             </button>
           );
         })}
-        <Link
-          to="/admin/ops"
-          data-testid="admin-nav-ops"
-          className="btn-ghost"
-          style={{ display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 10px", marginBottom: 2,
-                    background: "transparent", color: "var(--text-dim)",
-                    border: "none", fontSize: 12, textAlign: "left",
-                    width: "100%", borderRadius: 4, textDecoration: "none",
-                    whiteSpace: "nowrap" }}>
-          <Terminal size={14} /> Ops recipes
-        </Link>
         </div>
         <div style={{ marginTop: "auto", paddingTop: 12, flexShrink: 0,
                        borderTop: "1px solid var(--border)" }}>

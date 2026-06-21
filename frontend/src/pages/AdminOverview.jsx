@@ -152,6 +152,22 @@ export default function AdminOverview() {
               cursor: "pointer", textDecoration: "none",
             }}
           >🔑 API Keys →</a>
+          {/* Iter 195 — Ops recipes link moved here from the sidebar.
+              Keeps the action grid as the single jump-off point for
+              operational tools and frees up a sidebar slot. */}
+          <a
+            data-testid="goto-ops"
+            href="/admin/ops"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >⌨️ Ops recipes →</a>
         </div>
       </Section>
 
