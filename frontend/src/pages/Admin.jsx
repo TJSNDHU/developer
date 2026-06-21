@@ -3,7 +3,7 @@
  * Guarded route: only users with is_admin in localStorage 'aurem_user'.
  * All data lives under /api/aurem-dev/admin/*.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
@@ -184,64 +184,360 @@ function Dashboard() {
 
 function UsersList({ onSelect }) {
   const [users, setUsers] = useState([]);
+  const [buckets, setBuckets] = useState({ "24h": 0, "7d": 0, "30d": 0, "all": 0 });
   const [search, setSearch] = useState("");
+  // Iter 194 — signup-window filter. Default "all"; pills above the
+  // table let admin scope the list to "joined in 24 h", "7 d", "30 d".
+  const [windowSel, setWindowSel] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(() => new Set());
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
-  const load = useCallback(async (s) => {
+  const load = useCallback(async (s, w) => {
     setLoading(true);
     try {
-      const r = await api.get("/admin/users", { params: { search: s } });
+      const r = await api.get("/admin/users", { params: { search: s, window: w } });
       setUsers(r.data.users || []);
+      if (r.data.bucket_counts) setBuckets(r.data.bucket_counts);
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(search), 250);
+    const t = setTimeout(() => load(search, windowSel), 250);
     return () => clearTimeout(t);
-  }, [search, load]);
+  }, [search, windowSel, load]);
+
+  const toggleOne = (uid) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid); else next.add(uid);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected((prev) => {
+      if (prev.size === users.length) return new Set();
+      return new Set(users.map((u) => u.user_id));
+    });
+  };
+
+  async function deleteUser(u) {
+    if (!window.confirm(`Delete ${u.email}? This cascades to projects, tasks, payments, API keys. No undo.`)) {
+      return;
+    }
+    setDeletingId(u.user_id);
+    try {
+      const r = await api.delete(`/admin/users/${u.user_id}`);
+      const dels = r.data?.deletions || {};
+      toast({
+        message: `Deleted ${u.email} · users:${dels.users ?? "?"} projects:${dels.cto_projects ?? "?"} tasks:${dels.cto_tasks ?? "?"}`,
+        kind: "success",
+      });
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(u.user_id);
+        return next;
+      });
+      load(search, windowSel);
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Delete failed",
+        kind: "error",
+      });
+    } finally { setDeletingId(null); }
+  }
 
   return (
     <div style={{ padding: 24 }}>
-      {/* Iter 65 — Agent token P&L widget, top of Users tab.
-          Answers: "kya Claude/Maxx ka extra cost worth hai?" */}
+      {/* Iter 65 — Agent token P&L widget, top of Users tab. */}
       <AgentTokenPanel />
       <div style={{ display: "flex", justifyContent: "space-between",
                      alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
         <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                       color: "var(--text-faint)", margin: 0 }}>
-          Users ({users.length})
+          Users ({users.length}){selected.size > 0 && ` · ${selected.size} selected`}
         </h3>
-        <input
-          data-testid="admin-users-search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search email / name…"
-          className="input"
-          style={{ width: 260, maxWidth: "100%" }}
-        />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {selected.size > 0 && (
+            <button
+              data-testid="admin-users-send-offer"
+              className="btn-primary"
+              style={{ fontSize: 12, padding: "6px 14px" }}
+              onClick={() => setComposerOpen(true)}
+            >
+              <Mail size={12} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              Send offer email ({selected.size})
+            </button>
+          )}
+          <input
+            data-testid="admin-users-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search email / name…"
+            className="input"
+            style={{ width: 260, maxWidth: "100%" }}
+          />
+        </div>
+      </div>
+
+      {/* Iter 194 — signup-window filter pills. Clicking a pill scopes
+          the table to users that joined in that bucket; the count next
+          to each pill is the raw bucket_count from /admin/users so the
+          admin sees "how many today" before scoping in. */}
+      <div data-testid="admin-users-window-pills"
+           style={{ display: "flex", gap: 6, flexWrap: "wrap",
+                    marginBottom: 14, alignItems: "center" }}>
+        {[
+          { id: "24h", label: "Last 24 h" },
+          { id: "7d",  label: "Last 7 days" },
+          { id: "30d", label: "Last 30 days" },
+          { id: "all", label: "All time" },
+        ].map((p) => {
+          const active = windowSel === p.id;
+          return (
+            <button
+              key={p.id}
+              data-testid={`admin-users-window-${p.id}`}
+              onClick={() => setWindowSel(p.id)}
+              style={{
+                padding: "5px 12px",
+                fontSize: 11,
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                background: active ? "var(--accent, #ff8a2a)" : "transparent",
+                color: active ? "#0a0e1a" : "var(--text-faint)",
+                border: `1px solid ${active ? "var(--accent, #ff8a2a)" : "var(--line, rgba(255,255,255,0.08))"}`,
+                borderRadius: 999,
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {p.label} · {buckets[p.id] ?? 0}
+            </button>
+          );
+        })}
       </div>
       <Card>
         {loading ? <div style={{ padding: 24, color: "var(--text-faint)" }}><Loader2 size={14} className="spin" /> Loading…</div> : (
           <Table
-            cols={["Email", "Name", "Tier", "Projects", "Tasks", "Status", ""]}
+            cols={[
+              <input
+                key="all"
+                data-testid="admin-users-select-all"
+                type="checkbox"
+                checked={users.length > 0 && selected.size === users.length}
+                onChange={toggleAll}
+                style={{ cursor: "pointer" }}
+              />,
+              "Email", "Name", "Tier", "Projects", "Tasks", "Status", "Joined", "",
+            ]}
             rows={users.map((u) => [
+              <input
+                key={`cb-${u.user_id}`}
+                data-testid={`admin-user-cb-${u.user_id}`}
+                type="checkbox"
+                checked={selected.has(u.user_id)}
+                onChange={() => toggleOne(u.user_id)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ cursor: "pointer" }}
+              />,
               u.email,
               u.name || "—",
               <Badge key="tier">{u.tier || "free"}</Badge>,
               u.project_count ?? 0,
               u.task_count ?? 0,
               <Badge key="status" color={STATUS_COLOR[u.status || "active"]}>{u.status || "active"}</Badge>,
-              <button
-                key="act"
-                data-testid={`admin-user-view-${u.user_id}`}
-                className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }}
-                onClick={() => onSelect(u)}>
-                view →
-              </button>,
+              // Iter 194 — Joined column. Shows "x ago" + absolute
+              // date as a tooltip so admin can scan recency and
+              // hover for the exact timestamp.
+              <span
+                key="joined"
+                title={u.created_at ? new Date(u.created_at * 1000).toISOString() : "unknown"}
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                {u.created_at ? ago(u.created_at) : "—"}
+              </span>,
+              <div key="act" style={{ display: "flex", gap: 6 }}>
+                <button
+                  data-testid={`admin-user-view-${u.user_id}`}
+                  className="btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }}
+                  onClick={() => onSelect(u)}>
+                  view →
+                </button>
+                <button
+                  data-testid={`admin-user-delete-${u.user_id}`}
+                  className="btn-ghost"
+                  style={{ padding: "4px 10px", fontSize: 11, color: "#fca5a5" }}
+                  disabled={deletingId === u.user_id}
+                  onClick={() => deleteUser(u)}
+                  title="Delete user (cascades to all owned data)"
+                >
+                  {deletingId === u.user_id ? "…" : "delete"}
+                </button>
+              </div>,
             ])}
           />
         )}
       </Card>
+
+      {composerOpen && (
+        <EmailOfferComposer
+          userIds={Array.from(selected)}
+          recipients={users.filter((u) => selected.has(u.user_id))
+                          .map((u) => ({ email: u.email, name: u.name }))}
+          onClose={() => setComposerOpen(false)}
+          onSent={() => {
+            setComposerOpen(false);
+            setSelected(new Set());
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Iter 193 — Modal composer for bulk offer emails. Subject + HTML body
+// with `{{name}}` and `{{email}}` substitutions handled server-side.
+// Shows recipient count up front and a confirm summary before sending
+// so an admin can't fat-finger a 500-user blast.
+function EmailOfferComposer({ userIds, recipients, onClose, onSent }) {
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState(
+    "<p>Hi {{name}},</p>\n<p>We've got something special for you...</p>\n<p>— The ORA team</p>"
+  );
+  const [sending, setSending] = useState(false);
+
+  async function send() {
+    if (!subject.trim() || !bodyHtml.trim()) return;
+    if (!window.confirm(`Send "${subject}" to ${userIds.length} user(s)? This cannot be undone.`)) {
+      return;
+    }
+    setSending(true);
+    try {
+      const r = await api.post("/admin/users/email-offer", {
+        user_ids:  userIds,
+        subject:   subject.trim(),
+        body_html: bodyHtml,
+      });
+      const dryRun = r.data?.dry_run;
+      const sent = r.data?.sent ?? 0;
+      const failed = r.data?.failed ?? 0;
+      toast({
+        message: dryRun
+          ? `Dry-run (RESEND_API_KEY missing) · ${recipients.length} would receive`
+          : `Sent ${sent} email(s)${failed ? ` · ${failed} failed` : ""}`,
+        kind: failed === 0 ? "success" : "info",
+      });
+      onSent();
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Send failed",
+        kind: "error",
+      });
+    } finally { setSending(false); }
+  }
+
+  return (
+    <div
+      data-testid="admin-email-composer"
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.65)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 9000,
+        padding: 24,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--bg-1, #0a0e1a)",
+          border: "1px solid var(--line, rgba(255,255,255,0.08))",
+          borderRadius: 12,
+          width: "min(720px, 100%)",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          padding: 22,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between",
+                       alignItems: "center", marginBottom: 14 }}>
+          <h3 style={{ fontSize: 14, margin: 0 }}>Send offer email</h3>
+          <button onClick={onClose}
+                  style={{ background: "none", border: "none",
+                           color: "var(--text-faint)", cursor: "pointer", fontSize: 18 }}>
+            ×
+          </button>
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 14,
+                       fontFamily: "'JetBrains Mono', monospace" }}>
+          Recipients: {recipients.length} · Templating: <code>{`{{name}}`}</code>, <code>{`{{email}}`}</code>
+        </div>
+
+        <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block",
+                         marginBottom: 4, fontFamily: "'JetBrains Mono', monospace",
+                         textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Subject
+        </label>
+        <input
+          data-testid="admin-offer-subject"
+          className="input"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          placeholder="Special offer just for you"
+          style={{ width: "100%", marginBottom: 12 }}
+        />
+
+        <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block",
+                         marginBottom: 4, fontFamily: "'JetBrains Mono', monospace",
+                         textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Body (HTML)
+        </label>
+        <textarea
+          data-testid="admin-offer-body"
+          className="input"
+          value={bodyHtml}
+          onChange={(e) => setBodyHtml(e.target.value)}
+          rows={10}
+          style={{ width: "100%", fontFamily: "'JetBrains Mono', monospace",
+                   fontSize: 12, lineHeight: 1.5, resize: "vertical" }}
+        />
+
+        <div style={{ marginTop: 14, padding: "8px 12px",
+                       background: "rgba(255,138,42,0.08)",
+                       border: "1px solid rgba(255,138,42,0.2)",
+                       borderRadius: 6, fontSize: 11,
+                       color: "var(--text-faint)" }}>
+          Preview recipients: {recipients.slice(0, 5).map((r) => r.email).join(", ")}
+          {recipients.length > 5 && ` …and ${recipients.length - 5} more`}
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            onClick={onClose}
+            className="btn-secondary"
+            disabled={sending}
+            style={{ fontSize: 12 }}>
+            Cancel
+          </button>
+          <button
+            data-testid="admin-offer-send"
+            onClick={send}
+            disabled={sending || !subject.trim() || !bodyHtml.trim()}
+            className="btn-primary"
+            style={{ fontSize: 12 }}>
+            {sending ? "Sending…" : `Send to ${recipients.length}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -426,31 +722,69 @@ function UserDetail({ user, onBack }) {
 
 function ProjectsPage() {
   const [data, setData] = useState([]);
+  const [graph, setGraph] = useState([]);
   useEffect(() => {
     api.get("/admin/projects").then((r) => setData(r.data.projects || [])).catch(() => {});
+    // Iter 192 — merged Graph Status into Projects. The /graph-status
+    // endpoint returns has_graph + graph_node_count + graph_built_at
+    // per project; we left-join in the table so each project row shows
+    // its graph state without a second page.
+    api.get("/admin/graph-status", { params: { limit: 200 } })
+      .then((r) => setGraph(r.data?.rows || []))
+      .catch(() => {});
   }, []);
+  const graphByProject = useMemo(() => {
+    const m = {};
+    for (const g of graph) m[g.project_id] = g;
+    return m;
+  }, [graph]);
+  const built = graph.filter((g) => g.has_graph).length;
   return (
     <div style={{ padding: 24 }}>
+      {/* Graph coverage summary (merged from the old Graph Status tab). */}
+      {!!graph.length && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)",
+                      gap: 12, marginBottom: 14 }}>
+          <MCard label="Projects with graph" value={built} sub={`of ${graph.length}`} />
+          <MCard label="Graph coverage"
+                  value={graph.length ? `${Math.round(100 * built / graph.length)}%` : "—"}
+                  accent={graph.length && built / graph.length >= 0.6 ? "var(--ok)" : "var(--warn)"} />
+          <MCard label="Total projects" value={data.length} />
+        </div>
+      )}
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>
         All projects ({data.length})
       </h3>
       <Card>
         <Table
-          cols={["Name", "Repo", "Branch", "Stack", "Tasks", "User", "Created"]}
-          rows={data.map((p) => [
-            p.name,
-            <span key="repo" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-              {p.github_owner}/{p.github_repo}
-            </span>,
-            p.branch,
-            <Badge key="stack">{p.tech_stack || "auto"}</Badge>,
-            p.tasks_done ?? 0,
-            <span key="user" style={{ color: "var(--text-faint)", fontSize: 11 }}>
-              {(p.user_id || "").slice(0, 10)}
-            </span>,
-            <span key="time" style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
-          ])}
+          cols={["Name", "Repo", "Branch", "Stack", "Tasks", "Graph", "Nodes", "Graph built", "User", "Created"]}
+          rows={data.map((p) => {
+            const g = graphByProject[p.project_id] || {};
+            return [
+              p.name,
+              <span key="repo" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+                {p.github_owner}/{p.github_repo}
+              </span>,
+              p.branch,
+              <Badge key="stack">{p.tech_stack || "auto"}</Badge>,
+              p.tasks_done ?? 0,
+              <Badge key="graph"
+                      color={g.has_graph ? "var(--ok)" : "var(--text-faint)"}>
+                {g.has_graph ? "yes" : "no"}
+              </Badge>,
+              <span key="nodes" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+                {g.graph_node_count ?? "—"}
+              </span>,
+              <span key="gbuilt" style={{ color: "var(--text-faint)" }}>
+                {g.graph_built_at ? ago(g.graph_built_at) : "—"}
+              </span>,
+              <span key="user" style={{ color: "var(--text-faint)", fontSize: 11 }}>
+                {(p.user_id || "").slice(0, 10)}
+              </span>,
+              <span key="time" style={{ color: "var(--text-faint)" }}>{ago(p.created_at)}</span>,
+            ];
+          })}
         />
       </Card>
     </div>
@@ -594,10 +928,29 @@ function McpUsagePage() {
   const rows = d.rows || [];
   return (
     <div style={{ padding: 24 }}>
-      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
-                    color: "var(--text-faint)", margin: "0 0 8px" }}>
-        MCP API keys ({rows.length})
-      </h3>
+      {/* Iter 192 — API Keys CTA. Keys ARE MCP credentials, so the
+          quick-link to the full key management page lives here
+          (was a separate Overview button before). */}
+      <div style={{ display: "flex", justifyContent: "space-between",
+                    alignItems: "center", marginBottom: 12, gap: 12 }}>
+        <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                      color: "var(--text-faint)", margin: 0 }}>
+          MCP API keys ({rows.length})
+        </h3>
+        <a
+          data-testid="goto-api-keys"
+          href="/admin/api-keys"
+          style={{
+            fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+            padding: "6px 12px",
+            background: "transparent",
+            color: "var(--accent, #ff8a2a)",
+            border: "1px solid var(--accent, #ff8a2a)",
+            borderRadius: 5,
+            textDecoration: "none",
+          }}
+        >🔑 Manage API Keys →</a>
+      </div>
       <Card>
         <Table
           cols={["Key", "User", "Client", "Scope", "Last used", "Created"]}
@@ -626,31 +979,50 @@ function McpUsagePage() {
   );
 }
 
-function WarmStartPage() {
-  const [d, setD] = useState(null);
+// Iter 192 — Reliability page merges the old Warm Start and Post-scan
+// Issues tabs into one operational-health surface. Top half is warm
+// start (cold-boot speed + success), bottom half is Vanguard post-scan
+// findings (security regressions caught after commit).
+function ReliabilityPage() {
+  const [warm, setWarm] = useState(null);
+  const [scan, setScan] = useState(null);
   useEffect(() => {
-    api.get("/admin/warm-start-stats").then((r) => setD(r.data)).catch(() => setD({ breakdown_7d: {} }));
+    api.get("/admin/warm-start-stats")
+      .then((r) => setWarm(r.data))
+      .catch(() => setWarm({ breakdown_7d: {} }));
+    api.get("/admin/postscan-issues", { params: { limit: 100 } })
+      .then((r) => setScan(r.data))
+      .catch(() => setScan({ rows: [] }));
   }, []);
-  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  const breakdown = d.breakdown_7d || {};
-  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
-  const done = breakdown.done || 0;
-  const successPct = total ? Math.round(100 * done / total) : 0;
+
+  if (!warm || !scan) {
+    return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  }
+
+  const breakdown = warm.breakdown_7d || {};
+  const warmTotal = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  const warmDone  = breakdown.done || 0;
+  const warmPct   = warmTotal ? Math.round(100 * warmDone / warmTotal) : 0;
+  const issues = scan.rows || [];
+  const critical = issues.filter((r) => r.severity === "critical").length;
+  const warning  = issues.filter((r) => ["warning", "warn"].includes(r.severity)).length;
+
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
-        <MCard label="Avg warm time" value={d.avg_seconds ? `${d.avg_seconds}s` : "—"}
-                sub="Last 100 done jobs · 30 d" />
-        <MCard label="Success rate (7 d)" value={total ? `${successPct}%` : "—"}
-                accent={successPct >= 90 ? "var(--ok)" : successPct >= 70 ? "var(--warn)" : "var(--danger)"}
-                sub={`${done}/${total} jobs`} />
-        <MCard label="Total jobs (7 d)" value={total} sub={`${d.window_days}-day window`} />
-      </div>
+      {/* Warm Start */}
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>
-        Status breakdown
+        Warm Start — last 24 h / 7 d / 30 d
       </h3>
-      <Card>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
+        <MCard label="Avg warm time" value={warm.avg_seconds ? `${warm.avg_seconds}s` : "—"}
+                sub="Last 100 done jobs · 30 d" />
+        <MCard label="Success rate (7 d)" value={warmTotal ? `${warmPct}%` : "—"}
+                accent={warmPct >= 90 ? "var(--ok)" : warmPct >= 70 ? "var(--warn)" : "var(--danger)"}
+                sub={`${warmDone}/${warmTotal} jobs`} />
+        <MCard label="Total jobs (7 d)" value={warmTotal} sub={`${warm.window_days}-day window`} />
+      </div>
+      <Card style={{ marginBottom: 28 }}>
         <Table
           cols={["Status", "Count"]}
           rows={Object.entries(breakdown).map(([k, v]) => [
@@ -659,71 +1031,22 @@ function WarmStartPage() {
           ])}
         />
       </Card>
-    </div>
-  );
-}
 
-function GraphStatusPage() {
-  const [d, setD] = useState(null);
-  useEffect(() => {
-    api.get("/admin/graph-status", { params: { limit: 100 } })
-      .then((r) => setD(r.data)).catch(() => setD({ rows: [] }));
-  }, []);
-  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  const rows = d.rows || [];
-  const built = rows.filter((r) => r.has_graph).length;
-  return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
-        <MCard label="Projects with graph" value={built} sub={`of ${rows.length} shown`} />
-        <MCard label="Coverage" value={rows.length ? `${Math.round(100 * built / rows.length)}%` : "—"}
-                accent={rows.length && built / rows.length >= 0.6 ? "var(--ok)" : "var(--warn)"} />
-        <MCard label="Total projects" value={rows.length} />
-      </div>
-      <Card>
-        <Table
-          cols={["Name", "Repo", "Graph?", "Nodes", "Built"]}
-          rows={rows.map((r) => [
-            r.name || r.project_id,
-            <span key="repo" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-              {r.github_owner ? `${r.github_owner}/${r.github_repo}` : "—"}
-            </span>,
-            <Badge key="g" color={r.has_graph ? "var(--ok)" : "var(--text-faint)"}>
-              {r.has_graph ? "yes" : "no"}
-            </Badge>,
-            r.graph_node_count ?? "—",
-            <span key="b" style={{ color: "var(--text-faint)" }}>
-              {r.graph_built_at ? ago(r.graph_built_at) : "—"}
-            </span>,
-          ])}
-        />
-      </Card>
-    </div>
-  );
-}
-
-function PostScanPage() {
-  const [d, setD] = useState(null);
-  useEffect(() => {
-    api.get("/admin/postscan-issues", { params: { limit: 100 } })
-      .then((r) => setD(r.data)).catch(() => setD({ rows: [] }));
-  }, []);
-  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  const rows = d.rows || [];
-  const critical = rows.filter((r) => r.severity === "critical").length;
-  const warning  = rows.filter((r) => ["warning", "warn"].includes(r.severity)).length;
-  return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
+      {/* Post-scan */}
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Post-scan issues — Vanguard 007 findings
+      </h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
         <MCard label="Critical findings" value={critical} accent="var(--danger)"
                 sub="Commit blockers" />
         <MCard label="Warnings" value={warning} accent="var(--warn)" />
-        <MCard label="Total shown" value={rows.length} />
+        <MCard label="Total shown" value={issues.length} />
       </div>
       <Card>
         <Table
           cols={["Severity", "Rule", "File", "Match", "Task", "When"]}
-          rows={rows.map((r) => [
+          rows={issues.map((r) => [
             <Badge key="s" color={r.severity === "critical" ? "var(--danger)" : "var(--warn)"}>
               {r.severity}
             </Badge>,
@@ -748,7 +1071,7 @@ function PostScanPage() {
           ])}
         />
       </Card>
-      {!rows.length && (
+      {!issues.length && (
         <Card style={{ padding: 16, marginTop: 12, color: "var(--text-faint)", fontSize: 12 }}>
           No post-scan findings recorded. Vanguard 007 runs on every commit — empty here
           means clean ships.
@@ -758,19 +1081,26 @@ function PostScanPage() {
   );
 }
 
-function RevenuePage() {
+// Iter 192 — Payments & Revenue merged. Top: revenue/profit metric
+// cards (was the standalone Revenue tab). Bottom: per-transaction
+// Stripe ledger (was the Payments tab).
+function PaymentsPage() {
+  const [d, setD] = useState(null);
   const [m, setM] = useState(null);
   const [pnl, setPnl] = useState(null);
   useEffect(() => {
+    api.get("/admin/payments").then((r) => setD(r.data)).catch(() => setD({ payments: [], total_revenue: 0, count: 0 }));
     api.get("/admin/overview-metrics").then((r) => setM(r.data)).catch(() => setM({}));
     api.get("/admin/token-pnl").then((r) => setPnl(r.data)).catch(() => setPnl({}));
   }, []);
-  if (!m || !pnl) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  if (!d || !m || !pnl) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
+  const pending = (d.payments || []).filter((p) => p.payment_status !== "paid").length;
   return (
     <div style={{ padding: 24 }}>
+      {/* Revenue snapshot (was standalone Revenue tab in iter 188). */}
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>
-        Stripe subscription revenue
+        Stripe revenue
       </h3>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
         <MCard label="Revenue (30 d)" value={fmtMoney(m.revenue_30d || 0)}
@@ -782,22 +1112,16 @@ function RevenuePage() {
         <MCard label="Net profit" value={fmtMoney(pnl.net_profit || 0)}
                 accent={(pnl.net_profit || 0) >= 0 ? "var(--ok)" : "var(--danger)"} />
       </div>
-    </div>
-  );
-}
 
-function PaymentsPage() {
-  const [d, setD] = useState(null);
-  useEffect(() => {
-    api.get("/admin/payments").then((r) => setD(r.data)).catch(() => {});
-  }, []);
-  if (!d) return <div style={{ padding: 24, color: "var(--text-faint)" }}>Loading…</div>;
-  return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 18 }}>
-        <MCard label="Total revenue" value={fmtMoney(d.total_revenue)} accent="var(--ok)" />
+      {/* Transaction ledger. */}
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: "var(--text-faint)", margin: "0 0 8px" }}>
+        Transactions
+      </h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
+        <MCard label="Lifetime revenue" value={fmtMoney(d.total_revenue)} accent="var(--ok)" />
         <MCard label="Transactions" value={d.count} />
-        <MCard label="Pending" value={(d.payments || []).filter(p => p.payment_status !== 'paid').length} />
+        <MCard label="Pending" value={pending} />
       </div>
       <Card>
         <Table
@@ -1593,10 +1917,14 @@ function ThinkingHintsConfigCard() {
 }
 
 // ── Shell ──────────────────────────────────────────────────────────────
-// Iter 188 — sidebar expanded with seven new sections: Support Emails
-// (renamed from Support), Agent Performance, MCP Usage, Graph Status,
-// Warm Start, Post-scan Issues, Revenue. Each maps to a real backend
-// endpoint under /admin/* added in the same iteration.
+// Iter 192 — sidebar consolidated per founder feedback:
+//   • API Keys: lived as a separate top-level page → now opened from
+//     inside MCP Usage (keys ARE MCP credentials).
+//   • Revenue + Payments: merged into one "Payments & Revenue" tab.
+//   • Architecture: was its own tab → now lives inside Overview.
+//   • Graph Status: was its own tab → folded into Projects (per-project
+//     row already shows graph state).
+//   • Warm Start + Post-scan Issues: merged into one "Reliability" tab.
 const NAV = [
   { id: "overview", label: "Overview", Icon: Eye },
   { id: "dash", label: "Dashboard", Icon: LayoutDashboard },
@@ -1606,13 +1934,9 @@ const NAV = [
   { id: "tokens", label: "Token P&L", Icon: Cpu },
   { id: "agent_perf", label: "Agent Performance", Icon: Activity },
   { id: "mcp", label: "MCP Usage", Icon: Plug },
-  { id: "warm", label: "Warm Start", Icon: Zap },
-  { id: "graph", label: "Graph Status", Icon: GitBranch },
-  { id: "postscan", label: "Post-scan Issues", Icon: ShieldAlert },
-  { id: "revenue", label: "Revenue", Icon: DollarSign },
-  { id: "payments", label: "Payments", Icon: CreditCard },
+  { id: "reliability", label: "Reliability", Icon: ShieldAlert },
+  { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
   { id: "support", label: "Support Emails", Icon: Mail },
-  { id: "arch", label: "Architecture", Icon: SitemapIcon },
   { id: "ora", label: "ORA Council", Icon: Brain },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
@@ -1687,13 +2011,9 @@ export default function Admin({ initialTab = "overview" }) {
       case "tokens": return <TokenPnL />;
       case "agent_perf": return <AgentPerformancePage />;
       case "mcp": return <McpUsagePage />;
-      case "warm": return <WarmStartPage />;
-      case "graph": return <GraphStatusPage />;
-      case "postscan": return <PostScanPage />;
-      case "revenue": return <RevenuePage />;
+      case "reliability": return <ReliabilityPage />;
       case "payments": return <PaymentsPage />;
       case "support": return <SupportPage />;
-      case "arch": return <Architecture />;
       case "ora": return <AuremAdminPanel />;
       case "settings": return <SettingsPage />;
       default: return <Dashboard />;

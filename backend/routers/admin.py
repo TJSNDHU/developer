@@ -174,16 +174,49 @@ async def ora_learning_weekly_summary(
 @router.get("/users")
 async def list_users(
     search: str = "",
+    window: str = "all",
     authorization: Optional[str] = Header(None),
 ):
+    """List users with optional search + signup-time window filter.
+
+    `window` accepts: `24h`, `7d`, `30d`, `all`. Bucket counts for all
+    three windows are returned in the same payload so the UI can render
+    filter pills without an extra request.
+    """
     await _require_admin(authorization)
     db = require_db()
+    now = time.time()
+    buckets = {
+        "24h": now - 86_400,
+        "7d":  now - 7 * 86_400,
+        "30d": now - 30 * 86_400,
+    }
+    # Always compute the three bucket counts (cheap — one count_documents
+    # each, all over an indexed `created_at`). These power the filter
+    # pills in the admin UI.
+    bucket_counts: dict[str, int] = {}
+    for label, since in buckets.items():
+        try:
+            bucket_counts[label] = await db.dev_users.count_documents(
+                {"created_at": {"$gte": since}}
+            )
+        except Exception as e:
+            logger.warning("list_users bucket[%s] failed: %r", label, e)
+            bucket_counts[label] = 0
+    try:
+        bucket_counts["all"] = await db.dev_users.count_documents({})
+    except Exception:
+        bucket_counts["all"] = 0
+
     query: dict = {}
     if search:
         query = {"$or": [
             {"email": {"$regex": search, "$options": "i"}},
             {"name": {"$regex": search, "$options": "i"}},
         ]}
+    if window in buckets:
+        query["created_at"] = {"$gte": buckets[window]}
+
     users = await db.dev_users.find(
         query, {"_id": 0, "password_hash": 0, "github.access_token": 0}
     ).sort("created_at", -1).limit(100).to_list(100)
@@ -213,7 +246,7 @@ async def list_users(
         u["project_count"] = proj_counts.get(uid, 0)
         u["task_count"]    = task_counts.get(uid, 0)
         u["session_count"] = sess_counts.get(uid, 0)
-    return {"users": users}
+    return {"users": users, "bucket_counts": bucket_counts}
 
 
 @router.get("/users/{user_id}")
@@ -2442,5 +2475,219 @@ async def admin_set_stripe_config(
         "mode": "live" if new_key.startswith("sk_live_") else "test",
         "account_id": acct.get("id"),
         "message": "Stripe key saved, validated, and now live.",
+    }
+
+
+
+# ─── Iter 193 — User delete + bulk email offers ────────────────────────
+#
+# DELETE /admin/users/{user_id}       — hard-delete a user + cascade
+# POST   /admin/users/email-offer     — send offer email to N users via
+#                                        Resend (one call, N parallel)
+#
+# Both endpoints require admin. Delete cascades to: cto_sessions,
+# cto_projects, cto_tasks, cto_payments, api_keys, post_task_scans
+# (all collections that hold a user_id). Founder accounts (allowlisted
+# in FOUNDER_EMAILS) are refused — accidental founder wipe would lock
+# us out of our own product.
+
+@router.delete("/users/{user_id}")
+async def admin_delete_user(
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Hard-delete a user and cascade across owned collections."""
+    actor = await _require_admin(authorization)
+    db = require_db()
+
+    # Look up the target — also gives us the email for the founder check
+    # and audit log.
+    target = await db.dev_users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    target_email = (target.get("email") or "").strip().lower()
+    # Refuse to delete a founder. Founders are baked into FOUNDER_EMAILS
+    # at deploy time; wiping one would brick login + billing.
+    founder_list = [
+        e.strip().lower() for e in
+        (os.environ.get("FOUNDER_EMAILS") or "").split(",") if e.strip()
+    ]
+    if target_email and target_email in founder_list:
+        raise HTTPException(403, f"Refusing to delete founder account ({target_email})")
+    # Belt + suspenders — never let an admin delete themselves either.
+    if user_id == actor.get("user_id"):
+        raise HTTPException(403, "Cannot delete your own account from this UI")
+
+    deletions: dict[str, int] = {}
+    # Collections that key off user_id. Each is deleted in its own
+    # try/except so one failed collection doesn't block the rest.
+    for coll, key in [
+        ("dev_users",        "user_id"),
+        ("cto_sessions",     "user_id"),
+        ("chat_sessions",    "user_id"),
+        ("cto_projects",     "user_id"),
+        ("cto_tasks",        "user_id"),
+        ("cto_payments",     "user_id"),
+        ("api_keys",         "user_id"),
+        ("post_task_scans",  "user_id"),
+        ("warm_start_jobs",  "user_id"),
+        ("oauth_codes",      "user_id"),
+    ]:
+        try:
+            res = await db[coll].delete_many({key: user_id})
+            deletions[coll] = res.deleted_count
+        except Exception as e:
+            logger.warning("admin_delete_user[%s]: %s failed: %r", user_id, coll, e)
+            deletions[coll] = -1
+
+    logger.info(
+        "user deleted by admin=%s target_user=%s target_email=%s deletions=%s",
+        actor.get("email"), user_id, target_email, deletions,
+    )
+    return {
+        "ok":         True,
+        "user_id":    user_id,
+        "email":      target_email,
+        "deletions":  deletions,
+    }
+
+
+@router.post("/users/email-offer")
+async def admin_send_user_offer(
+    body: dict,
+    authorization: Optional[str] = Header(None),
+):
+    """Send a one-off offer email to a list of users.
+
+    Request body:
+      {
+        "user_ids": ["uid_..", "uid_.."],   # required, max 500
+        "subject":  "Special offer for you",
+        "body_html": "<p>Hi {{name}}, ...</p>",   # supports {{name}} and {{email}}
+        "from": "ORA <ora@auremcto.com>",   # optional, falls back to DIGEST_FROM
+      }
+
+    Returns: {sent, failed, dry_run, recipients[]}
+    """
+    actor = await _require_admin(authorization)
+    db = require_db()
+
+    user_ids = (body or {}).get("user_ids") or []
+    subject  = ((body or {}).get("subject") or "").strip()
+    body_html = ((body or {}).get("body_html") or "").strip()
+    from_addr = ((body or {}).get("from") or "").strip()
+
+    if not isinstance(user_ids, list) or not user_ids:
+        raise HTTPException(400, "user_ids[] required (non-empty)")
+    if len(user_ids) > 500:
+        raise HTTPException(400, "Too many recipients (max 500 per batch)")
+    if not subject:
+        raise HTTPException(400, "subject required")
+    if not body_html:
+        raise HTTPException(400, "body_html required")
+
+    # Resolve emails. Project only what we need.
+    cursor = db.dev_users.find(
+        {"user_id": {"$in": user_ids}},
+        {"_id": 0, "user_id": 1, "email": 1, "name": 1},
+    )
+    targets: list[dict] = []
+    async for u in cursor:
+        if u.get("email"):
+            targets.append(u)
+
+    if not targets:
+        raise HTTPException(404, "No valid emails found for the given user_ids")
+
+    resend_key = os.environ.get("RESEND_API_KEY") or ""
+    sender = from_addr or os.environ.get("DIGEST_FROM") or os.environ.get(
+        "RESEND_FROM_EMAIL"
+    ) or "AUREM CTO <onboarding@resend.dev>"
+
+    # When the API key is missing we record what *would* have been sent
+    # so the UI can still display recipient counts (and ops can see what
+    # was queued during a Resend outage).
+    if not resend_key:
+        logger.warning(
+            "email-offer dry-run (no RESEND_API_KEY): admin=%s recipients=%d subject=%r",
+            actor.get("email"), len(targets), subject,
+        )
+        return {
+            "ok":         True,
+            "dry_run":    True,
+            "sent":       0,
+            "failed":     0,
+            "recipients": [t["email"] for t in targets],
+            "note":       "RESEND_API_KEY not configured — no emails actually sent.",
+        }
+
+    # Fire all sends concurrently. Per-recipient template substitution.
+    import httpx
+
+    async def _send_one(target: dict) -> tuple[str, bool, str]:
+        name = (target.get("name") or "").strip() or "there"
+        email = target["email"]
+        personalized = (body_html
+                        .replace("{{name}}", name)
+                        .replace("{{email}}", email))
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_key}",
+                        "Content-Type":  "application/json",
+                    },
+                    json={
+                        "from":    sender,
+                        "to":      [email],
+                        "subject": subject,
+                        "html":    personalized,
+                    },
+                )
+            if resp.status_code < 300:
+                return (email, True, "")
+            return (email, False, f"http_{resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            return (email, False, str(e)[:200])
+
+    results = await asyncio.gather(
+        *[_send_one(t) for t in targets],
+        return_exceptions=False,
+    )
+    sent = sum(1 for _, ok, _ in results if ok)
+    failed = [{"email": e, "error": err}
+              for e, ok, err in results if not ok]
+
+    # Persist a record so support can audit what we promised users.
+    try:
+        await db.email_offers.insert_one({
+            "_id":        f"offer_{int(time.time())}_{actor.get('user_id', 'anon')}",
+            "admin_id":   actor.get("user_id"),
+            "admin_email": actor.get("email"),
+            "subject":    subject,
+            "body_html":  body_html,
+            "from":       sender,
+            "recipient_count": len(targets),
+            "sent_count":      sent,
+            "failed_count":    len(failed),
+            "failed":     failed[:50],   # cap for storage hygiene
+            "created_at": time.time(),
+        })
+    except Exception as e:
+        logger.warning("email-offer ledger insert failed: %r", e)
+
+    logger.info(
+        "email-offer sent by admin=%s recipients=%d sent=%d failed=%d subject=%r",
+        actor.get("email"), len(targets), sent, len(failed), subject,
+    )
+    return {
+        "ok":         True,
+        "dry_run":    False,
+        "sent":       sent,
+        "failed":     len(failed),
+        "failed_detail": failed[:20],
+        "recipients": [t["email"] for t in targets],
     }
 
