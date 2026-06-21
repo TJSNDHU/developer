@@ -80,15 +80,69 @@ function Body() {
       <aside data-testid="proj-list" className="card" style={{ padding: 14, alignSelf: "start", minWidth: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <span className="eyebrow">projects</span>
-          <button data-testid="proj-add-btn" className="btn-ghost" onClick={() => setShowAdd(true)}
-                  style={{ padding: "4px 10px", fontSize: 11 }}>
-            <Plus size={12} /> Add
+          {/* Iter 198 — promote the +Add button to a primary accent
+              CTA. Was `btn-ghost` (transparent, 11px) which users were
+              missing entirely — they'd see "No projects yet" and not
+              realise the way to add one was a tiny faint button. */}
+          <button
+            data-testid="proj-add-btn"
+            onClick={() => setShowAdd(true)}
+            style={{
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 600,
+              background: "var(--accent, #ff8a2a)",
+              color: "#0a0e1a",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <Plus size={14} /> Add Project
           </button>
         </div>
         {projects.length === 0 && (
-          <p style={{ fontSize: 12, color: "var(--text-faint)" }}>
-            No projects yet. Click <strong>+ Add</strong> to connect a client repo.
-          </p>
+          <div style={{
+            padding: "18px 14px",
+            background: "rgba(255,138,42,0.05)",
+            border: "1px dashed rgba(255,138,42,0.25)",
+            borderRadius: 8,
+            textAlign: "center",
+            marginTop: 4,
+          }}>
+            <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "0 0 12px",
+                         lineHeight: 1.5 }}>
+              No projects yet. Connect a GitHub repo to get started.
+            </p>
+            <button
+              data-testid="proj-empty-add-btn"
+              onClick={() => setShowAdd(true)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                background: "var(--accent, #ff8a2a)",
+                color: "#0a0e1a",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.04em",
+              }}
+            >
+              <Plus size={14} /> Connect your first repo
+            </button>
+          </div>
         )}
         {projects.map((p) => {
           const sel = active?.project_id === p.project_id;
@@ -128,7 +182,34 @@ function Body() {
         ) : (
           <div className="card" data-testid="proj-empty" style={{ textAlign: "center", color: "var(--text-faint)", padding: 60 }}>
             <FolderGit2 size={28} style={{ opacity: 0.4, marginBottom: 10 }} />
-            <p>Select or add a project to start submitting tasks.</p>
+            <p style={{ marginBottom: 18 }}>Select or add a project to start submitting tasks.</p>
+            {/* Iter 198 — large CTA in the right-pane empty state too,
+                so first-time users have a second, much bigger entry
+                point. The sidebar +Add button still works; this just
+                makes the action impossible to miss. */}
+            {projects.length === 0 && (
+              <button
+                data-testid="proj-empty-pane-add"
+                onClick={() => setShowAdd(true)}
+                style={{
+                  padding: "12px 22px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "var(--accent, #ff8a2a)",
+                  color: "#0a0e1a",
+                  border: "none",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                <Plus size={14} /> Add your first project
+              </button>
+            )}
           </div>
         )}
       </section>
