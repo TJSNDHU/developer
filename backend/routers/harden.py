@@ -4,7 +4,7 @@ aurem_cto.routers.harden — Server hardening status (read-only).
 Surfaces the most recent hardening report for the authenticated user.
 The actual hardening run (SSH in, apt update/upgrade, install Docker +
 Caddy, lock down root SSH, create deploy user) is a manual operation
-right now — request it via support@auremcto.com. This endpoint just
+right now — request it via polarisbuiltinc@gmail.com. This endpoint just
 serves the persisted report once that work is done.
 """
 from __future__ import annotations

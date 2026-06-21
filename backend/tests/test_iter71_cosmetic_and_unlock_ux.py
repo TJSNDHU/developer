@@ -35,13 +35,13 @@ def test_harden_docstring_honest():
     assert "(placeholder)" not in src
     assert "P1 server auto-hardening" not in src
     # Honest text: real status endpoint, manual hardening
-    assert "support@auremcto.com" in src
+    assert "polarisbuiltinc@gmail.com" in src
     assert "manual operation" in src
 
 
 def test_unlock_post_returns_user_facing_message():
     src = _read("backend/routers/unlock.py")
-    assert "support@auremcto.com" in src
+    assert "polarisbuiltinc@gmail.com" in src
     assert '"message":' in src
     assert "reviews" in src and "manually" in src
     # Response shape includes both ok flag and message

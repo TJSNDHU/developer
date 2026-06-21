@@ -74,7 +74,7 @@ def test_ops_recipes_page_has_all_runbooks():
     assert 'data-testid="ops-back"' in src
     assert "ops-copy-" in src
     # Honest support fallback
-    assert "support@auremcto.com" in src
+    assert "polarisbuiltinc@gmail.com" in src
 
 
 def test_app_jsx_wires_ops_route():

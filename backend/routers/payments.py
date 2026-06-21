@@ -109,7 +109,7 @@ async def _stripe_call(fn, *args, **kwargs):
         raise HTTPException(
             502,
             "Payment provider unavailable — please retry in a moment. "
-            "If this persists, contact support@auremcto.com.",
+            "If this persists, contact polarisbuiltinc@gmail.com.",
         )
 
 
