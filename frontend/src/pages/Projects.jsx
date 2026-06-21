@@ -7,7 +7,7 @@
  *   3. Background worker clones → AI edits → commits → pushes
  *   4. Live step log + commit SHA + task history
  */
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
@@ -299,6 +299,12 @@ function AddDialog({ onClose, onAdded }) {
   // Auto-advances to step 2 once /github/oauth/status reports connected.
   const [connectStep, setConnectStep] = useState(1);
   const [selectedRepo, setSelectedRepo] = useState(null);
+  // Iter 204 — popup OAuth so the modal stays alive while the user
+  // authorises on GitHub. Top-level redirects kicked the user back to
+  // /settings, destroyed the modal, and the ORA robot guide vanished.
+  const popupRef = useRef(null);
+  const pollRef  = useRef(null);
+  const [oauthBusy, setOauthBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -362,9 +368,61 @@ function AddDialog({ onClose, onAdded }) {
 
   function startOAuth() {
     const token = localStorage.getItem("aurem_token") || localStorage.getItem("token") || "";
+    if (!token) {
+      toast({ message: "Session expired — please log in again.", kind: "error" });
+      return;
+    }
+    // Iter 204 — open in a popup so we don't lose the modal. Backend's
+    // /github/oauth/connect supports `?auth=` for cookieless flow.
     const base = window.location.origin;
-    window.location.href = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+    const url = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+    const w = 560, h = 720;
+    const left = Math.max(0, window.screenX + (window.outerWidth  - w) / 2);
+    const top  = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
+    popupRef.current = window.open(
+      url, "aurem_github_oauth",
+      `width=${w},height=${h},left=${left},top=${top}`,
+    );
+    setOauthBusy(true);
+
+    // Poll /github/oauth/status every 2 s until connected, popup closed,
+    // or 90 s timeout.
+    if (pollRef.current) clearInterval(pollRef.current);
+    const started = Date.now();
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await api.get("/github/oauth/status");
+        if (r.data?.connected) {
+          clearInterval(pollRef.current); pollRef.current = null;
+          try { popupRef.current?.close?.(); } catch { /* xorigin */ }
+          setGhStatus({ loading: false, connected: true, login: r.data?.login || null });
+          setConnectStep(2);
+          setReposLoading(true);
+          setOauthBusy(false);
+          try {
+            const rr = await api.get("/github/oauth/repos");
+            setRepos(rr.data?.repos || []);
+          } catch { /* silent */ }
+          finally { setReposLoading(false); }
+        }
+      } catch { /* keep polling */ }
+      if (popupRef.current?.closed) {
+        clearInterval(pollRef.current); pollRef.current = null;
+        setOauthBusy(false);
+      }
+      if (Date.now() - started > 90_000) {
+        clearInterval(pollRef.current); pollRef.current = null;
+        setOauthBusy(false);
+      }
+    }, 2000);
   }
+
+  // Cleanup polling on unmount so a closed modal doesn't keep hitting
+  // /github/oauth/status in the background.
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    try { popupRef.current?.close?.(); } catch { /* xorigin */ }
+  }, []);
 
   return (
     <div onClick={onClose} style={{
@@ -393,11 +451,13 @@ function AddDialog({ onClose, onAdded }) {
               message={
                 ghStatus.loading
                   ? `Checking your GitHub connection…`
-                  : busy
-                    ? `Connecting… <span class="ora-arrow">⏳</span>`
-                    : showManualPAT
-                      ? `Manual mode — paste your <strong>Personal Access Token</strong> below. (Or click <strong>Continue with GitHub</strong> above to skip this.) <span class="ora-arrow">👇</span>`
-                      : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — connects in seconds, no PAT needed.`
+                  : oauthBusy
+                    ? `Waiting for GitHub… <strong>complete the authorization in the popup</strong> and I&rsquo;ll show your repos here. <span class="ora-arrow">⏳</span>`
+                    : busy
+                      ? `Connecting… <span class="ora-arrow">⏳</span>`
+                      : showManualPAT
+                        ? `Manual mode — paste your <strong>Personal Access Token</strong> below. (Or click <strong>Continue with GitHub</strong> above to skip this.) <span class="ora-arrow">👇</span>`
+                        : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — opens in a popup, takes 10 seconds, no PAT needed.`
               }
             />
 

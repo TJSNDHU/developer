@@ -1323,7 +1323,7 @@ async def chat_stream(
                 if _mode in ("D", "E"):
                     from services.mode_d_debugger import run_debug_session
                     from services.mode_e_auditor  import run_audit
-                    from routers.cto_projects     import _user_gh_token
+                    from routers.cto_projects     import _user_gh_token, _decrypt_pat
 
                     db_h     = get_db()
                     repo_own = ""
@@ -1340,7 +1340,14 @@ async def chat_stream(
                             branch_h = project.get("branch", "main")
                     pat = None
                     try:
-                        pat = (project or {}).get("github_token") or await _user_gh_token(user_id)
+                        # Iter 204 — project.github_token is ENCRYPTED at rest
+                        # (`v1:…` Fernet ciphertext). MUST decrypt before
+                        # sending to GitHub's API or every Mode-D/E scan
+                        # fails with 401 Unauthorized.
+                        pat = (
+                            await _decrypt_pat(user_id, (project or {}).get("github_token"))
+                            or await _user_gh_token(user_id)
+                        )
                     except Exception:
                         pat = None
 
