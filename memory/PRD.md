@@ -5898,3 +5898,46 @@ Backend:
 **Production note**: All changes are in preview. User needs to redeploy `auremcto.com` to ship live.
 
 ---
+
+
+### Iter 207 — PAT connection test after save (Feb 2026) ✅
+
+**Ask**: Replace the "save and pray" flow in PatModal with a real connection test. After save, hit GitHub's `/repos/{owner}/{repo}` to verify the token actually works, then show a green ✓ or red × inside the modal before letting the user leave.
+
+**Backend** — new endpoint `GET /cto/projects/{project_id}/test-pat`:
+- Decrypts the project's stored PAT (Fernet) with OAuth fallback (`_user_gh_token`).
+- Calls GitHub REST `/repos/{owner}/{repo}` with a 10 s timeout.
+- Returns a **uniform 200 response** (no HTTP error codes — keeps the React paths simple):
+  - 200 from GitHub → `{ok: true, repo: full_name, private: bool}`
+  - 401/403 → `{ok: false, error: "Token invalid or missing repo scope. Regenerate the PAT with **Contents: Read and write** for this repo."}`
+  - 404 → `{ok: false, error: "Repo not found at github.com/{owner}/{repo}. The repo may be private…"}`
+  - Other HTTP → `{ok: false, error: "GitHub returned HTTP {code}. Try a new token."}`
+  - Network error → `{ok: false, error: "Couldn't reach GitHub ({type}). "}`
+- Pre-flight short-circuits: returns `{ok: false, error: "Project has no repo configured."}` or `{ok: false, error: "No PAT saved and no GitHub OAuth connection on file."}` when input is missing — avoids burning a GitHub API call.
+
+**Frontend** — PatModal now drives a **4-stage state machine** instead of close-on-save:
+- `stage = "input"`     → original paste form (Save button now reads **"Save & Test"**)
+- `stage = "testing"`   → amber panel + spinner + "Testing connection to {owner}/{repo}…"
+- `stage = "success"`   → green panel, **green checkmark** in circle, **"Connected to {full_name}"**, sub-line shows public/private and "ORA can now scan and commit", "Done" button (closes modal + triggers `onSaved` → refreshes sidebar so the PAT pill flips amber → green).
+- `stage = "failed"`    → red panel, **red ×** in circle, **"Connection failed"** + exact backend error (with `**…**` Markdown bolded inline), "Close" + **"Try a new token →"** button (resets to input stage and clears the PAT field).
+
+**Wiring**:
+- After PATCH succeeds, `save()` automatically calls `runConnectionTest()` instead of `onSaved()`.
+- `runConnectionTest()` catches network exceptions and routes them to `stage = "failed"` with the exception message.
+- `close()` is smart: if stage === "success" it calls `onSaved()` (refreshes sidebar); otherwise just `onClose()`.
+
+**Test IDs**: `proj-pat-save` (now reads "Save & Test"), `proj-pat-testing`, `proj-pat-success`, `proj-pat-failed`, `proj-pat-failed-msg`, `proj-pat-done`, `proj-pat-try-new`.
+
+**Verified live** via Playwright:
+- Save button text confirmed `'Save & Test'` ✓
+- Typing an invalid PAT and clicking save → red "Connection failed" panel rendered with backend's exact error string ✓
+- "Try a new token" button visible alongside Close ✓
+- Screenshot showed the new red AlertCircle panel with proper layout.
+
+**Files**: `backend/routers/cto_projects.py` (+test-pat endpoint), `frontend/src/pages/Projects.jsx` (PatModal state machine + 3 new shared style constants).
+
+**Commit message** (user-requested): `feat: PAT connection test after save`
+
+**Production note**: All changes in preview. User must redeploy `auremcto.com` to push live.
+
+---

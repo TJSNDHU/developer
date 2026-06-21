@@ -12,7 +12,7 @@ import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
   Pencil, Info, Undo2, Copy as CopyIcon,
-  Check, Lock, Key,
+  Check, Lock, Key, ArrowRight,
 } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
@@ -922,6 +922,10 @@ export function PatModal({ project, onClose, onSaved }) {
   const [pat, setPat] = useState("");
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
+  // Iter 207 — multi-stage flow: input → testing → success | failed.
+  // Replaces the old "save and pray" close-on-success behaviour.
+  const [stage, setStage] = useState("input"); // input | testing | success | failed
+  const [testResult, setTestResult] = useState(null); // {ok, repo, private, error}
 
   // Pre-filled deep-link to GitHub's fine-grained PAT creation page,
   // scoped to this exact repo + the contents:read & contents:write
@@ -933,6 +937,21 @@ export function PatModal({ project, onClose, onSaved }) {
     "?name=" + encodeURIComponent(`ORA · ${project.name}`) +
     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
     "&expiration=" + encodeURIComponent("90");
+
+  async function runConnectionTest() {
+    setStage("testing");
+    setTestResult(null);
+    try {
+      const r = await api.get(`/cto/projects/${project.project_id}/test-pat`);
+      const data = r.data || {};
+      setTestResult(data);
+      setStage(data.ok ? "success" : "failed");
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "Connection test failed.";
+      setTestResult({ ok: false, error: String(msg) });
+      setStage("failed");
+    }
+  }
 
   async function save(e) {
     e?.preventDefault?.();
@@ -948,15 +967,30 @@ export function PatModal({ project, onClose, onSaved }) {
     setBusy(true);
     try {
       await api.patch(`/cto/projects/${project.project_id}`, { github_token: trimmed });
-      toast({ message: "PAT saved — repo access restored 🎉", kind: "success" });
-      onSaved();
+      // Don't close the modal yet — run the connection test so the
+      // user sees a definitive green ✓ or red ✗ before leaving.
+      toast({ message: "PAT saved — testing connection…", kind: "success" });
+      await runConnectionTest();
     } catch (e2) {
       toast({ message: e2?.response?.data?.detail || "PAT save failed", kind: "error" });
     } finally { setBusy(false); }
   }
 
+  function tryNewToken() {
+    setStage("input");
+    setTestResult(null);
+    setPat("");
+  }
+
+  function close() {
+    // If we got a green light, persist the refresh so the sidebar
+    // pill flips amber → green.
+    if (stage === "success") onSaved?.();
+    else onClose?.();
+  }
+
   return (
-    <div onClick={onClose} data-testid="proj-pat-modal" style={{
+    <div onClick={close} data-testid="proj-pat-modal" style={{
       position: "fixed", inset: 0, zIndex: 9000,
       background: "rgba(8,10,14,0.72)",
       backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
@@ -986,7 +1020,7 @@ export function PatModal({ project, onClose, onSaved }) {
               {project.github_owner}/{project.github_repo}
             </div>
           </div>
-          <button type="button" onClick={onClose}
+          <button type="button" onClick={close}
                   data-testid="proj-pat-close"
                   style={{ background: "transparent", border: "none",
                            color: "#64748b", cursor: "pointer", padding: 4 }}>
@@ -994,100 +1028,198 @@ export function PatModal({ project, onClose, onSaved }) {
           </button>
         </div>
 
-        <RobotGuide
-          testid="proj-pat-robot"
-          kind="info"
-          message={
-            pat && /^(ghp_|github_pat_)/.test(pat.trim())
-              ? `Looks good! Hit <strong>Save PAT</strong> below and ORA will scan your repo right after. <span class="ora-arrow">👇</span>`
-              : `Click <strong>Open GitHub → Create PAT</strong> below — page opens in a new tab with everything pre-filled. Pick the right repo, check <strong>Contents: Read &amp; Write</strong>, then paste the token here. <span class="ora-arrow">👇</span>`
-          }
-        />
-
-        {/* Big deep-link CTA */}
-        <a
-          href={ghPatUrl}
-          target="_blank" rel="noopener noreferrer"
-          data-testid="proj-pat-github-link"
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            padding: 13, background: "#24292e", color: "#fff",
-            border: "2px solid #f59e0b", borderRadius: 10,
-            textDecoration: "none", fontSize: 14, fontWeight: 500,
-          }}
-        >
-          <Github size={18} />
-          Open GitHub → Create PAT
-          <ExternalLink size={13} style={{ opacity: 0.7 }} />
-        </a>
-
-        <ol style={{
-          margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.6,
-          color: "var(--text-dim, #94a3b8)",
-        }}>
-          <li><strong style={{ color: "#f8fafc" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={codeChip}>{project.github_owner}/{project.github_repo}</code>.</li>
-          <li><strong style={{ color: "#f8fafc" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={codeChip}>Contents: Read and write</code>.</li>
-          <li>Click <em>Generate token</em>, copy it (starts with <code style={codeChip}>github_pat_…</code> or <code style={codeChip}>ghp_…</code>).</li>
-          <li>Paste below and hit <strong style={{ color: "#f8fafc" }}>Save PAT</strong>.</li>
-        </ol>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontSize: 11, color: "#94a3b8",
-                          fontFamily: "'JetBrains Mono', monospace",
-                          letterSpacing: "0.04em" }}>
-            Paste your PAT
-          </span>
-          <div style={{ position: "relative" }}>
-            <input
-              data-testid="proj-pat-input"
-              type={reveal ? "text" : "password"}
-              autoComplete="off" autoCorrect="off" spellCheck={false}
-              value={pat}
-              onChange={(e) => setPat(e.target.value)}
-              placeholder="github_pat_…"
-              style={{
-                width: "100%", padding: "10px 38px 10px 12px", fontSize: 13,
-                background: "#0a0e1a", color: "#f8fafc",
-                border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
-            />
-            <button
-              type="button"
-              data-testid="proj-pat-reveal"
-              onClick={() => setReveal(v => !v)}
-              style={{
-                position: "absolute", right: 6, top: "50%",
-                transform: "translateY(-50%)",
-                background: "transparent", border: "none",
-                color: "#64748b", cursor: "pointer", padding: 6,
-              }}
-              title={reveal ? "Hide" : "Show"}
-            >
-              {reveal ? <Lock size={13} /> : <Info size={13} />}
-            </button>
+        {/* ─────────── Stage: success ─────────── */}
+        {stage === "success" && (
+          <div data-testid="proj-pat-success" style={successBoxStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(34,197,94,0.18)", color: "#22c55e",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Check size={16} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#22c55e" }}>
+                  Connected to {testResult?.repo || `${project.github_owner}/${project.github_repo}`}
+                </div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                  {testResult?.private ? "Private repo" : "Public repo"} · ORA can now scan and commit.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              <button type="button" data-testid="proj-pat-done" onClick={close}
+                      style={primaryAmberBtn}>
+                Done
+              </button>
+            </div>
           </div>
-        </label>
+        )}
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button type="button" onClick={onClose}
-                  data-testid="proj-pat-cancel" className="btn-ghost">Cancel</button>
-          <button type="submit" data-testid="proj-pat-save" disabled={busy}
+        {/* ─────────── Stage: failed ─────────── */}
+        {stage === "failed" && (
+          <div data-testid="proj-pat-failed" style={failBoxStyle}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(239,68,68,0.18)", color: "#ef4444",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <AlertCircle size={16} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#ef4444" }}>
+                  Connection failed
+                </div>
+                <div data-testid="proj-pat-failed-msg"
+                     style={{ fontSize: 12, color: "#f8fafc", marginTop: 4, lineHeight: 1.55 }}
+                     dangerouslySetInnerHTML={{ __html: (testResult?.error || "Unknown error").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              <button type="button" onClick={close} className="btn-ghost">Close</button>
+              <button type="button" data-testid="proj-pat-try-new"
+                      onClick={tryNewToken}
+                      style={primaryAmberBtn}>
+                Try a new token <ArrowRight size={12} style={{ marginLeft: 4 }} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────── Stage: testing ─────────── */}
+        {stage === "testing" && (
+          <div data-testid="proj-pat-testing" style={{
+            padding: "14px 16px",
+            background: "rgba(245,158,11,0.06)",
+            border: "1px solid rgba(245,158,11,0.25)",
+            borderRadius: 10,
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <Loader2 size={16} style={{ color: "#f59e0b" }} className="animate-spin" />
+            <span style={{ fontSize: 13, color: "#f8fafc" }}>
+              Testing connection to <code style={codeChip}>{project.github_owner}/{project.github_repo}</code>…
+            </span>
+          </div>
+        )}
+
+        {/* ─────────── Stage: input (default) ─────────── */}
+        {stage === "input" && (
+          <>
+            <RobotGuide
+              testid="proj-pat-robot"
+              kind="info"
+              message={
+                pat && /^(ghp_|github_pat_)/.test(pat.trim())
+                  ? `Looks good! Hit <strong>Save &amp; Test</strong> below — I&rsquo;ll verify the token works against your repo right after. <span class="ora-arrow">👇</span>`
+                  : `Click <strong>Open GitHub → Create PAT</strong> below — page opens in a new tab with everything pre-filled. Pick the right repo, check <strong>Contents: Read &amp; Write</strong>, then paste the token here. <span class="ora-arrow">👇</span>`
+              }
+            />
+
+            {/* Big deep-link CTA */}
+            <a
+              href={ghPatUrl}
+              target="_blank" rel="noopener noreferrer"
+              data-testid="proj-pat-github-link"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                padding: 13, background: "#24292e", color: "#fff",
+                border: "2px solid #f59e0b", borderRadius: 10,
+                textDecoration: "none", fontSize: 14, fontWeight: 500,
+              }}
+            >
+              <Github size={18} />
+              Open GitHub → Create PAT
+              <ExternalLink size={13} style={{ opacity: 0.7 }} />
+            </a>
+
+            <ol style={{
+              margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.6,
+              color: "var(--text-dim, #94a3b8)",
+            }}>
+              <li><strong style={{ color: "#f8fafc" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={codeChip}>{project.github_owner}/{project.github_repo}</code>.</li>
+              <li><strong style={{ color: "#f8fafc" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={codeChip}>Contents: Read and write</code>.</li>
+              <li>Click <em>Generate token</em>, copy it (starts with <code style={codeChip}>github_pat_…</code> or <code style={codeChip}>ghp_…</code>).</li>
+              <li>Paste below and hit <strong style={{ color: "#f8fafc" }}>Save &amp; Test</strong>.</li>
+            </ol>
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#94a3b8",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              letterSpacing: "0.04em" }}>
+                Paste your PAT
+              </span>
+              <div style={{ position: "relative" }}>
+                <input
+                  data-testid="proj-pat-input"
+                  type={reveal ? "text" : "password"}
+                  autoComplete="off" autoCorrect="off" spellCheck={false}
+                  value={pat}
+                  onChange={(e) => setPat(e.target.value)}
+                  placeholder="github_pat_…"
                   style={{
-                    padding: "10px 18px",
-                    background: "#f59e0b", color: "#0a0c10",
-                    border: "none", borderRadius: 8,
-                    fontSize: 13, fontWeight: 600, cursor: busy ? "wait" : "pointer",
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                  }}>
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-            {busy ? "Saving…" : "Save PAT"}
-          </button>
-        </div>
+                    width: "100%", padding: "10px 38px 10px 12px", fontSize: 13,
+                    background: "#0a0e1a", color: "#f8fafc",
+                    border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                />
+                <button
+                  type="button"
+                  data-testid="proj-pat-reveal"
+                  onClick={() => setReveal(v => !v)}
+                  style={{
+                    position: "absolute", right: 6, top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "transparent", border: "none",
+                    color: "#64748b", cursor: "pointer", padding: 6,
+                  }}
+                  title={reveal ? "Hide" : "Show"}
+                >
+                  {reveal ? <Lock size={13} /> : <Info size={13} />}
+                </button>
+              </div>
+            </label>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button type="button" onClick={close}
+                      data-testid="proj-pat-cancel" className="btn-ghost">Cancel</button>
+              <button type="submit" data-testid="proj-pat-save" disabled={busy}
+                      style={primaryAmberBtn}>
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                {busy ? "Saving…" : "Save & Test"}
+              </button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   );
 }
+
+const primaryAmberBtn = {
+  padding: "10px 18px",
+  background: "#f59e0b", color: "#0a0c10",
+  border: "none", borderRadius: 8,
+  fontSize: 13, fontWeight: 600, cursor: "pointer",
+  display: "inline-flex", alignItems: "center", gap: 6,
+};
+
+const successBoxStyle = {
+  padding: "14px 16px",
+  background: "rgba(34,197,94,0.07)",
+  border: "1px solid rgba(34,197,94,0.3)",
+  borderRadius: 10,
+};
+
+const failBoxStyle = {
+  padding: "14px 16px",
+  background: "rgba(239,68,68,0.07)",
+  border: "1px solid rgba(239,68,68,0.3)",
+  borderRadius: 10,
+};
 
 const codeChip = {
   padding: "1px 6px", background: "rgba(245,158,11,0.1)",

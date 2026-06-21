@@ -763,6 +763,94 @@ def _browse_keep_path(path: str, size: int) -> bool:
     return True
 
 
+
+# ───────────────────────────────────────────────────────────────────
+# Iter 207 — PAT connection test. Replaces the "save and pray" flow
+# in the PatModal: after the user saves a token we hit GitHub's
+# `/repos/{owner}/{repo}` and surface a definitive pass/fail back to
+# the modal so they know immediately if the token works.
+# ───────────────────────────────────────────────────────────────────
+@router.get("/projects/{project_id}/test-pat")
+async def test_project_pat(
+    project_id: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Verify the project's stored PAT (or fallback OAuth token) can
+    read the connected GitHub repo. Returns a uniform shape so the
+    frontend never has to branch on HTTP status:
+
+      {ok: true,  repo: "owner/name", private: bool}
+      {ok: false, error: "<human-readable reason>"}
+
+    HTTP status is always 200 — error is encoded in `ok`. This keeps
+    the React Query / axios paths simple.
+    """
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = require_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id}
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+
+    owner = (proj.get("github_owner") or "").strip()
+    repo  = (proj.get("github_repo")  or "").strip()
+    if not (owner and repo):
+        return {"ok": False, "error": "Project has no repo configured."}
+
+    gh_token = await _decrypt_pat(user_id, proj.get("github_token")) \
+        or await _user_gh_token(user_id)
+    if not gh_token:
+        return {
+            "ok": False,
+            "error": "No PAT saved and no GitHub OAuth connection on file.",
+        }
+
+    import httpx
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {gh_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    url = f"https://api.github.com/repos/{owner}/{repo}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(url, headers=headers)
+    except httpx.RequestError as e:
+        logger.warning("test-pat: network error %s/%s: %r", owner, repo, e)
+        return {"ok": False, "error": f"Couldn't reach GitHub ({type(e).__name__})."}
+
+    if r.status_code == 200:
+        try:
+            data = r.json() or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        return {
+            "ok":      True,
+            "repo":    data.get("full_name") or f"{owner}/{repo}",
+            "private": bool(data.get("private", False)),
+        }
+    if r.status_code in (401, 403):
+        return {
+            "ok":    False,
+            "error": "Token invalid or missing repo scope. Regenerate the "
+                     "PAT with **Contents: Read and write** for this repo.",
+        }
+    if r.status_code == 404:
+        return {
+            "ok":    False,
+            "error": f"Repo not found at github.com/{owner}/{repo}. The repo "
+                     "may be private, or your token doesn't include it. "
+                     "Re-pick the repo when generating a fine-grained PAT.",
+        }
+    return {
+        "ok":    False,
+        "error": f"GitHub returned HTTP {r.status_code}. Try a new token.",
+    }
+
+
+
 @router.get("/projects/{project_id}/tree")
 async def get_project_tree(
     project_id: str,
