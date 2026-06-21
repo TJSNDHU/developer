@@ -8,6 +8,7 @@ import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
 import { trackSignup } from "../lib/analytics";
+import RobotGuide, { RobotGuideKeyframes, escapeHtml } from "../components/RobotGuide";
 
 export default function Signup() {
   usePageMeta({
@@ -97,6 +98,24 @@ export default function Signup() {
           backdropFilter: "blur(10px)",
           border: "1px solid rgba(255,255,255,0.06)",
         }}>
+          <RobotGuideKeyframes />
+          <RobotGuide
+            testid="signup-robot-guide"
+            kind={error ? "error" : "info"}
+            message={
+              error
+                ? `Hmm — <strong>${escapeHtml(error)}</strong>. Fix the highlighted field and try again.`
+                : !form.email
+                  ? `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> above <span class="ora-arrow">👆</span> — creates your account instantly, no password needed.`
+                  : !form.password
+                    ? `Pick a <strong>strong password</strong> (6+ characters) below. <span class="ora-arrow">👇</span>`
+                    : form.password_confirm && form.password !== form.password_confirm
+                      ? `Passwords don&rsquo;t match yet — re-enter them to continue.`
+                      : !agreed
+                        ? `One last thing — <strong>accept the Terms & Privacy</strong> below to unlock signup. <span class="ora-arrow">👇</span>`
+                        : `Ready to ship! Hit <strong>Create account & start</strong> below. <span class="ora-arrow">🚀</span>`
+            }
+          />
           {/* Iter 61 — GitHub OAuth-first CTA (parity with Login) */}
           <button
             type="button"

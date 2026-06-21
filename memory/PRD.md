@@ -5811,3 +5811,45 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 **Production deploy note**: Changes are in preview only. User needs to redeploy `auremcto.com` to push the new support address live.
 
 ---
+
+
+### Iter 203 — RobotGuide extracted + propagated to Login/Signup/Projects (Feb 2026) ✅
+
+**Ask**: User reported they couldn't see the robot guide added in iter 200 — because `NewUserWizard.jsx` only triggers for users with **0 projects** (existing accounts skip it). Asked to put the robot on **all** GitHub-connection surfaces.
+
+**Refactor**:
+- Extracted the inline `RobotGuide` subcomponent from `NewUserWizard.jsx` into a new shared component **`/app/frontend/src/components/RobotGuide.jsx`**.
+  - Exports: `RobotGuide` (default), `RobotGuideKeyframes`, `escapeHtml`, `oraPulseRingStyle`.
+  - Supports 3 kinds: `info` (amber, "ORA GUIDE"), `error` (red, "ORA · HEADS UP"), `success` (green, "ORA · ALL SET").
+  - Configurable `testid` prop (default `robot-guide`).
+  - Animated blinking eyes + mouth + bouncing `<span class="ora-arrow">` for emojis.
+
+**Surfaces now showing the robot**:
+1. **`NewUserWizard.jsx`** — refactored to import from shared component (no UI change).
+2. **`/app/frontend/src/pages/Login.jsx`** — robot card at top of login card. Contextual message changes by state:
+   - No email yet → "Fastest way: click Continue with GitHub below 👇 — one tap, no password."
+   - Email entered → "Now enter your password and sign in. 👇"
+   - Both filled → "Looks good — hit Sign in when you're ready. 👇"
+   - GitHub cancelled (`?github=cancelled`) → "No worries — GitHub sign-in was cancelled. Try again…"
+   - Error → red HEADS UP with the escaped error message.
+3. **`/app/frontend/src/pages/Signup.jsx`** — robot card at top of signup card. 5-state contextual flow:
+   - Empty form → "Fastest way: click Continue with GitHub above 👆 — creates your account instantly, no password needed."
+   - Email-only → "Pick a strong password (6+ characters) below. 👇"
+   - Password mismatch → "Passwords don't match yet — re-enter them to continue."
+   - Terms not accepted → "One last thing — accept the Terms & Privacy below to unlock signup. 👇"
+   - Ready → "Ready to ship! Hit Create account & start below. 🚀"
+4. **`/app/frontend/src/pages/Projects.jsx`** — `AddDialog` "Connect a repo" modal:
+   - **Step 1** robot adapts to `ghStatus.loading` / `busy` / `showManualPAT` toggle / default OAuth-first state.
+   - **Step 2** robot uses the green "ALL SET" success kind, with contextual messages for `reposLoading` / `busy` / `selectedRepo` set / empty repos / connected-but-no-selection.
+   - The "Continue with GitHub" CTA is now wrapped in a pulsing amber ring (`oraPulseRingStyle`) when manual PAT mode is off and OAuth status has resolved.
+
+**Test IDs added**: `login-robot-guide`, `signup-robot-guide`, `proj-robot-guide` (step 1), `proj-robot-guide-step2`, `proj-pulse-ring`. NewUserWizard kept its existing `wizard-robot-guide`/`wizard-robot-face`/`wizard-robot-msg`/`wizard-pulse-ring` IDs.
+
+**Verified live** via Playwright on preview (three screenshots, all three surfaces confirmed): robot face renders with blinking eyes, "ORA GUIDE" label visible, contextual message readable, no React errors.
+
+**Files**:
+- NEW: `/app/frontend/src/components/RobotGuide.jsx` (~135 lines, single shared component).
+- Refactored: `NewUserWizard.jsx` (now ~470 lines, ~140 lines removed by sharing).
+- Added: `Login.jsx`, `Signup.jsx`, `Projects.jsx` (3 surfaces gained the guide, single import each).
+
+---

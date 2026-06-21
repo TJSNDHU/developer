@@ -16,6 +16,7 @@ import { Loader2, X, ArrowRight, Github } from "lucide-react";
 import { api, getToken, API_BASE } from "../lib/api";
 import TaskLiveTape from "./TaskLiveTape";
 import { setActiveProjectId } from "./TabBar";
+import RobotGuide, { RobotGuideKeyframes, escapeHtml, oraPulseRingStyle } from "./RobotGuide";
 
 const DISMISS_KEY = "aurem_wizard_dismissed";
 const REPO_RX = /^(https?:\/\/)?(www\.)?github\.com\/[\w.-]+\/[\w.-]+\/?$/i;
@@ -210,7 +211,7 @@ export default function NewUserWizard({ onComplete }) {
         padding: 16,
       }}
     >
-      <style>{WIZARD_KEYFRAMES}</style>
+      <RobotGuideKeyframes />
       <div style={{
         width: "min(440px, 100%)",
         background: "#0f172a",
@@ -278,7 +279,7 @@ export default function NewUserWizard({ onComplete }) {
           </div>
 
           {/* Robot Guide */}
-          <RobotGuide message={robotMsg} kind={err ? "error" : "info"} />
+          <RobotGuide message={robotMsg} kind={err ? "error" : "info"} testid="wizard-robot-guide" />
           {step === 1 && (
             <form onSubmit={submitRepo} data-testid="wizard-step-1">
               <h2 id="wizard-title" style={hStyle}>Connect your GitHub repo</h2>
@@ -302,7 +303,7 @@ export default function NewUserWizard({ onComplete }) {
                     token in plaintext.
                   </p>
                   <div style={{ position: "relative" }}>
-                    <div data-testid="wizard-pulse-ring" style={pulseRingStyle} />
+                    <div data-testid="wizard-pulse-ring" style={oraPulseRingStyle} />
                     <button
                       data-testid="wizard-connect-github"
                       type="button"
@@ -501,51 +502,6 @@ const primaryBtn = { display: "inline-flex", alignItems: "center", gap: 6,
                      borderRadius: 8, fontSize: 13, fontWeight: 600,
                      letterSpacing: "0.02em", cursor: "pointer" };
 
-// ─────────────── Robot Guide subcomponent ───────────────
-function RobotGuide({ message, kind = "info" }) {
-  const isErr = kind === "error";
-  return (
-    <div data-testid="wizard-robot-guide" style={{
-      background: isErr ? "rgba(255,107,107,0.06)" : "rgba(245,158,11,0.06)",
-      border: isErr ? "1px solid rgba(255,107,107,0.3)"
-                    : "1px solid rgba(245,158,11,0.25)",
-      borderRadius: 12, padding: "12px 14px", marginBottom: 16,
-      display: "flex", gap: 12, alignItems: "flex-start",
-      transition: "all .3s ease",
-    }}>
-      <div data-testid="wizard-robot-face" style={{
-        width: 36, height: 36,
-        background: isErr ? "#ef4444" : "#f59e0b",
-        borderRadius: 8, position: "relative", flexShrink: 0,
-      }}>
-        {/* eyes */}
-        <div style={{ position:"absolute", top:9, left:7, width:7, height:7,
-                       background:"#000", borderRadius:"50%",
-                       animation:"oraBlink 3s infinite" }} />
-        <div style={{ position:"absolute", top:9, right:7, width:7, height:7,
-                       background:"#000", borderRadius:"50%",
-                       animation:"oraBlink 3s infinite 0.1s" }} />
-        {/* mouth */}
-        <div style={{ position:"absolute", bottom:7, left:"50%",
-                       transform:"translateX(-50%)", width:14, height:4,
-                       background:"#000", borderRadius:2 }} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 10, color: isErr ? "#ef4444" : "#f59e0b",
-          fontFamily: "var(--font-mono, ui-monospace, monospace)",
-          letterSpacing: "0.08em", marginBottom: 4,
-        }}>
-          {isErr ? "ORA · HEADS UP" : "ORA GUIDE"}
-        </div>
-        <div data-testid="wizard-robot-msg"
-             style={{ fontSize: 13, color: "#f8fafc", lineHeight: 1.55 }}
-             dangerouslySetInnerHTML={{ __html: message }} />
-      </div>
-    </div>
-  );
-}
-
 function buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId }) {
   if (err) return `Hmm — <strong>${escapeHtml(err)}</strong>. Try again, or skip for now.`;
   if (busy) return `Working on it… <span class="ora-arrow">⏳</span>`;
@@ -555,7 +511,6 @@ function buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId })
       return `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — connects in seconds, no PAT needed.`;
     if (ghStatus === "manual")
       return `Paste any <strong>public repo URL</strong> below. For private repos, connect GitHub from Settings later. <span class="ora-arrow">👇</span>`;
-    // connected
     if (!repoUrl) return `Your GitHub repos are loaded! <strong>Pick a repo</strong> from the dropdown — or paste a URL. <span class="ora-arrow">👇</span>`;
     return `Nice — <strong>${escapeHtml(repoUrl.replace(/^https?:\/\/github\.com\//, ""))}</strong> looks good. Click <strong>Continue</strong> to connect it. <span class="ora-arrow">👇</span>`;
   }
@@ -571,12 +526,6 @@ function buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId })
   return "";
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
 const githubBtnStyle = {
   width: "100%", padding: "13px", background: "#24292e",
   color: "#fff", border: "2px solid #f59e0b", borderRadius: 10,
@@ -585,26 +534,3 @@ const githubBtnStyle = {
   gap: 10, marginBottom: 4, transition: "all .2s",
   position: "relative", zIndex: 1,
 };
-
-const pulseRingStyle = {
-  position: "absolute", inset: -4, borderRadius: 12,
-  border: "2px solid #f59e0b", pointerEvents: "none",
-  animation: "oraPulseRing 1.5s infinite",
-};
-
-const WIZARD_KEYFRAMES = `
-@keyframes oraBlink {
-  0%,90%,100% { transform: scaleY(1); }
-  95% { transform: scaleY(0.1); }
-}
-@keyframes oraPulseRing {
-  0% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(1.08); }
-}
-@keyframes oraBounce {
-  0%,100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-.ora-arrow { display: inline-block; animation: oraBounce 1s infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-`;

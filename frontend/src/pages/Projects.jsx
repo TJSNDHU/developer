@@ -17,6 +17,7 @@ import {
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
+import RobotGuide, { RobotGuideKeyframes, escapeHtml, oraPulseRingStyle } from "../components/RobotGuide";
 
 export default function Projects() {
   return (
@@ -374,6 +375,7 @@ function AddDialog({ onClose, onAdded }) {
             style={{ maxWidth: 540, width: "100%", padding: 24,
                      background: "var(--panel)", border: "1px solid var(--border-strong)",
                      borderRadius: 10, display: "block" }}>
+        <RobotGuideKeyframes />
 
         {/* ──────────── Step 1 — Connect (OAuth + PAT fallback) ──────────── */}
         {connectStep === 1 && (
@@ -385,19 +387,40 @@ function AddDialog({ onClose, onAdded }) {
               ORA will read your code and commit fixes directly to GitHub.
             </p>
 
+            <RobotGuide
+              testid="proj-robot-guide"
+              kind={busy ? "info" : "info"}
+              message={
+                ghStatus.loading
+                  ? `Checking your GitHub connection…`
+                  : busy
+                    ? `Connecting… <span class="ora-arrow">⏳</span>`
+                    : showManualPAT
+                      ? `Manual mode — paste your <strong>Personal Access Token</strong> below. (Or click <strong>Continue with GitHub</strong> above to skip this.) <span class="ora-arrow">👇</span>`
+                      : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — connects in seconds, no PAT needed.`
+              }
+            />
+
             {/* Continue with GitHub */}
-            <button
-              type="button"
-              data-testid="oauth-connect-cta"
-              onClick={startOAuth}
-              style={{
-                width: "100%", padding: 13, background: "#24292e", color: "#fff",
-                border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500,
-                cursor: "pointer", display: "flex", alignItems: "center",
-                justifyContent: "center", gap: 10, marginBottom: 16,
-              }}>
-              <Github size={18} /> Continue with GitHub
-            </button>
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              {!showManualPAT && !ghStatus.loading && (
+                <div data-testid="proj-pulse-ring" style={oraPulseRingStyle} />
+              )}
+              <button
+                type="button"
+                data-testid="oauth-connect-cta"
+                onClick={startOAuth}
+                style={{
+                  width: "100%", padding: 13, background: "#24292e", color: "#fff",
+                  border: showManualPAT ? "none" : "2px solid #f59e0b",
+                  borderRadius: 10, fontSize: 14, fontWeight: 500,
+                  cursor: "pointer", display: "flex", alignItems: "center",
+                  justifyContent: "center", gap: 10,
+                  position: "relative", zIndex: 1,
+                }}>
+                <Github size={18} /> Continue with GitHub
+              </button>
+            </div>
 
             {/* repo access info box */}
             <div style={{
@@ -541,6 +564,22 @@ function AddDialog({ onClose, onAdded }) {
             <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px" }}>
               Choose which repo ORA should work on.
             </p>
+
+            <RobotGuide
+              testid="proj-robot-guide-step2"
+              kind={busy ? "info" : "success"}
+              message={
+                reposLoading
+                  ? `Loading your GitHub repos…`
+                  : busy
+                    ? `Connecting <strong>${escapeHtml(selectedRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
+                    : selectedRepo
+                      ? `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> looks good. Hit <strong>Connect repo</strong> below. <span class="ora-arrow">👇</span>`
+                      : repos.length === 0
+                        ? `No repos visible to this token. Re-authorize GitHub with broader access to see private repos.`
+                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick the repo ORA should work on. <span class="ora-arrow">👇</span>`
+              }
+            />
 
             {reposLoading && (
               <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>

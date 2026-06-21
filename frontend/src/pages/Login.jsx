@@ -7,6 +7,7 @@ import { LogIn, Github } from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
+import RobotGuide, { RobotGuideKeyframes, escapeHtml } from "../components/RobotGuide";
 
 export default function Login() {
   usePageMeta({
@@ -72,6 +73,22 @@ export default function Login() {
           backdropFilter: "blur(10px)",
           border: "1px solid rgba(255,255,255,0.06)",
         }}>
+          <RobotGuideKeyframes />
+          <RobotGuide
+            testid="login-robot-guide"
+            kind={error ? "error" : "info"}
+            message={
+              error
+                ? `Hmm — <strong>${escapeHtml(error)}</strong>. Try again, or use GitHub above.`
+                : cancelled
+                  ? `No worries — GitHub sign-in was cancelled. Try again, or sign in with email below. <span class="ora-arrow">👇</span>`
+                  : email && password.length >= 6
+                    ? `Looks good — hit <strong>Sign in</strong> when you&rsquo;re ready. <span class="ora-arrow">👇</span>`
+                    : email
+                      ? `Now enter your <strong>password</strong> and sign in. <span class="ora-arrow">👇</span>`
+                      : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — one tap, no password.`
+            }
+          />
           {/* Iter 113 — friendly banner when GitHub OAuth was cancelled */}
           {cancelled && (
             <div data-testid="login-github-cancelled" style={{
