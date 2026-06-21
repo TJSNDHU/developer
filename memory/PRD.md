@@ -5727,3 +5727,29 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 **Production action required (user side)**
 - Redeploy preview → prod for these routes to land. Current prod returns 404 on `/api/aurem-dev/.well-known/oauth-authorization-server` until redeploy.
 - After redeploy, submit `auremcto.com` to Claude Directory; the OAuth + PKCE + MCP combo should satisfy the listing criteria.
+
+
+
+### Iter 199 — Projects.jsx "Connect a repo" 2-step modal verification (Feb 2026) ✅
+
+**Context**: Previous fork redesigned the "Connect a repo" modal in `Projects.jsx` from a single PAT form to a guided 2-step flow (Step 1 = info + OAuth CTA + hidden PAT fallback link; Step 2 = repo picker). The previous session left orphan code that was `sed`-deleted but never visually verified.
+
+**Lint fixes applied**:
+- Added missing `Check` and `Lock` imports from `lucide-react` (used in Step 2 repo picker + connected banner).
+- Escaped `'` apostrophe in PAT fallback link copy → `Can&apos;t use GitHub OAuth?`.
+- Remaining 2 lint warnings (`empty catch {}` at lines 730/753) are intentional silent-fail patterns — left untouched.
+
+**Verified (smoke screenshot)**:
+- `/projects` page renders, "+ Add Project" CTA visible in the projects sidebar.
+- Click "+ Add Project" → Step 1 modal opens cleanly:
+  - "Connect a repo" + sub-copy
+  - Primary "Continue with GitHub" CTA
+  - "ORA only requests repo access" reassurance box
+  - "How it works" — 3 numbered steps (Click → Authorize → Select repo)
+  - Hidden PAT fallback link: "Can't use GitHub OAuth? Use a token instead"
+  - Cancel button
+- No React errors, no missing-icon crashes.
+
+**Files touched**: `/app/frontend/src/pages/Projects.jsx` (2 small fixes).
+
+---

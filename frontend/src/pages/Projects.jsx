@@ -12,6 +12,7 @@ import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
   Pencil, Info, Undo2, Copy as CopyIcon,
+  Check, Lock,
 } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
@@ -291,6 +292,12 @@ function AddDialog({ onClose, onAdded }) {
   const [repos, setRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [showManualPAT, setShowManualPAT] = useState(false);
+  // Iter 199 — 2-step flow:
+  //   step 1 = "Continue with GitHub" + how-it-works + PAT fallback
+  //   step 2 = "Select a repository" + per-repo cards + Connect
+  // Auto-advances to step 2 once /github/oauth/status reports connected.
+  const [connectStep, setConnectStep] = useState(1);
+  const [selectedRepo, setSelectedRepo] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -298,8 +305,10 @@ function AddDialog({ onClose, onAdded }) {
       try {
         const r = await api.get("/github/oauth/status");
         if (!alive) return;
-        setGhStatus({ loading: false, connected: !!r.data?.connected, login: r.data?.login || null });
-        if (r.data?.connected) {
+        const connected = !!r.data?.connected;
+        setGhStatus({ loading: false, connected, login: r.data?.login || null });
+        if (connected) {
+          setConnectStep(2);
           setReposLoading(true);
           try {
             const rr = await api.get("/github/oauth/repos");
@@ -316,52 +325,42 @@ function AddDialog({ onClose, onAdded }) {
 
   const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
-  function pickRepo(repo) {
-    setF((p) => ({
-      ...p,
-      name: p.name || repo.name,
-      github_url: repo.url,
-      branch: repo.default_branch || "main",
-    }));
-  }
-
-  // OAuth path: PAT not required. Manual path: PAT required.
-  const canSubmit = f.name.trim() && f.github_url.trim() &&
-    (ghStatus.connected || f.github_token.trim());
-
   async function submit(e) {
-    e.preventDefault();
-    if (!canSubmit) {
-      toast({
-        message: ghStatus.connected
-          ? "Pick a repo first."
-          : "Connect GitHub or paste a PAT to continue.",
-        kind: "error",
-      });
+    e?.preventDefault?.();
+    // PAT-fallback submit (step 1, no OAuth)
+    if (!f.name.trim() || !f.github_url.trim() || !f.github_token.trim()) {
+      toast({ message: "Project name, GitHub URL and PAT are all required.", kind: "error" });
       return;
     }
     setBusy(true);
     try {
-      // Don't send github_token at all on OAuth path — backend falls back.
-      const payload = ghStatus.connected && !f.github_token.trim()
-        ? { name: f.name, github_url: f.github_url, branch: f.branch,
-            tech_stack: f.tech_stack, preview_url: f.preview_url }
-        : f;
-      await api.post("/cto/projects/add", payload);
+      await api.post("/cto/projects/add", f);
       toast({ message: `Connected ${f.name}`, kind: "success" });
       onAdded();
-    } catch (e) {
-      toast({ message: e?.response?.data?.detail || "Connect failed", kind: "error" });
+    } catch (e2) {
+      toast({ message: e2?.response?.data?.detail || "Connect failed", kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  // OAuth path — submit straight from the repo card.
+  async function handleConnectRepo() {
+    if (!selectedRepo) return;
+    setBusy(true);
+    try {
+      await api.post("/cto/projects/add", {
+        name: selectedRepo.name,
+        github_url: selectedRepo.url || `https://github.com/${selectedRepo.full_name}`,
+        branch: selectedRepo.default_branch || "main",
+      });
+      toast({ message: `Connected ${selectedRepo.name}`, kind: "success" });
+      onAdded();
+    } catch (e2) {
+      toast({ message: e2?.response?.data?.detail || "Connect failed", kind: "error" });
     } finally { setBusy(false); }
   }
 
   function startOAuth() {
-    // Read JWT from localStorage and pass via ?auth= so the redirect
-    // works even when the browser strips Authorization headers.
     const token = localStorage.getItem("aurem_token") || localStorage.getItem("token") || "";
-    // Use window.location.origin so the OAuth callback comes back to
-    // whichever domain the user is actually on (preview, auremcto.com,
-    // custom domain) rather than the build-time backend URL.
     const base = window.location.origin;
     window.location.href = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
   }
@@ -371,138 +370,282 @@ function AddDialog({ onClose, onAdded }) {
       position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.65)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
     }}>
-      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} data-testid="proj-add-dialog"
+      <div onClick={(e) => e.stopPropagation()} data-testid="proj-add-dialog"
             style={{ maxWidth: 540, width: "100%", padding: 24,
                      background: "var(--panel)", border: "1px solid var(--border-strong)",
-                     borderRadius: 6, display: "grid", gap: 12 }}>
-        <h3 className="serif" style={{ margin: 0, fontSize: 18 }}>Connect a repo</h3>
+                     borderRadius: 10, display: "block" }}>
 
-        {/* Iter 49 — OAuth-first row */}
-        {ghStatus.loading ? null : ghStatus.connected ? (
-          <div data-testid="oauth-connected-banner" style={{
-            padding: 10, borderRadius: 4, fontSize: 12,
-            background: "rgba(34, 197, 94, 0.08)",
-            border: "1px solid rgba(34, 197, 94, 0.3)",
-            color: "var(--text)",
-            display: "flex", alignItems: "center", gap: 8,
-          }}>
-            <Github size={14} />
-            <span>Connected as <strong>@{ghStatus.login}</strong> — pick a repo below.</span>
-          </div>
-        ) : (
-          <button type="button" data-testid="oauth-connect-cta"
-            onClick={startOAuth} style={{
-              padding: "12px 14px", borderRadius: 4,
-              background: "var(--accent-2)", color: "var(--bg)",
-              border: "1px solid var(--accent-2)", fontWeight: 600, fontSize: 13,
-              cursor: "pointer", display: "flex", alignItems: "center",
-              gap: 8, justifyContent: "center",
-              fontFamily: "'JetBrains Mono', monospace",
-              letterSpacing: "0.04em",
-            }}>
-            <Github size={14} /> Continue with GitHub
-          </button>
-        )}
+        {/* ──────────── Step 1 — Connect (OAuth + PAT fallback) ──────────── */}
+        {connectStep === 1 && (
+          <div>
+            <p style={{ fontSize: 18, fontWeight: 500, color: "var(--text)", margin: "0 0 6px" }}>
+              Connect a repo
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 20px", lineHeight: 1.6 }}>
+              ORA will read your code and commit fixes directly to GitHub.
+            </p>
 
-        <label><span className="label-mini">Project name</span>
-          <input data-testid="proj-name" className="input" required value={f.name}
-                 onChange={(e) => up("name", e.target.value)} placeholder="My App" /></label>
-
-        {ghStatus.connected && repos.length > 0 ? (
-          <label><span className="label-mini">Pick repo</span>
-            <select
-              data-testid="proj-repo-picker"
-              className="input"
-              value={f.github_url}
-              onChange={(e) => {
-                const r = repos.find((x) => x.url === e.target.value);
-                if (r) pickRepo(r);
-              }}
-            >
-              <option value="">— select —</option>
-              {repos.map((r) => (
-                <option key={r.full_name} value={r.url}>
-                  {r.full_name} {r.private ? "🔒" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <label><span className="label-mini">GitHub URL</span>
-            <input data-testid="proj-url" className="input" required value={f.github_url}
-                   onChange={(e) => up("github_url", e.target.value)}
-                   placeholder="https://github.com/owner/repo" /></label>
-        )}
-
-        {ghStatus.connected && reposLoading && (
-          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Loading your repos…</div>
-        )}
-
-        {/* Iter 197 — PAT fallback is now collapsed behind a small
-            link by default for unconnected users (was shown inline as
-            a *required field*, which made the dialog look PAT-first
-            despite OAuth being the primary path). Now: when OAuth is
-            NOT connected, the big "Continue with GitHub" CTA is the
-            only obvious action; PAT lives behind "Can't use GitHub
-            OAuth? Use a token instead" — same control, less noise.
-            For an already-connected user the toggle works as before. */}
-        {showManualPAT ? (
-          <label>
-            <span className="label-mini" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              Personal Access Token (PAT)
-              {!ghStatus.connected && <span style={{ color: "var(--danger)" }}>*required</span>}
-              <PatHelpTooltip />
-            </span>
-            <input data-testid="proj-pat" className="input" value={f.github_token}
-                   onChange={(e) => up("github_token", e.target.value)}
-                   required={!ghStatus.connected}
-                   placeholder="github_pat_xxx or ghp_xxx" type="password" />
-          </label>
-        ) : (
-          <div style={{ textAlign: "center", marginTop: 4 }}>
+            {/* Continue with GitHub */}
             <button
               type="button"
-              data-testid="proj-pat-fallback-toggle"
-              onClick={() => setShowManualPAT(true)}
+              data-testid="oauth-connect-cta"
+              onClick={startOAuth}
               style={{
-                background: "transparent", border: "none",
-                color: "var(--text-faint)", fontSize: 11,
-                fontFamily: "'JetBrains Mono', monospace",
-                cursor: "pointer", textDecoration: "underline",
-                padding: "6px 8px",
+                width: "100%", padding: 13, background: "#24292e", color: "#fff",
+                border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500,
+                cursor: "pointer", display: "flex", alignItems: "center",
+                justifyContent: "center", gap: 10, marginBottom: 16,
               }}>
-              {ghStatus.connected
-                ? "Use a Personal Access Token instead →"
-                : "Can't use GitHub OAuth? Use a token instead"}
+              <Github size={18} /> Continue with GitHub
             </button>
+
+            {/* repo access info box */}
+            <div style={{
+              background: "var(--bg-elev, rgba(255,255,255,0.03))",
+              borderRadius: 8, padding: "12px 14px", marginBottom: 16,
+              display: "flex", gap: 10, alignItems: "flex-start",
+              border: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+            }}>
+              <Info size={16} style={{ color: "#f59e0b", flexShrink: 0, marginTop: 1 }} />
+              <p style={{ fontSize: 12, color: "var(--text-dim)", margin: 0, lineHeight: 1.6 }}>
+                ORA only requests <strong style={{ color: "var(--text)" }}>repo access</strong> —
+                read your files and commit code. We never touch your GitHub account settings or
+                other data.
+              </p>
+            </div>
+
+            {/* How it works */}
+            <div style={{
+              border: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+              borderRadius: 8, overflow: "hidden", marginBottom: 16,
+            }}>
+              <div style={{
+                padding: "10px 14px",
+                background: "var(--bg-elev, rgba(255,255,255,0.03))",
+                borderBottom: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+              }}>
+                <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", margin: 0 }}>
+                  How it works
+                </p>
+              </div>
+              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  "Click Continue with GitHub above",
+                  "Authorize ORA on GitHub — takes 10 seconds",
+                  "Select your repo — ORA starts reading it immediately",
+                ].map((text, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: "50%",
+                      background: "rgba(245,158,11,0.15)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}>
+                      <span style={{ fontSize: 11, fontWeight: 500, color: "#f59e0b" }}>{i + 1}</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+                      {text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* PAT fallback */}
+            {!showManualPAT ? (
+              <p style={{ textAlign: "center", margin: "0 0 16px" }}>
+                <button
+                  type="button"
+                  data-testid="proj-pat-fallback-toggle"
+                  onClick={() => setShowManualPAT(true)}
+                  style={{
+                    background: "none", border: "none", color: "var(--text-faint)",
+                    fontSize: 11, cursor: "pointer", textDecoration: "underline",
+                  }}>
+                  Can&apos;t use GitHub OAuth? Use a token instead
+                </button>
+              </p>
+            ) : (
+              <form onSubmit={submit}
+                    style={{
+                      borderTop: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+                      paddingTop: 16, marginBottom: 16, display: "grid", gap: 10,
+                    }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)",
+                                   letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    Personal Access Token
+                  </label>
+                  <a href="https://github.com/settings/tokens/new?scopes=repo&description=ORA+by+Aurem+CTO"
+                     target="_blank" rel="noreferrer"
+                     style={{ fontSize: 11, color: "#f59e0b", textDecoration: "none",
+                              display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    Generate token <ExternalLink size={11} />
+                  </a>
+                </div>
+                <input data-testid="proj-pat" className="input" value={f.github_token}
+                       onChange={(e) => up("github_token", e.target.value)}
+                       required placeholder="github_pat_xxx or ghp_xxx" type="password" />
+                <input data-testid="proj-name" className="input" required value={f.name}
+                       onChange={(e) => up("name", e.target.value)} placeholder="Project name" />
+                <input data-testid="proj-url" className="input" required value={f.github_url}
+                       onChange={(e) => up("github_url", e.target.value)}
+                       placeholder="https://github.com/owner/repo" />
+                <p style={{ fontSize: 11, color: "var(--text-faint)", margin: "2px 0 6px", lineHeight: 1.5 }}>
+                  GitHub → Settings → Developer settings → Personal access tokens → Select{" "}
+                  <strong>repo</strong> scope → Generate
+                </p>
+                <button type="submit" disabled={busy}
+                        style={{
+                          padding: "10px 0", background: "#f59e0b", color: "#0a0e1a",
+                          border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                          cursor: busy ? "default" : "pointer",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}>
+                  {busy ? "Connecting…" : "Connect with token"}
+                </button>
+              </form>
+            )}
+
+            <div style={{
+              display: "flex", gap: 8, paddingTop: 16,
+              borderTop: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+            }}>
+              <button type="button" onClick={onClose} className="btn-ghost"
+                      style={{ flex: 1, padding: "10px 0", fontSize: 12 }}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
-          <label><span className="label-mini">Branch</span>
-            <input data-testid="proj-branch" className="input" value={f.branch}
-                   onChange={(e) => up("branch", e.target.value)} /></label>
-          <label><span className="label-mini">Tech (optional)</span>
-            <input data-testid="proj-tech" className="input" value={f.tech_stack}
-                   onChange={(e) => up("tech_stack", e.target.value)}
-                   placeholder="WordPress, Next.js, FastAPI…" /></label>
-        </div>
-        <label>
-          <span className="label-mini">Live preview URL (optional)</span>
-          <input data-testid="proj-preview-url" className="input" value={f.preview_url}
-                 onChange={(e) => up("preview_url", e.target.value)}
-                 placeholder="https://yoursite.com or http://localhost:3000" />
-        </label>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" data-testid="proj-add-submit" className="btn-primary" disabled={busy || !canSubmit}>
-            <Github size={13} /> {busy ? "Connecting…" : "Connect"}
-          </button>
-        </div>
-      </form>
+        {/* ──────────── Step 2 — Repo selector ──────────── */}
+        {connectStep === 2 && (
+          <div>
+            <div data-testid="oauth-connected-banner"
+                 style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: "50%",
+                background: "rgba(34,197,94,0.15)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Check size={12} style={{ color: "#22c55e" }} />
+              </div>
+              <p style={{ fontSize: 13, color: "#22c55e", margin: 0, fontWeight: 500 }}>
+                GitHub connected as @{ghStatus.login}
+              </p>
+            </div>
+
+            <p style={{ fontSize: 18, fontWeight: 500, color: "var(--text)", margin: "0 0 6px" }}>
+              Select a repository
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px" }}>
+              Choose which repo ORA should work on.
+            </p>
+
+            {reposLoading && (
+              <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>
+                Loading your repos…
+              </div>
+            )}
+
+            <div data-testid="proj-repo-picker"
+                 style={{ display: "flex", flexDirection: "column", gap: 8,
+                          marginBottom: 16, maxHeight: 260, overflowY: "auto" }}>
+              {repos.map((repo) => {
+                const isSel = selectedRepo?.full_name === repo.full_name;
+                return (
+                  <button
+                    key={repo.full_name}
+                    type="button"
+                    data-testid={`proj-repo-row-${repo.full_name}`}
+                    onClick={() => setSelectedRepo(repo)}
+                    style={{
+                      width: "100%", padding: "12px 14px",
+                      background: isSel ? "rgba(245,158,11,0.06)"
+                                        : "var(--bg-elev, rgba(255,255,255,0.03))",
+                      border: isSel ? "2px solid #f59e0b"
+                                    : "0.5px solid var(--border, rgba(255,255,255,0.08))",
+                      borderRadius: 8, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                    }}>
+                    {repo.private
+                      ? <Lock size={16} style={{ color: "var(--text-dim)" }} />
+                      : <FolderGit2 size={16} style={{ color: "var(--text-dim)" }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text)",
+                                   margin: 0, whiteSpace: "nowrap", overflow: "hidden",
+                                   textOverflow: "ellipsis" }}>
+                        {repo.name}
+                      </p>
+                      <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0,
+                                   fontFamily: "'JetBrains Mono', monospace" }}>
+                        {repo.full_name}{" · "}
+                        {repo.private ? "private · " : ""}
+                        {repo.default_branch || "main"}
+                      </p>
+                    </div>
+                    {isSel && <Check size={16} style={{ color: "#f59e0b" }} />}
+                  </button>
+                );
+              })}
+              {!reposLoading && !repos.length && (
+                <div style={{ fontSize: 12, color: "var(--text-faint)",
+                               padding: "16px 0", textAlign: "center" }}>
+                  No repos visible to this token. Re-authorize with broader access.
+                </div>
+              )}
+            </div>
+
+            {selectedRepo && (
+              <div style={{
+                background: "rgba(245,158,11,0.06)",
+                border: "0.5px solid rgba(245,158,11,0.2)",
+                borderRadius: 8, padding: "10px 14px", marginBottom: 12,
+                display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <Info size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
+                <p style={{ fontSize: 12, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
+                  ORA will read{" "}
+                  <strong style={{ color: "var(--text)" }}>{selectedRepo.name}</strong>{" "}
+                  and commit fixes directly to{" "}
+                  <strong style={{ color: "var(--text)" }}>
+                    {selectedRepo.default_branch || "main"}
+                  </strong>.
+                </p>
+              </div>
+            )}
+
+            <div style={{
+              display: "flex", gap: 8, paddingTop: 16,
+              borderTop: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+            }}>
+              <button type="button" onClick={() => setConnectStep(1)} className="btn-ghost"
+                      style={{ padding: "10px 16px", fontSize: 12 }}>
+                Back
+              </button>
+              <button type="button"
+                      data-testid="proj-connect-repo-btn"
+                      onClick={handleConnectRepo}
+                      disabled={!selectedRepo || busy}
+                      style={{
+                        flex: 1, padding: "10px 0",
+                        background: selectedRepo && !busy ? "#f59e0b"
+                                                          : "var(--bg-elev, rgba(255,255,255,0.06))",
+                        color: selectedRepo && !busy ? "#0a0e1a" : "var(--text-faint)",
+                        border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600,
+                        cursor: selectedRepo && !busy ? "pointer" : "default",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>
+                {busy ? "Connecting…" : "Connect repo"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
 
 function EditDialog({ project, onClose, onSaved }) {
   const [f, setF] = useState({ github_token: "", branch: project.branch || "main", tech_stack: project.tech_stack || "", preview_url: project.preview_url || "" });
