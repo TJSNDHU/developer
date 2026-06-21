@@ -106,7 +106,7 @@ export default function Signup() {
               error
                 ? `Hmm — <strong>${escapeHtml(error)}</strong>. Fix the highlighted field and try again.`
                 : !form.email
-                  ? `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> above <span class="ora-arrow">👆</span> — creates your account instantly, no password needed.`
+                  ? `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — creates your account instantly, no password needed.`
                   : !form.password
                     ? `Pick a <strong>strong password</strong> (6+ characters) below. <span class="ora-arrow">👇</span>`
                     : form.password_confirm && form.password !== form.password_confirm
