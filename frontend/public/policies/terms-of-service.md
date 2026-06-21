@@ -105,7 +105,7 @@ We reserve the right to terminate accounts that violate these rules without refu
 - Free tier is provided as-is with no service guarantees
 - We use Stripe to process payments — your payment data is subject to Stripe's terms
 
-**Refund Policy:** We offer refunds within 7 days of initial subscription if you have not used more than 10 tasks. Contact ora@aurem.live.
+**Refund Policy:** We offer refunds within 7 days of initial subscription if you have not used more than 10 tasks. Contact polarisbuiltinc@gmail.com.
 
 ---
 
@@ -171,6 +171,6 @@ We may update these Terms at any time. We will notify you by email at least 14 d
 ## 16. Contact
 
 **Polaris Built Inc**
-ora@aurem.live
+polarisbuiltinc@gmail.com
 auremcto.com
 

@@ -59,5 +59,5 @@ Violations may result in:
 
 ## Reporting Violations
 
-Report abuse to: ora@aurem.live
+Report abuse to: polarisbuiltinc@gmail.com
 

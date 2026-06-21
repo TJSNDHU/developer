@@ -2422,7 +2422,7 @@ async def draft_support_email(
     return {
         "ok": True,
         "subject": f"[{tier.upper()}] Support — {email}",
-        "to": "teji.ss1986@gmail.com",
+        "to": "polarisbuiltinc@gmail.com",
         "from_email": email,
         "body": full_body,
     }

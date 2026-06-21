@@ -5786,3 +5786,28 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 **Files touched**: `/app/frontend/src/components/NewUserWizard.jsx` only (single file).
 
 ---
+
+
+### Iter 201 — Support email unification → polarisbuiltinc@gmail.com (Feb 2026) ✅
+
+**Ask**: User asked to change the support contact email everywhere to `polarisbuiltinc@gmail.com`, with specific callouts for the **Ask Advisor** draft-email TO field and the **Admin → Send offer email** flow.
+
+**Rule applied**:
+- **Inbound contact addresses** (where users email *us*) → `polarisbuiltinc@gmail.com`
+- **Outbound sender FROM headers** (Resend SDK `from:` field) → **kept as `ora@aurem.live`** — Resend's verified domain. Gmail addresses cannot be used as sender; would break all transactional/marketing email.
+
+**Files changed** (22 source locations):
+- Backend: `routers/payments.py`, `routers/unlock.py`, `routers/harden.py`, `routers/chat.py` (Ask Advisor `to`), `routers/admin.py` (`/users/email-offer` now adds `reply_to` to Resend payload + ledger), `services/orchestrator.py` (5 founder-escalation lines), `shared/compliance/casl.py` (CONTACT_EMAIL fallback).
+- Frontend: `components/PricingCards.jsx`, `pages/OpsRecipes.jsx`, `pages/PolicyPage.jsx`, `pages/VsDevin.jsx`, `pages/Admin.jsx` (new green hint strip `Replies will land in polarisbuiltinc@gmail.com`).
+- Policies: `privacy-policy.md`, `terms-of-service.md`, `acceptable-use-policy.md`.
+- `README.md`.
+
+**Tests updated**: 11 assertions across 4 test files (`test_iter71`, `test_iter73`, `test_iter99`, `test_iter104`) — email assertions all PASS.
+
+**Unchanged (intentional — Resend verified domain)**: `RESEND_FROM_EMAIL`, `DIGEST_FROM` env vars, `billing_cron.py`, `email_legacy.py`, `followup_ora.py`, `referral_ora.py`, `closer_ora.py` — all sender FROM identities remain `ora@aurem.live`.
+
+**Net effect**: every public-facing "email us" surface (product errors, policies, escalations, mailto links, admin offer modal) now reads `polarisbuiltinc@gmail.com`. Ask Advisor mailto-draft TO field pre-fills the support gmail. Admin offer emails sent via Resend route replies to support inbox via `Reply-To` header.
+
+**Production deploy note**: Changes are in preview only. User needs to redeploy `auremcto.com` to push the new support address live.
+
+---

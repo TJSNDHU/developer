@@ -18,7 +18,7 @@ import os
 LEGAL_NAME = os.environ.get("AUREM_LEGAL_NAME", "AUREM Intelligence AI | Polaris Built Inc.")
 LEGAL_ADDRESS = os.environ.get("AUREM_LEGAL_ADDRESS", "7221 Sigsbee Dr, Mississauga, ON L4T 3L6")
 UNSUBSCRIBE_URL = os.environ.get("AUREM_UNSUBSCRIBE_URL", "https://aurem.live/unsubscribe")
-CONTACT_EMAIL = os.environ.get("AUREM_CONTACT_EMAIL", "ora@aurem.live")
+CONTACT_EMAIL = os.environ.get("AUREM_CONTACT_EMAIL", "polarisbuiltinc@gmail.com")
 HST_NUMBER = os.environ.get("AUREM_COMPLIANCE_HST", "769426800 RT0001")
 
 

@@ -2560,13 +2560,14 @@ async def admin_send_user_offer(
 ):
     """Send a one-off offer email to a list of users.
 
-    Request body:
-      {
-        "user_ids": ["uid_..", "uid_.."],   # required, max 500
-        "subject":  "Special offer for you",
-        "body_html": "<p>Hi {{name}}, ...</p>",   # supports {{name}} and {{email}}
-        "from": "ORA <ora@auremcto.com>",   # optional, falls back to DIGEST_FROM
-      }
+      Request body:
+        {
+          "user_ids": ["uid_..", "uid_.."],   # required, max 500
+          "subject":  "Special offer for you",
+          "body_html": "<p>Hi {{name}}, ...</p>",   # supports {{name}} and {{email}}
+          "from": "ORA <ora@aurem.live>",   # optional, falls back to DIGEST_FROM
+          "reply_to": "polarisbuiltinc@gmail.com",  # optional, falls back to support inbox
+        }
 
     Returns: {sent, failed, dry_run, recipients[]}
     """
@@ -2577,6 +2578,7 @@ async def admin_send_user_offer(
     subject  = ((body or {}).get("subject") or "").strip()
     body_html = ((body or {}).get("body_html") or "").strip()
     from_addr = ((body or {}).get("from") or "").strip()
+    reply_to = ((body or {}).get("reply_to") or "").strip() or "polarisbuiltinc@gmail.com"
 
     if not isinstance(user_ids, list) or not user_ids:
         raise HTTPException(400, "user_ids[] required (non-empty)")
@@ -2619,6 +2621,7 @@ async def admin_send_user_offer(
             "sent":       0,
             "failed":     0,
             "recipients": [t["email"] for t in targets],
+            "reply_to":   reply_to,
             "note":       "RESEND_API_KEY not configured — no emails actually sent.",
         }
 
@@ -2669,6 +2672,7 @@ async def admin_send_user_offer(
             "subject":    subject,
             "body_html":  body_html,
             "from":       sender,
+            "reply_to":   reply_to,
             "recipient_count": len(targets),
             "sent_count":      sent,
             "failed_count":    len(failed),
@@ -2689,6 +2693,7 @@ async def admin_send_user_offer(
         "failed":     len(failed),
         "failed_detail": failed[:20],
         "recipients": [t["email"] for t in targets],
+        "reply_to":   reply_to,
     }
 
 

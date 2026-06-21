@@ -84,7 +84,7 @@ There is no IDE plug-in to install for the core flow. Code goes from chat to com
 - Slides in from the right on demand (35vw, 360–680px clamped)
 - Voice in (`SpeechRecognition`) + voice out (`useTextToVoice`)
 - Two-mode advisor prompt — **MODE 1: Technical Support · MODE 2: Advisory** (150-word ceiling, no "it depends")
-- **2-step support escalation** — Advisor first → "Did this fix?" Yes/No → on No, drafts a context-loaded support email and opens `mailto:`
+- **2-step support escalation** — Advisor first → "Did this fix?" Yes/No → on No, drafts a context-loaded support email to **polarisbuiltinc@gmail.com** and opens `mailto:`
 
 ### GitHub
 - **OAuth + PAT** dual-mode auth (`routers/github_oauth.py`, `services/github_api_writer.py`)

@@ -482,6 +482,15 @@ function EmailOfferComposer({ userIds, recipients, onClose, onSent }) {
           Recipients: {recipients.length} · Templating: <code>{`{{name}}`}</code>, <code>{`{{email}}`}</code>
         </div>
 
+        <div data-testid="admin-offer-replyto-hint"
+             style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 14,
+                       padding: "6px 10px",
+                       background: "rgba(34,197,94,0.07)",
+                       border: "1px solid rgba(34,197,94,0.18)",
+                       borderRadius: 6 }}>
+          ↩ Replies will land in <strong style={{ color: "#22c55e" }}>polarisbuiltinc@gmail.com</strong>
+        </div>
+
         <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block",
                          marginBottom: 4, fontFamily: "'JetBrains Mono', monospace",
                          textTransform: "uppercase", letterSpacing: "0.06em" }}>
