@@ -139,8 +139,11 @@ async def callback(
         # Decide where to send them based on the state prefix:
         #   "login:..."  → /login    (iter 113 — UX fix)
         #   "signup:..." → /signup
-        #   any user-id prefix → /settings (connect flow)
-        target_path = "/settings"
+        #   any user-id prefix → /projects (iter 197 — connect flow
+        #     starts on Projects page, errors should land back there
+        #     so the user sees them in context and the PAT fallback
+        #     auto-reveals via the `?github=…` useEffect)
+        target_path = "/projects"
         if state and state.startswith("signup:"):
             target_path = "/signup"
         elif state and state.startswith("login:"):
@@ -186,8 +189,14 @@ async def callback(
     except Exception as e:
         logger.error(f"[oauth] callback failed: {e!r}")
         await db.oauth_states.delete_one({"state": state})
+        # Iter 197 — connect-flow exchange errors should land back on
+        # /projects (where the user started) rather than /settings, so
+        # the inline error banner + auto-revealed PAT fallback are
+        # visible in context.
+        err_path = "/projects" if flow == "connect" else "/settings"
+        from urllib.parse import quote_plus
         return RedirectResponse(
-            url=_frontend_settings_url(f"github=error&msg={e}")
+            url=_frontend_url(err_path, f"github=error&msg={quote_plus(str(e))}")
         )
 
     await db.oauth_states.delete_one({"state": state})

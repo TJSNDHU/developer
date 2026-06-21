@@ -51,6 +51,25 @@ function Body() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Iter 197 — surface GitHub OAuth callback errors. Connect-flow
+  // failures redirect to /projects?github=cancelled&reason=... or
+  // /projects?github=error&msg=... (see github_oauth.py). We toast the
+  // reason, auto-open the Add-Project dialog (so the user lands on the
+  // fallback in context), and strip the query string so a refresh
+  // doesn't re-fire the toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gh = params.get("github");
+    if (!gh) return;
+    const reason = params.get("reason") || params.get("msg") || "";
+    const msg = gh === "cancelled"
+      ? `GitHub authorization cancelled${reason ? ` (${reason})` : ""}. You can paste a Personal Access Token instead.`
+      : `GitHub connection failed${reason ? `: ${reason}` : ""}. Please retry or paste a Personal Access Token.`;
+    toast({ message: msg, kind: "error" });
+    setShowAdd(true);
+    window.history.replaceState({}, "", "/projects");
+  }, []);
+
   return (
     <div style={{
       display: "grid",
@@ -338,8 +357,15 @@ function AddDialog({ onClose, onAdded }) {
           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Loading your repos…</div>
         )}
 
-        {/* Manual PAT only shown when not connected, or explicitly toggled */}
-        {(!ghStatus.connected || showManualPAT) && (
+        {/* Iter 197 — PAT fallback is now collapsed behind a small
+            link by default for unconnected users (was shown inline as
+            a *required field*, which made the dialog look PAT-first
+            despite OAuth being the primary path). Now: when OAuth is
+            NOT connected, the big "Continue with GitHub" CTA is the
+            only obvious action; PAT lives behind "Can't use GitHub
+            OAuth? Use a token instead" — same control, less noise.
+            For an already-connected user the toggle works as before. */}
+        {showManualPAT ? (
           <label>
             <span className="label-mini" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               Personal Access Token (PAT)
@@ -351,16 +377,24 @@ function AddDialog({ onClose, onAdded }) {
                    required={!ghStatus.connected}
                    placeholder="github_pat_xxx or ghp_xxx" type="password" />
           </label>
-        )}
-        {ghStatus.connected && !showManualPAT && (
-          <button type="button" onClick={() => setShowManualPAT(true)} style={{
-            background: "transparent", border: "none",
-            color: "var(--text-faint)", textAlign: "left",
-            cursor: "pointer", fontSize: 11,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}>
-            Use a Personal Access Token instead →
-          </button>
+        ) : (
+          <div style={{ textAlign: "center", marginTop: 4 }}>
+            <button
+              type="button"
+              data-testid="proj-pat-fallback-toggle"
+              onClick={() => setShowManualPAT(true)}
+              style={{
+                background: "transparent", border: "none",
+                color: "var(--text-faint)", fontSize: 11,
+                fontFamily: "'JetBrains Mono', monospace",
+                cursor: "pointer", textDecoration: "underline",
+                padding: "6px 8px",
+              }}>
+              {ghStatus.connected
+                ? "Use a Personal Access Token instead →"
+                : "Can't use GitHub OAuth? Use a token instead"}
+            </button>
+          </div>
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
