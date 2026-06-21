@@ -286,7 +286,7 @@ function Body() {
         )}
       </section>
 
-      {showAdd && <AddDialog onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
+      {showAdd && <AddDialog projects={projects} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
       {editingProject && (
         <EditDialog
           project={editingProject}
@@ -384,7 +384,7 @@ function PatHelpTooltip() {
   );
 }
 
-function AddDialog({ onClose, onAdded }) {
+function AddDialog({ onClose, onAdded, projects = [] }) {
   const [f, setF] = useState({ name: "", github_url: "", github_token: "", branch: "main", tech_stack: "", preview_url: "" });
   const [busy, setBusy] = useState(false);
   // Iter 49 — OAuth-first picker
@@ -405,6 +405,20 @@ function AddDialog({ onClose, onAdded }) {
   const pollRef  = useRef(null);
   const [oauthBusy, setOauthBusy] = useState(false);
 
+  // Iter 208 — filter out repos already connected as projects so the
+  // picker shows only NEW repos to add. Compared by owner+repo, so a
+  // user can still re-add a repo they previously deleted (project_id
+  // would have been removed from `projects`).
+  const connectedKeys = new Set(
+    (projects || []).map((p) =>
+      `${(p.github_owner || "").toLowerCase()}/${(p.github_repo || "").toLowerCase()}`
+    )
+  );
+  const availableRepos = repos.filter((r) => {
+    const key = (r.full_name || "").toLowerCase();
+    return key && !connectedKeys.has(key);
+  });
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -413,21 +427,32 @@ function AddDialog({ onClose, onAdded }) {
         if (!alive) return;
         const connected = !!r.data?.connected;
         setGhStatus({ loading: false, connected, login: r.data?.login || null });
-        if (connected) {
-          setConnectStep(2);
-          setReposLoading(true);
-          try {
-            const rr = await api.get("/github/oauth/repos");
-            if (alive) setRepos(rr.data?.repos || []);
-          } catch { /* silent */ }
-          finally { if (alive) setReposLoading(false); }
-        }
+        // Iter 208 — DO NOT auto-advance to Step 2 just because the user
+        // OAuth'd in a previous session. Always land on Step 1 ("Connect
+        // a repo") so "+ Add Project" feels like a fresh flow every
+        // time. The user explicitly clicks "Pick a repo" to advance.
       } catch {
         if (alive) setGhStatus({ loading: false, connected: false, login: null });
       }
     })();
     return () => { alive = false; };
   }, []);
+
+  // Iter 208 — Step 1 → Step 2 advance for already-connected users.
+  // Fetches the repo list lazily on click (instead of on mount) so
+  // every "+ Add Project" click starts blank.
+  async function advanceToRepoPicker() {
+    setReposLoading(true);
+    setConnectStep(2);
+    try {
+      const rr = await api.get("/github/oauth/repos");
+      setRepos(rr.data?.repos || []);
+    } catch {
+      toast({ message: "Couldn't load your GitHub repos. Try reconnecting GitHub.", kind: "error" });
+    } finally {
+      setReposLoading(false);
+    }
+  }
 
   const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
@@ -556,29 +581,56 @@ function AddDialog({ onClose, onAdded }) {
                       ? `Connecting… <span class="ora-arrow">⏳</span>`
                       : showManualPAT
                         ? `Manual mode — paste your <strong>Personal Access Token</strong> below. (Or click <strong>Continue with GitHub</strong> above to skip this.) <span class="ora-arrow">👇</span>`
-                        : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — opens in a popup, takes 10 seconds, no PAT needed.`
+                        : ghStatus.connected
+                          ? `Welcome back! Your GitHub is already connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>. Click <strong>Pick a repo</strong> below <span class="ora-arrow">👇</span> to choose a new one.`
+                          : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — opens in a popup, takes 10 seconds, no PAT needed.`
               }
             />
 
-            {/* Continue with GitHub */}
+            {/* Iter 208 — primary CTA adapts to OAuth state:
+                • not connected → "Continue with GitHub" (popup) flow
+                • already connected → "Pick a repo" (advance to Step 2)
+                Either way the user lands on Step 1 first, so every
+                +Add click feels like a fresh start. */}
             <div style={{ position: "relative", marginBottom: 16 }}>
               {!showManualPAT && !ghStatus.loading && (
                 <div data-testid="proj-pulse-ring" style={oraPulseRingStyle} />
               )}
-              <button
-                type="button"
-                data-testid="oauth-connect-cta"
-                onClick={startOAuth}
-                style={{
-                  width: "100%", padding: 13, background: "#24292e", color: "#fff",
-                  border: showManualPAT ? "none" : "2px solid #f59e0b",
-                  borderRadius: 10, fontSize: 14, fontWeight: 500,
-                  cursor: "pointer", display: "flex", alignItems: "center",
-                  justifyContent: "center", gap: 10,
-                  position: "relative", zIndex: 1,
-                }}>
-                <Github size={18} /> Continue with GitHub
-              </button>
+              {ghStatus.connected && !showManualPAT ? (
+                <button
+                  type="button"
+                  data-testid="oauth-pick-repo-cta"
+                  onClick={advanceToRepoPicker}
+                  disabled={reposLoading}
+                  style={{
+                    width: "100%", padding: 13,
+                    background: "#f59e0b", color: "#0a0c10",
+                    border: "none", borderRadius: 10,
+                    fontSize: 14, fontWeight: 600,
+                    cursor: reposLoading ? "wait" : "pointer",
+                    display: "flex", alignItems: "center",
+                    justifyContent: "center", gap: 10,
+                    position: "relative", zIndex: 1,
+                  }}>
+                  {reposLoading ? <Loader2 size={16} className="animate-spin" /> : <Github size={18} />}
+                  {reposLoading ? "Loading repos…" : `Pick a repo (connected as @${ghStatus.login || "you"})`}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="oauth-connect-cta"
+                  onClick={startOAuth}
+                  style={{
+                    width: "100%", padding: 13, background: "#24292e", color: "#fff",
+                    border: showManualPAT ? "none" : "2px solid #f59e0b",
+                    borderRadius: 10, fontSize: 14, fontWeight: 500,
+                    cursor: "pointer", display: "flex", alignItems: "center",
+                    justifyContent: "center", gap: 10,
+                    position: "relative", zIndex: 1,
+                  }}>
+                  <Github size={18} /> Continue with GitHub
+                </button>
+              )}
             </div>
 
             {/* repo access info box */}
@@ -734,9 +786,11 @@ function AddDialog({ onClose, onAdded }) {
                     ? `Connecting <strong>${escapeHtml(selectedRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
                     : selectedRepo
                       ? `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> looks good. Hit <strong>Connect repo</strong> below. <span class="ora-arrow">👇</span>`
-                      : repos.length === 0
-                        ? `No repos visible to this token. Re-authorize GitHub with broader access to see private repos.`
-                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick the repo ORA should work on. <span class="ora-arrow">👇</span>`
+                      : availableRepos.length === 0
+                        ? repos.length === 0
+                          ? `No repos visible to this token. Re-authorize GitHub with broader access to see private repos.`
+                          : `All your repos are already connected as projects. Connect a different GitHub account, or open a new repo on GitHub first.`
+                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick a <strong>new</strong> repo ORA should work on. <span class="ora-arrow">👇</span>`
               }
             />
 
@@ -749,7 +803,7 @@ function AddDialog({ onClose, onAdded }) {
             <div data-testid="proj-repo-picker"
                  style={{ display: "flex", flexDirection: "column", gap: 8,
                           marginBottom: 16, maxHeight: 260, overflowY: "auto" }}>
-              {repos.map((repo) => {
+              {availableRepos.map((repo) => {
                 const isSel = selectedRepo?.full_name === repo.full_name;
                 return (
                   <button
