@@ -5753,3 +5753,36 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 **Files touched**: `/app/frontend/src/pages/Projects.jsx` (2 small fixes).
 
 ---
+
+
+### Iter 200 — NewUserWizard.jsx robot mascot upgrade (Feb 2026) ✅
+
+**Ask**: User shared an HTML mockup (`ora_ai_onboarding_guide.html`) with an animated "robot guide" mascot and asked to upgrade the existing 3-step `NewUserWizard.jsx` — keep all backend wiring (GitHub OAuth popup, repo picker, `/cto/projects/add`, `/cto/tasks/submit`, `<TaskLiveTape>`).
+
+**What was added** (purely additive — zero behaviour changes):
+1. **ORA brand header**: circular amber `O` mark + "ORA / by Aurem CTO" + monospace "Step N of 3" counter.
+2. **Restyled step dots**: active step renders as a 20×8 rounded amber pill, completed steps as solid green circles, future steps as faint dots. Step label ("Connect repo", "First task", "Shipping") shown inline.
+3. **`<RobotGuide />` subcomponent**: amber-tinted card with a 36×36 robot face (CSS-animated blinking eyes + static mouth) + `ORA GUIDE` label + contextual HTML message. Flips to red ("ORA · HEADS UP") on errors.
+4. **`buildRobotMessage()` helper**: context-aware copy keyed on `{step, ghStatus, busy, err, repoUrl, task, taskId}`:
+   - Step 1 disconnected → "Fastest way: click Continue with GitHub below 👇 — connects in seconds, no PAT needed."
+   - Step 1 connected (no repo picked) → "Your GitHub repos are loaded! Pick a repo… 👇"
+   - Step 1 connected + repo selected → echoes the `owner/repo` and prompts Continue.
+   - Step 1 manual → "Paste any public repo URL…"
+   - Step 2 (no task) / short task / shippable task → progressive nudges.
+   - Step 3 → "Shipping live below… task keeps running in the background. 🚀"
+   - Any `err` → friendly red banner with escaped error text.
+5. **Pulse ring** around the primary "Continue with GitHub" CTA (`oraPulseRing` keyframe, infinite 1.5s).
+6. **Inline keyframe styles**: `oraBlink`, `oraPulseRing`, `oraBounce`, `.ora-arrow` (auto-bouncing 👇 / 🚀 emoji). Self-contained `<style>` tag in the wizard root — no global CSS pollution.
+
+**Card dimensions**: max-width 440px (mockup) instead of previous 580px — feels more "guided overlay", less "form modal".
+
+**Preserved**:
+- All `data-testid`s (`new-user-wizard`, `wizard-progress`, `wizard-dot-{1..3}`, `wizard-close`, `wizard-connect-github`, `wizard-repo-picker`, `wizard-repo-input`, `wizard-branch-input`, `wizard-task-input`, `wizard-step-{1..3}`, `wizard-next`, `wizard-skip-link`, `wizard-error`, `wizard-goto-dashboard`).
+- New testids added: `wizard-robot-guide`, `wizard-robot-face`, `wizard-robot-msg`, `wizard-pulse-ring`.
+- Full OAuth popup flow, `localStorage` dismiss flag (`aurem_wizard_dismissed`), error fallback to manual URL mode.
+
+**Verified (smoke screenshot)** at `/dashboard` logged in as `wizard.smoketest@aurem.dev` (0 projects → wizard triggers): ORA header renders, robot face blinking, contextual message visible, pulse ring around "Continue with GitHub", "Skip — paste a URL" footer intact.
+
+**Files touched**: `/app/frontend/src/components/NewUserWizard.jsx` only (single file).
+
+---

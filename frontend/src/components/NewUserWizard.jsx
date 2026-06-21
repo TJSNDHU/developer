@@ -12,7 +12,7 @@
  * Iter 73 Task 3.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { Loader2, X, ArrowRight, GitBranch, Github } from "lucide-react";
+import { Loader2, X, ArrowRight, Github } from "lucide-react";
 import { api, getToken, API_BASE } from "../lib/api";
 import TaskLiveTape from "./TaskLiveTape";
 import { setActiveProjectId } from "./TabBar";
@@ -195,6 +195,9 @@ export default function NewUserWizard({ onComplete }) {
     }
   }
 
+  const robotMsg = buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId });
+  const stepLabel = ["Connect repo", "First task", "Shipping"][step - 1];
+
   return (
     <div
       data-testid="new-user-wizard"
@@ -207,46 +210,75 @@ export default function NewUserWizard({ onComplete }) {
         padding: 16,
       }}
     >
+      <style>{WIZARD_KEYFRAMES}</style>
       <div style={{
-        width: "min(580px, 100%)",
-        background: "var(--panel, #0f1219)",
-        border: "1px solid var(--border, rgba(255,200,120,0.18))",
-        borderRadius: 10,
-        boxShadow: "0 24px 60px -16px rgba(255,138,42,0.18)",
+        width: "min(440px, 100%)",
+        background: "#0f172a",
+        border: "0.5px solid rgba(255,255,255,0.1)",
+        borderRadius: 14,
+        boxShadow: "0 24px 60px -16px rgba(245,158,11,0.18)",
         overflow: "hidden",
       }}>
+        {/* ORA brand header */}
         <header style={{
-          display: "flex", alignItems: "center", gap: 10,
-          padding: "12px 18px", borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "14px 20px",
+          borderBottom: "0.5px solid rgba(255,255,255,0.08)",
         }}>
-          <GitBranch size={14} style={{ color: "var(--accent, #ff8a2a)" }} />
-          <div data-testid="wizard-progress" style={{
-            fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
-            textTransform: "uppercase", color: "var(--text-dim, #a39d8a)",
-            flex: 1,
-          }}>
-            getting started · step {step} of 3
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 24, height: 24, background: "#f59e0b",
+              borderRadius: "50%", display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 11, fontWeight: 700,
+              color: "#000", fontFamily: "var(--font-mono, ui-monospace, monospace)",
+            }}>O</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#f8fafc",
+                            fontFamily: "var(--font-mono, ui-monospace, monospace)" }}>
+                ORA
+              </div>
+              <div style={{ fontSize: 10, color: "#64748b" }}>by Aurem CTO</div>
+            </div>
           </div>
-          <button data-testid="wizard-close" onClick={close} title="Skip"
-                  style={{ background:"transparent", border:"none", padding:4,
-                           color:"var(--text-faint)", cursor:"pointer" }}>
-            <X size={14} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div data-testid="wizard-progress" style={{
+              fontSize: 11, color: "#64748b",
+              fontFamily: "var(--font-mono, ui-monospace, monospace)",
+            }}>
+              Step {step} of 3
+            </div>
+            <button data-testid="wizard-close" onClick={close} title="Skip"
+                    style={{ background:"transparent", border:"none", padding:4,
+                             color:"#64748b", cursor:"pointer", display:"flex" }}>
+              <X size={14} />
+            </button>
+          </div>
         </header>
 
-        {/* progress dots */}
-        <div style={{ display:"flex", gap:6, padding:"10px 18px 0" }}>
-          {[1,2,3].map((i) => (
-            <div key={i} data-testid={`wizard-dot-${i}`} style={{
-              width: i === step ? 22 : 6, height: 4, borderRadius: 2,
-              background: i <= step ? "var(--accent, #ff8a2a)"
-                                    : "var(--border, rgba(255,200,120,0.18))",
-              transition: "width .2s ease, background .2s ease",
-            }}/>
-          ))}
-        </div>
+        <div style={{ padding: "20px 20px 16px" }}>
+          {/* Step dots + label */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 18,
+          }}>
+            {[1,2,3].map((i) => (
+              <div key={i} data-testid={`wizard-dot-${i}`} style={{
+                width: i === step ? 20 : 8,
+                height: 8,
+                borderRadius: i === step ? 4 : "50%",
+                background: i < step ? "#22c55e"
+                          : i === step ? "#f59e0b"
+                          : "rgba(255,255,255,0.15)",
+                transition: "all .3s ease",
+              }}/>
+            ))}
+            <div style={{
+              fontSize: 11, color: "#64748b", marginLeft: 4,
+              fontFamily: "var(--font-mono, ui-monospace, monospace)",
+            }}>{stepLabel}</div>
+          </div>
 
-        <div style={{ padding: "16px 22px 4px" }}>
+          {/* Robot Guide */}
+          <RobotGuide message={robotMsg} kind={err ? "error" : "info"} />
           {step === 1 && (
             <form onSubmit={submitRepo} data-testid="wizard-step-1">
               <h2 id="wizard-title" style={hStyle}>Connect your GitHub repo</h2>
@@ -269,22 +301,18 @@ export default function NewUserWizard({ onComplete }) {
                     repos, write commits, and open PRs. We never store the
                     token in plaintext.
                   </p>
-                  <button
-                    data-testid="wizard-connect-github"
-                    type="button"
-                    onClick={connectGithub}
-                    style={{
-                      ...primaryBtn, width: "100%",
-                      justifyContent: "center",
-                      background: "#1f2229",
-                      color: "var(--text)",
-                      border: "1px solid var(--border-strong, rgba(255,200,120,0.32))",
-                      padding: "11px 14px", fontSize: 13,
-                    }}
-                  >
-                    <Github size={14} />
-                    Continue with GitHub
-                  </button>
+                  <div style={{ position: "relative" }}>
+                    <div data-testid="wizard-pulse-ring" style={pulseRingStyle} />
+                    <button
+                      data-testid="wizard-connect-github"
+                      type="button"
+                      onClick={connectGithub}
+                      style={githubBtnStyle}
+                    >
+                      <Github size={16} />
+                      Continue with GitHub
+                    </button>
+                  </div>
                   <div style={{
                     fontSize: 10.5, color: "var(--text-faint)",
                     textAlign: "center", marginTop: 10, lineHeight: 1.5,
@@ -467,8 +495,116 @@ const errStyle = { marginTop: 10, fontSize: 11, color: "var(--danger, #ff6b6b)",
                    border: "1px solid rgba(255,107,107,0.2)",
                    padding: "8px 10px", borderRadius: 4 };
 const primaryBtn = { display: "inline-flex", alignItems: "center", gap: 6,
-                     padding: "8px 14px",
-                     background: "var(--accent, #ff8a2a)",
-                     color: "var(--bg, #0a0c10)", border: "none",
-                     borderRadius: 4, fontSize: 12, fontWeight: 600,
-                     letterSpacing: "0.04em", cursor: "pointer" };
+                     padding: "10px 16px",
+                     background: "#f59e0b",
+                     color: "#0a0c10", border: "none",
+                     borderRadius: 8, fontSize: 13, fontWeight: 600,
+                     letterSpacing: "0.02em", cursor: "pointer" };
+
+// ─────────────── Robot Guide subcomponent ───────────────
+function RobotGuide({ message, kind = "info" }) {
+  const isErr = kind === "error";
+  return (
+    <div data-testid="wizard-robot-guide" style={{
+      background: isErr ? "rgba(255,107,107,0.06)" : "rgba(245,158,11,0.06)",
+      border: isErr ? "1px solid rgba(255,107,107,0.3)"
+                    : "1px solid rgba(245,158,11,0.25)",
+      borderRadius: 12, padding: "12px 14px", marginBottom: 16,
+      display: "flex", gap: 12, alignItems: "flex-start",
+      transition: "all .3s ease",
+    }}>
+      <div data-testid="wizard-robot-face" style={{
+        width: 36, height: 36,
+        background: isErr ? "#ef4444" : "#f59e0b",
+        borderRadius: 8, position: "relative", flexShrink: 0,
+      }}>
+        {/* eyes */}
+        <div style={{ position:"absolute", top:9, left:7, width:7, height:7,
+                       background:"#000", borderRadius:"50%",
+                       animation:"oraBlink 3s infinite" }} />
+        <div style={{ position:"absolute", top:9, right:7, width:7, height:7,
+                       background:"#000", borderRadius:"50%",
+                       animation:"oraBlink 3s infinite 0.1s" }} />
+        {/* mouth */}
+        <div style={{ position:"absolute", bottom:7, left:"50%",
+                       transform:"translateX(-50%)", width:14, height:4,
+                       background:"#000", borderRadius:2 }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 10, color: isErr ? "#ef4444" : "#f59e0b",
+          fontFamily: "var(--font-mono, ui-monospace, monospace)",
+          letterSpacing: "0.08em", marginBottom: 4,
+        }}>
+          {isErr ? "ORA · HEADS UP" : "ORA GUIDE"}
+        </div>
+        <div data-testid="wizard-robot-msg"
+             style={{ fontSize: 13, color: "#f8fafc", lineHeight: 1.55 }}
+             dangerouslySetInnerHTML={{ __html: message }} />
+      </div>
+    </div>
+  );
+}
+
+function buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId }) {
+  if (err) return `Hmm — <strong>${escapeHtml(err)}</strong>. Try again, or skip for now.`;
+  if (busy) return `Working on it… <span class="ora-arrow">⏳</span>`;
+  if (step === 1) {
+    if (ghStatus === "checking") return `Checking your GitHub connection…`;
+    if (ghStatus === "disconnected")
+      return `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — connects in seconds, no PAT needed.`;
+    if (ghStatus === "manual")
+      return `Paste any <strong>public repo URL</strong> below. For private repos, connect GitHub from Settings later. <span class="ora-arrow">👇</span>`;
+    // connected
+    if (!repoUrl) return `Your GitHub repos are loaded! <strong>Pick a repo</strong> from the dropdown — or paste a URL. <span class="ora-arrow">👇</span>`;
+    return `Nice — <strong>${escapeHtml(repoUrl.replace(/^https?:\/\/github\.com\//, ""))}</strong> looks good. Click <strong>Continue</strong> to connect it. <span class="ora-arrow">👇</span>`;
+  }
+  if (step === 2) {
+    if (!task) return `Tell me <strong>what to build first</strong>. Be specific — file paths help me ship faster. <span class="ora-arrow">👇</span>`;
+    if (task.length < 12) return `A little more detail, please — <strong>12+ characters</strong> so I can scope it right.`;
+    return `Looks shippable. Hit <strong>Ship it</strong> when you&rsquo;re ready. <span class="ora-arrow">👇</span>`;
+  }
+  if (step === 3) {
+    if (!taskId) return `Spinning up the worker…`;
+    return `<strong>Shipping live below.</strong> You can close this — the task keeps running in the background. <span class="ora-arrow">🚀</span>`;
+  }
+  return "";
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+const githubBtnStyle = {
+  width: "100%", padding: "13px", background: "#24292e",
+  color: "#fff", border: "2px solid #f59e0b", borderRadius: 10,
+  fontSize: 14, fontWeight: 500, cursor: "pointer",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  gap: 10, marginBottom: 4, transition: "all .2s",
+  position: "relative", zIndex: 1,
+};
+
+const pulseRingStyle = {
+  position: "absolute", inset: -4, borderRadius: 12,
+  border: "2px solid #f59e0b", pointerEvents: "none",
+  animation: "oraPulseRing 1.5s infinite",
+};
+
+const WIZARD_KEYFRAMES = `
+@keyframes oraBlink {
+  0%,90%,100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes oraPulseRing {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.08); }
+}
+@keyframes oraBounce {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.ora-arrow { display: inline-block; animation: oraBounce 1s infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+`;
