@@ -12,7 +12,7 @@ import {
   Plus, FolderGit2, Github, Send, Trash2, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
   Pencil, Info, Undo2, Copy as CopyIcon,
-  Check, Lock,
+  Check, Lock, Key,
 } from "lucide-react";
 import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
@@ -36,6 +36,16 @@ function Body() {
   const [projects, setProjects] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [active, setActive] = useState(null);
+  // Iter 206 — per-project quick actions
+  const [editingProject, setEditingProject] = useState(null);
+  const [patProject, setPatProject] = useState(null);
+
+  function openAdd() {
+    // Always start fresh — never carry over a previously-selected
+    // project into the "+ Add Project" flow.
+    setActive(null);
+    setShowAdd(true);
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -53,15 +63,48 @@ function Body() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Iter 197 — surface GitHub OAuth callback errors. Connect-flow
-  // failures redirect to /projects?github=cancelled&reason=... or
-  // /projects?github=error&msg=... (see github_oauth.py). We toast the
-  // reason, auto-open the Add-Project dialog (so the user lands on the
-  // fallback in context), and strip the query string so a refresh
-  // doesn't re-fire the toast.
+  // Iter 206 — Dashboard "+" button (TabBar) deep-links here with
+  // `?add=1`. We auto-open the Add Project dialog AND deselect any
+  // currently-active project so the user always lands in a fresh
+  // "create new" flow (never accidentally edits an existing one).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const gh = params.get("github");
+    const wantsAdd = params.get("add") === "1";
+    const patId = params.get("pat");
+    if (!gh && !wantsAdd && !patId) return;
+
+    if (wantsAdd) {
+      setActive(null);
+      setShowAdd(true);
+      window.history.replaceState({}, "", "/projects");
+      return;
+    }
+    // Iter 206 — `?pat=<projectId>` opens the PatModal directly for that
+    // project (deep-linked from the chat-side "Add PAT" CTA).
+    if (patId) {
+      // Resolve once projects load
+      const findAndOpen = () => {
+        const p = (projects || []).find((x) => x.project_id === patId);
+        if (p) {
+          setPatProject(p);
+          window.history.replaceState({}, "", "/projects");
+        }
+      };
+      if (projects.length) {
+        findAndOpen();
+      } else {
+        // wait one tick — refresh() will populate `projects`
+        api.get("/cto/projects/list").then((r) => {
+          const p = (r.data?.projects || []).find((x) => x.project_id === patId);
+          if (p) {
+            setPatProject(p);
+            window.history.replaceState({}, "", "/projects");
+          }
+        }).catch(() => { /* silent */ });
+      }
+      return;
+    }
     if (!gh) return;
     const reason = params.get("reason") || params.get("msg") || "";
     const msg = gh === "cancelled"
@@ -88,7 +131,7 @@ function Body() {
               realise the way to add one was a tiny faint button. */}
           <button
             data-testid="proj-add-btn"
-            onClick={() => setShowAdd(true)}
+            onClick={openAdd}
             style={{
               padding: "6px 14px",
               fontSize: 12,
@@ -123,7 +166,7 @@ function Body() {
             </p>
             <button
               data-testid="proj-empty-add-btn"
-              onClick={() => setShowAdd(true)}
+              onClick={openAdd}
               style={{
                 width: "100%",
                 padding: "10px 12px",
@@ -158,16 +201,43 @@ function Body() {
                 marginBottom: 6,
                 background: sel ? "var(--accent-soft)" : "transparent",
                 borderLeft: sel ? "2px solid var(--accent)" : "2px solid transparent",
+                display: "flex", alignItems: "center", gap: 8, minWidth: 0,
               }}
             >
-              <div style={{ fontSize: 13, color: sel ? "var(--accent-2)" : "var(--text)" }}>
-                {p.name}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: sel ? "var(--accent-2)" : "var(--text)" }}>
+                  {p.name}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-faint)",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              overflow: "hidden", textOverflow: "ellipsis",
+                              whiteSpace: "nowrap" }}>
+                  {p.github_owner}/{p.github_repo}
+                  {p.tasks_done ? ` · ${p.tasks_done} tasks` : ""}
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-faint)",
-                            fontFamily: "'JetBrains Mono', monospace" }}>
-                {p.github_owner}/{p.github_repo}
-                {p.tasks_done ? ` · ${p.tasks_done} tasks` : ""}
-              </div>
+              {/* Iter 206 — per-row quick actions */}
+              <button
+                type="button"
+                data-testid={`proj-row-pat-${p.project_id}`}
+                title={p.has_pat ? "Update PAT" : "Add PAT"}
+                onClick={(e) => { e.stopPropagation(); setPatProject(p); }}
+                style={rowActionBtn(p.has_pat ? "#22c55e" : "#f59e0b")}
+              >
+                <Key size={12} />
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em" }}>
+                  PAT
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid={`proj-row-edit-${p.project_id}`}
+                title="Edit project"
+                onClick={(e) => { e.stopPropagation(); setEditingProject(p); }}
+                style={rowActionBtn("var(--text-faint)")}
+              >
+                <Pencil size={12} />
+              </button>
             </div>
           );
         })}
@@ -192,7 +262,7 @@ function Body() {
             {projects.length === 0 && (
               <button
                 data-testid="proj-empty-pane-add"
-                onClick={() => setShowAdd(true)}
+                onClick={openAdd}
                 style={{
                   padding: "12px 22px",
                   fontSize: 13,
@@ -217,8 +287,37 @@ function Body() {
       </section>
 
       {showAdd && <AddDialog onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
+      {editingProject && (
+        <EditDialog
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onSaved={() => { setEditingProject(null); refresh(); }}
+        />
+      )}
+      {patProject && (
+        <PatModal
+          project={patProject}
+          onClose={() => setPatProject(null)}
+          onSaved={() => { setPatProject(null); refresh(); }}
+        />
+      )}
     </div>
   );
+}
+
+// Iter 206 — per-row PAT/Edit action button.
+function rowActionBtn(color) {
+  return {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color,
+    padding: "5px 7px",
+    borderRadius: 4,
+    cursor: "pointer",
+    display: "inline-flex", alignItems: "center", gap: 4,
+    flexShrink: 0,
+    transition: "background .15s, border-color .15s",
+  };
 }
 
 function PatHelpTooltip() {
@@ -812,6 +911,191 @@ function EditDialog({ project, onClose, onSaved }) {
     </div>
   );
 }
+
+// ───────────────────────────────────────────────────────────────────
+// Iter 206 — PatModal: focused per-project PAT setup with robot guide,
+// GitHub deep-link, and step-by-step instructions. Opens when the user
+// clicks the small "PAT" pill on a project row, or from the chat-side
+// "Add PAT" CTA when a tool hits a 401.
+// ───────────────────────────────────────────────────────────────────
+export function PatModal({ project, onClose, onSaved }) {
+  const [pat, setPat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reveal, setReveal] = useState(false);
+
+  // Pre-filled deep-link to GitHub's fine-grained PAT creation page,
+  // scoped to this exact repo + the contents:read & contents:write
+  // permissions ORA needs. GitHub auto-selects the repo in the UI when
+  // both `target_name` and `repository_ids` are absent, so we just pass
+  // a sensible name + description and let the user pick the repo.
+  const ghPatUrl =
+    "https://github.com/settings/personal-access-tokens/new" +
+    "?name=" + encodeURIComponent(`ORA · ${project.name}`) +
+    "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
+    "&expiration=" + encodeURIComponent("90");
+
+  async function save(e) {
+    e?.preventDefault?.();
+    const trimmed = pat.trim();
+    if (!trimmed) {
+      toast({ message: "Paste a GitHub PAT first.", kind: "warn" });
+      return;
+    }
+    if (!/^(ghp_|github_pat_)/.test(trimmed)) {
+      toast({ message: "That doesn't look like a GitHub PAT — should start with ghp_ or github_pat_", kind: "warn" });
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.patch(`/cto/projects/${project.project_id}`, { github_token: trimmed });
+      toast({ message: "PAT saved — repo access restored 🎉", kind: "success" });
+      onSaved();
+    } catch (e2) {
+      toast({ message: e2?.response?.data?.detail || "PAT save failed", kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div onClick={onClose} data-testid="proj-pat-modal" style={{
+      position: "fixed", inset: 0, zIndex: 9000,
+      background: "rgba(8,10,14,0.72)",
+      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <form onSubmit={save} onClick={(e) => e.stopPropagation()} style={{
+        width: "min(520px, 100%)",
+        background: "#0f172a",
+        border: "0.5px solid rgba(255,255,255,0.1)",
+        borderRadius: 14,
+        boxShadow: "0 24px 60px -16px rgba(245,158,11,0.18)",
+        padding: 22, display: "grid", gap: 14,
+      }}>
+        <RobotGuideKeyframes />
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#f59e0b", letterSpacing: "0.08em",
+                          fontFamily: "var(--font-mono, ui-monospace, monospace)" }}>
+              PERSONAL ACCESS TOKEN
+            </div>
+            <h3 style={{ margin: "2px 0 0", fontSize: 17, color: "#f8fafc" }}>
+              {project.name}
+            </h3>
+            <div style={{ fontSize: 11, color: "#64748b",
+                          fontFamily: "'JetBrains Mono', monospace" }}>
+              {project.github_owner}/{project.github_repo}
+            </div>
+          </div>
+          <button type="button" onClick={onClose}
+                  data-testid="proj-pat-close"
+                  style={{ background: "transparent", border: "none",
+                           color: "#64748b", cursor: "pointer", padding: 4 }}>
+            <Trash2 size={14} />
+          </button>
+        </div>
+
+        <RobotGuide
+          testid="proj-pat-robot"
+          kind="info"
+          message={
+            pat && /^(ghp_|github_pat_)/.test(pat.trim())
+              ? `Looks good! Hit <strong>Save PAT</strong> below and ORA will scan your repo right after. <span class="ora-arrow">👇</span>`
+              : `Click <strong>Open GitHub → Create PAT</strong> below — page opens in a new tab with everything pre-filled. Pick the right repo, check <strong>Contents: Read &amp; Write</strong>, then paste the token here. <span class="ora-arrow">👇</span>`
+          }
+        />
+
+        {/* Big deep-link CTA */}
+        <a
+          href={ghPatUrl}
+          target="_blank" rel="noopener noreferrer"
+          data-testid="proj-pat-github-link"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            padding: 13, background: "#24292e", color: "#fff",
+            border: "2px solid #f59e0b", borderRadius: 10,
+            textDecoration: "none", fontSize: 14, fontWeight: 500,
+          }}
+        >
+          <Github size={18} />
+          Open GitHub → Create PAT
+          <ExternalLink size={13} style={{ opacity: 0.7 }} />
+        </a>
+
+        <ol style={{
+          margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.6,
+          color: "var(--text-dim, #94a3b8)",
+        }}>
+          <li><strong style={{ color: "#f8fafc" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={codeChip}>{project.github_owner}/{project.github_repo}</code>.</li>
+          <li><strong style={{ color: "#f8fafc" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={codeChip}>Contents: Read and write</code>.</li>
+          <li>Click <em>Generate token</em>, copy it (starts with <code style={codeChip}>github_pat_…</code> or <code style={codeChip}>ghp_…</code>).</li>
+          <li>Paste below and hit <strong style={{ color: "#f8fafc" }}>Save PAT</strong>.</li>
+        </ol>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontSize: 11, color: "#94a3b8",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          letterSpacing: "0.04em" }}>
+            Paste your PAT
+          </span>
+          <div style={{ position: "relative" }}>
+            <input
+              data-testid="proj-pat-input"
+              type={reveal ? "text" : "password"}
+              autoComplete="off" autoCorrect="off" spellCheck={false}
+              value={pat}
+              onChange={(e) => setPat(e.target.value)}
+              placeholder="github_pat_…"
+              style={{
+                width: "100%", padding: "10px 38px 10px 12px", fontSize: 13,
+                background: "#0a0e1a", color: "#f8fafc",
+                border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            />
+            <button
+              type="button"
+              data-testid="proj-pat-reveal"
+              onClick={() => setReveal(v => !v)}
+              style={{
+                position: "absolute", right: 6, top: "50%",
+                transform: "translateY(-50%)",
+                background: "transparent", border: "none",
+                color: "#64748b", cursor: "pointer", padding: 6,
+              }}
+              title={reveal ? "Hide" : "Show"}
+            >
+              {reveal ? <Lock size={13} /> : <Info size={13} />}
+            </button>
+          </div>
+        </label>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose}
+                  data-testid="proj-pat-cancel" className="btn-ghost">Cancel</button>
+          <button type="submit" data-testid="proj-pat-save" disabled={busy}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#f59e0b", color: "#0a0c10",
+                    border: "none", borderRadius: 8,
+                    fontSize: 13, fontWeight: 600, cursor: busy ? "wait" : "pointer",
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            {busy ? "Saving…" : "Save PAT"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const codeChip = {
+  padding: "1px 6px", background: "rgba(245,158,11,0.1)",
+  border: "1px solid rgba(245,158,11,0.25)", borderRadius: 4,
+  fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+  color: "#f59e0b",
+};
+
 
 function ProjectDetail({ project, onRemoved, onChanged }) {
   const [task, setTask] = useState("");

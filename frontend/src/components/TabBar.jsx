@@ -96,7 +96,7 @@ export default function TabBar() {
       ))}
       <button
         data-testid="tab-add"
-        onClick={() => navigate("/projects")}
+        onClick={() => navigate("/projects?add=1")}
         title="Add a new project"
         style={{
           marginLeft: 4,

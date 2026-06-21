@@ -24,6 +24,7 @@ import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
+import PatRequiredCTA from "./PatRequiredCTA";
 
 // ---- Helpers (only used here) ----------------------------------------------
 
@@ -594,6 +595,14 @@ export default function MessageBubble({
           {/* Multi-file checklist parsed from ORA's message + DB-backed plan (pairs with Gap 3 + structural multi-file contract). */}
           {m.role === "assistant" && (hasChecklist(m.content) || m.shipped_task_id) && (
             <TaskManagementPanel text={m.content} taskId={m.shipped_task_id} />
+          )}
+          {/* Iter 206 — Inline "Add PAT" CTA when ORA hits a GitHub 401
+              and asks the user for a Personal Access Token. Surfaces a
+              one-click button that opens the per-project PAT setup
+              modal so the user doesn't have to hunt for Project
+              Settings. */}
+          {m.role === "assistant" && !m.streaming && (
+            <PatRequiredCTA text={m.content} />
           )}
           {/* Inline HTML preview directly inside the bubble (separate from side PreviewPanel) */}
           {m.role === "assistant" && !m.streaming && (() => {

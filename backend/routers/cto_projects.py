@@ -700,8 +700,14 @@ async def list_projects(authorization: str = Header(None)) -> dict:
     db = require_db()
     projs = await db.cto_projects.find(
         {"user_id": me["user_id"]},
-        {"_id": 0, "github_token": 0},
+        {"_id": 0},        # need github_token presence; strip ciphertext below
     ).sort("created_at", -1).to_list(50)
+    # Iter 206 — surface a boolean `has_pat` flag (without ever leaking
+    # the encrypted token itself) so the Projects sidebar can render a
+    # green/amber PAT pill per row.
+    for p in projs:
+        p["has_pat"] = bool(p.get("github_token"))
+        p.pop("github_token", None)
     return {"ok": True, "projects": projs}
 
 

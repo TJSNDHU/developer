@@ -5853,3 +5853,48 @@ User quote: *"I'm going to leave Emergent and start Railway."*
 - Added: `Login.jsx`, `Signup.jsx`, `Projects.jsx` (3 surfaces gained the guide, single import each).
 
 ---
+
+
+### Iter 206 — Project sidebar UX + per-row PAT/Edit + chat PAT CTA (Feb 2026) ✅
+
+**Ask**: User reviewed the customer interface and asked for 6 specific UX changes:
+1. Dashboard's `+` button should land on /projects AND auto-open the Add Project modal.
+2. Move `+ Add Project` button to the **top** of the projects sidebar.
+3. Clicking `+ Add Project` must create a NEW project — not silently load the existing one.
+4. Each project row should have inline **Edit** and **PAT** buttons on the right.
+5. The PAT button should open a focused setup modal: ORA robot guide + direct deep-link to GitHub's PAT creation page + step-by-step instructions.
+6. In the chat window, when ORA tells the user a PAT is needed, surface a small inline "Add PAT" CTA with directions — not just plaintext.
+
+**Implementation**:
+
+Frontend:
+- `frontend/src/components/TabBar.jsx` — the universal `+` tab button now navigates to `/projects?add=1` (was bare `/projects`).
+- `frontend/src/pages/Projects.jsx`:
+  - **New `openAdd()` helper** that calls `setActive(null)` before `setShowAdd(true)` — guarantees the user always lands in a fresh "create new" flow, never accidentally editing an existing project.
+  - Wired all three "+ Add Project" entry points (sidebar, empty sidebar, empty pane) through `openAdd()`.
+  - `useEffect` now handles 3 query params: `?github=cancelled|error&...` (existing), `?add=1` (auto-open AddDialog + deselect), `?pat=<projectId>` (auto-open PatModal for the deep-linked project — used by the chat-side CTA).
+  - Each project row in the sidebar is now a flex container with the name+repo on the left and two inline icon buttons on the right:
+    - **PAT pill** — amber (no PAT) or green (PAT saved), `data-testid="proj-row-pat-<id>"`. Clicking opens the new `PatModal` for that project.
+    - **Edit pencil** — `data-testid="proj-row-edit-<id>"`. Opens the existing `EditDialog`.
+  - New `<PatModal>` component (exported) with the full ORA robot guide, a big "Open GitHub → Create PAT" button (deep-linked to `github.com/settings/personal-access-tokens/new` with `name=ORA · {project.name}`, `description`, `expiration=90`), numbered step-by-step instructions, a paste-and-reveal PAT input with client-side prefix validation (`ghp_` / `github_pat_`), and a Save button that calls the existing `PATCH /cto/projects/{id}` endpoint with `github_token`.
+- New shared component `frontend/src/components/PatRequiredCTA.jsx`:
+  - Detects PAT-required signals in assistant messages using 7 regex heuristics (`/401.*github/`, `/bad credentials/`, `/personal access token/`, `/github pat/`, `/fine-grained pat/`, `/(update|fix|regenerate).*pat/`, `/contents:\s*read/`) and only fires when **≥2 distinct signals match** — conservative to avoid false positives on casual mentions.
+  - Reads `getActiveProjectId()` from `TabBar.jsx` and renders an amber-tinted inline panel with a "Add PAT →" button that deep-links to `/projects?pat=<id>` (or `/projects?add=1` if no project is active).
+- `frontend/src/components/MessageBubble.jsx` — imports `<PatRequiredCTA>` and renders it after every completed assistant message body.
+
+Backend:
+- `backend/routers/cto_projects.py` — `GET /cto/projects/list` now surfaces a boolean `has_pat` field per project (without ever leaking the encrypted ciphertext) so the sidebar can render the PAT pill in green vs amber.
+
+**Test IDs added**: `proj-row-pat-{id}`, `proj-row-edit-{id}`, `proj-pat-modal`, `proj-pat-robot`, `proj-pat-github-link`, `proj-pat-input`, `proj-pat-reveal`, `proj-pat-cancel`, `proj-pat-save`, `proj-pat-close`, `chat-pat-cta`, `chat-pat-cta-btn`.
+
+**Verified live** via Playwright on preview:
+- Dashboard `+` button → `/projects` AND `proj-add-dialog` modal opens ✓
+- Sidebar shows 3 project rows with PAT + Edit inline buttons ✓
+- Clicking PAT button → `proj-pat-modal` opens with `proj-pat-robot` blinking + amber "ORA GUIDE" message + GitHub deep-link populated correctly (`...new?name=ORA%20%C2%B7%20demo-app&description=...`) ✓
+- PatRequiredCTA component lint clean and renders nothing for unrelated messages (≥2-signal threshold).
+
+**Files**: `frontend/src/pages/Projects.jsx`, `frontend/src/components/TabBar.jsx`, `frontend/src/components/MessageBubble.jsx`, `frontend/src/components/PatRequiredCTA.jsx` (new), `backend/routers/cto_projects.py`.
+
+**Production note**: All changes are in preview. User needs to redeploy `auremcto.com` to ship live.
+
+---
