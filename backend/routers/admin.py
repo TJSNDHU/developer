@@ -2691,3 +2691,119 @@ async def admin_send_user_offer(
         "recipients": [t["email"] for t in targets],
     }
 
+
+
+# ─── Iter 196 — Activation funnel insights ─────────────────────────────
+#
+# GET /admin/insights/activation-funnel
+#
+# Filters out test/automation accounts (test@, qa-, audit_, e2e-, auto_,
+# u_<hex>, @aurem.test) before computing signup → repo → task → paid
+# conversion rates. Returns the real-user funnel plus a top-10 recent
+# signups breakdown so the founder can scan activation at a glance
+# without an SQL shell.
+@router.get("/insights/activation-funnel")
+async def activation_funnel(
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    db = require_db()
+
+    import re
+
+    # Email patterns that flag an account as test/automation. We use a
+    # mix of substring + prefix checks so `audit_…@aurem.dev_PREVIEW`
+    # and `auto_5fc97100fc@aurem.test` both get filtered out without
+    # also catching a real customer who happens to have "auto" in
+    # their handle.
+    test_patterns = (
+        "@aurem.test",  # anything on the synthetic domain
+        "@aurem.dev_",  # PREVIEW/AUDIT suffixed rows
+    )
+    test_prefixes = (
+        "test@", "test_", "qa-", "qa_",
+        "audit_", "e2e-", "e2e_", "auto_",
+        "oauth-", "oauth_", "mcp-", "mcp_",
+    )
+    test_prefix_regex = re.compile(r"^u_[a-f0-9]{6,16}@", re.I)
+
+    def is_test(email: str | None) -> bool:
+        e = (email or "").lower()
+        if not e:
+            return True  # blank email = synthetic
+        if any(p in e for p in test_patterns):
+            return True
+        if any(e.startswith(p) for p in test_prefixes):
+            return True
+        if test_prefix_regex.match(e):
+            return True
+        return False
+
+    all_users = await db.dev_users.find(
+        {}, {"_id": 0, "user_id": 1, "email": 1,
+             "tier": 1, "created_at": 1}
+    ).to_list(2000)
+
+    real_users = [u for u in all_users if not is_test(u.get("email"))]
+    real_ids = {u["user_id"] for u in real_users if u.get("user_id")}
+
+    # Who has at least one connected GitHub project.
+    project_uids = set()
+    cursor = db.cto_projects.find({}, {"_id": 0, "user_id": 1})
+    async for p in cursor:
+        uid = p.get("user_id")
+        if uid in real_ids:
+            project_uids.add(uid)
+
+    # Who has at least one task in `done` status.
+    task_uids = set()
+    cursor = db.cto_tasks.find(
+        {"status": "done"}, {"_id": 0, "user_id": 1}
+    )
+    async for t in cursor:
+        uid = t.get("user_id")
+        if uid in real_ids:
+            task_uids.add(uid)
+
+    paying_tiers = {"starter", "pro", "team", "founder"}
+    paying = [u for u in real_users
+              if (u.get("tier") or "").lower() in paying_tiers]
+
+    def pct(a: int, b: int) -> str:
+        return f"{(a / max(b, 1)) * 100:.1f}%"
+
+    recent = sorted(
+        real_users,
+        key=lambda x: x.get("created_at") or 0,
+        reverse=True,
+    )[:10]
+
+    return {
+        "ok": True,
+        "funnel": {
+            "signed_up":      len(real_users),
+            "connected_repo": len(project_uids),
+            "shipped_task":   len(task_uids),
+            "paying":         len(paying),
+        },
+        "conversion_rates": {
+            "signup_to_repo": pct(len(project_uids), len(real_users)),
+            "repo_to_task":   pct(len(task_uids),    len(project_uids)),
+            "task_to_paid":   pct(len(paying),       len(task_uids)),
+        },
+        "totals": {
+            "all_users":         len(all_users),
+            "test_users_excluded": len(all_users) - len(real_users),
+        },
+        "recent_signups": [
+            {
+                "email":    u.get("email"),
+                "tier":     u.get("tier", "free"),
+                "has_repo": u.get("user_id") in project_uids,
+                "has_task": u.get("user_id") in task_uids,
+                "joined":   u.get("created_at"),
+            }
+            for u in recent
+        ],
+    }
+
