@@ -229,6 +229,7 @@ async def callback(
             await db.dev_users.update_one(
                 {"user_id": user_id},
                 {"$set": {"github": {
+                    "id":           (info or {}).get("id"),   # iter 211
                     "access_token": token,
                     "login":        gh_login,
                     "avatar_url":   gh_avatar,
@@ -246,6 +247,10 @@ async def callback(
             is_admin   = is_founder
             tier       = "founder" if is_founder else "free"
             tokens     = 10**9 if is_founder else 1000
+            # Iter 211 — capture github_id (immutable numeric ID).
+            # `login` is the username and CAN change; `id` is forever.
+            # Stored as the canonical dedupe key for future signups.
+            gh_id_num = (info or {}).get("id")
             await db.dev_users.insert_one({
                 "user_id":          user_id,
                 "email":            user_mail,
@@ -257,6 +262,7 @@ async def callback(
                 "is_admin":         is_admin,
                 "is_unlimited":     is_admin,
                 "github": {
+                    "id":           gh_id_num,        # iter 211 — immutable
                     "access_token": token,
                     "login":        gh_login,
                     "avatar_url":   gh_avatar,

@@ -404,6 +404,10 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   const popupRef = useRef(null);
   const pollRef  = useRef(null);
   const [oauthBusy, setOauthBusy] = useState(false);
+  // Iter 211 — PAT is required for every project, even when the repo
+  // was chosen via the OAuth picker. Separate state from the Step-1
+  // form so the OAuth path can collect it cleanly.
+  const [repoPat, setRepoPat] = useState("");
 
   // Iter 208 — filter out repos already connected as projects so the
   // picker shows only NEW repos to add. Compared by owner+repo, so a
@@ -476,14 +480,27 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   // OAuth path — submit straight from the repo card.
   async function handleConnectRepo() {
     if (!selectedRepo) return;
+    const trimmedPat = (repoPat || "").trim();
+    if (!trimmedPat) {
+      toast({ message: "Paste a GitHub PAT for this repo first.", kind: "warn" });
+      return;
+    }
+    if (!/^(ghp_|github_pat_)/.test(trimmedPat)) {
+      toast({
+        message: "PAT format invalid — should start with ghp_ or github_pat_",
+        kind: "warn",
+      });
+      return;
+    }
     setBusy(true);
     try {
       await api.post("/cto/projects/add", {
         name: selectedRepo.name,
         github_url: selectedRepo.url || `https://github.com/${selectedRepo.full_name}`,
         branch: selectedRepo.default_branch || "main",
+        github_token: trimmedPat,
       });
-      toast({ message: `Connected ${selectedRepo.name}`, kind: "success" });
+      toast({ message: `Connected ${selectedRepo.name} — PAT verified ✓`, kind: "success" });
       onAdded();
     } catch (e2) {
       toast({ message: e2?.response?.data?.detail || "Connect failed", kind: "error" });
@@ -878,17 +895,17 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
               <button type="button"
                       data-testid="proj-connect-repo-btn"
                       onClick={handleConnectRepo}
-                      disabled={!selectedRepo || busy}
+                      disabled={!selectedRepo || !repoPat.trim() || busy}
                       style={{
                         flex: 1, padding: "10px 0",
-                        background: selectedRepo && !busy ? "#f59e0b"
+                        background: selectedRepo && repoPat.trim() && !busy ? "#f59e0b"
                                                           : "var(--bg-elev, rgba(255,255,255,0.06))",
-                        color: selectedRepo && !busy ? "#0a0e1a" : "var(--text-faint)",
+                        color: selectedRepo && repoPat.trim() && !busy ? "#0a0e1a" : "var(--text-faint)",
                         border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600,
-                        cursor: selectedRepo && !busy ? "pointer" : "default",
+                        cursor: selectedRepo && repoPat.trim() && !busy ? "pointer" : "default",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}>
-                {busy ? "Connecting…" : "Connect repo"}
+                {busy ? "Verifying & connecting…" : "Connect repo & verify PAT"}
               </button>
             </div>
           </div>

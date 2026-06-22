@@ -641,26 +641,66 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
     db = require_db()
     owner, repo = _parse_repo(body.github_url)
 
-    # Iter 49 — OAuth-first connect. If no manual PAT was provided, fall
-    # back to the user's stored GitHub OAuth token. Eliminates the
-    # signup-killer "paste a PAT" step for anyone who already clicked
-    # "Connect GitHub" on the Settings page.
+    # Iter 211 — PAT compulsory at project creation (per user spec).
+    # Per-project isolation: every project stores its own encrypted PAT
+    # independently. We no longer fall back to the user's OAuth token
+    # for repo work (OAuth is identity-only). User must explicitly
+    # paste a PAT for each project.
     pat = (body.github_token or "").strip() or None
-    used_oauth = False
     if not pat:
-        u = await db.dev_users.find_one(
-            {"user_id": me["user_id"]}, {"_id": 0, "github": 1}
+        raise HTTPException(
+            400,
+            "A GitHub Personal Access Token is required for every project. "
+            "Generate one at github.com/settings/personal-access-tokens/new "
+            "with Contents: Read and write for this repo.",
         )
-        oauth_tok = ((u or {}).get("github") or {}).get("access_token")
-        if oauth_tok:
-            pat = oauth_tok
-            used_oauth = True
-        else:
-            raise HTTPException(
-                400,
-                "GitHub not connected. Either click 'Connect GitHub' on the "
-                "Settings page, or paste a Personal Access Token.",
+    if not (pat.startswith("ghp_") or pat.startswith("github_pat_")):
+        raise HTTPException(
+            400,
+            "That doesn't look like a GitHub PAT — should start with "
+            "ghp_ (classic) or github_pat_ (fine-grained).",
+        )
+
+    # Iter 211 — atomic verify: hit GitHub /repos/{owner}/{repo} with
+    # the PAT BEFORE writing the project doc. If GitHub rejects the
+    # token we never persist a broken project. Maps to the same
+    # signals as `/projects/{id}/test-pat` (iter 207) for UI symmetry.
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as _c:
+            _r = await _c.get(
+                f"https://api.github.com/repos/{owner}/{repo}",
+                headers={
+                    "Accept":              "application/vnd.github+json",
+                    "Authorization":       f"Bearer {pat}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
             )
+    except _httpx.RequestError as _e:
+        raise HTTPException(
+            502,
+            f"Couldn't reach GitHub to verify the token ({type(_e).__name__}). "
+            "Try again in a moment.",
+        )
+    if _r.status_code in (401, 403):
+        raise HTTPException(
+            400,
+            "GitHub rejected the PAT (401/403). Regenerate it with "
+            "Contents: Read and write for this repo, then try again.",
+        )
+    if _r.status_code == 404:
+        raise HTTPException(
+            400,
+            f"Repo not found at github.com/{owner}/{repo} via this PAT. "
+            "The repo may not be in the token's scope — re-pick it when "
+            "generating a fine-grained PAT.",
+        )
+    if _r.status_code != 200:
+        raise HTTPException(
+            502,
+            f"GitHub returned HTTP {_r.status_code} during verification. "
+            "Try a fresh token.",
+        )
 
     proj_id = f"p_{uuid.uuid4().hex[:10]}"
     encrypted_token = await _encrypt_pat(me["user_id"], pat)
@@ -669,7 +709,7 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
         "name": body.name, "github_url": body.github_url,
         "github_owner": owner, "github_repo": repo,
         "github_token": encrypted_token,
-        "auth_method": "oauth" if used_oauth else "pat",
+        "auth_method": "pat",          # iter 211 — always PAT, never OAuth fallback.
         "branch": body.branch, "tech_stack": body.tech_stack or "auto",
         "preview_url": (body.preview_url or "").strip() or None,
         "status": "connected", "tasks_done": 0,
@@ -691,7 +731,12 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
         logger.warning("brain v2 initial build skipped: %r", _bbe)
     return {"ok": True, "project_id": proj_id,
             "owner": owner, "repo": repo,
-            "auth_method": doc["auth_method"]}
+            "auth_method": doc["auth_method"],
+            # Iter 211 — surface that PAT verification already passed
+            # during creation so the frontend can skip a redundant
+            # `/test-pat` round-trip and show the green checkmark
+            # immediately.
+            "pat_verified": True}
 
 
 @router.get("/projects/list")
