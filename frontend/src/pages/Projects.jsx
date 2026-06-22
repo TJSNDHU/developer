@@ -409,19 +409,19 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   // form so the OAuth path can collect it cleanly.
   const [repoPat, setRepoPat] = useState("");
 
-  // Iter 208 — filter out repos already connected as projects so the
-  // picker shows only NEW repos to add. Compared by owner+repo, so a
-  // user can still re-add a repo they previously deleted (project_id
-  // would have been removed from `projects`).
+  // Iter 212 — show ALL repos in the picker (no filtering). Already-
+  // connected repos are marked with a "Connected" pill and disabled
+  // so the user sees the full list of their GitHub account rather
+  // than hitting a confusing empty/"ALL SET" dead-end when every repo
+  // happens to be connected already.
   const connectedKeys = new Set(
     (projects || []).map((p) =>
       `${(p.github_owner || "").toLowerCase()}/${(p.github_repo || "").toLowerCase()}`
     )
   );
-  const availableRepos = repos.filter((r) => {
-    const key = (r.full_name || "").toLowerCase();
-    return key && !connectedKeys.has(key);
-  });
+  const availableRepos = repos; // keep variable name for backwards compat
+  const isRepoConnected = (r) =>
+    connectedKeys.has((r.full_name || "").toLowerCase());
 
   useEffect(() => {
     let alive = true;
@@ -507,7 +507,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
     } finally { setBusy(false); }
   }
 
-  function startOAuth() {
+  function startOAuth(forceReauth = false) {
     const token = localStorage.getItem("aurem_token") || localStorage.getItem("token") || "";
     if (!token) {
       toast({ message: "Session expired — please log in again.", kind: "error" });
@@ -515,8 +515,12 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
     }
     // Iter 204 — open in a popup so we don't lose the modal. Backend's
     // /github/oauth/connect supports `?auth=` for cookieless flow.
+    // Iter 212 — `force_reauth=1` appends `prompt=select_account` so
+    // GitHub re-shows the authorize page (used by the Switch GitHub
+    // account link).
     const base = window.location.origin;
-    const url = `${base}/api/aurem-dev/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+    const qs = `auth=${encodeURIComponent(token)}` + (forceReauth ? "&force_reauth=1" : "");
+    const url = `${base}/api/aurem-dev/github/oauth/connect?${qs}`;
     const w = 560, h = 720;
     const left = Math.max(0, window.screenX + (window.outerWidth  - w) / 2);
     const top  = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
@@ -649,6 +653,31 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                 </button>
               )}
             </div>
+
+            {/* Iter 212 — Switch GitHub account.
+                Lets the user trigger a fresh OAuth popup to authorize a
+                different GitHub account. Critical for builders managing
+                multiple client orgs — without this, the modal kept
+                reusing the cached @<previous> login. */}
+            {ghStatus.connected && !showManualPAT && (
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
+                <button
+                  type="button"
+                  data-testid="oauth-switch-account-link"
+                  onClick={() => startOAuth(true)}
+                  disabled={oauthBusy}
+                  style={{
+                    background: "none", border: "none",
+                    color: "var(--text-faint)",
+                    fontSize: 11, cursor: oauthBusy ? "wait" : "pointer",
+                    textDecoration: "underline",
+                  }}>
+                  {oauthBusy
+                    ? "Waiting for GitHub popup…"
+                    : `Switch GitHub account (currently @${ghStatus.login || "you"})`}
+                </button>
+              </div>
+            )}
 
             {/* repo access info box */}
             <div style={{
@@ -802,12 +831,12 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                   : busy
                     ? `Connecting <strong>${escapeHtml(selectedRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
                     : selectedRepo
-                      ? `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> looks good. Hit <strong>Connect repo</strong> below. <span class="ora-arrow">👇</span>`
+                      ? (repoPat && /^(ghp_|github_pat_)/.test(repoPat.trim()))
+                        ? `Token looks good! Hit <strong>Connect repo &amp; verify PAT</strong> below — I&rsquo;ll test it against <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> in real time. <span class="ora-arrow">👇</span>`
+                        : `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> picked. Now click <strong>Open GitHub → Create PAT</strong> below <span class="ora-arrow">👇</span>, set <strong>Contents: Read &amp; Write</strong>, and paste the token here.`
                       : availableRepos.length === 0
-                        ? repos.length === 0
-                          ? `No repos visible to this token. Re-authorize GitHub with broader access to see private repos.`
-                          : `All your repos are already connected as projects. Connect a different GitHub account, or open a new repo on GitHub first.`
-                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick a <strong>new</strong> repo ORA should work on. <span class="ora-arrow">👇</span>`
+                        ? `No repos visible to this token. Re-authorize GitHub with broader access, or <strong>Switch GitHub account</strong> from Step 1.`
+                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick a repo below <span class="ora-arrow">👇</span> — then I&rsquo;ll walk you through creating a PAT.`
               }
             />
 
@@ -822,19 +851,24 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                           marginBottom: 16, maxHeight: 260, overflowY: "auto" }}>
               {availableRepos.map((repo) => {
                 const isSel = selectedRepo?.full_name === repo.full_name;
+                const isConn = isRepoConnected(repo);
                 return (
                   <button
                     key={repo.full_name}
                     type="button"
                     data-testid={`proj-repo-row-${repo.full_name}`}
-                    onClick={() => setSelectedRepo(repo)}
+                    disabled={isConn}
+                    onClick={() => !isConn && setSelectedRepo(repo)}
+                    title={isConn ? "Already connected as a project" : ""}
                     style={{
                       width: "100%", padding: "12px 14px",
                       background: isSel ? "rgba(245,158,11,0.06)"
                                         : "var(--bg-elev, rgba(255,255,255,0.03))",
                       border: isSel ? "2px solid #f59e0b"
                                     : "0.5px solid var(--border, rgba(255,255,255,0.08))",
-                      borderRadius: 8, cursor: "pointer",
+                      borderRadius: 8,
+                      cursor: isConn ? "not-allowed" : "pointer",
+                      opacity: isConn ? 0.45 : 1,
                       display: "flex", alignItems: "center", gap: 10, textAlign: "left",
                     }}>
                     {repo.private
@@ -853,7 +887,18 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                         {repo.default_branch || "main"}
                       </p>
                     </div>
-                    {isSel && <Check size={16} style={{ color: "#f59e0b" }} />}
+                    {isConn ? (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, color: "#22c55e",
+                        background: "rgba(34,197,94,0.12)",
+                        border: "0.5px solid rgba(34,197,94,0.3)",
+                        padding: "3px 8px", borderRadius: 999,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        letterSpacing: "0.04em", textTransform: "uppercase",
+                      }}>Connected</span>
+                    ) : (
+                      isSel && <Check size={16} style={{ color: "#f59e0b" }} />
+                    )}
                   </button>
                 );
               })}
@@ -881,6 +926,70 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                     {selectedRepo.default_branch || "main"}
                   </strong>.
                 </p>
+              </div>
+            )}
+
+            {/* Iter 212 — PAT entry surface inside Step 2.
+                After repo is picked the user MUST paste a fine-grained
+                or classic PAT scoped to this repo. Robot guide above
+                walks them through the GitHub flow; the big amber CTA
+                deep-links straight to GitHub's PAT creation page with
+                the project name pre-filled. */}
+            {selectedRepo && (
+              <div data-testid="proj-step2-pat-block"
+                   style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                <a
+                  href={
+                    "https://github.com/settings/personal-access-tokens/new" +
+                    "?name=" + encodeURIComponent(`ORA · ${selectedRepo.name}`) +
+                    "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
+                    "&expiration=" + encodeURIComponent("90")
+                  }
+                  target="_blank" rel="noopener noreferrer"
+                  data-testid="proj-step2-pat-github-link"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                    padding: 13, background: "#24292e", color: "#fff",
+                    border: "2px solid #f59e0b", borderRadius: 10,
+                    textDecoration: "none", fontSize: 14, fontWeight: 500,
+                  }}
+                >
+                  <Github size={18} />
+                  Open GitHub → Create PAT
+                  <ExternalLink size={13} style={{ opacity: 0.7 }} />
+                </a>
+
+                <ol style={{
+                  margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.6,
+                  color: "var(--text-dim, #94a3b8)",
+                }}>
+                  <li><strong style={{ color: "var(--text)" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{selectedRepo.full_name}</code>.</li>
+                  <li><strong style={{ color: "var(--text)" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>Contents: Read and write</code>.</li>
+                  <li>Click <em>Generate token</em>, copy it, and paste below.</li>
+                </ol>
+
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)",
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                  letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    Paste your PAT
+                  </span>
+                  <input
+                    data-testid="proj-step2-pat-input"
+                    type="password"
+                    autoComplete="off" autoCorrect="off" spellCheck={false}
+                    value={repoPat}
+                    onChange={(e) => setRepoPat(e.target.value)}
+                    placeholder="github_pat_xxx or ghp_xxx"
+                    className="input"
+                    style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}
+                  />
+                  {repoPat.trim() && !/^(ghp_|github_pat_)/.test(repoPat.trim()) && (
+                    <span style={{ fontSize: 11, color: "#ef4444" }}>
+                      PAT should start with <code>ghp_</code> or <code>github_pat_</code>
+                    </span>
+                  )}
+                </label>
               </div>
             )}
 

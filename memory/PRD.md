@@ -6108,3 +6108,64 @@ import SystemSignalBanner from "./SystemSignalBanner";
 **Commit message**: `fix: add missing SystemSignalBanner import in MessageBubble`
 
 ---
+
+### Iter 212 — AddProject Dialog 4-bug fix (Feb 2026) ✅
+
+**Bugs (one commit, four fixes):**
+
+1. **PAT input field missing in Step 2.** The button at the bottom of
+   Step 2 was `disabled={!repoPat.trim()}` but there was no `<input>`
+   anywhere in Step 2 — permanent dead-end after picking a repo.
+2. **Robot guide static & unhelpful in Step 2.** No state-aware copy
+   to walk the user through `pick repo → generate PAT → paste it`.
+3. **Repo picker filtered out connected repos.** When all visible
+   repos were already projects, Step 2 showed a confusing "ALL SET"
+   empty state with no way forward.
+4. **No "Switch GitHub account" link in Step 1.** Builders managing
+   multiple client orgs got stuck on the cached @login without an
+   obvious re-auth path.
+
+**Fixes:**
+
+1. Added a `<input type="password" data-testid="proj-step2-pat-input">`
+   inside Step 2 plus the prominent amber CTA
+   `data-testid="proj-step2-pat-github-link"` deep-linking to
+   `github.com/settings/personal-access-tokens/new?name=ORA · <repo>&…`,
+   with the same 3-step `<ol>` instructions the existing PatModal uses.
+2. Two-stage `RobotGuide` in Step 2:
+   • Stage A (`!selectedRepo`): "Pick a repo below 👇 — then I'll walk
+     you through creating a PAT."
+   • Stage B (`selectedRepo && !validPat`): "Nice — <repo> picked. Now
+     click Open GitHub → Create PAT…"
+   • Stage C (`selectedRepo && validPat`): "Token looks good! Hit
+     Connect repo & verify PAT below."
+3. Removed `availableRepos.filter(...)`. Now `availableRepos = repos`,
+   and each row uses `isRepoConnected(repo)` to render a green
+   "Connected" pill + `disabled` + `cursor: not-allowed` + 0.45
+   opacity. Empty-state copy points the user to the new Switch link.
+4. Added `data-testid="oauth-switch-account-link"` under the "Pick a
+   repo" CTA. Clicking it calls `startOAuth(true)` which appends
+   `force_reauth=1` to `/api/aurem-dev/github/oauth/connect`. The
+   backend `connect` route now accepts a `force_reauth` Query param
+   and forwards it to `auth_url(state, force_reauth=True)`, which
+   appends `&prompt=select_account` to GitHub's authorize URL so the
+   user can switch GitHub accounts.
+
+**Files touched:**
+- `frontend/src/pages/Projects.jsx` — Step 1 Switch link, Step 2 PAT
+  block, 2-stage robot guide, no-filter repo picker, startOAuth(forceReauth).
+- `backend/services/github_oauth.py` — `auth_url(state, force_reauth=False)`.
+- `backend/routers/github_oauth.py` — `/connect` accepts `force_reauth`
+  Query param and forwards.
+- `backend/tests/test_iter212_force_reauth_and_step2_pat.py` — 10
+  lock-in tests covering all 4 fixes.
+
+**Verified**: 30/30 backend tests pass (10 new + 20 prior Iter 209/210/211).
+Smoke screenshot on `/projects` confirms Step 1 renders cleanly for
+OAuth-disconnected users (no regression on the existing path).
+
+**Commit message**:
+`fix: add PAT input + repo filter remove + robot 2-stage + switch account`
+
+---
+

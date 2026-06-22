@@ -23,14 +23,23 @@ def redirect_uri() -> str:  return _env("GITHUB_REDIRECT_URI")
 SCOPES = "repo,read:user,user:email"
 
 
-def auth_url(state: str) -> str:
-    return (
+def auth_url(state: str, force_reauth: bool = False) -> str:
+    """Build GitHub's OAuth authorize URL.
+
+    When `force_reauth=True` we append `prompt=select_account` so GitHub
+    re-shows the authorize page and gives the user a chance to switch
+    accounts (Iter 212). GitHub honors this on github.com sessions.
+    """
+    base = (
         "https://github.com/login/oauth/authorize"
         f"?client_id={client_id()}"
         f"&redirect_uri={redirect_uri()}"
         f"&scope={SCOPES}"
         f"&state={state}"
     )
+    if force_reauth:
+        base += "&prompt=select_account"
+    return base
 
 
 async def exchange(code: str) -> str:

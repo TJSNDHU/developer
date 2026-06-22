@@ -68,6 +68,7 @@ async def connect(
     auth: Optional[str] = Query(None),
     signup: Optional[str] = Query(None),
     intent: Optional[str] = Query(None),
+    force_reauth: Optional[str] = Query(None),
 ):
     """Kick off OAuth.
 
@@ -82,7 +83,13 @@ async def connect(
       • **Login** (`?signup=1&intent=login`) — same OAuth-first auth, but
         originating from /login. On cancel we send the user back to
         /login (not /signup) — iter 113 UX fix.
+
+    `?force_reauth=1` (Iter 212) — append `prompt=select_account` so
+    GitHub re-shows the authorize page and lets the user switch accounts
+    instead of silently returning the cached session. Used by the
+    "Switch GitHub account" link in the Add-Project modal.
     """
+    fr = (force_reauth or "").lower() in ("1", "true", "yes")
     db = get_db()
     if signup in ("1", "true", "yes"):
         # Anonymous OAuth start — state nonce only, no user binding.
@@ -99,7 +106,7 @@ async def connect(
                 "user_id": None,
                 "ts":      time.time(),
             })
-        return RedirectResponse(url=auth_url(state))
+        return RedirectResponse(url=auth_url(state, force_reauth=fr))
 
     # Connect mode — must be authenticated.
     if not authorization and auth:
@@ -113,7 +120,7 @@ async def connect(
             "user_id": user["user_id"],
             "ts":      time.time(),
         })
-    return RedirectResponse(url=auth_url(state))
+    return RedirectResponse(url=auth_url(state, force_reauth=fr))
 
 
 @router.get("/callback")
