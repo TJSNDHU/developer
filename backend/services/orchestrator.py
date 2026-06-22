@@ -1471,13 +1471,25 @@ async def chat_with_tools(
                 "web_sources": _dedupe_sources(
                     [s for inv in invocations for s in (inv.get("web_sources") or [])]
                 ),
+                # Iter 210 — typed tool-failure signals + per-turn tool
+                # calls (consumed by SystemSignalBanner + CitationGuard).
+                "system_signals": local_ctx.get("system_signals") or [],
+                "tool_calls":     local_ctx.get("tool_calls") or [],
                 **agent_meta,
             }
 
-        # iter 33: PARALLEL tool execution via asyncio.gather.
+        # Iter 33: PARALLEL tool execution via asyncio.gather.
         # Was a sequential `for c in calls:` loop — 4 tools × 8s = 32s.
         # Now: 4 tools × 8s = 8s total. 4× speedup on multi-file tasks.
-        local_ctx = {"user_id": user_id, "project_id": project_id}
+        # Iter 210 — pre-seed `system_signals` and `tool_calls` lists so
+        # invoke_local_tool can append into them and we can surface
+        # them on both return paths below.
+        local_ctx = {
+            "user_id":       user_id,
+            "project_id":    project_id,
+            "system_signals": [],
+            "tool_calls":    [],
+        }
         # Iter 36: announce tool batch to the UI activity hook
         if activity_hook:
             try:
@@ -1600,4 +1612,8 @@ async def chat_with_tools(
         "web_sources": _dedupe_sources(
             [s for inv in invocations for s in (inv.get("web_sources") or [])]
         ),
+        # Iter 210 — propagate even on max-iter hit so users still get
+        # the typed banner instead of a generic timeout.
+        "system_signals": local_ctx.get("system_signals") or [],
+        "tool_calls":     local_ctx.get("tool_calls") or [],
     }

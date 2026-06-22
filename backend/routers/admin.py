@@ -56,6 +56,31 @@ async def admin_me(authorization: Optional[str] = Header(None)):
             "is_admin": True}
 
 
+# ── Iter 210 — Audit feed (CitationGuard + ToolExecutor signals) ─────
+@router.get("/audit")
+async def audit_feed(
+    limit:      int = 100,
+    user_id:    Optional[str] = None,
+    project_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    """Read the `ora_audit` collection. Backed by `audit_log.list_turns`.
+    Used by the admin panel's Audit tab to surface every ORA turn,
+    citation-guard triggers, and tool-error signals.
+    """
+    await _require_admin(authorization)
+    from services.audit_log import list_turns
+    rows = await list_turns(
+        user_id=user_id,
+        project_id=project_id,
+        limit=max(1, min(int(limit or 100), 500)),
+    )
+    return {"ok": True, "rows": rows, "count": len(rows)}
+
+
+
+
+
 # ── Dashboard ──────────────────────────────────────────────────────────
 @router.get("/dashboard")
 async def dashboard(authorization: Optional[str] = Header(None)):

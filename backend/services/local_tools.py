@@ -969,12 +969,58 @@ LOCAL_TOOLS: dict[str, callable] = {
 
 
 async def invoke_local_tool(name: str, args: dict, ctx: dict) -> Optional[dict]:
-    """Run a local tool. Returns None if `name` isn't a local tool."""
+    """Run a local tool. Returns None if `name` isn't a local tool.
+
+    Iter 210 — every dispatch goes through `tool_executor.execute()`
+    so an HTTP error (401/403/404/429/5xx) raised inside the tool gets
+    mapped to a structured `system_signal` and appended to
+    `ctx["system_signals"]`. The orchestrator harvests that list at
+    the end of the agent loop and the SSE final-frame propagates it
+    to `SystemSignalBanner.jsx` on the frontend.
+
+    The LLM-facing return shape stays the same (`{"ok": bool, ...}`)
+    so existing call sites don't break. On failure we surface
+    `llm_facing = "Tool X could not complete."` instead of the raw
+    error text — preventing the model from describing GitHub auth
+    failures itself (R3 of the ORA system prompt).
+
+    `ctx["tool_calls"]` is also tracked here so the CitationGuard can
+    diff "what was claimed" vs "what was read" in this turn.
+    """
     fn = LOCAL_TOOLS.get(name)
     if not fn:
         return None
-    try:
+
+    # Track every dispatch (used by CitationGuard + audit log)
+    ctx.setdefault("tool_calls", []).append({
+        "tool": name,
+        "args": args or {},
+    })
+
+    from .tool_executor import execute as _tx_execute
+
+    async def _runner():
         return await fn(ctx, args or {})
-    except Exception as e:
-        logger.exception(f"local tool {name} crashed")
-        return {"ok": False, "error": str(e)}
+
+    out = await _tx_execute(name, _runner)
+    if out.get("ok"):
+        return out["data"]
+
+    # Failed — capture typed signal for the frontend banner.
+    sig = {
+        "signal":      out["system_signal"],
+        "severity":    out["severity"],
+        "tool":        out["tool"],
+        "http_status": out.get("http_status"),
+    }
+    ctx.setdefault("system_signals", []).append(sig)
+    logger.warning(
+        "invoke_local_tool: %s failed signal=%s status=%s class=%s",
+        name, sig["signal"], sig.get("http_status"), out.get("error_class"),
+    )
+    # Neutral LLM-facing payload (NEVER include the raw error message)
+    return {
+        "ok":             False,
+        "error":          out["llm_facing"],
+        "system_signal":  sig["signal"],
+    }
