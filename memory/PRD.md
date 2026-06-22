@@ -5943,6 +5943,51 @@ Backend:
 ---
 
 
+### Iter 210 — Live tool-executor wiring + Admin Audit tab (Feb 2026) ✅
+
+**Ask** (deferred follow-ups from iter 209): wire `tool_executor.execute()` around every `LOCAL_TOOLS` dispatch + ship the Admin Audit tab.
+
+**Item 1 — Tool executor wired into the live dispatch**:
+- `backend/services/local_tools.py:invoke_local_tool` now routes EVERY tool call through `tool_executor.execute()`. On failure:
+  - The typed signal is appended to `ctx["system_signals"]` for the SSE final-frame to forward to `SystemSignalBanner.jsx`.
+  - The LLM-facing return is the neutral `{"ok": false, "error": "Tool {name} could not complete.", "system_signal": "<key>"}`. Raw error text (e.g. "Bad credentials") never reaches the model — enforces R3 of the ORA system prompt.
+- `ctx["tool_calls"]` is also tracked here so `CitationGuard` can diff claims-vs-reads in this turn.
+- `backend/services/orchestrator.py` — pre-seeds `local_ctx["system_signals"]` and `local_ctx["tool_calls"]`, then propagates both arrays on BOTH return paths (normal end + max-iter-hit) so the SSE final-frame always carries them.
+
+**Item 2 — Admin Audit tab**:
+- `backend/routers/admin.py` — new `GET /admin/audit?limit=100&user_id=&project_id=` endpoint (admin-gated, backed by `audit_log.list_turns()`).
+- `frontend/src/pages/Admin.jsx` — new `AuditPage` component + `audit` entry in the NAV array between Support Emails and Settings. Plain dark-theme table with 8 columns (Timestamp · User · Project · Tools · 🛡️ Guard · ⚠️ Signals · Model · Retry). Click a row → expandable detail row showing `turn_id`, `tools_called`, `citation_guard_paths_fetched`, `citation_guard_unverified`, `response_tokens`, and any extra fields.
+
+**Proof tests** — `backend/tests/test_iter210_tool_executor_wiring.py` (4 tests, **4/4 PASS**):
+- `test_invoke_local_tool_emits_github_auth_failed_signal` — 401 raised in tool → typed signal in `ctx`, neutral string to LLM, raw error text NEVER in LLM payload.
+- `test_invoke_local_tool_passes_through_clean_success` — clean response untouched, no signals.
+- `test_invoke_local_tool_handles_404_and_403_distinctly` — full status-code map verified.
+- `test_audit_log_record_signature` — canonical field set accepted without raising.
+
+Combined with iter 209: **19/19 backend tests green**.
+
+**Live screenshots** (preview, founder admin login):
+1. `/admin → Audit` — table rendered with 4 seeded rows including one with `github_auth_failed` (red), one with `repo_not_found` (red), one with citation guard `YES` + retry `↻`.
+2. Row click → detail expands inline showing turn_id + citation guard fields.
+
+**Test IDs added**: `admin-audit-page`, `admin-audit-refresh`, `admin-audit-table`, `admin-audit-row-<turn_id>`, `admin-audit-detail-<turn_id>`.
+
+**Files (new)**:
+- `backend/tests/test_iter210_tool_executor_wiring.py` (~130 lines)
+
+**Files (modified)**:
+- `backend/services/local_tools.py` — `invoke_local_tool` rewritten.
+- `backend/services/orchestrator.py` — `local_ctx` seeded + propagated.
+- `backend/routers/admin.py` — `/admin/audit` endpoint.
+- `frontend/src/pages/Admin.jsx` — `AuditPage` + NAV entry + React default import.
+
+**Commit message** (per user spec): `feat: wire tool_executor into live dispatch + admin audit tab`
+
+**Production note**: All changes in preview. Redeploy `auremcto.com` to push live. After redeploy, any 401/403/404 from a real GitHub tool call will surface as a typed `SystemSignalBanner` in chat AND show up as an audit row.
+
+---
+
+
 ### Iter 209 — Core verification foundation (Feb 2026) ✅
 
 **Ask**: Architecture-level change, not a feature. Five permanent cores
