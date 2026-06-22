@@ -112,13 +112,31 @@ def test_repo_filter_removed_show_all_repos():
     assert ">Connected</span>" in PROJECTS_JSX or ">Connected<" in PROJECTS_JSX
 
 
-def test_step1_switch_github_account_link_present():
-    """FIX 4 — Switch GitHub account link in Step 1 triggers
-    `startOAuth(true)` which passes force_reauth=1 to the backend."""
-    assert 'data-testid="oauth-switch-account-link"' in PROJECTS_JSX
-    assert "startOAuth(true)" in PROJECTS_JSX
-    # The frontend builds the URL with `force_reauth=1` query when
-    # forceReauth is true.
+def test_step1_primary_cta_is_fresh_oauth():
+    """FIX (Iter 212c) — primary amber CTA is ALWAYS "Continue with
+    GitHub" with force_reauth=true. The cached-session shortcut is a
+    small secondary link, no longer the default action.
+
+    Rationale: builders managing multiple client orgs were grabbing the
+    wrong cached account because the @login was the primary CTA.
+    Forcing a fresh `prompt=select_account` flow on every "+ Add
+    Project" click guarantees the right account is chosen explicitly
+    on github.com."""
+    # Primary CTA testid still exists, but onClick must use startOAuth(true).
+    assert 'data-testid="oauth-connect-cta"' in PROJECTS_JSX
+    # The primary CTA's onClick is startOAuth(true) — gating fresh OAuth.
+    assert re.search(
+        r'data-testid="oauth-connect-cta"[^}]*?onClick=\{\(\)\s*=>\s*startOAuth\(true\)\}',
+        PROJECTS_JSX, re.DOTALL,
+    ), "Primary CTA must call startOAuth(true) for force_reauth"
+    # Cached-session shortcut still reachable as a small secondary link.
+    assert 'data-testid="oauth-pick-repo-cta"' in PROJECTS_JSX
+    # The cached @login is no longer surfaced in the robot guide.
+    assert "Welcome back" not in PROJECTS_JSX, (
+        "Robot guide must not greet the cached @login as the default — "
+        "every new project starts fresh."
+    )
+    # The frontend still appends force_reauth=1 to the OAuth URL.
     assert "force_reauth=1" in PROJECTS_JSX
 
 

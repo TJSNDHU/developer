@@ -6227,3 +6227,48 @@ nginx access logs forever. POST body is the safe default.
 
 ---
 
+
+### Iter 212c — Step 1 always starts fresh, no @login surfaced (Feb 2026) ✅
+
+**Why**: User feedback — even after Iter 212 added a "Switch GitHub
+account" link, the AddProject Step 1 *still* greeted them with
+"Welcome back! Your GitHub is already connected as @RerootsBeauty"
+and surfaced "Pick a repo (connected as @RerootsBeauty)" as the big
+amber CTA. Builders managing multiple client GitHub orgs kept
+accidentally connecting projects to the wrong cached account.
+
+**Fix** (`frontend/src/pages/Projects.jsx`):
+- Robot guide copy reduced to a single line: "Connect a fresh repo:
+  click Continue with GitHub below 👇 — choose any account, takes 10
+  seconds." No @login mentioned. No "Welcome back."
+- Primary amber CTA is **always** "Continue with GitHub" — bound to
+  `startOAuth(true)` so it appends `force_reauth=1` →
+  `prompt=select_account` on GitHub. Builders pick the account
+  explicitly on github.com every single time.
+- The cached-session shortcut (`oauth-pick-repo-cta`, "Or reuse cached
+  @<login> session →") survives as a small low-contrast secondary
+  link below the CTA — only rendered when a cached OAuth session
+  exists, and never as the default action.
+- Removed the now-redundant `oauth-switch-account-link` (its job is
+  now the primary CTA's only behaviour).
+
+**Verified**:
+- 28/28 backend tests pass (Iter 211 + 212 + 212b).
+- Live screenshot on `/projects` confirms:
+  - "Welcome back" copy gone
+  - "@RerootsBeauty" not surfaced anywhere
+  - "Continue with GitHub" amber-bordered primary CTA visible
+  - "Connect a fresh repo" robot copy active
+
+**Files touched**:
+- `frontend/src/pages/Projects.jsx`
+- `backend/tests/test_iter212_force_reauth_and_step2_pat.py` —
+  replaced `test_step1_switch_github_account_link_present` with
+  `test_step1_primary_cta_is_fresh_oauth` (asserts the regex bind
+  of `oauth-connect-cta` → `startOAuth(true)` + no "Welcome back").
+
+**Commit message**:
+`fix(projects): every "+ Add Project" starts with fresh GitHub auth — no cached @login`
+
+---
+

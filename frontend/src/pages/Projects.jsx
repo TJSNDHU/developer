@@ -662,79 +662,63 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                       ? `Connecting… <span class="ora-arrow">⏳</span>`
                       : showManualPAT
                         ? `Manual mode — paste your <strong>Personal Access Token</strong> below. (Or click <strong>Continue with GitHub</strong> above to skip this.) <span class="ora-arrow">👇</span>`
-                        : ghStatus.connected
-                          ? `Welcome back! Your GitHub is already connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>. Click <strong>Pick a repo</strong> below <span class="ora-arrow">👇</span> to choose a new one.`
-                          : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — opens in a popup, takes 10 seconds, no PAT needed.`
+                        : `<strong>Connect a fresh repo:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — choose any account, takes 10 seconds.`
               }
             />
 
-            {/* Iter 208 — primary CTA adapts to OAuth state:
-                • not connected → "Continue with GitHub" (popup) flow
-                • already connected → "Pick a repo" (advance to Step 2)
-                Either way the user lands on Step 1 first, so every
-                +Add click feels like a fresh start. */}
-            <div style={{ position: "relative", marginBottom: 16 }}>
+            {/* Iter 212c — every "+ Add Project" starts with a FRESH
+                GitHub authorize flow. The cached @<login> session is
+                NO longer the primary action — too easy to grab the
+                wrong account when builders juggle multiple client
+                orgs. The primary CTA always triggers OAuth with
+                `prompt=select_account` so the user picks the account
+                explicitly on github.com. A tiny secondary link offers
+                the cached-session shortcut for power users. */}
+            <div style={{ position: "relative", marginBottom: 12 }}>
               {!showManualPAT && !ghStatus.loading && (
                 <div data-testid="proj-pulse-ring" style={oraPulseRingStyle} />
               )}
-              {ghStatus.connected && !showManualPAT ? (
+              <button
+                type="button"
+                data-testid="oauth-connect-cta"
+                onClick={() => startOAuth(true)}
+                disabled={oauthBusy}
+                style={{
+                  width: "100%", padding: 13, background: "#24292e", color: "#fff",
+                  border: showManualPAT ? "none" : "2px solid #f59e0b",
+                  borderRadius: 10, fontSize: 14, fontWeight: 500,
+                  cursor: oauthBusy ? "wait" : "pointer",
+                  display: "flex", alignItems: "center",
+                  justifyContent: "center", gap: 10,
+                  position: "relative", zIndex: 1,
+                  opacity: oauthBusy ? 0.7 : 1,
+                }}>
+                {oauthBusy
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <Github size={18} />}
+                {oauthBusy ? "Waiting for GitHub popup…" : "Continue with GitHub"}
+              </button>
+            </div>
+
+            {/* Secondary shortcut — only visible when a cached OAuth
+                session already exists. Plain text link, deliberately
+                low-contrast so the primary fresh-OAuth path wins. */}
+            {ghStatus.connected && !showManualPAT && !oauthBusy && (
+              <div style={{ textAlign: "center", marginBottom: 14 }}>
                 <button
                   type="button"
                   data-testid="oauth-pick-repo-cta"
                   onClick={advanceToRepoPicker}
                   disabled={reposLoading}
                   style={{
-                    width: "100%", padding: 13,
-                    background: "#f59e0b", color: "#0a0c10",
-                    border: "none", borderRadius: 10,
-                    fontSize: 14, fontWeight: 600,
-                    cursor: reposLoading ? "wait" : "pointer",
-                    display: "flex", alignItems: "center",
-                    justifyContent: "center", gap: 10,
-                    position: "relative", zIndex: 1,
-                  }}>
-                  {reposLoading ? <Loader2 size={16} className="animate-spin" /> : <Github size={18} />}
-                  {reposLoading ? "Loading repos…" : `Pick a repo (connected as @${ghStatus.login || "you"})`}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  data-testid="oauth-connect-cta"
-                  onClick={startOAuth}
-                  style={{
-                    width: "100%", padding: 13, background: "#24292e", color: "#fff",
-                    border: showManualPAT ? "none" : "2px solid #f59e0b",
-                    borderRadius: 10, fontSize: 14, fontWeight: 500,
-                    cursor: "pointer", display: "flex", alignItems: "center",
-                    justifyContent: "center", gap: 10,
-                    position: "relative", zIndex: 1,
-                  }}>
-                  <Github size={18} /> Continue with GitHub
-                </button>
-              )}
-            </div>
-
-            {/* Iter 212 — Switch GitHub account.
-                Lets the user trigger a fresh OAuth popup to authorize a
-                different GitHub account. Critical for builders managing
-                multiple client orgs — without this, the modal kept
-                reusing the cached @<previous> login. */}
-            {ghStatus.connected && !showManualPAT && (
-              <div style={{ textAlign: "center", marginBottom: 12 }}>
-                <button
-                  type="button"
-                  data-testid="oauth-switch-account-link"
-                  onClick={() => startOAuth(true)}
-                  disabled={oauthBusy}
-                  style={{
                     background: "none", border: "none",
                     color: "var(--text-faint)",
-                    fontSize: 11, cursor: oauthBusy ? "wait" : "pointer",
+                    fontSize: 11, cursor: reposLoading ? "wait" : "pointer",
                     textDecoration: "underline",
                   }}>
-                  {oauthBusy
-                    ? "Waiting for GitHub popup…"
-                    : `Switch GitHub account (currently @${ghStatus.login || "you"})`}
+                  {reposLoading
+                    ? "Loading repos…"
+                    : `Or reuse cached @${ghStatus.login || "you"} session →`}
                 </button>
               </div>
             )}
