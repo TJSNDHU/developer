@@ -739,6 +739,111 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
             "pat_verified": True}
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Iter 212 — Pre-save PAT verification (stateless, no DB write).
+# Called by AddProject Step 2 with a debounce after the user pastes a
+# token, so they get inline green/red feedback BEFORE clicking Connect.
+#
+# Uses POST (not GET) so the raw PAT never lands in browser history or
+# proxy access logs — small but real security win vs. query strings.
+# ─────────────────────────────────────────────────────────────────────
+class VerifyPatBody(BaseModel):
+    repo: str  # "owner/name"
+    pat:  str  # ghp_… or github_pat_…
+
+
+@router.post("/projects/verify-pat")
+async def verify_pat(
+    body: VerifyPatBody,
+    authorization: str = Header(None),
+) -> dict:
+    """Stateless PAT verification against a specific GitHub repo.
+
+    Returns a uniform JSON shape so the frontend can render inline
+    pills without branching on HTTP status:
+
+      {ok: true,  scopes: ["repo", "read:org"], private: bool, full_name: "…"}
+      {ok: false, error: "invalid_token",    detail: "…"}
+      {ok: false, error: "missing_scope",    has_scopes: [...]}
+      {ok: false, error: "repo_not_found",   detail: "…"}
+      {ok: false, error: "network_error",    detail: "…"}
+
+    HTTP status is always 200 — error is encoded in `ok`.
+    """
+    # Auth: must be a logged-in builder (PATs are user-scoped).
+    await current_dev(authorization)
+
+    repo = (body.repo or "").strip().lstrip("/")
+    pat  = (body.pat  or "").strip()
+    if "/" not in repo:
+        return {"ok": False, "error": "bad_repo",
+                "detail": "Repo must be in 'owner/name' format."}
+    if not (pat.startswith("ghp_") or pat.startswith("github_pat_")):
+        return {"ok": False, "error": "bad_format",
+                "detail": "PAT must start with ghp_ or github_pat_."}
+
+    import httpx
+    url = f"https://api.github.com/repos/{repo}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {pat}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(url, headers=headers)
+    except httpx.RequestError as e:
+        logger.warning("verify-pat: network error for %s: %r", repo, e)
+        return {"ok": False, "error": "network_error",
+                "detail": f"Couldn't reach GitHub ({type(e).__name__})."}
+
+    # GitHub returns granted scopes via X-OAuth-Scopes (classic PATs).
+    # Fine-grained PATs return X-Accepted-OAuth-Scopes instead with a
+    # different model — we treat HTTP 200 as proof-of-access for those.
+    scopes_hdr = (r.headers.get("X-OAuth-Scopes") or "").strip()
+    scopes = [s.strip() for s in scopes_hdr.split(",") if s.strip()]
+
+    if r.status_code == 200:
+        try:
+            data = r.json() or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        # Classic PATs: enforce `repo` scope. Fine-grained PATs send no
+        # scope header so we trust the 200 (they're scoped at creation).
+        if scopes and "repo" not in scopes and not any(
+            s.startswith("repo:") for s in scopes
+        ):
+            return {
+                "ok": False, "error": "missing_scope",
+                "has_scopes": scopes,
+                "detail": "Token is missing the `repo` scope. Regenerate "
+                          "with **repo** checked (or, for fine-grained, "
+                          "**Contents: Read and write**).",
+            }
+        return {
+            "ok":        True,
+            "full_name": data.get("full_name") or repo,
+            "private":   bool(data.get("private", False)),
+            "scopes":    scopes,  # may be [] for fine-grained PATs
+        }
+    if r.status_code == 401:
+        return {"ok": False, "error": "invalid_token",
+                "detail": "Token invalid or expired — generate a new one."}
+    if r.status_code == 403:
+        return {"ok": False, "error": "missing_scope",
+                "has_scopes": scopes,
+                "detail": "Missing repo scope — regenerate with `repo` checked."}
+    if r.status_code == 404:
+        return {"ok": False, "error": "repo_not_found",
+                "detail": f"Repo not found at github.com/{repo} — check the "
+                          "URL, or for a fine-grained PAT make sure this "
+                          "repo is in the token's allow-list."}
+    return {"ok": False, "error": "github_error",
+            "detail": f"GitHub returned HTTP {r.status_code}."}
+
+
+
+
 @router.get("/projects/list")
 async def list_projects(authorization: str = Header(None)) -> dict:
     me = await current_dev(authorization)

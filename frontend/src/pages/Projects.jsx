@@ -409,6 +409,66 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   // form so the OAuth path can collect it cleanly.
   const [repoPat, setRepoPat] = useState("");
 
+  // Iter 212 — Debounced PAT verification.
+  // After 800ms of no typing, if format is valid AND a repo is picked,
+  // we POST /cto/projects/verify-pat (stateless GitHub check) and show
+  // an inline pill. The Connect button stays disabled until `ok:true`,
+  // so the user can't submit a bad token.
+  const [patCheck, setPatCheck] = useState({
+    status: "idle",   // 'idle' | 'loading' | 'ok' | 'error'
+    error:  null,     // e.g. 'invalid_token' | 'missing_scope' | 'repo_not_found'
+    detail: "",
+    scopes: [],
+  });
+  useEffect(() => {
+    const trimmed = (repoPat || "").trim();
+    // Reset on no PAT / no repo.
+    if (!trimmed || !selectedRepo) {
+      setPatCheck({ status: "idle", error: null, detail: "", scopes: [] });
+      return;
+    }
+    // Format gate — same regex the Connect handler uses.
+    if (!/^(ghp_|github_pat_)/.test(trimmed) || trimmed.length < 20) {
+      setPatCheck({
+        status: "error",
+        error:  "bad_format",
+        detail: "PAT should start with ghp_ or github_pat_.",
+        scopes: [],
+      });
+      return;
+    }
+    const id = setTimeout(async () => {
+      setPatCheck({ status: "loading", error: null, detail: "", scopes: [] });
+      try {
+        const r = await api.post("/cto/projects/verify-pat", {
+          repo: selectedRepo.full_name,
+          pat:  trimmed,
+        });
+        const d = r.data || {};
+        if (d.ok) {
+          setPatCheck({
+            status: "ok", error: null,
+            detail: `Verified${d.scopes?.length ? ` — scopes: ${d.scopes.join(", ")}` : " — fine-grained PAT"}`,
+            scopes: d.scopes || [],
+          });
+        } else {
+          setPatCheck({
+            status: "error", error: d.error || "unknown",
+            detail: d.detail || "Verification failed.",
+            scopes: d.has_scopes || [],
+          });
+        }
+      } catch (e) {
+        setPatCheck({
+          status: "error", error: "network_error",
+          detail: e?.response?.data?.detail || "Couldn't reach the verifier.",
+          scopes: [],
+        });
+      }
+    }, 800);
+    return () => clearTimeout(id);
+  }, [repoPat, selectedRepo]);
+
   // Iter 212 — show ALL repos in the picker (no filtering). Already-
   // connected repos are marked with a "Connected" pill and disabled
   // so the user sees the full list of their GitHub account rather
@@ -831,9 +891,13 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                   : busy
                     ? `Connecting <strong>${escapeHtml(selectedRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
                     : selectedRepo
-                      ? (repoPat && /^(ghp_|github_pat_)/.test(repoPat.trim()))
-                        ? `Token looks good! Hit <strong>Connect repo &amp; verify PAT</strong> below — I&rsquo;ll test it against <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> in real time. <span class="ora-arrow">👇</span>`
-                        : `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> picked. Now click <strong>Open GitHub → Create PAT</strong> below <span class="ora-arrow">👇</span>, set <strong>Contents: Read &amp; Write</strong>, and paste the token here.`
+                      ? patCheck.status === "ok"
+                        ? `Token verified ✓ — hit <strong>Connect repo</strong> below and I&rsquo;ll wire <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> up. <span class="ora-arrow">👇</span>`
+                        : patCheck.status === "loading"
+                          ? `Checking your token against <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong>… <span class="ora-arrow">⏳</span>`
+                          : patCheck.status === "error"
+                            ? `Token didn&rsquo;t pass — ${escapeHtml(patCheck.detail || "try a fresh one")}. Generate a new PAT above <span class="ora-arrow">👆</span> and paste again.`
+                            : `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> picked. Now click <strong>Open GitHub → Create PAT</strong> below <span class="ora-arrow">👇</span>, set <strong>Contents: Read &amp; Write</strong>, and paste the token here.`
                       : availableRepos.length === 0
                         ? `No repos visible to this token. Re-authorize GitHub with broader access, or <strong>Switch GitHub account</strong> from Step 1.`
                         : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick a repo below <span class="ora-arrow">👇</span> — then I&rsquo;ll walk you through creating a PAT.`
@@ -982,12 +1046,64 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                     onChange={(e) => setRepoPat(e.target.value)}
                     placeholder="github_pat_xxx or ghp_xxx"
                     className="input"
-                    style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                      // Iter 212 — color the border by verification status so
+                      // builders see green/red feedback instantly.
+                      borderColor:
+                        patCheck.status === "ok"      ? "rgba(34,197,94,0.5)"  :
+                        patCheck.status === "error"   ? "rgba(239,68,68,0.5)"  :
+                        patCheck.status === "loading" ? "rgba(245,158,11,0.4)" :
+                        undefined,
+                    }}
                   />
-                  {repoPat.trim() && !/^(ghp_|github_pat_)/.test(repoPat.trim()) && (
-                    <span style={{ fontSize: 11, color: "#ef4444" }}>
-                      PAT should start with <code>ghp_</code> or <code>github_pat_</code>
-                    </span>
+
+                  {/* Iter 212 — inline verification pill, debounced 800ms. */}
+                  {patCheck.status === "loading" && (
+                    <div data-testid="proj-pat-verify-loading"
+                         style={{
+                           fontSize: 11, color: "#94a3b8",
+                           display: "inline-flex", alignItems: "center", gap: 6,
+                           padding: "4px 10px",
+                           background: "rgba(255,255,255,0.04)",
+                           border: "0.5px solid rgba(255,255,255,0.12)",
+                           borderRadius: 999, alignSelf: "flex-start",
+                         }}>
+                      <Loader2 size={11} className="animate-spin" />
+                      Checking token…
+                    </div>
+                  )}
+                  {patCheck.status === "ok" && (
+                    <div data-testid="proj-pat-verify-ok"
+                         style={{
+                           fontSize: 11, color: "#22c55e",
+                           display: "inline-flex", alignItems: "center", gap: 6,
+                           padding: "4px 10px",
+                           background: "rgba(34,197,94,0.10)",
+                           border: "0.5px solid rgba(34,197,94,0.35)",
+                           borderRadius: 999, alignSelf: "flex-start",
+                           fontFamily: "'JetBrains Mono', monospace",
+                         }}>
+                      <Check size={12} /> {patCheck.detail}
+                    </div>
+                  )}
+                  {patCheck.status === "error" && (
+                    <div data-testid="proj-pat-verify-error"
+                         style={{
+                           fontSize: 11,
+                           color: patCheck.error === "repo_not_found" ? "#f59e0b" : "#ef4444",
+                           display: "inline-flex", alignItems: "flex-start", gap: 6,
+                           padding: "6px 10px",
+                           background: patCheck.error === "repo_not_found"
+                             ? "rgba(245,158,11,0.10)" : "rgba(239,68,68,0.10)",
+                           border: `0.5px solid ${patCheck.error === "repo_not_found"
+                             ? "rgba(245,158,11,0.35)" : "rgba(239,68,68,0.35)"}`,
+                           borderRadius: 8, alignSelf: "flex-start",
+                           maxWidth: "100%",
+                         }}>
+                      <AlertCircle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span>{patCheck.detail}</span>
+                    </div>
                   )}
                 </label>
               </div>
@@ -1004,17 +1120,20 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
               <button type="button"
                       data-testid="proj-connect-repo-btn"
                       onClick={handleConnectRepo}
-                      disabled={!selectedRepo || !repoPat.trim() || busy}
+                      disabled={!selectedRepo || patCheck.status !== "ok" || busy}
                       style={{
                         flex: 1, padding: "10px 0",
-                        background: selectedRepo && repoPat.trim() && !busy ? "#f59e0b"
+                        background: selectedRepo && patCheck.status === "ok" && !busy ? "#f59e0b"
                                                           : "var(--bg-elev, rgba(255,255,255,0.06))",
-                        color: selectedRepo && repoPat.trim() && !busy ? "#0a0e1a" : "var(--text-faint)",
+                        color: selectedRepo && patCheck.status === "ok" && !busy ? "#0a0e1a" : "var(--text-faint)",
                         border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600,
-                        cursor: selectedRepo && repoPat.trim() && !busy ? "pointer" : "default",
+                        cursor: selectedRepo && patCheck.status === "ok" && !busy ? "pointer" : "default",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}>
-                {busy ? "Verifying & connecting…" : "Connect repo & verify PAT"}
+                {busy ? "Connecting…"
+                      : patCheck.status === "loading" ? "Checking token…"
+                      : patCheck.status === "ok"      ? "Connect repo ✓"
+                      : "Connect repo & verify PAT"}
               </button>
             </div>
           </div>

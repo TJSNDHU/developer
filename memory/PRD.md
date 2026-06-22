@@ -6169,3 +6169,61 @@ OAuth-disconnected users (no regression on the existing path).
 
 ---
 
+
+### Iter 212b — Debounced PAT Verification Before Connect (Feb 2026) ✅
+
+**Feature**: When the user pastes a PAT in AddProject Step 2, fire a
+debounced (800 ms) check against GitHub before they hit "Connect repo".
+This shaves one round-trip from the connect flow and prevents the
+"wrong scope" surprise *after* save.
+
+**Backend** — `POST /api/aurem-dev/cto/projects/verify-pat`:
+- Body: `{repo: "owner/name", pat: "ghp_…"}` (POST so PAT never lands
+  in browser history / proxy access logs — small but real security
+  win over the originally specced GET).
+- Stateless — no DB write, no project lookup.
+- Auth required (current_dev).
+- Uniform shape, HTTP 200 always:
+  - `{ok: true, full_name, private, scopes}` on success
+  - `{ok: false, error: "invalid_token"   | "missing_scope" |
+                       "repo_not_found"  | "network_error" |
+                       "bad_format"      | "bad_repo"      |
+                       "github_error"}`
+- GitHub 200 + `X-OAuth-Scopes` parsed; `repo` scope enforced for
+  classic PATs. Fine-grained PATs (no scope header) trusted on 200.
+
+**Frontend** — `Projects.jsx`:
+- New `patCheck` state (`idle | loading | ok | error`).
+- `useEffect` debounces `repoPat` by 800 ms, posts to verify-pat,
+  populates inline pill below the PAT input.
+- Three pills with dedicated test-ids:
+  - `proj-pat-verify-loading` — grey "Checking token…"
+  - `proj-pat-verify-ok`      — green "✓ Verified — scopes: repo, …"
+  - `proj-pat-verify-error`   — red ("invalid_token", "missing_scope")
+    or orange ("repo_not_found")
+- Input border color matches status (red / amber / green).
+- Connect button now disabled until `patCheck.status === "ok"` (was
+  just `!repoPat.trim()`).
+- Robot guide adds Stage-C ("Token verified ✓") gated on the same
+  condition; Stage-B copy unchanged ("Open GitHub → Create PAT").
+
+**Verified**:
+- 28/28 backend tests pass (13 new + 10 Iter 212 + 5 Iter 211).
+- Live curl against the preview endpoint confirms all three local
+  error paths (bad_format, bad_repo, invalid_token).
+
+**Deviation from spec**: User specced `GET /cto/projects/verify-pat?…`.
+Implemented as `POST` instead — PATs in query strings end up in
+nginx access logs forever. POST body is the safe default.
+
+**Files touched**:
+- `backend/routers/cto_projects.py` — new `VerifyPatBody` + endpoint.
+- `frontend/src/pages/Projects.jsx` — debounced effect + 3 status
+  pills + button gate + Stage-C robot copy.
+- `backend/tests/test_iter212b_verify_pat_endpoint.py` — 13 lock-in
+  tests covering every GitHub status code path.
+
+**Commit message**: `feat: debounced PAT verification before project connect`
+
+---
+
