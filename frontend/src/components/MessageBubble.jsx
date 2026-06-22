@@ -25,6 +25,7 @@ import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
 import PatRequiredCTA from "./PatRequiredCTA";
+import SystemSignalBanner from "./SystemSignalBanner";
 
 // ---- Helpers (only used here) ----------------------------------------------
 

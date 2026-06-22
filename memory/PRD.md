@@ -6081,3 +6081,30 @@ surface as a typed banner with a one-click "Update PAT" / "Fix PAT" /
 `core: citation guard + tool error router + signal renderer + audit log`
 
 ---
+
+
+### Iter 212 — Blank Screen Fix: Missing SystemSignalBanner Import (Feb 2026) ✅
+
+**Bug**: Post-login dashboard rendered a blank black screen. Root cause:
+`/app/frontend/src/components/MessageBubble.jsx` line 612 used
+`<SystemSignalBanner signals={m.system_signals} />` but the component
+was never imported, throwing `ReferenceError: SystemSignalBanner is not
+defined` and crashing the React tree on first message render.
+
+**Fix**: Added the single missing import next to the existing
+`PatRequiredCTA` / `RenderedMessage` imports at the top of
+`MessageBubble.jsx`:
+
+```js
+import SystemSignalBanner from "./SystemSignalBanner";
+```
+
+**Verified**:
+- Screenshot of `/dashboard` after login now renders the full chat UI
+  (Home tab, project tabs, sidebar, assistant intro bubble, composer).
+- 20/20 backend regression tests pass across the most recent iters
+  (209 CitationGuard+ToolExecutor, 210 wiring, 211 PAT-compulsory+OAuth-ID).
+
+**Commit message**: `fix: add missing SystemSignalBanner import in MessageBubble`
+
+---
