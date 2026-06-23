@@ -166,9 +166,20 @@ def _apply_chunking(content: str, args: dict | None) -> dict:
         "truncated": True,
         "total_lines": total,
         "structure": structure,
+        # Iter 212m-6 — explicit machine-readable hint so the LLM knows
+        # it MUST call back with a specific line range, not answer from
+        # the 200-line preview. The prose `note` stays for older tool
+        # consumers; `next_call_required` is the new tight signal.
+        "next_call_required": True,
+        "next_call_hint": {
+            "tool": "read_repo_file",
+            "args_template": {"path": "<same path>", "lines": ["<start>", "<end>"]},
+            "reason": "preview-only — answer would be incomplete without a targeted slice",
+        },
         "note": (
             f"File has {total} lines. Showing 1-200. "
-            "Call again with lines=[start,end] to read any section."
+            "You MUST call this tool again with lines=[start,end] "
+            "before answering — do not respond from the preview alone."
         ),
     }
 
@@ -335,6 +346,121 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
         "errors":  [f"{r['path']}: {r.get('error','?')}" for r in err_files],
         **({"warning": combined_warning} if combined_warning else {}),
     }
+
+
+# ── TOOL 2b: write_repo_file (single-file atomic commit) ─────────────────────
+
+async def write_repo_file(ctx: dict, args: dict) -> dict:
+    """Iter 212m-6 — Commit a single file directly to the connected repo.
+
+    Closes the gap where chat-mode ORA could READ but not WRITE: small
+    bug fixes had to round-trip through the `aurem-handoff` brief +
+    "ship" confirmation flow even when the change was a one-line fix.
+
+    Args:
+      path             str   — repo-relative file path (no leading `/`, no `..`)
+      content          str   — FULL new file body (we do not patch in-place)
+      commit_message?  str   — defaults to "AUREM CTO: edit {path}"
+
+    Returns:
+      {ok: true,  sha, html_url, path}       on success
+      {ok: false, error, status?}            on failure
+
+    Safety:
+      • Vanguard REGEX scan runs before the commit; CRITICAL findings
+        block the write and surface the rule name. LLM + E2B layers
+        are skipped here (latency budget — task-queue path keeps them).
+      • Path validation: no absolute paths, no `..` traversal, no
+        binary content (we only accept str, not bytes).
+      • Decrypted per-project PAT is used; if the project has no PAT,
+        the call returns an actionable error instead of silently
+        falling back to OAuth (which often lacks write scope).
+    """
+    user_id    = ctx.get("user_id")
+    project_id = ctx.get("project_id")
+    path       = (args or {}).get("path")
+    content    = (args or {}).get("content")
+    commit_msg = (args or {}).get("commit_message") or f"AUREM CTO: edit {path}"
+
+    if not path or not isinstance(path, str):
+        return {"ok": False, "error": "Missing required arg `path`."}
+    if path.startswith("/") or ".." in path.split("/"):
+        return {"ok": False, "error": "Invalid path — no absolute paths or traversal."}
+    if not isinstance(content, str):
+        return {"ok": False, "error": "Arg `content` must be a string (full file body)."}
+    if len(content) > 200_000:
+        return {"ok": False,
+                "error": "File body exceeds 200KB cap — split into smaller files."}
+
+    proj = await _resolve_project(user_id, project_id)
+    if not proj:
+        return {"ok": False, "error": "No project connected. write_repo_file only works on a project (not Home)."}
+    owner  = proj.get("github_owner")
+    repo   = proj.get("github_repo")
+    branch = proj.get("branch") or "main"
+    token  = proj.get("github_token") or None
+    if not owner or not repo:
+        return {"ok": False, "error": "Project has no resolved github_owner/repo."}
+    if not token:
+        return {
+            "ok": False,
+            "error": (
+                "No PAT configured for this project — write_repo_file needs "
+                "write access. Add a fine-grained PAT with Contents: "
+                "Read & Write via Projects → Add PAT."
+            ),
+        }
+
+    # Iter 212m-6 — pre-commit vanguard regex pass. Critical secrets
+    # block; everything else passes through. LLM/E2B layers are off
+    # this hot path (chat latency budget); the task-queue path keeps
+    # the full triple-layer verify.
+    try:
+        from .vanguard_scanner import scan_file_blocks as _vg_scan, has_critical as _vg_crit
+        findings = _vg_scan({path: content})
+        if _vg_crit(findings):
+            critical = [
+                f for f in findings if f.get("severity") == "CRITICAL"
+            ]
+            return {
+                "ok":       False,
+                "error":    "Vanguard blocked the commit — critical finding(s) in patch.",
+                "findings": [{
+                    "rule":     c.get("name"),
+                    "severity": c.get("severity"),
+                    "file":     c.get("filepath"),
+                    "line":     c.get("line"),
+                } for c in critical[:5]],
+            }
+    except Exception as _ve:
+        logger.warning("write_repo_file: vanguard scan failed: %r", _ve)
+        # Don't block on scanner infra errors — same policy as task path.
+
+    # Commit via the existing atomic Git Data API writer.
+    try:
+        from .github_api_writer import commit_files as _commit_files
+        res = await _commit_files(
+            owner=owner, repo=repo, branch=branch, token=token,
+            files={path: content},
+            commit_message=commit_msg,
+        )
+    except Exception as e:                                # noqa: BLE001
+        logger.warning("write_repo_file: commit_files crashed: %r", e)
+        return {
+            "ok":     False,
+            "error":  f"Commit failed at the GitHub API layer ({type(e).__name__}).",
+            "status": getattr(e, "status_code", None),
+        }
+
+    return {
+        "ok":       True,
+        "path":     path,
+        "branch":   branch,
+        "sha":      res.get("sha"),
+        "html_url": res.get("html_url"),
+        "message":  commit_msg,
+    }
+
 
 
 # ── TOOL 3: list_repo_files (repo tree / glob) ───────────────────────────────
@@ -994,6 +1120,26 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "write_repo_file",
+        "description": (
+            "Iter 212m-6 — Commit a SINGLE file directly to the connected "
+            "repo with the supplied full content. Use this for SMALL surgical "
+            "fixes you can ship in one round-trip (typo, missing import, "
+            "single-function patch). DO NOT use for multi-file refactors — "
+            "for those, emit an `aurem-handoff` brief instead so the task "
+            "queue runs the full agent+verify pipeline.\n"
+            "\n"
+            "Vanguard regex scans the patch before commit; critical findings "
+            "block the write. Returns the commit SHA + html_url. The file's "
+            "FULL new body is required — we don't apply diffs in-place."
+        ),
+        "args_spec": {
+            "path":            "string — repo-relative file path",
+            "content":         "string — COMPLETE new file body (no diff, no ellipses)",
+            "commit_message":  "optional string — defaults to 'AUREM CTO: edit <path>'",
+        },
+    },
+    {
         "name": "list_repo_files",
         "description": (
             "List files in the connected repo tree. Use to discover file structure "
@@ -1083,6 +1229,7 @@ TOOL_SPECS: list[dict] = [
 LOCAL_TOOLS: dict[str, callable] = {
     "read_repo_file":       read_repo_file,
     "read_repo_files":      read_repo_files,
+    "write_repo_file":      write_repo_file,
     "list_repo_files":      list_repo_files,
     "search_repo":          search_repo,
     "semantic_search_repo": semantic_search_repo,
@@ -1144,9 +1291,31 @@ async def invoke_local_tool(name: str, args: dict, ctx: dict) -> Optional[dict]:
         "invoke_local_tool: %s failed signal=%s status=%s class=%s",
         name, sig["signal"], sig.get("http_status"), out.get("error_class"),
     )
+    # Iter 212m-6 — Surface the ERROR CLASS to the LLM so it can
+    # self-correct (without leaking raw text, R3 anti-hallucination).
+    # Previously every failure flattened to "Tool X could not complete"
+    # which left the LLM looping with identical params. With the class
+    # appended it knows whether to retry with auth, try a different
+    # path, back off for rate limit, etc.
+    _CLASS_MAP = {
+        "auth":          "AUTH — PAT may be missing, expired, or lacks scope for this repo.",
+        "not_found":     "NOT_FOUND — the path/resource doesn't exist. Call list_repo_files to discover real paths.",
+        "rate_limit":    "RATE_LIMIT — GitHub API quota hit. Wait or back off; do not retry immediately.",
+        "timeout":       "TIMEOUT — the call exceeded the budget. Try a narrower query.",
+        "network":       "NETWORK — could not reach the upstream. Treat as transient.",
+        "server":        "SERVER — upstream 5xx. Transient; retry once at most.",
+        "bad_request":   "BAD_REQUEST — args are malformed. Re-read the tool spec before retrying.",
+    }
+    err_class = (out.get("error_class") or "").lower()
+    detail = _CLASS_MAP.get(err_class)
+    if detail:
+        llm_facing = f"Tool {name} failed: {detail}"
+    else:
+        llm_facing = out["llm_facing"]
     # Neutral LLM-facing payload (NEVER include the raw error message)
     return {
         "ok":             False,
-        "error":          out["llm_facing"],
+        "error":          llm_facing,
+        "error_class":    err_class or None,
         "system_signal":  sig["signal"],
     }

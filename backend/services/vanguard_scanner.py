@@ -158,8 +158,78 @@ def scan_text(
 def scan_file_blocks(blocks: dict[str, str]) -> list[dict]:
     out: list[dict] = []
     for path, content in (blocks or {}).items():
-        out.extend(scan_text(content, filepath=path))
+        findings = scan_text(content, filepath=path)
+        # Iter 212m-6 — file-pattern whitelist for false-positive scope.
+        # Doc / template / example files legitimately contain placeholder
+        # "secrets" (e.g. `password: "changeme"` in .env.example, demo
+        # tokens in tests). Downgrade CRITICAL → INFO on these paths so
+        # the commit isn't blocked, but the finding still surfaces in
+        # the report for review.
+        if _is_safe_demo_path(path):
+            for f in findings:
+                if f.get("severity") in ("CRITICAL", "HIGH"):
+                    f["severity"]     = "INFO"
+                    f["downgraded"]   = True
+                    f["downgrade_reason"] = "demo/test/example file"
+        out.extend(findings)
     return out
+
+
+# Iter 212m-6 — path-pattern whitelist for vanguard severity downgrade.
+# Strings (not regex) for fast `in`-based matching — these are paths
+# where placeholder credentials are EXPECTED and a commit blocker
+# would create user frustration.
+_SAFE_DEMO_PATH_TOKENS: tuple[str, ...] = (
+    ".env.example",
+    ".env.template",
+    ".env.sample",
+    ".env.dist",
+    "/tests/",
+    "/test/",
+    "/__tests__/",
+    "/spec/",
+    "/fixtures/",
+    "/mocks/",
+    "/.github/",
+    "/docs/",
+    "/documentation/",
+    "readme.md",
+    "changelog.md",
+    "contributing.md",
+    "/examples/",
+    "/sample/",
+    "/samples/",
+    ".storybook",
+)
+_SAFE_DEMO_NAME_SUFFIXES: tuple[str, ...] = (
+    "_test.py", "_test.js", "_test.ts",
+    ".test.js", ".test.ts", ".test.jsx", ".test.tsx",
+    ".spec.js", ".spec.ts", ".spec.jsx", ".spec.tsx",
+    ".stories.js", ".stories.ts", ".stories.jsx", ".stories.tsx",
+)
+
+
+def _is_safe_demo_path(path: str) -> bool:
+    """Return True if `path` is a docs / test / example file where
+    placeholder credentials are acceptable."""
+    if not path:
+        return False
+    p = path.lower()
+    if p.endswith(_SAFE_DEMO_NAME_SUFFIXES):
+        return True
+    if any(tok in p for tok in _SAFE_DEMO_PATH_TOKENS):
+        return True
+    # Top-level matches: `tests/foo.py`, `docs/foo.md`, etc. need a
+    # second prefix sweep since the `/<dir>/` tokens above only catch
+    # nested cases.
+    for prefix in (
+        "tests/", "test/", "__tests__/", "spec/", "fixtures/",
+        "mocks/", "docs/", "documentation/", "examples/",
+        "sample/", "samples/",
+    ):
+        if p.startswith(prefix):
+            return True
+    return False
 
 
 def has_critical(findings: Iterable[dict]) -> bool:

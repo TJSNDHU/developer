@@ -185,7 +185,11 @@ POST_EDIT_HOOKS: dict[str, str] = {
 }
 
 # Tool names that produce write-side-effects on repo files.
+# Iter 212m-6 — `write_repo_file` is the canonical chat-mode write
+# tool. The others stay for compatibility with any external tools that
+# may register under these names.
 _WRITE_TOOL_NAMES: frozenset = frozenset({
+    "write_repo_file",
     "write_file", "edit_file", "push_fix", "create_file", "patch_file",
 })
 

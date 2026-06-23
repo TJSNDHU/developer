@@ -1273,6 +1273,31 @@ async def _enqueue_cto_task(
         return {"ok": False, "reason": "no_pat",
                 "task_id": task_id, "project_id": proj["project_id"]}
 
+    # Iter 212m-6 — loud surface when the project's encrypted PAT
+    # could not be decrypted but we fell back to the user's OAuth
+    # token. The fallback often has different scopes than the
+    # project-scoped PAT (e.g. read-only) and silently using it
+    # causes 403 on blob upload later. Log a warning + mark the task
+    # row so the UI can show a "PAT decrypt fallback" advisory.
+    try:
+        _project_pat_raw = proj.get("github_token") or ""
+        _project_pat_decoded = (
+            await _decrypt_pat(user_id, _project_pat_raw)
+            if _project_pat_raw else None
+        )
+        if _project_pat_raw and not _project_pat_decoded:
+            logger.warning(
+                "PAT decrypt fallback for project=%s — using OAuth token. "
+                "User should re-add the project PAT.",
+                proj.get("project_id"),
+            )
+            await db.cto_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {"pat_decrypt_fallback": True}},
+            )
+    except Exception:
+        pass
+
     if bg is not None:
         bg.add_task(_run_task, task_id, proj, task_text, [], "",
                     user_token, bool(maxx_mode))
@@ -2285,6 +2310,16 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _log(task_id,
                        "no usable file edits — auto-regenerating with explicit guidance",
                        "warning")
+            # Iter 212m-6 — include the exact paths that failed and WHY
+            # so the model can target its retry. Previously the generic
+            # nudge didn't tell the model which files it screwed up, so
+            # it often produced the same broken output.
+            _path_feedback = ""
+            if bad:
+                _path_feedback = (
+                    "\n\nPRIOR ATTEMPT FAILED ON THESE FILES — fix each one:\n"
+                    + "\n".join(f"  - {b}" for b in bad[:10])
+                )
             nudge = (
                 "Your previous response contained no usable file changes "
                 "(empty file body or no FILE blocks).\n"
@@ -2292,6 +2327,7 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 "FILE: <path>\n```\n<complete file body — real code, not "
                 "a docstring or `pass`>\n```\n"
                 "Do NOT just describe what you would do. Write the actual code."
+                + _path_feedback
             )
             reply2 = await _retry(
                 lambda: call_llm(
@@ -2736,8 +2772,16 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 )
             if remote is None:
                 return path, False, "remote returned 404"
-            if remote.rstrip() != expected.rstrip():
-                # Show a precise diff hint (first divergent line)
+            # Iter 212m-6 — Normalise line endings (CRLF/CR → LF) and
+            # trailing whitespace BEFORE comparing. GitHub sometimes
+            # serves files with normalised newlines that differ from
+            # what we pushed even though the commit landed correctly.
+            # Without this, an otherwise-successful commit gets marked
+            # "failed" because the byte-for-byte comparison disagrees
+            # on whitespace-only differences.
+            def _norm(s: str) -> str:
+                return (s or "").replace("\r\n", "\n").replace("\r", "\n").rstrip()
+            if _norm(remote) != _norm(expected):
                 a, b = expected.splitlines(), remote.splitlines()
                 first_diff = next(
                     (i for i in range(min(len(a), len(b))) if a[i] != b[i]),

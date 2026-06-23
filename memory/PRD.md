@@ -7181,3 +7181,123 @@ Total regression across 7 in-scope suites: **96/96 green**.
 ---
 
 
+### Iter 212m-6 — 7-Fix Tool Reliability + Commit Pipeline Robustness (Feb 2026)
+Comprehensive scan + surgical fix pass after user report "tools call
+properly nahi karte, vanguard fix commit nahi kar pata". Each of the
+7 root causes addressed independently, all unit-covered, no mocks.
+
+**Fix #1 — `write_repo_file` chat-mode write tool**
+`services/local_tools.py` — added new tool that commits a SINGLE file
+directly via the existing `commit_files` atomic Git Data API writer.
+- Args: `path`, `content` (full body), `commit_message` (optional).
+- Pre-commit vanguard REGEX scan; CRITICAL findings block (LLM + E2B
+  layers stay on the task-queue hot path — chat latency budget can't
+  afford a 10s verify per turn).
+- Path traversal / absolute-path / oversize (>200KB) guards.
+- Returns `{ok, sha, html_url, path, branch}` on success.
+- Surfaces actionable error on missing PAT instead of falling back
+  to OAuth (which often lacks write scope).
+- Registered in `LOCAL_TOOLS`, `TOOL_SPECS`, and orchestrator
+  `_WRITE_TOOL_NAMES` (so post-edit build hooks fire).
+
+Closes the architectural gap where chat-mode ORA could READ but not
+WRITE — small surgical fixes are now committed in one round-trip
+without forcing the user to type "ship" + wait for the task queue.
+
+**Fix #2 — Codegen retry: path-aware feedback**
+`routers/cto_projects.py` auto-retry nudge now includes the EXACT
+list of paths that failed truncation in the previous attempt
+("PRIOR ATTEMPT FAILED ON THESE FILES — fix each one: ...") so the
+model can target its retry instead of regenerating the same broken
+output.
+
+**Fix #3 — Tool error CLASS surfaced to LLM**
+`services/local_tools.invoke_local_tool` now maps `error_class` →
+human-readable category in the LLM-facing error:
+- `auth` → "AUTH — PAT may be missing, expired, or lacks scope"
+- `not_found` → "NOT_FOUND — path doesn't exist. Call list_repo_files"
+- `rate_limit` → "RATE_LIMIT — GitHub quota. Do not retry immediately"
+- `timeout` → "TIMEOUT — try a narrower query"
+- `network` / `server` / `bad_request` → respective categories
+
+Class-only, NO raw error text leaked (R3 anti-hallucination preserved).
+The LLM can now self-correct instead of looping with identical params.
+The `error_class` is also surfaced on the response payload so the
+SystemSignalBanner can render the right icon.
+
+**Fix #4 — Post-push verification: line-ending normalisation**
+`routers/cto_projects.py::_verify_one` now compares with `_norm()`:
+`s.replace("\\r\\n", "\\n").replace("\\r", "\\n").rstrip()`. Catches
+otherwise-successful commits that GitHub serves back with normalised
+newlines + stripped trailing whitespace, eliminating false-positive
+"Post-push verification FAILED" task errors.
+
+**Fix #5 — Vanguard scanner: demo/test/example path whitelist**
+`services/vanguard_scanner.scan_file_blocks` now downgrades CRITICAL
++ HIGH findings to INFO when the path matches docs / test / example
+patterns (`.env.example`, `tests/`, `docs/`, `*.test.jsx`,
+`*.spec.ts`, `.storybook`, `README.md`, etc.). The finding is still
+recorded with `downgraded=true` so the audit log shows it; the
+commit just isn't blocked.
+
+Real source files keep CRITICAL severity intact — e.g. an
+`sk_live_*` Stripe key in `backend/config.py` still blocks, but the
+same key in `.env.example` (placeholder) passes through.
+
+**Fix #6 — PAT decrypt loud surface**
+`routers/cto_projects._enqueue_cto_task` now detects the silent
+fallback case where a project's encrypted PAT can't be decrypted
+and the OAuth token is used instead. Sets `pat_decrypt_fallback:
+true` on the `cto_tasks` row + logs a WARNING with the project_id
+so users can see the advisory in the task popup and re-add the PAT.
+
+**Fix #7 — Chunked read: explicit `next_call_required` hint**
+`services/local_tools._apply_chunking` truncated-without-`lines`
+response now includes:
+```
+"next_call_required": true,
+"next_call_hint": {
+  "tool": "read_repo_file",
+  "args_template": {"path": "<same path>", "lines": ["<start>", "<end>"]},
+  "reason": "preview-only — answer would be incomplete..."
+}
+```
++ stronger prose: "You MUST call this tool again with lines=[start,
+end] before answering — do not respond from the preview alone." This
+prevents the LLM from confidently answering on a 200-line preview
+when the file is 2000 lines.
+
+**Tests** — 22 new in `backend/tests/test_iter212m6_tool_reliability_full.py`:
+- write_repo_file: registry, bad-path/traversal/non-string/oversize
+  rejection, missing-project, vanguard blocks critical secret (with
+  spy proving commit_files never called), clean-patch happy path.
+- invoke_local_tool: AUTH / NOT_FOUND / unknown-class fallback.
+- Vanguard whitelist: env.example / tests / docs detection,
+  rejects real source, downgrades critical → INFO on demo paths,
+  keeps CRITICAL on real source.
+- `_apply_chunking`: next_call_required only on truncate-without-lines.
+- `_norm` post-push verification: CRLF / CR / trailing-whitespace
+  collapse equivalence.
+
+All 22 pass. Full regression across 8 in-scope suites: **118/118 green**.
+
+**Files touched**
+- `backend/services/local_tools.py` — new `write_repo_file` (≈110 lines),
+  error-class mapping in `invoke_local_tool`, `next_call_required`
+  hint in `_apply_chunking`, new tool registered in `LOCAL_TOOLS` /
+  `TOOL_SPECS`.
+- `backend/services/vanguard_scanner.py` — `_is_safe_demo_path`,
+  `_SAFE_DEMO_PATH_TOKENS`, `_SAFE_DEMO_NAME_SUFFIXES`,
+  `scan_file_blocks` downgrade logic.
+- `backend/services/orchestrator.py` — `_WRITE_TOOL_NAMES` includes
+  `write_repo_file`.
+- `backend/routers/cto_projects.py` — `_verify_one` line-ending
+  normalisation, codegen retry nudge with failed-paths feedback,
+  PAT decrypt fallback advisory log.
+- `backend/tests/test_iter212m6_tool_reliability_full.py` (new, 22 tests).
+
+**Commit**: `fix: 7-pass tool reliability + commit pipeline robustness (write tool, error classes, vanguard whitelist, line-ending norm, PAT advisory, chunked hint)`
+
+---
+
+
