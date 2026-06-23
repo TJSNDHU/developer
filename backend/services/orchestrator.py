@@ -844,6 +844,16 @@ def _wants_execute(prompt: str, repo_connected: bool, history_lines: list[str] |
     # Soft verbs escalate only when there's repo context or a path token.
     if _SOFT_EXECUTE_RX.search(p) and (repo_connected or _PATH_RX.search(p)):
         return True
+    # Iter 212h — bare file-path mentions (e.g. "admin.py",
+    # "backend/routers/chat.py", "read MessageBubble.jsx") should
+    # trigger EXECUTE mode so the LLM gets the file-tool prompt and
+    # actually calls `read_repo_file`. Previously ORA replied
+    # conversationally to "admin.py" and skipped the read entirely,
+    # producing hallucinated answers. We require either a path with a
+    # directory separator OR an explicit file extension + at least one
+    # token outside the path so casual greetings don't fire.
+    if repo_connected and _PATH_RX.search(p):
+        return True
     # Bare confirmation after a recent aurem-handoff fence = ship shortcut.
     h_text = "\n".join((history_lines or [])[-4:])
     if _CONFIRM_RX.match(p) and "aurem-handoff" in h_text:
@@ -1423,16 +1433,85 @@ async def chat_with_tools(
                 for p in (inv.get("args", {}).get("paths") or [])
             }
             tool_paths_read.discard("")
+            # Iter 212h — surface the verified-paths set in prod logs so
+            # we can diagnose hallucination guard misfires (Gate 7) by
+            # cross-referencing what the model claims vs. what it
+            # actually opened this turn.
+            logger.info("verified_paths this turn: %s", sorted(tool_paths_read))
             flags = detect_unsourced_citations(content, tool_paths_read)
             if flags:
-                content = (
-                    content.rstrip()
-                    + "\n\n_⚠️ Possible unsourced citations — I did not "
-                    "fetch the file(s) backing these claims this turn:_\n"
-                    + "\n".join(f"  • {f}" for f in flags)
-                    + "\n_Re-run with a tighter scope (e.g. 'read X.py') "
-                    "or ignore the citations._"
-                )
+                # Iter 212h — wire CitationGuard.enforce() instead of
+                # just appending a soft warning footer. enforce() will
+                # fetch the unsourced files via read_repo_file and
+                # re-prompt the LLM with verified content. If enforce()
+                # succeeds we get back a clean response with no
+                # hallucinated paths; if it fails we fall through to
+                # the original warning footer (graceful degradation —
+                # we never break the chat path).
+                guard_retried = False
+                try:
+                    from services.citation_guard import CitationGuard
+                    from services.local_tools import read_repo_file
+
+                    async def _retry_llm(messages=None, *, original_messages=None,
+                                         additional_context="", instruction="",
+                                         **_kw):
+                        # Our orchestrator works with a flat `transcript`
+                        # string rather than a messages list, so we
+                        # rebuild the LLM call by appending the verified
+                        # file injection + rewrite instruction to the
+                        # tail of the existing transcript.
+                        retry_transcript = transcript
+                        if additional_context:
+                            retry_transcript = (
+                                f"{retry_transcript}\n\n"
+                                f"=== CITATION GUARD INJECTION ===\n"
+                                f"{additional_context}"
+                            )
+                        if instruction:
+                            retry_transcript = (
+                                f"{retry_transcript}\n\n"
+                                f"=== USER ===\n{instruction}"
+                            )
+                        retry_meta = await call_llm_with_meta(
+                            first_iter_system if iters == 1 else followup_iter_system,
+                            retry_transcript,
+                            max_tokens=token_budget, mode=llm_mode,
+                            user_id=user_id,
+                        )
+                        return (retry_meta or {}).get("content", "") or ""
+
+                    enforced = await CitationGuard().enforce(
+                        response_text=content,
+                        tool_calls=invocations,
+                        ctx=local_ctx,
+                        llm_caller=_retry_llm,
+                        original_messages=None,
+                        read_repo_file=read_repo_file,
+                    )
+                    if enforced.get("retried") and enforced.get("text"):
+                        content = enforced["text"]
+                        guard_retried = True
+                        logger.info(
+                            "CitationGuard re-prompted with %d files; "
+                            "response replaced.",
+                            len(enforced.get("fetched") or {}),
+                        )
+                except Exception as _ce:                # noqa: BLE001
+                    logger.warning("CitationGuard.enforce failed: %r", _ce)
+
+                # If enforcement didn't fully rescue the response, keep
+                # the legacy warning footer so users see SOMETHING is
+                # off rather than rendering a hallucination silently.
+                if not guard_retried:
+                    content = (
+                        content.rstrip()
+                        + "\n\n_⚠️ Possible unsourced citations — I did not "
+                        "fetch the file(s) backing these claims this turn:_\n"
+                        + "\n".join(f"  • {f}" for f in flags)
+                        + "\n_Re-run with a tighter scope (e.g. 'read X.py') "
+                        "or ignore the citations._"
+                    )
 
             # Persistence is handled by chat.py:_persist_turn — no double-write here.
             # Iter 153 → 165 — review tail delegated to CoordinatorAgent.

@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+// Iter 212h — silent global error reporter; POSTs every console.error
+// and unhandledrejection to /admin/errors/report so prod bugs surface
+// in the Admin → Errors tab instead of disappearing into the void.
+import "./utils/errorReporter";
 
 // PWA — register the service worker (sw.js) once the page is settled.
 // Stays no-op in dev (Vite serves over HTTP, browsers refuse SW on http://).

@@ -2837,3 +2837,194 @@ async def activation_funnel(
         ],
     }
 
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Iter 212h — Production Error Reporting
+#
+# Frontend silently posts every console.error / unhandledrejection to
+# /errors/report. Admins see them in a dedicated tab and can either
+# resolve manually or hand off to ORA for auto-fix via chat_with_tools.
+#
+# Dedupes by (message + url) so a console error firing 4000 times
+# doesn't bloat the collection — count is incremented in place.
+# ─────────────────────────────────────────────────────────────────────
+from datetime import datetime, timezone
+
+
+class ErrorReport(BaseModel):
+    message:   str
+    stack:     str = ""
+    url:       str = ""
+    timestamp: str = ""
+    type:      str = "console_error"
+
+
+@router.post("/errors/report")
+async def report_error(body: ErrorReport, request: Request) -> dict:
+    """Public — no auth. Frontend posts every console.error here.
+    Dedupes by (message, url); increments `count` on repeat.
+    """
+    db = get_db()
+    if db is None:
+        return {"ok": False, "error": "db_unavailable"}
+    now = datetime.now(timezone.utc)
+    # Trim absurdly long stack traces so a single chatty bug can't blow
+    # up a document past Mongo's 16 MB cap.
+    msg   = (body.message or "")[:4_000]
+    stack = (body.stack   or "")[:16_000]
+    url   = (body.url     or "")[:1_000]
+    if not msg.strip():
+        return {"ok": False, "error": "empty_message"}
+    update = {
+        "$inc": {"count": 1},
+        "$set": {
+            "last_seen":  now.isoformat(),
+            "stack":      stack,
+            "type":       body.type or "console_error",
+            "user_agent": (request.headers.get("user-agent") or "")[:500],
+        },
+        "$setOnInsert": {
+            "message":    msg,
+            "url":        url,
+            "first_seen": now.isoformat(),
+            "resolved":   False,
+            "autofix_status": "idle",
+        },
+    }
+    await db.frontend_errors.update_one(
+        {"message": msg, "url": url},
+        update,
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@router.get("/errors")
+async def list_errors(
+    authorization: Optional[str] = Header(None),
+    include_resolved: bool = False,
+    limit: int = 200,
+) -> dict:
+    """Admin only — list errors sorted by count desc."""
+    await _require_admin(authorization)
+    db = require_db()
+    q: dict = {} if include_resolved else {"resolved": {"$ne": True}}
+    cursor = (db.frontend_errors.find(q)
+                                 .sort("count", -1)
+                                 .limit(min(max(limit, 1), 500)))
+    items = []
+    async for d in cursor:
+        items.append({
+            "id":            str(d.get("_id")),
+            "message":       d.get("message", ""),
+            "stack":         d.get("stack", "")[:2_000],
+            "url":           d.get("url", ""),
+            "type":          d.get("type", "console_error"),
+            "count":         int(d.get("count", 0)),
+            "first_seen":    d.get("first_seen", ""),
+            "last_seen":     d.get("last_seen", ""),
+            "resolved":      bool(d.get("resolved", False)),
+            "autofix_status": d.get("autofix_status", "idle"),
+            "user_agent":    (d.get("user_agent") or "")[:200],
+        })
+    return {"ok": True, "errors": items, "total": len(items)}
+
+
+@router.post("/errors/{error_id}/autofix")
+async def autofix_error(
+    error_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Admin only — kick ORA off to investigate + fix the error.
+
+    Fires `chat_with_tools` in the background so this endpoint returns
+    fast. Status moves `idle → queued → done|failed` on the error doc.
+    """
+    admin = await _require_admin(authorization)
+    db = require_db()
+    from bson import ObjectId
+    try:
+        oid = ObjectId(error_id)
+    except Exception as _bie:
+        raise HTTPException(status_code=400, detail="bad_error_id") from _bie
+
+    doc = await db.frontend_errors.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="error_not_found")
+
+    await db.frontend_errors.update_one(
+        {"_id": oid},
+        {"$set": {"autofix_status": "queued",
+                  "autofix_started": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    msg   = doc.get("message", "")
+    stack = doc.get("stack", "")[:3_000]
+    url   = doc.get("url", "")
+    prompt = (
+        "A user-facing JS error is firing in production:\n\n"
+        f"  message: {msg}\n"
+        f"  url:     {url}\n\n"
+        f"```\n{stack}\n```\n\n"
+        "Investigate the root cause and ship a fix. Read the relevant "
+        "files first, then make the change."
+    )
+
+    async def _run_autofix() -> None:
+        try:
+            from services.orchestrator import chat_with_tools
+            result = await chat_with_tools(
+                prompt=prompt,
+                user_id=admin.get("user_id"),
+                project_id=None,
+                history_lines=[],
+                live_invocations_ref=None,
+                mode="maxx",
+            )
+            ok = bool(result and result.get("ok"))
+            await db.frontend_errors.update_one(
+                {"_id": oid},
+                {"$set": {
+                    "autofix_status": "done" if ok else "failed",
+                    "autofix_finished": datetime.now(timezone.utc).isoformat(),
+                    "autofix_response": (result.get("content") or "")[:5_000]
+                                          if isinstance(result, dict) else "",
+                }},
+            )
+        except Exception as e:                       # noqa: BLE001
+            logging.getLogger("admin").warning(
+                "autofix_error %s failed: %r", error_id, e,
+            )
+            await db.frontend_errors.update_one(
+                {"_id": oid},
+                {"$set": {"autofix_status": "failed",
+                          "autofix_error": str(e)[:1_000]}},
+            )
+
+    asyncio.create_task(_run_autofix())
+    return {"ok": True, "queued": True, "error_id": error_id}
+
+
+@router.post("/errors/{error_id}/resolve")
+async def resolve_error(
+    error_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Admin only — mark this error as resolved (hides it from the list)."""
+    await _require_admin(authorization)
+    db = require_db()
+    from bson import ObjectId
+    try:
+        oid = ObjectId(error_id)
+    except Exception as _bie:
+        raise HTTPException(status_code=400, detail="bad_error_id") from _bie
+    r = await db.frontend_errors.update_one(
+        {"_id": oid},
+        {"$set": {"resolved": True,
+                  "resolved_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="error_not_found")
+    return {"ok": True, "resolved": True}
+

@@ -158,7 +158,7 @@ function extractHandoffBrief(content, verifiedPaths) {
   // Gate 6 — at least one concrete file-path token.
   if (!FILE_PATH_TOKEN.test(brief)) return null;
 
-  // Gate 7 — fabricated-citation guard. Iter 85 (refined Iter 86).
+  // Gate 7 — fabricated-citation guard. Iter 85 (refined Iter 86, 212h).
   // The relaxed contract:
   //   • If `verifiedPaths` is empty/absent → skip the gate (version-skew).
   //   • Otherwise, the brief must contain AT LEAST ONE path that IS
@@ -168,6 +168,12 @@ function extractHandoffBrief(content, verifiedPaths) {
   //     those can't be in verifiedPaths because they don't exist on
   //     disk yet. The original "ALL paths must match" rule killed
   //     this legitimate new-file-creation case.
+  //   • Iter 212h — when ZERO brief paths match `verifiedPaths` BUT
+  //     the brief is clearly about creating new files (looks for
+  //     "new ", "create", "add" near the path tokens), let it through.
+  //     This covers the "ORA just plans to add a fresh module"
+  //     workflow where the model legitimately doesn't read anything
+  //     because there's nothing to read yet.
   if (Array.isArray(verifiedPaths) && verifiedPaths.length > 0) {
     const seen = new Set(verifiedPaths.map(_normalisePath));
     const briefPaths = (brief.match(FILE_PATH_TOKEN_GLOBAL) || [])
@@ -176,8 +182,18 @@ function extractHandoffBrief(content, verifiedPaths) {
     if (briefPaths.length > 0) {
       const matched = briefPaths.filter((p) => seen.has(p));
       if (matched.length === 0) {
-        // Every path in the brief was fabricated → fence is junk.
-        return null;
+        // Iter 212h — allow the new-file-creation case before bailing.
+        // We scan the brief for "new" / "create" / "add" near path
+        // tokens. If the surrounding language strongly suggests every
+        // path is being created (not referenced), pass the gate.
+        const NEW_FILE_HINTS = /\b(new|create|created|creating|add|adding|added|write|writing|generate|generating)\b/i;
+        const looksLikeAllNewFiles = NEW_FILE_HINTS.test(brief);
+        if (!looksLikeAllNewFiles) {
+          // Every path in the brief was fabricated → fence is junk.
+          return null;
+        }
+        // Otherwise fall through and surface the brief — the worker
+        // will create these files in the next turn.
       }
     }
   }

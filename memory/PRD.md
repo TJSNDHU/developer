@@ -6496,3 +6496,100 @@ silently bumped to 4.6).
 
 ---
 
+
+### Iter 212h — Production Readiness Pass (5 fixes, 1 commit) ✅
+
+**Single batch covering everything specced. No mocks, real code only.**
+
+#### Fix 1 — Gate 7 (frontend) allows new-file creation
+
+`extractHandoffBrief` Gate 7 used to bail with `null` whenever ZERO
+brief paths matched `verifiedPaths`. That killed legitimate handoffs
+where ORA is planning to CREATE new files (which can't be in
+verifiedPaths because they don't exist yet). New behaviour: scan the
+brief for `new` / `create` / `add` / `write` / `generate` hints —
+if present, treat the unmatched paths as new-file work and let the
+brief through.
+
+#### Fix 2 — `verified_paths` logging
+
+`logger.info("verified_paths this turn: %s", sorted(tool_paths_read))`
+added right before `detect_unsourced_citations()`. Already correctly
+populated from BOTH `read_repo_file` (single) and `read_repo_files`
+(plural) invocations.
+
+#### Fix 3 — Admin error endpoints
+
+`backend/routers/admin.py` gained 4 new routes (verified via curl on
+preview):
+
+  • `POST /admin/errors/report`            — public, dedupes by
+                                              (message, url), upserts
+                                              + `$inc count`. Returns
+                                              `{ok: true}`. Verified
+                                              count went 1→4 after 3
+                                              dupes against MongoDB.
+  • `GET  /admin/errors`                   — admin only, sorted by
+                                              count desc, returns full
+                                              metadata.
+  • `POST /admin/errors/{id}/autofix`      — admin only, flips
+                                              `autofix_status` to
+                                              `queued`, dispatches
+                                              `chat_with_tools` via
+                                              `asyncio.create_task`,
+                                              updates status to
+                                              `done|failed` on
+                                              completion.
+  • `POST /admin/errors/{id}/resolve`      — admin only, marks
+                                              `resolved: true`.
+
+#### Fix 4 — `_wants_execute` triggers on bare file paths
+
+Without this, "admin.py" / "read MessageBubble.jsx" / "backend/routers/chat.py"
+fell through to conversational mode and ORA replied without ever
+reading the file — root cause of the user's "ORA hallucinates instead
+of reading" complaint.
+
+New rule: if `repo_connected` AND `_PATH_RX` matches the prompt,
+force EXECUTE mode. Unit tested: bare paths → True; "hello" → False;
+path without connected repo → False (preserves old behaviour for
+disconnected projects).
+
+#### Fix 5 — `CitationGuard.enforce()` wired
+
+`services/orchestrator.py` previously called only the lightweight
+`detect_unsourced_citations()` and appended a soft warning footer.
+Now wires `CitationGuard().enforce()` from
+`services/citation_guard.py` (already existed but unwired) into the
+`if flags:` block. enforce() fetches the unsourced paths via
+`read_repo_file` and re-prompts the LLM with verified content. The
+soft warning footer survives as a graceful degradation when
+enforce() fails or doesn't retry.
+
+**Bonus**: `frontend/src/utils/errorReporter.js` — silent global
+error reporter (console.error + unhandledrejection + window.onerror),
+local dedupe (`COOLDOWN_MS=30s`, `MAX_PAYLOAD_PER_MIN=20`), uses
+sendBeacon when available. Imported once from `main.jsx`.
+
+#### Verified end-to-end:
+- 77/77 backend tests pass (13 new Iter 212h + 64 prior).
+- Live curl on preview confirms `/errors/report` accepts unauth POST,
+  dedupes correctly (count: 1→4 after 3 dupes via DB inspection).
+- `/api/health` reports `{ok: true, db: true}` with new build hash.
+- ESLint + ruff clean on changed files.
+
+**Files touched**:
+- `frontend/src/components/MessageBubble.jsx` — Gate 7 allowance.
+- `backend/services/orchestrator.py` — verified_paths log,
+  `_wants_execute` bare-path rule, CitationGuard.enforce() wire-up.
+- `backend/routers/admin.py` — 4 new error endpoints (~150 LOC).
+- `frontend/src/utils/errorReporter.js` (new, ~120 LOC).
+- `frontend/src/main.jsx` — import errorReporter.
+- `backend/tests/test_iter212h_production_readiness.py` (new, 13 tests).
+
+**Commits**:
+- `fix: gate7 new-file allowance + verified_paths logging`
+- `fix: read_repo_file always triggered + error endpoints + citation guard wired`
+
+---
+
