@@ -37,7 +37,7 @@ from .dev_skills import (
 
 logger = logging.getLogger(__name__)
 
-MAX_FILE_CHARS = 12_000   # per file
+MAX_FILE_CHARS = 15_000   # per file — iter 212i (was 12_000)
 MAX_FILES_BULK = 6        # max files in one read_repo_files call
 
 
