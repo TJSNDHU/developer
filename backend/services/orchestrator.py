@@ -1632,14 +1632,21 @@ async def chat_with_tools(
 
         # iter 323ad — per-tool truncation (was: total 4000 chars cut
         # across ALL results → ORA half-results dekh ke wrong conclusions).
-        # Each tool result gets its own 2500-char budget so 4 tool calls
+        # Each tool result gets its own per-call budget so 4 tool calls
         # in one iter all reach the LLM with usable signal.
+        # iter 212j — budget raised 2500 → 8000. A 12k-char file read
+        # with the old 2500 cap left ORA with 20% of the content and
+        # it would loop calling read_repo_file with `lines=[...]`
+        # trying to assemble the whole thing. 8000 lets a single
+        # 15k-cap file land mostly intact (the local_tools layer
+        # already truncates the file content first; this is the
+        # second-stage JSON-envelope cap).
         results_truncated = []
         for r in results_for_llm:
             result_str = json.dumps(r["result"], default=str)
-            if len(result_str) > 2500:
+            if len(result_str) > 8000:
                 result_str = (
-                    result_str[:2500]
+                    result_str[:8000]
                     + "\n... [truncated — call again with narrower args/limit]"
                 )
             results_truncated.append({"tool": r["tool"], "result": result_str})

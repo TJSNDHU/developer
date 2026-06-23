@@ -6593,3 +6593,52 @@ sendBeacon when available. Imported once from `main.jsx`.
 
 ---
 
+
+### Iter 212j — Tool-result budget + OAuth state TTL (Feb 2026) ✅
+
+**Three fixes in one commit, all locked-in with tests:**
+
+#### 1. Orchestrator per-tool-result budget: 2500 → 8000 chars
+`services/orchestrator.py:1640` — root cause of ORA's "loop on big
+files" bug. `local_tools.MAX_FILE_CHARS` (15k) was preserved, but
+the orchestrator's second-stage JSON-envelope cap then truncated
+the per-tool result back down to 2500 — about 20% of the file. ORA
+would loop calling `read_repo_file` with progressively narrower
+`lines=[start,end]` ranges trying to assemble the whole picture.
+8000 lets a 15k-char file land mostly intact in one call.
+
+#### 2. `MAX_FILE_CHARS` already at 15k (≥ 10k spec)
+Iter 212i had already bumped this from 12k → 15k. Locked in with
+`test_max_file_chars_at_least_10000` so future regressions can't
+silently drop it.
+
+#### 3. OAuth state TTL — 5 minutes
+`routers/github_oauth.py`:
+- Both `/connect` branches (signup + connect) now write
+  `created_at: datetime.now(timezone.utc)` into the `oauth_states`
+  doc.
+- `/callback` adds an early TTL check: if `created_at` is older
+  than `timedelta(minutes=5)`, deletes the row and raises HTTP 400
+  "OAuth state expired".
+- Naive `created_at` values coerced to UTC for safe comparison
+  (defensive, shouldn't happen since we always insert tz-aware).
+- Combined with the existing single-use delete-on-success/failure,
+  state is now both single-use AND time-bound — replay safe.
+
+**Verified**: 32/32 backend tests pass (8 new Iter 212j + 24 prior).
+Integration tests assert:
+- Stale state (10 min old) → 400 expired.
+- Fresh state (30 sec old) → passes TTL gate (downstream exchange
+  errors don't false-positive as "expired").
+
+**Files touched**:
+- `backend/services/orchestrator.py` — `> 2500` → `> 8000`.
+- `backend/routers/github_oauth.py` — `created_at` insert + TTL
+  guard + datetime/timedelta/timezone imports.
+- `backend/tests/test_iter212j_truncation_and_oauth_ttl.py` (new,
+  8 tests).
+
+**Commit**: `fix: increase tool result truncation limit + oauth state TTL`
+
+---
+

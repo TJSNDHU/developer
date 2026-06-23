@@ -8,6 +8,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -101,10 +102,15 @@ async def connect(
         state = f"{prefix}:{nonce}"
         if db is not None:
             await db.oauth_states.insert_one({
-                "state":   state,
-                "mode":    prefix,
-                "user_id": None,
-                "ts":      time.time(),
+                "state":      state,
+                "mode":       prefix,
+                "user_id":    None,
+                "ts":         time.time(),
+                # Iter 212j — tz-aware created_at for the 5-min TTL
+                # check in /callback. Prevents replay of stale state
+                # rows if a user opens the OAuth tab, leaves it for
+                # hours, then completes auth.
+                "created_at": datetime.now(timezone.utc),
             })
         return RedirectResponse(url=auth_url(state, force_reauth=fr))
 
@@ -115,10 +121,11 @@ async def connect(
     state = f"{user['user_id']}:{uuid.uuid4().hex}"
     if db is not None:
         await db.oauth_states.insert_one({
-            "state":   state,
-            "mode":    "connect",
-            "user_id": user["user_id"],
-            "ts":      time.time(),
+            "state":      state,
+            "mode":       "connect",
+            "user_id":    user["user_id"],
+            "ts":         time.time(),
+            "created_at": datetime.now(timezone.utc),
         })
     return RedirectResponse(url=auth_url(state, force_reauth=fr))
 
@@ -180,6 +187,20 @@ async def callback(
     s = await db.oauth_states.find_one({"state": state})
     if not s:
         raise HTTPException(400, "Unknown OAuth state")
+    # Iter 212j — 5-minute TTL on OAuth state. Without this, a user
+    # who opens the OAuth tab and finishes auth hours later could
+    # complete the callback against a stale row (or, worse, an
+    # attacker who steals an old state value could replay it). The
+    # row is also deleted on success/error below so single-use is
+    # guaranteed; this guards the time dimension.
+    created_at = s.get("created_at")
+    if isinstance(created_at, datetime):
+        # Coerce naive datetimes to UTC for consistent comparison.
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created_at > timedelta(minutes=5):
+            await db.oauth_states.delete_one({"state": state})
+            raise HTTPException(400, "OAuth state expired")
     flow = s.get("mode") or (
         "signup" if mode_or_user in ("signup", "login") else "connect"
     )
