@@ -165,6 +165,139 @@ def _is_same_tool_call(a: dict, b: dict) -> bool:
         return False
 
 
+# ──────────────────────────────────────────────────────────────────
+# Iter 212m — Post-Edit Build Hooks
+#
+# After every tool call that WRITES code, run a fast validator to
+# catch syntax errors / build breaks BEFORE the LLM streams its
+# next iteration to the user. Failures append a `build_check_failed`
+# system signal so the UI banner + audit log surface it.
+#
+# Hooks are intentionally cheap (py_compile for .py, `npm run build`
+# tail for JSX) and capped at 30s — if they hang we just skip.
+# ──────────────────────────────────────────────────────────────────
+
+POST_EDIT_HOOKS: dict[str, str] = {
+    "py":  "python3 -m py_compile {file} 2>&1",
+    "jsx": "cd /app/frontend && yarn build 2>&1 | tail -20",
+    "js":  "cd /app/frontend && yarn build 2>&1 | tail -20",
+    "tsx": "cd /app/frontend && yarn build 2>&1 | tail -20",
+}
+
+# Tool names that produce write-side-effects on repo files.
+_WRITE_TOOL_NAMES: frozenset = frozenset({
+    "write_file", "edit_file", "push_fix", "create_file", "patch_file",
+})
+
+
+def _file_path_from_tool_args(tool_args: dict) -> str | None:
+    """Best-effort extraction of the target path from a write-tool's args."""
+    if not isinstance(tool_args, dict):
+        return None
+    for key in ("path", "file", "file_path", "filepath", "target"):
+        v = tool_args.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+async def run_post_edit_hook(file_path: str, ctx: dict) -> dict:
+    """Run a per-language validator on `file_path`. Returns:
+        {ok: bool, output?: str, ext?: str, skipped?: bool, reason?: str}
+
+    Appends a `build_check_failed` system signal to ctx on failure so the
+    SystemSignalBanner can show it to the user without LLM mediation.
+    """
+    if not file_path:
+        return {"ok": True, "skipped": True, "reason": "no_path"}
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    cmd = POST_EDIT_HOOKS.get(ext)
+    if not cmd:
+        return {"ok": True, "skipped": True, "reason": f"no_hook_for_{ext}"}
+    cmd = cmd.format(file=file_path)
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        output = (out or b"").decode(errors="replace")
+        out_lower = output.lower()
+        # We treat the hook as failed if either the process returned
+        # non-zero OR any of the canonical failure phrases appear in
+        # stdout (build tools sometimes return 0 + log errors).
+        failed = proc.returncode != 0 or any(
+            x in out_lower
+            for x in ("syntaxerror", "module not found",
+                      "failed to compile", "build failed", "error  ")
+        )
+        if failed:
+            sig_list = ctx.setdefault("system_signals", [])
+            if "build_check_failed" not in sig_list:
+                sig_list.append("build_check_failed")
+            logger.warning(
+                "post_edit_hook FAILED for %s — %s", file_path, output[:300],
+            )
+        return {"ok": not failed, "output": output[:500], "ext": ext}
+    except asyncio.TimeoutError:
+        logger.info("post_edit_hook timed out for %s", file_path)
+        return {"ok": True, "skipped": True, "reason": "timeout"}
+    except Exception as e:                              # noqa: BLE001
+        logger.warning("post_edit_hook crashed for %s: %r", file_path, e)
+        return {"ok": True, "skipped": True, "reason": f"exception:{e!r}"}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Iter 212m — Language Context Injection
+#
+# When the user's prompt references a specific file (auth.py, App.jsx),
+# we inject language-specific guardrails into the system prompt so the
+# model writes idiomatic code without us having to retrain it.
+# ──────────────────────────────────────────────────────────────────
+
+LANGUAGE_CONTEXT: dict[str, str] = {
+    "py": (
+        "PYTHON: use async/await, type hints required, "
+        "no bare except, FastAPI always use Depends() for db, "
+        "no hardcoded secrets."
+    ),
+    "jsx": (
+        "REACT: no direct DOM manipulation, useEffect needs cleanup, "
+        "no inline styles on repeated components, "
+        "always handle loading and error states."
+    ),
+    "tsx": (
+        "TYPESCRIPT+REACT: no 'any' type, strict null checks, "
+        "interface over type where possible, "
+        "all props must be typed."
+    ),
+    "js": (
+        "JAVASCRIPT: use const/let not var, "
+        "always handle promise rejections, "
+        "no console.log in committed code."
+    ),
+}
+
+
+def inject_language_context(file_paths: list[str]) -> str:
+    """Return a system-prompt suffix listing the language rules for the
+    set of file paths in scope. Empty string when no file extensions
+    map to known rules."""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for path in (file_paths or []):
+        if not isinstance(path, str) or "." not in path:
+            continue
+        ext = path.rsplit(".", 1)[-1].lower()
+        if ext in LANGUAGE_CONTEXT and ext not in seen:
+            seen.add(ext)
+            parts.append(LANGUAGE_CONTEXT[ext])
+    if not parts:
+        return ""
+    return "\n\nLANGUAGE RULES FOR THIS TASK:\n" + "\n".join(parts)
+
+
 
 # Build the tool-call fence syntax without typing literal triple-backticks
 # in this file's source (avoids accidental docstring termination when LLMs
@@ -1667,6 +1800,20 @@ async def chat_with_tools(
             entry["error"]      = res.get("error")
             # Iter 119 — web sources for citation chip
             entry["web_sources"] = _extract_web_sources(tool_name, tool_args, res)
+            # Iter 212m — Post-Edit Build Hook. If this tool wrote to a
+            # code file, run a fast validator before the LLM's next
+            # iteration so a syntax break is caught immediately and
+            # surfaced as a `build_check_failed` system signal.
+            if (res.get("ok") and tool_name in _WRITE_TOOL_NAMES):
+                edited_path = _file_path_from_tool_args(tool_args)
+                if edited_path:
+                    hook_res = await run_post_edit_hook(edited_path, local_ctx)
+                    entry["build_check"] = hook_res
+                    if not hook_res.get("ok") and not hook_res.get("skipped"):
+                        logger.warning(
+                            "build_check_failed signal raised after %s on %s",
+                            tool_name, edited_path,
+                        )
             # Iter 123b — fire-and-forget skill usage telemetry. Never awaited.
             log_skill_use(
                 tool=tool_name,
