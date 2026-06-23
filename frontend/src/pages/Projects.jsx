@@ -18,6 +18,7 @@ import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import RobotGuide, { RobotGuideKeyframes, escapeHtml, oraPulseRingStyle } from "../components/RobotGuide";
+import AddProjectWizard from "../components/AddProjectWizard";
 
 export default function Projects() {
   return (
@@ -286,7 +287,12 @@ function Body() {
         )}
       </section>
 
-      {showAdd && <AddDialog projects={projects} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
+      {showAdd && (
+        <AddProjectWizard
+          onClose={() => setShowAdd(false)}
+          onAdded={() => { setShowAdd(false); refresh(); }}
+        />
+      )}
       {editingProject && (
         <EditDialog
           project={editingProject}

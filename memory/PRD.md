@@ -7065,3 +7065,119 @@ across 7 in-scope suites: 95/95 green.
 ---
 
 
+### Iter 212m-5 — 3-step Add-Project Wizard + Per-repo Security Gate + Delete Project (Feb 2026)
+Multi-project security flow per user spec. OAuth path removed from
+"Add Project" entirely. Per-project PAT now scoped + verified against
+ONE specific repo, with an over-scope warning when classic PATs grant
+broader access. New "Delete Project" CTA in the chat topbar lets the
+builder permanently remove a project (PAT + history) without touching
+GitHub itself.
+
+**1. Backend — `/cto/projects/verify-pat` extended**
+Already validated the PAT against the target repo (Iter 212b). Now
+also issues a cheap `GET /user/repos?per_page=1` probe to derive the
+TOTAL accessible-repo count from the GitHub `Link: rel="last"` header.
+Returned shape (unchanged keys preserved for back-compat):
+
+```
+{
+  ok:                     true,
+  full_name:              "owner/repo",
+  private:                bool,
+  scopes:                 ["repo", ...]   // [] for fine-grained
+  fine_grained:           bool,
+  total_accessible_repos: int | null,     // null if probe blew up
+  warning:                str | null,     // set when > 1 repo
+}
+```
+
+Warning text: `"This token has access to N repos, not just this one.
+For tighter security consider a fine-grained PAT scoped to only this
+repo."` The verification still succeeds — we just surface an honest
+signal. Resilient: probe failure leaves the primary verification
+intact (`total_accessible_repos=null`, no warning).
+
+**2. Frontend — New `<AddProjectWizard />` (3 steps, same modal)**
+Created `frontend/src/components/AddProjectWizard.jsx` and replaced
+the old `<AddDialog>` reference in `Projects.jsx`. OAuth path NOT
+called from the new wizard — the entire `Continue with GitHub` UI is
+unreachable from "Add Project".
+
+- **Step 1** — Repo identify: free-form `owner/repo` or full URL.
+  `parseRepoInput` strips `https://github.com/` prefix, `.git`
+  suffix, trailing slashes. Live green-tick when parsed; live red
+  error for malformed input. Enter key advances to step 2.
+- **Step 2** — Generate + paste: amber button "Generate token for
+  {repo}" deep-links to GitHub's fine-grained PAT page with
+  `?description=ORA · {repo}` pre-filled. Step-by-step instructions
+  reference the EXACT `owner/repo`. PAT field auto-verifies after
+  700 ms (calls extended `/verify-pat`). Pill colors: loading
+  amber, ok green, error red.
+- **Step 3** — Confirm summary: green box showing access
+  verification, scope category (fine-grained vs classic), and
+  `total_accessible_repos` count. Amber warning shield when token
+  is over-scoped. Project name auto-fills from repo name. "Save &
+  Open Chat" button POSTs `/cto/projects/add`, sets the new
+  project as active via `setActiveProjectId(new_id)`, and
+  navigates straight to `/dashboard`.
+
+Step indicator: 3 horizontal bars at top, amber-fills left-to-right.
+testids: `add-project-wizard`, `wizard-step-{1|2|3}`, `repo-input`,
+`generate-token-cta`, `pat-input`, `pat-verify-{loading|ok|error}`,
+`confirm-summary`, `confirm-warning`, `project-name-input`,
+`wizard-{next|back|save}-{step}`.
+
+**3. Delete Project button (Dashboard topbar)**
+`pages/Dashboard.jsx` now renders a red `[Delete project]` pill
+next to the Preview toggle whenever `useActiveProject()` resolves to
+a project. Click → `window.confirm` with the explicit copy "removes
+PAT, repo link, and task history... Your GitHub repo itself is NOT
+touched. Cannot be undone." → `DELETE /cto/projects/{id}` (existing
+endpoint) → `setActiveProjectId(null)` (switches TabBar to Home and
+triggers list refresh) → `navigate("/dashboard")`. Toast on success
++ failure. testid: `delete-project-btn`.
+
+`components/TabBar.jsx` updated so its `aurem:project-changed`
+listener ALSO refreshes the project list (not just the active id),
+so a deleted project's tab disappears immediately instead of
+waiting for `window.focus`.
+
+**Verified (E2E + unit)**:
+1. Wizard step 1 → typing `octocat/Hello-World` → green tick "Repo
+   set" → Next enabled. Screenshot captured.
+2. Wizard step 2 → "Generate token for Hello-World" amber button
+   deep-links to fine-grained PAT page with description pre-filled,
+   instructions reference exact repo, paste field with auto-verify.
+   Screenshot.
+3. Wizard step 2 invalid PAT → red border + red pill "Token invalid
+   or expired" + Next disabled. Screenshot.
+4. Wizard back navigation works (back from step 2 → step 1 visible).
+5. Delete-project button shows ONLY when active project set.
+   Screenshot before (button visible, demo-app active) and after
+   (Home active → button hidden).
+
+**Tests** — 9 new in `backend/tests/test_iter212m5_verify_pat_security.py`:
+fine-grained single-repo, classic over-scoped warning (47 repos via
+Link header), classic single-repo no-warning, 401 → invalid_token,
+404 → repo_not_found, missing scope, bad repo format, bad PAT
+format, over-scope probe network failure resilient. All pass.
+Total regression across 7 in-scope suites: **96/96 green**.
+
+**Files touched**
+- `backend/routers/cto_projects.py` — `verify_pat` extended with
+  over-scope probe + warning + fine_grained flag.
+- `frontend/src/components/AddProjectWizard.jsx` (new, ~520 lines).
+- `frontend/src/pages/Projects.jsx` — import wizard, replace
+  `<AddDialog>` usage with `<AddProjectWizard>`. Old `AddDialog`
+  function still in file (dead code; cleanup in a follow-up iter).
+- `frontend/src/pages/Dashboard.jsx` — delete-project handler +
+  red CTA in topbar.
+- `frontend/src/components/TabBar.jsx` — `aurem:project-changed`
+  also triggers list refresh.
+- `backend/tests/test_iter212m5_verify_pat_security.py` (new, 9 tests).
+
+**Commit**: `feat: add-project 3-step wizard + per-repo PAT verification + delete project`
+
+---
+
+

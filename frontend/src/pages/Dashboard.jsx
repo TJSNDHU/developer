@@ -9,11 +9,11 @@
  * `aurem:toggle-preview` window event that ChatPanel listens for.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, MessageCircle } from "lucide-react";
+import { Eye, EyeOff, MessageCircle, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
-import TabBar, { useActiveProject } from "../components/TabBar";
+import TabBar, { useActiveProject, setActiveProjectId } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import { toast } from "../components/Toast";
 import { api } from "../lib/api";
@@ -101,6 +101,34 @@ function DashboardBody() {
       return next;
     });
   }, []);
+
+  // Iter 212m-5 — Delete-project guard. Visible only when an active
+  // project is set. Confirm → DELETE /cto/projects/{id} → switch the
+  // tab bar back to Home and refresh the list. NEVER deletes silently.
+  const [deletingProject, setDeletingProject] = useState(false);
+  const handleDeleteProject = useCallback(async () => {
+    if (!project?.project_id || deletingProject) return;
+    const ok = window.confirm(
+      `Delete project "${project.name}" permanently?\n\n` +
+      `This removes the PAT, repo link, and all task history for this project. ` +
+      `Your GitHub repo itself is NOT touched. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeletingProject(true);
+    try {
+      await api.delete(`/cto/projects/${project.project_id}`);
+      toast({ message: `Deleted "${project.name}".`, kind: "success" });
+      setActiveProjectId(null);            // switches TabBar to Home and refreshes list
+      navigate("/dashboard");
+    } catch (e) {
+      toast({
+        message: e?.response?.data?.detail || "Couldn't delete project.",
+        kind: "error",
+      });
+    } finally {
+      setDeletingProject(false);
+    }
+  }, [project, deletingProject, navigate]);
 
   // Track ORA panel open-state so the launch button can hide while the
   // panel is already on screen (the panel header already says Ask Advisor,
@@ -196,6 +224,30 @@ function DashboardBody() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <TabBar />
         </div>
+        {project && (
+          <button
+            data-testid="delete-project-btn"
+            onClick={handleDeleteProject}
+            disabled={deletingProject}
+            title={`Delete "${project.name}" project permanently (does NOT touch GitHub)`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 11, padding: "5px 10px",
+              marginRight: 8,
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.32)",
+              borderRadius: 6,
+              color: "#ef4444",
+              cursor: deletingProject ? "wait" : "pointer",
+              flexShrink: 0,
+              opacity: deletingProject ? 0.6 : 1,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            <Trash2 size={11} />
+            {deletingProject ? "Deleting…" : "Delete project"}
+          </button>
+        )}
         <button
           data-testid="preview-toggle"
           onClick={togglePreview}

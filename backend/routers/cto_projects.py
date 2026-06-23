@@ -820,11 +820,53 @@ async def verify_pat(
                           "with **repo** checked (or, for fine-grained, "
                           "**Contents: Read and write**).",
             }
+
+        # Iter 212m-5 — multi-project security check.
+        # Probe `/user/repos?per_page=1` and use the `Link: …; rel="last"`
+        # header (page index) to derive total accessible-repo count
+        # cheaply. If the PAT can see > 1 repo while we're scoping it to
+        # ONE project, surface a `warning` so the UI can show an amber
+        # over-scoped pill. We don't fail the verification — user can
+        # still proceed with a classic PAT, but they get an honest
+        # signal that a per-repo fine-grained PAT would be safer.
+        total_accessible = None
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as c:
+                ur = await c.get(
+                    "https://api.github.com/user/repos",
+                    headers=headers,
+                    params={"per_page": 1, "affiliation": "owner,collaborator"},
+                )
+            if ur.status_code == 200:
+                link = ur.headers.get("Link") or ""
+                # Parse `…page=N>; rel="last"` to derive total.
+                import re as _re
+                m = _re.search(r'[?&]page=(\d+)>;\s*rel="last"', link)
+                if m:
+                    total_accessible = int(m.group(1))
+                else:
+                    # No `last` link = ≤ 1 page; count directly.
+                    body = ur.json() or []
+                    total_accessible = len(body) if isinstance(body, list) else None
+        except Exception as e:  # noqa: BLE001
+            logger.debug("verify-pat: total-repo probe skipped: %r", e)
+
+        warning = None
+        if total_accessible is not None and total_accessible > 1:
+            warning = (
+                f"This token has access to {total_accessible} repos, "
+                "not just this one. For tighter security consider a "
+                "fine-grained PAT scoped to only this repo."
+            )
+
         return {
             "ok":        True,
             "full_name": data.get("full_name") or repo,
             "private":   bool(data.get("private", False)),
             "scopes":    scopes,  # may be [] for fine-grained PATs
+            "total_accessible_repos": total_accessible,
+            "warning":   warning,
+            "fine_grained": not bool(scopes),
         }
     if r.status_code == 401:
         return {"ok": False, "error": "invalid_token",

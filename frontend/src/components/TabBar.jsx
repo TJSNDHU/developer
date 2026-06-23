@@ -41,7 +41,14 @@ export default function TabBar() {
 
   useEffect(() => {
     refresh();
-    const onChange = () => setActive(getActiveProjectId());
+    const onChange = () => {
+      setActive(getActiveProjectId());
+      // Iter 212m-5 — also refresh the project list when active project
+      // changes. This catches deletion (sets active to null) so the
+      // deleted tab disappears immediately instead of waiting for
+      // window focus.
+      refresh();
+    };
     window.addEventListener("aurem:project-changed", onChange);
     window.addEventListener("focus", refresh);
     return () => {
