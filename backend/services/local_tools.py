@@ -174,8 +174,13 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
     if not isinstance(paths, list) or not paths:
         return {"ok": False, "error": "Missing required arg `paths` (list of strings)"}
 
-    # Deduplicate, cap at MAX_FILES_BULK
-    paths = list(dict.fromkeys(p for p in paths if isinstance(p, str) and p))[:MAX_FILES_BULK]
+    # iter 212l — surface silent path drops to the LLM. Previously paths
+    # 7..N were sliced off without notice and the model assumed it had
+    # read all the files it asked for. Now we report the count and the
+    # exact dropped paths in a `warning` field on the response.
+    _raw_paths = [p for p in paths if isinstance(p, str) and p]
+    paths = list(dict.fromkeys(_raw_paths))[:MAX_FILES_BULK]
+    _dropped = list(dict.fromkeys(_raw_paths))[MAX_FILES_BULK:]
 
     proj = await _resolve_project(user_id, project_id)
     if not proj:
