@@ -105,9 +105,14 @@ def _deepseek_model() -> str:
     return os.getenv("LLM_MODEL", "deepseek/deepseek-chat")
 
 
-# Claude model slug on OpenRouter
+# Claude model slug on OpenRouter.
+# Iter 212g — OpenRouter accepts dotted version IDs (anthropic/claude-sonnet-4.5)
+# NOT the dash-date Anthropic-native format (claude-sonnet-4-5-20250929)
+# which we were sending until prod logs showed 400 Bad Request from
+# OpenRouter on every Claude call. Verified against
+# `GET https://openrouter.ai/api/v1/models`.
 _CLAUDE_MODEL = os.getenv(
-    "CLAUDE_MODEL", "anthropic/claude-sonnet-4-5-20250929"
+    "CLAUDE_MODEL", "anthropic/claude-sonnet-4.5"
 )
 
 

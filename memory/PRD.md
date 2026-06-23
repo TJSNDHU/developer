@@ -6431,3 +6431,68 @@ The user's broken conversation had THREE failures:
 
 ---
 
+
+### Iter 212g — Two production crashes fixed (Feb 2026) ✅
+
+Production logs surfaced two unrelated crashes after the Iter 210+
+deployment. Both fixed:
+
+#### 🔧 Crash 1 — `UnboundLocalError: local_ctx`
+
+```
+UnboundLocalError: cannot access local variable 'local_ctx' where it is not associated with a value
+routers.chat ERROR chat_stream orchestrator failed
+```
+
+`services/orchestrator.py::chat_with_tools` initialised `local_ctx`
+INSIDE the tool-execution branch (~line 1487) but the no-tool-call
+return path (~line 1476) read `local_ctx.get(...)` for `system_signals`
+and `tool_calls`. Whenever the LLM returned a final answer on the
+first iteration (typical for short answers / chat replies), the
+function blew up before returning.
+
+**Fix**: hoisted `local_ctx = {...}` to function entry so both paths
+read from the same dict. Removed the redundant re-init inside the
+loop.
+
+#### 🔧 Crash 2 — OpenRouter 400 Bad Request on every Claude call
+
+```
+call_openrouter_model(anthropic/claude-sonnet-4-5-20250929) failed:
+  HTTPStatusError("Client error '400 Bad Request' ...")
+```
+
+The code defaulted to the **Anthropic-native model ID**
+(`anthropic/claude-sonnet-4-5-20250929`) but sent it to **OpenRouter**,
+which expects **dotted** version IDs. Verified against
+`GET https://openrouter.ai/api/v1/models` — OpenRouter has only:
+- `anthropic/claude-sonnet-4`
+- `anthropic/claude-sonnet-4.5`  ← what we should be using
+- `anthropic/claude-sonnet-4.6`
+- `~anthropic/claude-sonnet-latest`
+
+**Fix**: replaced the model ID in 3 files:
+- `services/llm.py:_CLAUDE_MODEL`
+- `services/smart_router.py:MODELS["maxx_code"]` and `["security"]`
+- `services/vanguard_verify_agent.py:_VERIFY_MODEL`
+
+All default to `anthropic/claude-sonnet-4.5` now (user's spec, not
+silently bumped to 4.6).
+
+**Verified**:
+- 61/61 backend tests pass (7 new Iter 212g + 54 prior).
+- Backend restarted cleanly; `GET /api/health` returns
+  `{ok: true, db: true, env: production}` with the new build hash.
+- No more UnboundLocalError or 400 errors in startup logs.
+
+**Files touched**:
+- `backend/services/orchestrator.py` — hoisted `local_ctx`.
+- `backend/services/llm.py` — model ID.
+- `backend/services/smart_router.py` — model IDs (maxx_code + security).
+- `backend/services/vanguard_verify_agent.py` — model ID.
+- `backend/tests/test_iter212g_orchestrator_local_ctx_and_openrouter_model.py` (new, 7 tests).
+
+**Commit**: `fix(prod): hoist orchestrator local_ctx + correct OpenRouter Claude model ID`
+
+---
+

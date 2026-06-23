@@ -40,9 +40,11 @@ logger = logging.getLogger(__name__)
 
 # Separate-agent isolation: this is a DIFFERENT model/persona than ORA.
 # Claude Sonnet 4.5 via OpenRouter — same key as the rest of the app.
+# Iter 212g — use OpenRouter's dotted ID (4.5); the dash-date Anthropic
+# native format returns HTTP 400 from OpenRouter.
 _VERIFY_MODEL = os.environ.get(
     "VANGUARD_VERIFY_MODEL",
-    "anthropic/claude-sonnet-4-5-20250929",
+    "anthropic/claude-sonnet-4.5",
 )
 
 _VERIFY_SYSTEM = """You are the **Vanguard Verify Agent** — a dedicated security

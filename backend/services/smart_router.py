@@ -45,11 +45,12 @@ MODELS = {
     "pro_review":   _env("PRO_REVIEW",   "moonshotai/kimi-k2-thinking"),
 
     # Maxx mode — Claude writes
-    "maxx_code":    _env("MAXX_CODE",    "anthropic/claude-sonnet-4-5-20250929"),
+    # Iter 212g — OpenRouter accepts dotted IDs; reverted dash-date format.
+    "maxx_code":    _env("MAXX_CODE",    "anthropic/claude-sonnet-4.5"),
     "maxx_review":  _env("MAXX_REVIEW",  "moonshotai/kimi-k2-thinking"),
 
     # Security — always Claude (accuracy non-negotiable)
-    "security":     _env("SECURITY",     "anthropic/claude-sonnet-4-5-20250929"),
+    "security":     _env("SECURITY",     "anthropic/claude-sonnet-4.5"),
 
     # Fallback — any model error → DeepSeek
     "fallback":     _env("FALLBACK",     "deepseek/deepseek-chat"),

@@ -1055,6 +1055,18 @@ async def chat_with_tools(
     # (where chat.py:_persist_turn writes turns). The legacy code looked
     # at `aurem_cto_sessions` and required an explicit `mongo_client` arg
     # that chat.py never passes — so history was silently always empty.
+    # Iter 212g — hoist local_ctx to function entry. Was previously
+    # initialised only inside the tool-execution branch (~line 1487),
+    # which crashed with `UnboundLocalError` when the LLM returned a
+    # final answer on its first iteration (no tool calls). Surfaced in
+    # production logs after the Iter 210 system_signals plumbing made
+    # both return paths read from local_ctx.
+    local_ctx: dict = {
+        "user_id":       user_id,
+        "project_id":    project_id,
+        "system_signals": [],
+        "tool_calls":    [],
+    }
     history_lines: list[str] = []
     if session_id:
         try:
@@ -1481,15 +1493,10 @@ async def chat_with_tools(
         # Iter 33: PARALLEL tool execution via asyncio.gather.
         # Was a sequential `for c in calls:` loop — 4 tools × 8s = 32s.
         # Now: 4 tools × 8s = 8s total. 4× speedup on multi-file tasks.
-        # Iter 210 — pre-seed `system_signals` and `tool_calls` lists so
-        # invoke_local_tool can append into them and we can surface
-        # them on both return paths below.
-        local_ctx = {
-            "user_id":       user_id,
-            "project_id":    project_id,
-            "system_signals": [],
-            "tool_calls":    [],
-        }
+        # Iter 210 — `local_ctx` is hoisted to function entry (see top).
+        # invoke_local_tool appends `system_signals` / `tool_calls`
+        # entries into it; both return paths above and below read from
+        # this same dict.
         # Iter 36: announce tool batch to the UI activity hook
         if activity_hook:
             try:
