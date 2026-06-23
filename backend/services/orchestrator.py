@@ -1042,7 +1042,36 @@ def _wants_execute(prompt: str, repo_connected: bool, history_lines: list[str] |
     h_text = "\n".join((history_lines or [])[-4:])
     if _CONFIRM_RX.match(p) and "aurem-handoff" in h_text:
         return True
+    # Iter 212m-4 — Force-execute catch-all: when the user is on a
+    # connected repo AND the prompt contains either a file-with-extension
+    # token OR a code-topic keyword (read/show/list/how many/routes/
+    # functions/classes/backend/frontend/router/service/component), kick
+    # into EXECUTE so tools are guaranteed to fire. This catches "show
+    # me the routers", "list components", "what backend services do we
+    # have" — phrasings the older verb-only patterns missed.
+    if repo_connected and re.search(
+        r"[\w./\-]+\.(?:py|jsx?|tsx?|md|json|yaml)"
+        r"|\b(?:read|show|list|how many|routes|functions|classes"
+        r"|backend|frontend|router|service|component)\b",
+        p, re.IGNORECASE,
+    ):
+        return True
     return False
+
+
+def _should_inject_tool_reminder(prompt: str, repo_connected: bool) -> bool:
+    """Iter 212m-4 — Return True if this turn must be force-reminded
+    to call a tool before answering. Used to append a 'YOU MUST call a
+    read/search tool' line to the first-iter system prompt so the LLM
+    can't lazily reply from memory on repo questions."""
+    if not repo_connected:
+        return False
+    return bool(re.search(
+        r"[\w./\-]+\.(?:py|jsx?|tsx?|md|json|yaml)"
+        r"|\b(?:read|show|list|how many|routes|functions"
+        r"|backend|frontend|router|service)\b",
+        prompt or "", re.IGNORECASE,
+    ))
 
 
 def _wants_repo(prompt: str, extra: str) -> bool:
@@ -1478,6 +1507,16 @@ async def chat_with_tools(
     base_system = layered_persona + (("\n\n" + extra) if extra.strip() else "")
     # First-iteration system prompt — full tool catalog + help.
     first_iter_system = base_system + _TOOL_HELP_TEMPLATE + catalog_text
+    # Iter 212m-4 — Force tool-reminder injection. When the prompt is
+    # repo-scoped AND looks like a code/file question, tack on an
+    # unmissable directive so the LLM can't reply from memory. This is
+    # the LAST chance before the model sees the turn.
+    if _should_inject_tool_reminder(prompt, bool(project_id and project_id != "home")):
+        first_iter_system += (
+            "\n\nTHIS TURN: repo is connected. "
+            "You MUST call a read/search tool before answering. "
+            "Memory-only answers are a critical bug."
+        )
     # Follow-up iters get just the persona + a compact tool-name list.
     # The model already saw the catalog in iter 1 and the prior turn's
     # tool calls are stitched into the transcript — a name reminder is

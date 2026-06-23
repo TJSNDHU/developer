@@ -6971,3 +6971,97 @@ fallback. All pass.
 ---
 
 
+### Iter 212m-4 — Force Tool Calls + Chunked Large File Reading (Feb 2026)
+Two surgical reliability fixes. No mocks, both fully unit-covered.
+
+**Fix 1 — Force tool calls on repo queries**
+`services/orchestrator.py`:
+- `_wants_execute()` gains a final catch-all branch: when the prompt
+  is repo-scoped AND contains EITHER a file-with-extension token
+  (`.py/.js/.jsx/.ts/.tsx/.md/.json/.yaml`) OR any code-topic keyword
+  (`read|show|list|how many|routes|functions|classes|backend|frontend
+  |router|service|component`), flip EXECUTE on. This catches phrasings
+  the older verb/path-only patterns missed — e.g. "show me the
+  routers", "list backend services", "how many routes do we have".
+- New helper `_should_inject_tool_reminder(prompt, repo_connected)`
+  returns True for the same family of prompts.
+- `chat_with_tools` now appends an unmissable reminder to
+  `first_iter_system` when `_should_inject_tool_reminder(prompt,
+  project_id != "home")` fires:
+    `THIS TURN: repo is connected. You MUST call a read/search tool
+     before answering. Memory-only answers are a critical bug.`
+- Conversational prompts ("hello", "thanks", "ok cool") still get
+  CORE persona only — no EXECUTE, no reminder.
+
+**Fix 2 — Chunked large-file reading**
+`services/local_tools.py`:
+- New pure helper `_apply_chunking(content, args)` extracted so it
+  can be unit-tested without GitHub. `_CHUNK_LIMIT = 12_000`.
+  Behaviour:
+    * **Small file** (≤ 12k chars) → `{ok, content, truncated: False}`,
+      pass-through.
+    * **Large file with explicit `lines=[s, e]`** → 0-indexed Python
+      slice `lines[s:e]`, response includes `truncated=True`,
+      `total_lines`, `note`. Test confirms `lines=[10,20]` returns
+      lines 10-19 inclusive.
+    * **Large file with no hint** → first 200 lines as `content`
+      + `structure[]` (`L<n>: <line>` anchors for `def`, `async def`,
+      `class`, `@router.`, and JS `export …` decls, capped at 40
+      entries) + `total_lines` + a `note` telling the LLM how to
+      re-call. Massive context win: a 2000-line router file now
+      ships with all 40 route-definition anchors instead of a blunt
+      char-truncation.
+- `read_repo_file` swapped from the old char-truncation
+  (`_slice_content` returning at 15k chars) to the new `_apply_
+  chunking` envelope. `read_repo_files` (bulk parallel reader)
+  still uses `_slice_content` for back-compat with the 1-based
+  bulk-line semantics.
+- `import re` added at module top (was missing — orig used in
+  helpers downstream).
+
+**Proof (direct gate inspection)**:
+```
+PROOF 1: 'read backend/routers/admin.py'
+  _wants_execute(repo=True): True
+  _should_inject_tool_reminder(repo=True): True
+  persona layers: ['core', 'execute', 'repo']
+
+PROOF 2: 'how many routes in admin.py'
+  _wants_execute(repo=True): True
+  _should_inject_tool_reminder(repo=True): True
+  persona layers: ['core', 'execute', 'repo']
+
+PROOF 3: 'hello how are you'
+  _wants_execute(repo=True): False
+  _should_inject_tool_reminder(repo=True): False
+  persona layers: ['core', 'repo']  (with repo) / ['core']  (no repo)
+```
+
+Chunking proof:
+```
+SMALL → truncated=False, content untouched
+LARGE no-hint → truncated=True, 200-line preview + 40 structure anchors
+LARGE lines=[50,60] → truncated=True, returns lines 50..59 inclusive
+```
+
+**Tests** — 15 new in `backend/tests/test_tool_reliability.py`:
+6 covering `_wants_execute` (file path, no-repo, greeting, router
+keyword, router keyword no-repo, brief acks), 4 covering
+`_should_inject_tool_reminder` (path, no-repo, greeting, topic word),
+5 covering `_apply_chunking` (small, large no-hint, large with-lines,
+None content, structure-detects-@router). All pass. Total regression
+across 7 in-scope suites: 95/95 green.
+
+**Files touched**
+- `backend/services/orchestrator.py` (`_wants_execute` catch-all
+  branch + `_should_inject_tool_reminder` helper + first_iter_system
+  injection block).
+- `backend/services/local_tools.py` (`re` import + `_apply_chunking`
+  helper + `read_repo_file` wired to new envelope).
+- `backend/tests/test_tool_reliability.py` (new, 15 tests).
+
+**Commit**: `fix: force tool calls on repo queries + chunked large file reading`
+
+---
+
+

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
+import re
 from typing import Optional
 
 from cto_services.db import get_db
@@ -103,6 +104,75 @@ def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[st
     return content, truncated
 
 
+# Iter 212m-4 — Chunked file-read helper. Pure (no I/O) so it can be
+# unit-tested without mocking GitHub. Replaces the dumb truncate when
+# `read_repo_file` returns a large file: small file passes through
+# untouched, large file with explicit `lines=[start,end]` returns that
+# slice with truncated=True + total_lines, large file without a hint
+# returns the first 200 lines + a structural map (def / class /
+# @router / export decl lines, capped at 40) so the LLM has navigation
+# anchors instead of a blunt cut-off.
+_CHUNK_LIMIT = 12_000
+_STRUCTURE_RX = re.compile(
+    r"\s*(def |async def |class |@router\.|export (default |function |const ))"
+)
+
+
+def _apply_chunking(content: str, args: dict | None) -> dict:
+    """Return a `read_repo_file`-shaped envelope with the chunking
+    contract documented above.
+
+    NOTE: when caller supplies `lines=[s, e]`, indices are 0-based
+    Python slice semantics (`lines[s:e]`) — `[10, 20]` returns lines
+    10..19 inclusive. Bulk reads still use the legacy 1-based
+    `_slice_content` for back-compat.
+    """
+    if content is None:
+        content = ""
+    if len(content) <= _CHUNK_LIMIT:
+        return {"ok": True, "content": content, "truncated": False}
+
+    src_lines = content.splitlines()
+    total = len(src_lines)
+
+    line_range = (args or {}).get("lines")
+    if isinstance(line_range, list) and len(line_range) == 2:
+        try:
+            s, e = int(line_range[0]), int(line_range[1])
+        except (TypeError, ValueError):
+            s, e = 0, 0
+        chunk = "\n".join(src_lines[s:e])
+        return {
+            "ok": True,
+            "content": chunk,
+            "truncated": True,
+            "total_lines": total,
+            "note": (
+                f"Lines {s}-{e} of {total}. "
+                "Use lines=[start,end] for other sections."
+            ),
+        }
+
+    preview = "\n".join(src_lines[:200])
+    structure = [
+        f"L{i+1}: {ln.strip()}"
+        for i, ln in enumerate(src_lines)
+        if _STRUCTURE_RX.match(ln)
+    ][:40]
+
+    return {
+        "ok": True,
+        "content": preview,
+        "truncated": True,
+        "total_lines": total,
+        "structure": structure,
+        "note": (
+            f"File has {total} lines. Showing 1-200. "
+            "Call again with lines=[start,end] to read any section."
+        ),
+    }
+
+
 # ── TOOL 1: read_repo_file (single file) ─────────────────────────────────────
 
 async def read_repo_file(ctx: dict, args: dict) -> dict:
@@ -152,8 +222,17 @@ async def read_repo_file(ctx: dict, args: dict) -> dict:
             ),
         }
 
-    content, truncated = _slice_content(content, (args or {}).get("lines"), MAX_FILE_CHARS)
-    return {"ok": True, "path": path, "branch": branch, "truncated": truncated, "content": content}
+    # Iter 212m-4 — Chunked file reading. Small file passes through
+    # untouched. Large file with explicit `lines=[s,e]` returns that
+    # slice. Large file without a hint returns first 200 lines + a
+    # structural map (def / class / @router / export anchors) so the
+    # LLM can navigate intelligently.
+    chunked = _apply_chunking(content, args or {})
+    return {
+        **chunked,
+        "path":   path,
+        "branch": branch,
+    }
 
 
 # ── TOOL 2: read_repo_files (parallel multi-file) ────────────────────────────
