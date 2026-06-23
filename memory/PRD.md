@@ -6335,3 +6335,30 @@ shortcut, not a blocker.
 
 ---
 
+
+### Iter 212e — Visually elevate Step 2 free-form input (Feb 2026) ✅
+
+**Why**: Screen-recording analysis on auremcto.com prod showed the
+fix from Iter 212d *was deployed* and the new "Type the owner/repo"
+text input *was visible*, but the user scrolled right past it
+toward the repo picker below. The amber border + small mono label
+weren't enough to anchor attention.
+
+**Fix** (`frontend/src/pages/Projects.jsx`):
+- Wrapped the input in an amber-tinted card with a 1px border and a
+  brighter `✦ Type any GitHub repo` label.
+- Bigger input: 14px mono font, 12px padding, 1.5px border.
+- Added `autoFocus` so the cursor lands in this field when Step 2
+  opens — no more "wait, where do I type?" moment.
+- Sub-label spells it out: "works for ANY account (not just @{login})".
+- Live ✓ "Repo set — github.com/owner/repo" confirmation under the
+  input the moment `effectiveRepo` resolves.
+- Updated placeholder to `e.g. facebook/react` — a recognisable
+  cross-account example instead of the contrived `octocat/Hello-World`.
+
+**Verified**: 35/35 tests pass.
+
+**Commit**: `feat(projects): make Step 2 repo input the obvious primary action`
+
+---
+

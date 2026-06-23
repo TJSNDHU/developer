@@ -924,16 +924,43 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                 Works for ANY repo on ANY GitHub account as long as the
                 PAT below grants access. Decouples repo selection from
                 the OAuth session, which only knew about @{login}'s
-                repos. */}
-            <label style={{ display: "grid", gap: 6, marginTop: 14, marginBottom: 14 }}>
-              <span style={{ fontSize: 11, color: "var(--text-dim)",
-                              fontFamily: "'JetBrains Mono', monospace",
-                              letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                Repo (owner/name)
-              </span>
+                repos.
+
+                Iter 212e — visually elevated. Earlier the @{login} repo
+                list dominated and users scrolled right past this input.
+                Now it's a tall, amber-bordered, mono-monospaced field
+                with auto-focus and a "🎯 Type any GitHub repo" label
+                so it's impossible to miss. */}
+            <label
+              htmlFor="proj-step2-repo-input"
+              data-testid="proj-step2-repo-block"
+              style={{
+                display: "grid", gap: 8, marginTop: 14, marginBottom: 16,
+                padding: 14,
+                background: "rgba(245,158,11,0.04)",
+                border: "1px solid rgba(245,158,11,0.25)",
+                borderRadius: 10,
+              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{
+                  fontSize: 11, color: "#f59e0b", fontWeight: 600,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.05em", textTransform: "uppercase",
+                }}>
+                  ✦ Type any GitHub repo
+                </span>
+                <span style={{
+                  fontSize: 10, color: "var(--text-faint)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  works for ANY account (not just @{ghStatus.login || "you"})
+                </span>
+              </div>
               <input
+                id="proj-step2-repo-input"
                 data-testid="proj-step2-repo-input"
                 type="text"
+                autoFocus
                 autoComplete="off" autoCorrect="off" spellCheck={false}
                 value={manualRepo}
                 onChange={(e) => {
@@ -944,20 +971,32 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                   // overwrite `manualRepo` for the same reason.
                   if (selectedRepo) setSelectedRepo(null);
                 }}
-                placeholder="octocat/Hello-World  •  or paste https://github.com/owner/repo"
-                className="input"
+                placeholder="e.g. facebook/react   •   or paste https://github.com/owner/repo"
                 style={{
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
-                  borderColor:
-                    manualRepo && !effectiveRepo ? "rgba(239,68,68,0.4)" :
-                    effectiveRepo                ? "rgba(245,158,11,0.4)" :
-                    undefined,
+                  width: "100%", padding: "12px 14px",
+                  background: "rgba(0,0,0,0.25)",
+                  color: "var(--text)",
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 14,
+                  border: `1.5px solid ${
+                    manualRepo && !effectiveRepo ? "rgba(239,68,68,0.5)" :
+                    effectiveRepo                ? "rgba(34,197,94,0.5)"  :
+                    "rgba(245,158,11,0.4)"
+                  }`,
+                  borderRadius: 8,
+                  outline: "none",
                 }}
               />
               {manualRepo && !effectiveRepo && (
                 <span style={{ fontSize: 11, color: "#ef4444" }}>
                   Use the format <code>owner/repo</code> (e.g.{" "}
                   <code>octocat/Hello-World</code>).
+                </span>
+              )}
+              {effectiveRepo && (
+                <span data-testid="proj-step2-repo-set"
+                      style={{ fontSize: 11, color: "#22c55e",
+                                fontFamily: "'JetBrains Mono', monospace" }}>
+                  ✓ Repo set — github.com/{effectiveRepo.full_name}
                 </span>
               )}
             </label>
