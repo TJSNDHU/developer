@@ -34,11 +34,13 @@ OAUTH_R = Path("/app/backend/routers/github_oauth.py").read_text(encoding="utf-8
 
 # ── 1) Orchestrator tool-result budget ───────────────────────────
 
-def test_per_tool_result_budget_is_8000_chars():
-    """The per-tool truncation budget in chat_with_tools must be 8000
-    so a single 15k-char file read survives mostly intact."""
-    assert "if len(result_str) > 8000:" in ORCH
-    assert "result_str[:8000]" in ORCH
+def test_per_tool_result_budget_is_at_least_8000_chars():
+    """The per-tool truncation budget in chat_with_tools must be >= 8000
+    so a single 15k-char file read survives mostly intact.
+    Iter 212k bumped this to 12000 — the test now accepts any
+    sufficiently large floor."""
+    # Iter 212k current value
+    assert "if _total > 12000:" in ORCH or "if len(result_str) > 12000:" in ORCH or "if len(result_str) > 8000:" in ORCH
     # Defensive: the old 2500 limit must NOT be present anywhere in
     # the truncation block (comments are fine, but no live code).
     # Strip comments before scanning.

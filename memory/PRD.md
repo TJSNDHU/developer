@@ -6642,3 +6642,79 @@ Integration tests assert:
 
 ---
 
+
+### Iter 212k — Force tool calls + remove all truncation layers (Feb 2026) ✅
+
+**Two root causes, one commit:**
+
+#### PROBLEM 1 — ORA was skipping tool calls
+
+Conversational prompts like `admin.py`, `read github_oauth.py`,
+`how many routes` were falling into the chat/conversational layer
+instead of EXECUTE mode. ORA never saw the file tools and answered
+from cached training memory → hallucinated counts and content.
+
+**Fixes**:
+- `_wants_execute` gained two new triggers:
+  - `_READ_VERB_RX` — `^(read|show|list|cat|open|view|grep|dump|print|fetch)\b`
+    paired with `repo_connected` → forces EXECUTE.
+  - `_HOW_MANY_RX` — `\bhow\s+many\b` paired with `repo_connected` →
+    forces EXECUTE so ORA grounds the count in search_repo/list.
+- `AUREM_CTO_PERSONA` gained a "**TOOL CALL ENFORCEMENT**" block
+  near the top of the tool-calling instructions: "For ANY question
+  about the connected repo … you MUST call read_repo_file /
+  search_repo / list_repo_files FIRST. Answering from memory is a
+  critical bug. If unsure, CALL IT."
+
+#### PROBLEM 2 — Tool result truncation cascades
+
+Three layers were chopping signal. After this iter:
+
+| Layer | Old | New |
+|-------|-----|-----|
+| `local_tools.MAX_FILE_CHARS` (per file) | 12k → 15k (Iter 212i) | unchanged |
+| `orchestrator` per-tool JSON envelope | 2500 → 8k (Iter 212j) | **8k → 12k** |
+| `search_repo` per-file hit cap | **5** | **50** |
+| `search_repo` per-line snippet | 120 chars | **280** |
+| `search_repo` global cap | `max_files × 5` (≈100) | **flat 500** |
+
+**Real bug**: the "ORA only sees 5 routes in admin.py despite 30
+@router decorators" had nothing to do with file content
+truncation. It was `search_repo`'s `if len(hits) >= 5: break` cap
+on line 494 of `local_tools.py`. Lifted to 50.
+
+#### Bonus — truncation markers now expose total chars
+
+Both `_slice_content` (read_repo_file/files) and the orchestrator's
+JSON-envelope truncation include the original char count so ORA
+can intelligently fetch a specific range instead of looping:
+
+```
+... [truncated — 25000 total chars, showing first 15000.
+     Use lines=[start,end] arg to fetch specific sections]
+```
+
+**Verified**:
+- 69/69 backend tests pass (12 new Iter 212k + 57 prior).
+- Synthetic test: 30 `@router` lines in a fake admin.py → search_repo
+  returns 30 hits (was 5).
+- `_wants_execute` parametrized matrix: 7 positive cases
+  (`read backend/routers/admin.py`, `how many routes`, `list backend/`,
+  …) and 5 negative cases all behave correctly.
+
+**Files touched**:
+- `backend/services/orchestrator.py` — `_READ_VERB_RX` +
+  `_HOW_MANY_RX`, TOOL CALL ENFORCEMENT persona block, 12k per-tool
+  budget, total-chars marker.
+- `backend/services/local_tools.py` — search_repo per-file cap 5→50,
+  line snippet 120→280, global cap → flat 500, total-chars marker
+  in `_slice_content`.
+- `backend/tests/test_iter212k_force_tool_calls_and_truncation_layers.py`
+  (new, 12 tests).
+- `backend/tests/test_iter212j_truncation_and_oauth_ttl.py` —
+  relaxed budget test (now accepts the new 12k floor).
+
+**Commit**: `fix: force tool calls + fix all truncation layers`
+
+---
+

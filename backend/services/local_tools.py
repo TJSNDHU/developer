@@ -88,9 +88,18 @@ def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[st
             content = "\n".join(content.splitlines()[start - 1:end])
         except Exception:
             pass
-    truncated = len(content) > max_chars
+    total = len(content)
+    truncated = total > max_chars
     if truncated:
-        content = content[:max_chars] + "\n... [truncated — use lines=[start,end] to read a specific range]"
+        # iter 212k — surface the TOTAL char count in the marker so
+        # ORA can intelligently request a narrower `lines=[start,end]`
+        # slice instead of looping.
+        content = (
+            content[:max_chars]
+            + f"\n... [truncated — {total} total chars, showing first "
+            f"{max_chars}. Use lines=[start,end] arg to fetch specific "
+            "sections]"
+        )
     return content, truncated
 
 
@@ -490,8 +499,18 @@ async def search_repo(ctx: dict, args: dict) -> dict:
             hits = []
             for line_no, line in enumerate(content.splitlines(), 1):
                 if compiled.search(line):
-                    hits.append({"file": fpath, "line_no": line_no, "line": line.strip()[:120]})
-                    if len(hits) >= 5:   # max 5 hits per file
+                    # iter 212k — per-line snippet 120 → 280 chars. The
+                    # old cap chopped long lines (route decorators with
+                    # path + comment, type signatures, etc.) so ORA
+                    # only saw fragments.
+                    hits.append({"file": fpath, "line_no": line_no,
+                                 "line": line.strip()[:280]})
+                    # iter 212k — per-file hit cap 5 → 50. Was the root
+                    # cause of "ORA sees only 5 of 30 routes in admin.py":
+                    # a file with 30 @router decorators returned the
+                    # first 5 only, so ORA hallucinated "there are 5
+                    # routes" or kept re-searching narrower patterns.
+                    if len(hits) >= 50:
                         break
             return hits
 
@@ -506,7 +525,10 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     return {
         "ok":           True,
         "pattern":      pattern,
-        "matches":      matches[:max_files * 5],
+        # iter 212k — global cap raised from `max_files * 5` to a flat
+        # 500 so a focused search ("@router" in one file) can return all
+        # 30+ hits even when max_files is small (e.g. 1).
+        "matches":      matches[:500],
         "total_matches": len(matches),
         "note":         f"Found {len(matches)} matches. Use `path` or `ext` to narrow search." if matches else f"No matches for `{pattern}`",
     }

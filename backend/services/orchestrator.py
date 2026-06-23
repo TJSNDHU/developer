@@ -172,7 +172,18 @@ def _is_same_tool_call(a: dict, b: dict) -> bool:
 # ``` inside f-strings risk truncation; assemble at runtime instead.
 _BT = chr(96) * 3
 _TOOL_HELP_TEMPLATE = (
-    "\n\n# TOOLS — call them to fetch REAL data. Do NOT fabricate tool results.\n"
+    "\n\n# TOOL CALL ENFORCEMENT (Iter 212k)\n"
+    "For ANY question about the connected repo — file contents, route "
+    "counts, function names, line numbers, imports, dependencies, "
+    "config values — you MUST call read_repo_file, read_repo_files, "
+    "search_repo, list_repo_files, or semantic_search_repo FIRST, "
+    "BEFORE you start writing the answer. Answering from memory when "
+    "tools are available is a critical bug. If you are even slightly "
+    "unsure whether to call a tool, CALL IT. The user has explicitly "
+    "asked for grounded answers; speculation about file contents is "
+    "treated as a hallucination by the CitationGuard layer and will "
+    "trigger an auto-retry that costs latency and tokens.\n\n"
+    "# TOOLS — call them to fetch REAL data. Do NOT fabricate tool results.\n"
     "To invoke a tool, emit EXACTLY this format on its own (no other text "
     "in the same turn):\n"
     + _BT + "tool_call\n"
@@ -835,6 +846,22 @@ _PATH_RX = re.compile(
 _URL_RX = re.compile(r"https?://\S+", re.IGNORECASE)
 
 
+# Iter 212k — explicit "fetch from repo NOW" verbs at start of line.
+# These bypass the soft/strong split and force EXECUTE when paired with
+# a connected repo. Catches "read X", "show X", "list X" style prompts
+# where the user is clearly asking for repo data, even without any
+# file extension in the message.
+_READ_VERB_RX = re.compile(
+    r"^\s*(read|show|list|cat|open|view|grep|dump|print|fetch)\b",
+    re.IGNORECASE,
+)
+# "how many <noun>" — almost always a question about repo contents
+# (routes, files, functions, tests, etc.). Without this, ORA would
+# answer from memory: "there are about 5 routes" instead of running
+# search_repo.
+_HOW_MANY_RX = re.compile(r"\bhow\s+many\b", re.IGNORECASE)
+
+
 def _wants_execute(prompt: str, repo_connected: bool, history_lines: list[str] | None) -> bool:
     p = (prompt or "").strip()
     if not p:
@@ -853,6 +880,16 @@ def _wants_execute(prompt: str, repo_connected: bool, history_lines: list[str] |
     # directory separator OR an explicit file extension + at least one
     # token outside the path so casual greetings don't fire.
     if repo_connected and _PATH_RX.search(p):
+        return True
+    # Iter 212k — read/show/list at message start + connected repo →
+    # always EXECUTE. Without the EXECUTE layer ORA didn't see the
+    # tool definitions and answered from cached memory.
+    if repo_connected and _READ_VERB_RX.match(p):
+        return True
+    # Iter 212k — "how many <X>" against a connected repo → EXECUTE.
+    # Forces search_repo / list_repo_files so the answer is grounded
+    # in the actual code, not a confident hallucination.
+    if repo_connected and _HOW_MANY_RX.search(p):
         return True
     # Bare confirmation after a recent aurem-handoff fence = ship shortcut.
     h_text = "\n".join((history_lines or [])[-4:])
@@ -1637,17 +1674,23 @@ async def chat_with_tools(
         # iter 212j — budget raised 2500 → 8000. A 12k-char file read
         # with the old 2500 cap left ORA with 20% of the content and
         # it would loop calling read_repo_file with `lines=[...]`
-        # trying to assemble the whole thing. 8000 lets a single
-        # 15k-cap file land mostly intact (the local_tools layer
-        # already truncates the file content first; this is the
-        # second-stage JSON-envelope cap).
+        # trying to assemble the whole thing.
+        # iter 212k — budget raised 8000 → 12000. Even with 8k, a
+        # search_repo result over 30 @router hits in one 2,800-line
+        # file blew past the cap and ORA only saw the first ~10 hits.
+        # 12k lets a full search_repo response (50 hits × ~280 chars)
+        # land mostly intact alongside any other tool call in the
+        # same iter.
         results_truncated = []
         for r in results_for_llm:
             result_str = json.dumps(r["result"], default=str)
-            if len(result_str) > 8000:
+            _total = len(result_str)
+            if _total > 12000:
                 result_str = (
-                    result_str[:8000]
-                    + "\n... [truncated — call again with narrower args/limit]"
+                    result_str[:12000]
+                    + f"\n... [truncated — {_total} total chars, showing "
+                    f"first 12000. Call again with narrower args/limit "
+                    "to fetch the rest]"
                 )
             results_truncated.append({"tool": r["tool"], "result": result_str})
 
