@@ -6844,3 +6844,59 @@ stash) — not introduced by Iter 212m.
 
 ---
 
+### Iter 212m-2 — User-Patterns Insights endpoint + AdminOverview card
+Closes the loop on Iter 212m. Now that `ora_patterns` is being
+populated fire-and-forget on every chat turn, the founder needs a
+read-side view of what users are working on.
+
+**Backend** (`routers/admin.py`):
+- New `GET /api/aurem-dev/admin/insights/user-patterns` (admin-only,
+  401 without token verified). Aggregates the `ora_patterns`
+  collection in-memory (full scan, ≤5000 docs) into:
+    * `top_files` — top 10 files by UNIQUE user count (so 1 user
+      with 10 sessions doesn't dominate)
+    * `stack_distribution` — top 20 stack signals by user count
+    * `users_with_patterns` — distinct user count
+    * `total_sessions` — `$sum` of `session_count`
+    * `records` — raw doc count
+- Skips blank/null/non-string entries silently. Returns zeroed
+  buckets when the collection is empty so the UI never crashes
+  on first deploy.
+
+**Frontend** (`pages/AdminOverview.jsx`):
+- New "User patterns — learned across sessions" `<Section>` renders
+  only when `users_with_patterns > 0 || records > 0` (hidden on
+  cold start).
+- 3 metric tiles (Users tracked / Sessions mined / Pattern records).
+- Two-column layout: numbered "Most active files" list (file +
+  user_count) on the left; "Tech stack distribution" horizontal
+  bar chart on the right, normalised to the top signal's count.
+- testids: `user-patterns-summary`, `patterns-hot-files`,
+  `patterns-stack-distribution`, `patterns-hot-file-{i}`,
+  `patterns-stack-{signal}`.
+- Wired into the existing 60s `Promise.allSettled` refresh poll —
+  no extra interval.
+
+**Verified**:
+- Seeded 3 fake pattern docs → endpoint returned correct aggregates
+  (chat.py=2 users, App.jsx=2 users, react=3, fastapi=2, mongo=1).
+- Screenshot shows the card rendering in the admin overview with
+  all 3 metric tiles, file list, and bar chart in the live preview.
+- Seed cleaned up post-verification.
+
+**Tests** — 5 new in `backend/tests/test_iter212m_user_patterns_insights.py`:
+route registration, handler existence, aggregation happy path,
+empty-collection fallback, blank/non-string entry skipping. All
+30 tests in scope (212m core + insights) pass.
+
+**Files touched**
+- `backend/routers/admin.py` (+78 lines — single new endpoint).
+- `frontend/src/pages/AdminOverview.jsx` (+126 lines — state +
+  fetch + Section render).
+- `backend/tests/test_iter212m_user_patterns_insights.py` (new, 5 tests).
+
+**Commit**: `feat(admin): user-patterns insights endpoint + overview card`
+
+---
+
+

@@ -2839,6 +2839,76 @@ async def activation_funnel(
 
 
 
+# ─── Iter 212m — User-patterns insights ────────────────────────────────
+#
+# GET /admin/insights/user-patterns
+#
+# Aggregates the `ora_patterns` collection (populated fire-and-forget
+# by `services/ora_learning.py::extract_session_patterns` after every
+# chat turn) into a founder-readable snapshot:
+#   • top 10 hot_files across all users (file → user count)
+#   • top stack_signals by frequency (e.g. fastapi=12, react=9, ...)
+#   • total users with patterns
+#   • total sessions tracked
+#
+# Returns empty buckets when the collection is empty / absent (e.g.
+# before the first session is mined) so the UI card never crashes.
+@router.get("/insights/user-patterns")
+async def user_patterns_insights(
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    db = require_db()
+
+    from collections import Counter
+
+    # Pull every pattern doc. The collection is small by design (1 doc
+    # per (user_id, project_id) tuple) so a full scan is fine; can be
+    # replaced with a server-side $unwind aggregation if it grows.
+    docs = await db.ora_patterns.find(
+        {},
+        {"_id": 0, "user_id": 1, "hot_files": 1,
+         "stack_signals": 1, "session_count": 1},
+    ).to_list(5000)
+
+    file_counter: Counter[str] = Counter()
+    stack_counter: Counter[str] = Counter()
+    user_ids: set[str] = set()
+    total_sessions = 0
+
+    for d in docs:
+        uid = d.get("user_id")
+        if uid:
+            user_ids.add(uid)
+        total_sessions += int(d.get("session_count") or 0)
+        for f in (d.get("hot_files") or []):
+            if isinstance(f, str) and f:
+                file_counter[f] += 1
+        for s in (d.get("stack_signals") or []):
+            if isinstance(s, str) and s:
+                stack_counter[s] += 1
+
+    top_files = [
+        {"file": f, "user_count": n}
+        for f, n in file_counter.most_common(10)
+    ]
+    top_stack = [
+        {"signal": s, "count": n}
+        for s, n in stack_counter.most_common(20)
+    ]
+
+    return {
+        "ok": True,
+        "top_files":           top_files,
+        "stack_distribution":  top_stack,
+        "users_with_patterns": len(user_ids),
+        "total_sessions":      total_sessions,
+        "records":             len(docs),
+    }
+
+
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Iter 212h — Production Error Reporting
 #

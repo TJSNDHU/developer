@@ -18,13 +18,14 @@ export default function AdminOverview() {
   const [telemetry, setTelemetry] = useState(null);
   const [dbHealth, setDbHealth]   = useState(null);   // iter 118
   const [metrics, setMetrics] = useState(null);       // iter 188
+  const [patterns, setPatterns] = useState(null);     // iter 212m — user patterns insights
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
@@ -33,6 +34,7 @@ export default function AdminOverview() {
           api.get("/admin/mode-telemetry",  { headers: h }),
           api.get("/admin/db-health",       { headers: h }),
           api.get("/admin/overview-metrics", { headers: h }),
+          api.get("/admin/insights/user-patterns", { headers: h }),
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
@@ -41,6 +43,7 @@ export default function AdminOverview() {
       if (telRes.status      === "fulfilled") setTelemetry(telRes.value.data);
       if (dbHealthRes.status === "fulfilled") setDbHealth(dbHealthRes.value.data);
       if (metricsRes.status  === "fulfilled") setMetrics(metricsRes.value.data);
+      if (patternsRes.status === "fulfilled") setPatterns(patternsRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -414,6 +417,129 @@ export default function AdminOverview() {
             {(council.total_logs ?? 0) >= 1000 && (
               <span style={{ color: "#1D9E75" }}> Ready for fine-tune! Run HuggingFace SFT.</span>
             )}
+          </div>
+        </Section>
+      )}
+
+      {/* ── Iter 212m — User Patterns (Session Learning) ─────── */}
+      {patterns && (patterns.users_with_patterns > 0 || patterns.records > 0) && (
+        <Section title="User patterns — learned across sessions">
+          <div
+            data-testid="user-patterns-summary"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 10,
+              marginBottom: 14,
+            }}
+          >
+            <MetricCard label="Users tracked"    value={patterns.users_with_patterns ?? "—"} />
+            <MetricCard label="Sessions mined"   value={patterns.total_sessions ?? "—"} />
+            <MetricCard label="Pattern records" value={patterns.records ?? "—"} />
+          </div>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 16,
+          }}>
+            {/* Most active files */}
+            <div data-testid="patterns-hot-files">
+              <div style={{
+                fontSize: 10,
+                color: "var(--text-faint)",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: 8,
+              }}>
+                Most active files
+              </div>
+              {(patterns.top_files || []).length === 0 ? (
+                <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  No files surfaced yet — keep shipping.
+                </div>
+              ) : (
+                <ol style={{
+                  margin: 0,
+                  paddingLeft: 18,
+                  fontSize: 12,
+                  color: "var(--text)",
+                  lineHeight: 1.7,
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  {(patterns.top_files || []).slice(0, 10).map((f, i) => (
+                    <li key={`${f.file}-${i}`} data-testid={`patterns-hot-file-${i}`}>
+                      <span>{f.file}</span>
+                      <span style={{
+                        marginLeft: 6,
+                        fontSize: 10,
+                        color: "var(--text-faint)",
+                      }}>· {f.user_count} user{f.user_count === 1 ? "" : "s"}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+
+            {/* Tech stack distribution */}
+            <div data-testid="patterns-stack-distribution">
+              <div style={{
+                fontSize: 10,
+                color: "var(--text-faint)",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: 8,
+              }}>
+                Tech stack distribution
+              </div>
+              {(patterns.stack_distribution || []).length === 0 ? (
+                <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  No stack signals yet.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(patterns.stack_distribution || []).slice(0, 12).map((s, i) => {
+                    const max = patterns.stack_distribution[0]?.count || 1;
+                    const pct = Math.round((s.count / max) * 100);
+                    return (
+                      <div
+                        key={`${s.signal}-${i}`}
+                        data-testid={`patterns-stack-${s.signal}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "90px 1fr 36px",
+                          alignItems: "center",
+                          gap: 8,
+                          fontSize: 11,
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}
+                      >
+                        <span style={{ color: "var(--text-dim)" }}>{s.signal}</span>
+                        <span style={{
+                          height: 4,
+                          borderRadius: 2,
+                          background: "var(--panel-2)",
+                          overflow: "hidden",
+                          position: "relative",
+                        }}>
+                          <span style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: `${pct}%`,
+                            background: "var(--accent-2, #FF8A2A)",
+                          }} />
+                        </span>
+                        <span style={{
+                          textAlign: "right",
+                          fontSize: 11,
+                          color: "var(--text-faint)",
+                        }}>{s.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </Section>
       )}
