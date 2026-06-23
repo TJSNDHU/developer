@@ -205,7 +205,8 @@ def extract_tool_calls(text: str) -> list[dict]:
         _re.DOTALL
     )
     _KNOWN_TOOLS = {
-        "read_repo_file", "read_repo_files", "list_repo_files",
+        "read_repo_file", "read_repo_files", "write_repo_file",
+        "list_repo_files",
         "search_repo", "semantic_search_repo", "get_commit_diff",
         "get_repo_info", "find_usages", "get_dependencies",
         "get_env_vars", "detect_framework", "get_commit_history",
