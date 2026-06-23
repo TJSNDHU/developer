@@ -2771,13 +2771,25 @@ async def activation_funnel(
 
     all_users = await db.dev_users.find(
         {}, {"_id": 0, "user_id": 1, "email": 1,
-             "tier": 1, "created_at": 1}
+             "tier": 1, "created_at": 1, "github": 1}
     ).to_list(2000)
 
     real_users = [u for u in all_users if not is_test(u.get("email"))]
     real_ids = {u["user_id"] for u in real_users if u.get("user_id")}
 
-    # Who has at least one connected GitHub project.
+    # Step 2 — connected_github: any GitHub identity recorded on
+    # dev_users (OAuth signup OR post-signup Connect via /github-oauth).
+    # `github` is the nested doc — presence of `id`, `access_token`, or
+    # `login` all count as "connected".
+    github_uids = set()
+    for u in real_users:
+        gh = u.get("github") or {}
+        if (gh.get("id") or gh.get("access_token") or gh.get("login")):
+            uid = u.get("user_id")
+            if uid:
+                github_uids.add(uid)
+
+    # Step 3 — added_project: at least one row in cto_projects.
     project_uids = set()
     cursor = db.cto_projects.find({}, {"_id": 0, "user_id": 1})
     async for p in cursor:
@@ -2785,7 +2797,18 @@ async def activation_funnel(
         if uid in real_ids:
             project_uids.add(uid)
 
-    # Who has at least one task in `done` status.
+    # Step 4 — sent_message: at least one chat session with ≥1 turn.
+    session_uids = set()
+    cursor = db.chat_sessions.find(
+        {"turns.0": {"$exists": True}},  # has at least 1 turn
+        {"_id": 0, "user_id": 1},
+    )
+    async for s in cursor:
+        uid = s.get("user_id")
+        if uid in real_ids:
+            session_uids.add(uid)
+
+    # Step 5 — shipped_code: at least one task in `done` status.
     task_uids = set()
     cursor = db.cto_tasks.find(
         {"status": "done"}, {"_id": 0, "user_id": 1}
@@ -2802,6 +2825,55 @@ async def activation_funnel(
     def pct(a: int, b: int) -> str:
         return f"{(a / max(b, 1)) * 100:.1f}%"
 
+    def pct_num(a: int, b: int) -> float:
+        # Funnel rate is bounded [0, 100]. When the previous step has
+        # zero users we return 0 (instead of dividing by 1 and pretending
+        # the rate is undefined). Capping at 100 means a "leaky" funnel
+        # where users entered a later stage without crossing the prior
+        # one displays as a full bar instead of >100 %.
+        if b <= 0:
+            return 0.0
+        return round(min((a / b) * 100, 100), 1)
+
+    # Iter 212m-3 — 5-step activation funnel with per-step conversion
+    # rates. Biggest drop-off (largest delta between consecutive steps,
+    # as %) is surfaced so the UI can highlight it red.
+    n_signup = len(real_users)
+    n_github = len(github_uids)
+    n_proj   = len(project_uids)
+    n_sess   = len(session_uids)
+    n_task   = len(task_uids)
+
+    funnel_steps = [
+        {"key": "signed_up",       "label": "Signed up",        "count": n_signup},
+        {"key": "connected_github","label": "Connected GitHub", "count": n_github},
+        {"key": "added_project",   "label": "Added Project",    "count": n_proj},
+        {"key": "sent_message",    "label": "Sent Message",     "count": n_sess},
+        {"key": "shipped_code",    "label": "Shipped Code",     "count": n_task},
+    ]
+
+    # Compute conversion rate from previous step + absolute drop-off
+    # (count_prev - count_current). Track which transition has the
+    # largest drop so the UI can highlight it.
+    biggest_drop_idx = -1
+    biggest_drop_n = -1
+    for i, step in enumerate(funnel_steps):
+        if i == 0:
+            step["pct_of_prev"] = 100.0
+            step["drop_from_prev"] = 0
+            continue
+        prev_n = funnel_steps[i-1]["count"]
+        cur_n  = step["count"]
+        step["pct_of_prev"]    = pct_num(cur_n, prev_n)
+        step["drop_from_prev"] = max(prev_n - cur_n, 0)
+        if step["drop_from_prev"] > biggest_drop_n:
+            biggest_drop_n = step["drop_from_prev"]
+            biggest_drop_idx = i
+
+    # Mark the biggest drop (if any users at all dropped off).
+    for i, step in enumerate(funnel_steps):
+        step["is_biggest_dropoff"] = (i == biggest_drop_idx and biggest_drop_n > 0)
+
     recent = sorted(
         real_users,
         key=lambda x: x.get("created_at") or 0,
@@ -2810,16 +2882,33 @@ async def activation_funnel(
 
     return {
         "ok": True,
+        # Iter 212m-3 — 5-step funnel: the canonical shape going
+        # forward. `funnel.signed_up/connected_repo/shipped_task/paying`
+        # below stays for backward-compat with the old AdminOverview
+        # render path.
+        "funnel_steps": funnel_steps,
+        "biggest_dropoff_idx": biggest_drop_idx if biggest_drop_n > 0 else None,
         "funnel": {
-            "signed_up":      len(real_users),
-            "connected_repo": len(project_uids),
-            "shipped_task":   len(task_uids),
-            "paying":         len(paying),
+            "signed_up":         n_signup,
+            "connected_github":  n_github,
+            "added_project":     n_proj,
+            "sent_message":      n_sess,
+            "shipped_code":      n_task,
+            # Backward-compat aliases (Iter 196 schema).
+            "connected_repo":    n_proj,
+            "shipped_task":      n_task,
+            "paying":            len(paying),
         },
         "conversion_rates": {
-            "signup_to_repo": pct(len(project_uids), len(real_users)),
-            "repo_to_task":   pct(len(task_uids),    len(project_uids)),
-            "task_to_paid":   pct(len(paying),       len(task_uids)),
+            # New canonical 5-step rates.
+            "signup_to_github":  pct(n_github, n_signup),
+            "github_to_project": pct(n_proj,   n_github),
+            "project_to_message":pct(n_sess,   n_proj),
+            "message_to_ship":   pct(n_task,   n_sess),
+            # Legacy aliases (Iter 196).
+            "signup_to_repo":    pct(n_proj,   n_signup),
+            "repo_to_task":      pct(n_task,   n_proj),
+            "task_to_paid":      pct(len(paying), n_task),
         },
         "totals": {
             "all_users":         len(all_users),

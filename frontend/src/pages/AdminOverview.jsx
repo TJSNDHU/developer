@@ -19,13 +19,14 @@ export default function AdminOverview() {
   const [dbHealth, setDbHealth]   = useState(null);   // iter 118
   const [metrics, setMetrics] = useState(null);       // iter 188
   const [patterns, setPatterns] = useState(null);     // iter 212m — user patterns insights
+  const [funnel,  setFunnel]  = useState(null);       // iter 212m-3 — activation funnel
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes, funnelRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
@@ -35,6 +36,7 @@ export default function AdminOverview() {
           api.get("/admin/db-health",       { headers: h }),
           api.get("/admin/overview-metrics", { headers: h }),
           api.get("/admin/insights/user-patterns", { headers: h }),
+          api.get("/admin/insights/activation-funnel", { headers: h }),
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
@@ -44,6 +46,7 @@ export default function AdminOverview() {
       if (dbHealthRes.status === "fulfilled") setDbHealth(dbHealthRes.value.data);
       if (metricsRes.status  === "fulfilled") setMetrics(metricsRes.value.data);
       if (patternsRes.status === "fulfilled") setPatterns(patternsRes.value.data);
+      if (funnelRes.status   === "fulfilled") setFunnel(funnelRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -542,6 +545,11 @@ export default function AdminOverview() {
             </div>
           </div>
         </Section>
+      )}
+
+      {/* ── Iter 212m-3 — Activation funnel (FunnelCard) ────── */}
+      {funnel && (
+        <FunnelCard data={funnel} />
       )}
 
       {/* ── Next actions ────────────────────────────────────── */}
@@ -1083,3 +1091,170 @@ function SystemMappingCard() {
   );
 }
 
+
+// ──────────────────────────────────────────────────────────────
+// Iter 212m-3 — Activation funnel card
+//
+// Reads `data.funnel_steps`, `data.biggest_dropoff_idx`,
+// `data.totals`. Renders a 5-step bar funnel. Each step shows
+// count + "% of previous step". The biggest drop-off step gets a
+// red accent so the founder can spot the leaky stage at a glance.
+// ──────────────────────────────────────────────────────────────
+function FunnelCard({ data }) {
+  const steps = (data && data.funnel_steps) || [];
+  if (!steps.length) return null;
+
+  // Bar widths scaled to step 0 (signed_up) so each subsequent step
+  // visually narrows. Prevents the chart from collapsing when one
+  // step is 0.
+  const baseCount = Math.max(steps[0]?.count || 1, 1);
+  const dropIdx = (typeof data.biggest_dropoff_idx === "number") ? data.biggest_dropoff_idx : -1;
+
+  return (
+    <Section title="Activation funnel — real-user conversion">
+      <div
+        data-testid="activation-funnel-card"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        {steps.map((s, i) => {
+          const widthPct = Math.max(((s.count || 0) / baseCount) * 100, 4);
+          const isDrop = (i === dropIdx);
+          const isFirst = (i === 0);
+          const stepColor = isDrop
+            ? "rgba(232, 70, 70, 0.85)"   // red — leaky stage
+            : "var(--accent-2, #FF8A2A)"; // amber — healthy
+
+          return (
+            <div
+              key={s.key}
+              data-testid={`funnel-step-${s.key}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "180px 1fr 90px 80px",
+                alignItems: "center",
+                gap: 12,
+                padding: "7px 10px",
+                borderRadius: 6,
+                background: isDrop
+                  ? "rgba(232, 70, 70, 0.06)"
+                  : "var(--panel-2)",
+                border: isDrop
+                  ? "1px solid rgba(232, 70, 70, 0.28)"
+                  : "1px solid var(--border)",
+              }}
+            >
+              {/* Step label */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: isDrop ? "#ff8a8a" : "var(--text)",
+                fontWeight: isDrop ? 600 : 500,
+              }}>
+                <span style={{
+                  fontSize: 9,
+                  color: "var(--text-faint)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  width: 18,
+                }}>{i + 1}</span>
+                {s.label}
+              </div>
+
+              {/* Bar */}
+              <div style={{
+                height: 8,
+                borderRadius: 3,
+                background: "var(--panel-3, rgba(255,255,255,0.04))",
+                overflow: "hidden",
+                position: "relative",
+              }}>
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: `${widthPct}%`,
+                  background: stepColor,
+                  transition: "width 0.4s ease-out",
+                }} />
+              </div>
+
+              {/* Count */}
+              <div
+                data-testid={`funnel-count-${s.key}`}
+                style={{
+                  fontSize: 16,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: "var(--text)",
+                  textAlign: "right",
+                  fontWeight: 600,
+                }}
+              >
+                {s.count ?? 0}
+              </div>
+
+              {/* % of prev */}
+              <div
+                data-testid={`funnel-pct-${s.key}`}
+                style={{
+                  fontSize: 11,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  textAlign: "right",
+                  color: isFirst
+                    ? "var(--text-faint)"
+                    : (isDrop ? "#ff8a8a" : "var(--text-dim)"),
+                }}
+                title={isFirst ? "Top of funnel" : `${s.drop_from_prev} users lost from prev step`}
+              >
+                {isFirst ? "—" : `${(s.pct_of_prev ?? 0).toFixed(1)}%`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Biggest-dropoff callout */}
+      {dropIdx > 0 && steps[dropIdx] && (
+        <div
+          data-testid="funnel-dropoff-callout"
+          style={{
+            marginTop: 12,
+            padding: "8px 12px",
+            background: "rgba(232,70,70,0.06)",
+            border: "1px dashed rgba(232,70,70,0.32)",
+            borderRadius: 6,
+            fontSize: 11,
+            color: "var(--text-dim)",
+            lineHeight: 1.55,
+          }}
+        >
+          <strong style={{ color: "#ff8a8a", letterSpacing: "0.04em" }}>
+            Biggest drop-off:
+          </strong>{" "}
+          {steps[dropIdx - 1].label} → {steps[dropIdx].label} —{" "}
+          <strong style={{ color: "var(--text)" }}>
+            {steps[dropIdx].drop_from_prev} user{steps[dropIdx].drop_from_prev === 1 ? "" : "s"} lost
+          </strong>{" "}
+          ({(steps[dropIdx].pct_of_prev ?? 0).toFixed(1)}% conversion).
+        </div>
+      )}
+
+      {/* Totals footer */}
+      {data.totals && (
+        <div style={{
+          marginTop: 10,
+          fontSize: 10,
+          color: "var(--text-faint)",
+          fontFamily: "'JetBrains Mono', monospace",
+          letterSpacing: "0.04em",
+        }}>
+          {data.totals.test_users_excluded || 0} test/automation account
+          {data.totals.test_users_excluded === 1 ? "" : "s"} excluded from this view.
+        </div>
+      )}
+    </Section>
+  );
+}

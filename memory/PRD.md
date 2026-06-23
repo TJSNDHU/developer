@@ -6900,3 +6900,74 @@ empty-collection fallback, blank/non-string entry skipping. All
 ---
 
 
+### Iter 212m-3 — Activation Funnel card (Feb 2026)
+Extended the existing `/admin/insights/activation-funnel` endpoint
+(Iter 196) from a 4-step shape (signed_up → repo → task → paying) to
+a proper 5-step activation funnel with per-step conversion rates and
+biggest-drop-off detection. New `<FunnelCard />` component in the
+Admin Overview renders it as a horizontal bar chart with red-flagged
+leaky stage.
+
+**Backend** (`routers/admin.py`):
+- Endpoint now ALSO queries `dev_users.github` for connected-GitHub
+  count (any of `id` / `access_token` / `login` counts) and
+  `chat_sessions` (filter `turns.0: {$exists: true}`) for sent-message
+  count. Both filtered to real (non-test) user IDs.
+- Response shape adds:
+    * `funnel_steps[]` — ordered list of 5 step dicts with `key`,
+      `label`, `count`, `pct_of_prev`, `drop_from_prev`,
+      `is_biggest_dropoff`.
+    * `biggest_dropoff_idx` — int index of the largest drop, or
+      `null` when no one dropped (e.g., empty db).
+    * `funnel.connected_github / added_project / sent_message /
+      shipped_code` — new canonical keys.
+    * `conversion_rates.signup_to_github / github_to_project /
+      project_to_message / message_to_ship` — new rates.
+- `funnel.connected_repo / shipped_task / paying` and the Iter 196
+  conversion-rate aliases preserved for backward compatibility.
+- `pct_num` clamps the conversion rate to [0, 100] and returns 0
+  when previous step is 0 — prevents nonsensical >100% rates when
+  users skip a stage (e.g., chat on `home` project without ever
+  creating one).
+
+**Frontend** (`pages/AdminOverview.jsx`):
+- New `<FunnelCard data={funnel} />` sub-component renders 5 step
+  rows, each with: step number, label, scaled bar, count, % of
+  previous step. Bar width normalised to step 0's count so a 0-count
+  step still shows a visible 4 % stub.
+- Biggest-drop-off step gets red border + tinted background +
+  bold red label. A red callout banner below the chart spells out
+  the loss in plain English (`Signed up → Connected GitHub —
+  5 users lost (58.3% conversion)`).
+- testids: `activation-funnel-card`, `funnel-step-<key>`,
+  `funnel-count-<key>`, `funnel-pct-<key>`, `funnel-dropoff-callout`.
+- Wired into the existing 60s `Promise.allSettled` refresh poll.
+
+**Verified live**:
+- Seeded 10 fake users → endpoint returned `signed_up=12,
+  connected_github=7, added_project=4, sent_message=5, shipped_code=2`
+  with `biggest_dropoff_idx=1`.
+- Screenshot shows funnel renders correctly, red highlighting on
+  `Connected GitHub` row, drop-off banner reading
+  "5 users lost (58.3% conversion)".
+- Seed data cleaned up post-verification.
+
+**Tests** — 6 new in `backend/tests/test_iter212m3_activation_funnel.py`:
+route registration, 5-step counts from mocked data, per-step
+conversion-rate math (including zero-prev clamp), biggest-drop-off
+index correctness, test-account exclusion (real1 stays; test@,
+qa-prod@, audit_, u_<hex>@aurem.test all dropped), empty-db
+fallback. All pass.
+
+**Files touched**
+- `backend/routers/admin.py` — extended `activation_funnel` (≈ +90
+  lines around the funnel/conversion blocks).
+- `frontend/src/pages/AdminOverview.jsx` — added state + fetch +
+  `<FunnelCard />` definition (+170 lines).
+- `backend/tests/test_iter212m3_activation_funnel.py` (new, 6 tests).
+
+**Commit**: `feat: activation funnel card in admin overview`
+
+---
+
+
