@@ -243,40 +243,18 @@ def extract_tool_calls(text: str) -> list[dict]:
         if args_dict or not _re.search(r'\w+\s*=', raw_args):
             calls.append({"tool": fn_name, "args": args_dict})
 
-    # Shape 5 — Natural language tool intent detection
-    # Handles phrases like:
-    # "let me read frontend/src/App.jsx"
-    # "I'll fetch backend/routers/auth.py"
-    # "checking frontend/src/pages/Dashboard.jsx"
-    import re as _re5
-
-    # Only trigger if no tools found yet
-    if not calls:
-        _NL_PATTERNS = [
-            # "read X", "fetch X", "check X", "look at X"
-            (r'(?:read|fetch|check|look\s+at|examine|open|load|get)\s+'
-             r'([a-zA-Z0-9_./-]+\.(?:py|jsx?|tsx?|md|json|ya?ml|css|html?))',
-             "read_repo_file", "path"),
-            # "search for X in repo"
-            (r'(?:search|grep|find)\s+(?:for\s+)?["\']?([^"\']+?)["\']?\s+'
-             r'(?:in|across|through)\s+(?:the\s+)?repo',
-             "search_repo", "pattern"),
-            # "list files in X"
-            (r'(?:list|show)\s+(?:files?\s+)?(?:in\s+)?'
-             r'([a-zA-Z0-9_/-]+(?:/[a-zA-Z0-9_/-]*)?)',
-             "list_repo_files", "path"),
-        ]
-
-        for pattern, tool_name, arg_name in _NL_PATTERNS:
-            m = _re5.search(pattern, text, _re5.IGNORECASE)
-            if m:
-                value = m.group(1).strip().strip("'\"")
-                if value and len(value) > 2:
-                    calls.append({
-                        "tool": tool_name,
-                        "args": {arg_name: value}
-                    })
-                    break  # one NL extraction per turn
+    # iter 212l — Shape 5 (Natural-language tool extraction) was REMOVED.
+    # It parsed phrases like "I need to read backend/auth.py" from the
+    # LLM's own prose into phantom tool calls. Three problems:
+    #   1. The phrase typically appeared in the model's FINAL answer
+    #      (after it already had the data), so the phantom call
+    #      consumed an extra iteration with a stale request.
+    #   2. The extracted "path" was usually a bare filename without a
+    #      directory prefix → 404 → wasted round-trip.
+    #   3. The model couldn't disable it; even instructing it to
+    #      "ignore my last sentence" still got the phantom call fired.
+    # Shapes 1-4 cover every real emission format (fenced JSON, bare
+    # JSON, OpenAI-style {tool_calls:[...]}, Python-style fn(a=b)).
 
     return calls
 

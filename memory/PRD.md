@@ -6718,3 +6718,38 @@ can intelligently fetch a specific range instead of looping:
 
 ---
 
+
+### Iter 212l — Persona + tool-bridge hardening (5 fixes, 1 commit) ✅
+
+External-audit-style diagnostic produced 5 issues. All fixed.
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | HIGH | `read_repo_files` silently dropped paths past the 6-cap | Returns `requested`, `dropped`, and a loud `warning` field telling ORA which paths weren't fetched and how to retry |
+| 2 | HIGH | Shape-5 NL extractor parsed phantom tool calls from LLM prose | Removed entirely — Shapes 1-4 cover every legitimate emission format |
+| 3 | MEDIUM | `_STRONG_EXECUTE_RX` bare `run` fired on "how does X run?" | Narrowed to `run\s+(test\|build\|server\|npm\|pip\|node\|...)` |
+| 4 | MEDIUM | Persona said "up to 10 files" without distinguishing the 6-cap tool | INVENTORY MODE now says "10 SEPARATE `read_repo_file` blocks" + explicit HARD-CAPS warning |
+| 5 | LOW | Hardcoded "(23 total)" in catalog goes stale | Removed; `read_repo_files` description now carries the cap warning inline |
+
+#### Verified
+- 58/58 backend tests pass (15 new Iter 212l + 43 prior).
+- E2E: `read_repo_files` with 9 paths returns `dropped=['f6.py','f7.py','f8.py']` + loud warning. With 3 paths, no warning.
+- Phantom-NL test: "Let me read X.py" → 0 calls (was 1).
+- `_STRONG_EXECUTE_RX` matrix: 3 conversational ("how does X run?") → False; 4 real ("run npm install") → True.
+
+#### Files touched
+- `backend/services/local_tools.py` — `read_repo_files` dropped-paths
+  tracking + combined warning surface.
+- `backend/services/tools_bridge.py` — Shape 5 NL block removed
+  (replaced with an in-code post-mortem so it can't be silently
+  re-introduced by a merge).
+- `backend/services/orchestrator.py` — `_STRONG_EXECUTE_RX` narrowed,
+  INVENTORY MODE clarified, `_TOOL_HELP_TEMPLATE` count claim
+  dropped + hard-cap warning surfaced in catalog + PARALLEL section.
+- `backend/tests/test_iter212l_persona_and_tool_bridge_hardening.py`
+  (new, 15 tests).
+
+**Commit**: `fix: persona + tool-bridge hardening — silent path drops, phantom NL calls, run-keyword overreach`
+
+---
+

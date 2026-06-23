@@ -194,11 +194,14 @@ _TOOL_HELP_TEMPLATE = (
     "runs them ALL IN PARALLEL and feeds you every result at once — "
     "reading 5 files in one turn is the same wall-clock speed as reading "
     "1. Use this aggressively whenever you need to look at >1 file.\n\n"
-    "Tools available (23 total, grouped by intent — pick the SHARPEST one):\n\n"
+    "Tools available (grouped by intent — pick the SHARPEST one):\n\n"
     "  READING (open files in the connected repo):\n"
     "    • semantic_search_repo — find files by CONCEPT (USE FIRST when you don't know paths)\n"
     "    • read_repo_file   — one file by path\n"
-    "    • read_repo_files  — UP TO 6 files in parallel (preferred for multi-file tasks)\n"
+    "    • read_repo_files  — UP TO 6 files in parallel. HARD CAP at 6 — "
+    "if you need 7+, emit SEPARATE `read_repo_file` blocks back-to-back "
+    "in the same turn (they still run in parallel) instead of jamming "
+    "8 paths into one bulk call (paths 7+ are dropped with a warning).\n"
     "    • list_repo_files  — list the tree, glob-filterable\n"
     "    • search_repo      — grep EXACT pattern across the repo\n\n"
     "  INTEL (project understanding — call before suggesting changes):\n"
@@ -247,7 +250,9 @@ _TOOL_HELP_TEMPLATE = (
     "WRONG (sequential — slow):\n"
     "  Turn 1: read auth.py → Turn 2: read middleware.py → Turn 3: read utils.py\n"
     "RIGHT (parallel — 3x faster):\n"
-    "  Turn 1: read auth.py + middleware.py + utils.py — all at once\n\n"
+    "  Turn 1: read auth.py + middleware.py + utils.py — all at once\n"
+    "RULE: prefer many `read_repo_file` blocks over `read_repo_files` "
+    "for 7+ paths — the plural tool drops everything past the 6th.\n\n"
     "Tool catalog:\n"
 )
 
@@ -394,7 +399,10 @@ AUREM_CTO_PERSONA = (
     "stack; `get_env_vars` for config.\n"
     "         2. CALL IT. Then if individual file detail is needed (e.g. "
     "'list each router with a one-liner'), emit `read_repo_file` for "
-    "EVERY hit IN PARALLEL — up to 10 files in one turn is fine.\n"
+    "EVERY hit IN PARALLEL — up to 10 SEPARATE `read_repo_file` blocks "
+    "in one turn is fine. Do NOT cram them into one `read_repo_files` "
+    "(plural) call — that tool HARD-CAPS at 6 paths and silently warns "
+    "about the dropped ones.\n"
     "         3. ANSWER COMPLETELY. Numbered list of EVERY item with its "
     "real name + one-line purpose extracted from the file's docstring "
     "or first non-import line. Do NOT stop at 'I found 12 routers — "
@@ -814,7 +822,13 @@ _STRONG_EXECUTE_RX = re.compile(
     r"debug|audit|do\s+it|ship\s+it|push|commit|"
     # Iter 138 — terminal / local-pod inspection verbs route through the
     # EXECUTE layer so the LLM gets the execute_bash tool guidance.
-    r"run|execute|terminal|bash|command|cat\s+/|find\s+/|grep\s+"
+    # Iter 212l — bare `run` was too broad: matched conversational
+    # phrases like "how does the auth flow run?" or "where does this
+    # run from?" and forced EXECUTE for no reason. Narrowed to
+    # `run <target>` where <target> is an actual runnable thing.
+    r"run\s+(test|build|server|script|command|pipeline|npm|pip|python|node|yarn|make|"
+    r"deploy|migration|seed|lint|format|spec|tests?)|"
+    r"execute|terminal|bash|command|cat\s+/|find\s+/|grep\s+"
     r")\b",
     re.IGNORECASE,
 )

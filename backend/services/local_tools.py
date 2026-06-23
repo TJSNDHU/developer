@@ -228,13 +228,33 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
             "expected — that's normal, every codebase is unique."
         )
 
+    # iter 212l — combine the existing hallucination-risk warning with
+    # the new dropped-paths warning. Both convey the same urgency to
+    # the LLM ("you don't have what you think you have") so we surface
+    # them in a single `warning` field; the orchestrator strips it onto
+    # the system signal stream regardless.
+    warning_lines: list[str] = []
+    if failure_warning:
+        warning_lines.append(failure_warning)
+    if _dropped:
+        warning_lines.append(
+            f"⚠️ read_repo_files HARD-CAPS at {MAX_FILES_BULK} paths per "
+            f"call. {len(_dropped)} path(s) were NOT fetched: "
+            + ", ".join(_dropped)
+            + ". Call `read_repo_file` (singular) in separate blocks "
+            "for the dropped ones, or split the bulk call into batches."
+        )
+    combined_warning = "\n\n".join(warning_lines) if warning_lines else None
+
     return {
         "ok":      len(ok_files) > 0,
         "branch":  branch,
         "files":   list(results),
         "fetched": len(ok_files),
+        "requested": len(_raw_paths),
+        "dropped": _dropped,
         "errors":  [f"{r['path']}: {r.get('error','?')}" for r in err_files],
-        **({"warning": failure_warning} if failure_warning else {}),
+        **({"warning": combined_warning} if combined_warning else {}),
     }
 
 
