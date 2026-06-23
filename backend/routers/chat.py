@@ -1872,6 +1872,22 @@ async def chat_stream(
         except Exception:
             pass
 
+        # Iter 212m — Session Learning. Fire-and-forget extraction of
+        # hot files + stack signals into `ora_patterns` so the next
+        # turn's warm context can pre-load what this user/project
+        # tends to touch. Never blocks the response path.
+        try:
+            from services.ora_learning import extract_session_patterns
+            if body.session_id:
+                asyncio.create_task(extract_session_patterns(
+                    db=get_db(),
+                    user_id=user_id,
+                    project_id=body.project_id,
+                    session_id=body.session_id,
+                ))
+        except Exception:
+            pass
+
         # ORA council log (Mode A/B only) + project brain update.
         # Fire-and-forget; never blocks user reply.
         # BUG 5 fix — Mode D (debug) and E (audit) replies were getting

@@ -1437,6 +1437,42 @@ async def chat_with_tools(
                 + "\n"
             )
 
+        # Iter 212m — User Patterns (Session Learning).
+        # Inject what THIS user/project tends to touch (hot files +
+        # stack signals) from past sessions. Permanent, no TTL. Fires
+        # even if all three warm-ctx blocks above failed.
+        try:
+            from cto_services.db import get_db as _get_db_up
+            from services.ora_learning import load_user_patterns as _load_up
+            _db_up = _get_db_up()
+            if _db_up is not None and user_id:
+                _patterns_str = await asyncio.wait_for(
+                    _load_up(db=_db_up, user_id=user_id, project_id=project_id),
+                    timeout=1.5,
+                )
+                if _patterns_str:
+                    extra = (
+                        extra.rstrip()
+                        + "\n\n"
+                        + _patterns_str
+                        + "\n"
+                    )
+        except Exception as _pex:
+            logger.debug("user patterns inject skipped: %r", _pex)
+
+    # Iter 212m — Language Context Injection.
+    # Pull file paths from the prompt + accumulated extra context, and
+    # append per-language guardrails. Cheap (no I/O) so runs for every
+    # turn including `home` project.
+    try:
+        from services.ora_learning import _extract_file_paths as _xfp
+        _scope_paths = _xfp((prompt or "") + " " + (extra or ""))
+        _lang_block = inject_language_context(_scope_paths)
+        if _lang_block:
+            extra = extra.rstrip() + _lang_block + "\n"
+    except Exception as _lex:
+        logger.debug("language context inject skipped: %r", _lex)
+
 
     layered_persona = build_persona(prompt, extra, history_lines)
     base_system = layered_persona + (("\n\n" + extra) if extra.strip() else "")

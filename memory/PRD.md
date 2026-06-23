@@ -6753,3 +6753,94 @@ External-audit-style diagnostic produced 5 issues. All fixed.
 
 ---
 
+
+### Iter 212m — Post-Edit Build Hook + Language Context + Session Learning (Feb 2026)
+Three production-orchestration features shipped in one commit. Closes
+the half-done state from the previous fork (Features 2 + 3 + tests).
+
+**1. Post-Edit Build Hook** *(already present, untouched)*
+`services/orchestrator.py::run_post_edit_hook` runs a per-language
+validator (`py_compile`, `yarn build | tail -20`) after any write-tool
+returns ok. Failures push `build_check_failed` into `ctx.system_signals`
+so the SystemSignalBanner surfaces it to the user immediately.
+
+**2. Language Context Injection** *(WIRED this iter)*
+`LANGUAGE_CONTEXT` table maps `py/jsx/tsx/js` → idiomatic-code rules
+(no bare except, useEffect cleanup, etc.). `inject_language_context()`
+scans the prompt + accumulated extra context for file paths, dedupes
+by extension, and appends a `LANGUAGE RULES FOR THIS TASK:` block to
+the system prompt. Wired into the warm-context section of
+`chat_with_tools` so it runs on EVERY turn — not just project-scoped
+ones. Cheap (no I/O) so we don't gate it behind a feature flag.
+
+**3. Session Learning System** *(NEW this iter)*
+- `services/ora_learning.py::extract_session_patterns(db, user_id,
+  project_id, session_id)` mines the most recent 20 turns of a session
+  (USER-side only — assistant parroting doesn't count) for:
+    * File paths via `_FILE_PATH_RX` (matches `foo/bar.py` and `bar.py`,
+      skips URLs and dotted identifiers).
+    * Stack signals via `_STACK_SIGNALS` keyword list (fastapi, mongo,
+      react, openrouter, stripe, etc.).
+- Top 10 hot_files + top 20 stack_signals get upserted into
+  `ora_patterns` keyed by `(user_id, project_id)` with `$inc:
+  session_count` so repeat sessions accumulate the count.
+- `load_user_patterns(db, user_id, project_id)` returns a compact
+  `[USER PATTERNS — learned across past sessions]` block that
+  `chat_with_tools` injects right after the warm-context block.
+  Permanent (no TTL) so even a brand-new session knows what this
+  user/project tends to touch.
+- Wired fire-and-forget in `routers/chat.py` immediately after the
+  ORA shadow-learning hook (~L1855), so every persisted turn re-mines
+  the session.
+
+**Schema** — new collection `ora_patterns`:
+```
+{ user_id, project_id, hot_files: [], stack_signals: [],
+  session_count, last_session, last_seen, created_at }
+```
+Compound key `(user_id, project_id)` — no extra index needed for
+current write/read patterns, but should add one if session count
+grows past ~10K docs.
+
+**Privacy** — file paths and stack keywords only; no message content
+or PII persisted in `ora_patterns`. `ORA_LEARNING_DISABLED=1` env var
+disables the extractor (mirrors the existing escalation kill-switch).
+
+**Tests** — 25 new in `backend/tests/test_iter_ecc_features.py`,
+all pass. Coverage:
+- POST_EDIT_HOOKS registry + skip semantics (`no_path`,
+  `no_hook_for_<ext>`) + `build_check_failed` signal on real
+  syntax-error file.
+- LANGUAGE_CONTEXT entries for py/jsx/tsx/js + `inject_language_context`
+  dedupe / multi-lang / unknown-ext / pathless-string / empty-input.
+- File-path + stack-signal regex extractors (dedupe, empty input,
+  null safety).
+- `extract_session_patterns` happy path (mocked Mongo) — verifies
+  upsert filter `{user_id, project_id}`, `$inc.session_count == 1`,
+  `upsert=True`, payload shape with hot_files + stack_signals.
+- `extract_session_patterns` skip paths — no session doc, empty turns,
+  assistant-only mentions, `ORA_LEARNING_DISABLED=1` env, mongo error.
+- `load_user_patterns` happy path + empty-record / no-signal /
+  mongo-error fallbacks.
+
+Pre-existing regression: 69/71 in-scope tests still green. The two
+failing tests (`test_iter52` git-path injection, `test_iter55`
+`+N more` literal) were failing BEFORE this iter (verified via git
+stash) — not introduced by Iter 212m.
+
+**Files touched**
+- `backend/services/ora_learning.py` — added `extract_session_patterns`,
+  `load_user_patterns`, `_extract_file_paths`, `_extract_stack_signals`,
+  `_FILE_PATH_RX`, `_STACK_SIGNALS`; updated `__all__`.
+- `backend/services/orchestrator.py` — wired `load_user_patterns`
+  into warm-context block (~L1438) and `inject_language_context`
+  immediately after, both inside `chat_with_tools`.
+- `backend/routers/chat.py` — wired `asyncio.create_task(
+  extract_session_patterns(...))` after `_persist_turn` in the
+  streaming `/chat/stream` handler (~L1855).
+- `backend/tests/test_iter_ecc_features.py` (new, 25 tests).
+
+**Commit**: `feat: post-edit hook + language context + session learning (3-in-1)`
+
+---
+
