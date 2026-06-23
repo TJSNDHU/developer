@@ -60,13 +60,31 @@ REAL_DEBUG_FIRES = [
     "ECONNREFUSED when calling the gateway",
     "stack trace: \n  at Component (App.jsx:88)",
     'fix this 404 from /api/users',
-    "debug the login flow",
+    # Iter 212f — "debug the login flow" / "investigate why the queue
+    # is stuck" / "diagnose the slow query" no longer fire Mode D on
+    # their own. They now route to Mode C (agentic) where the LLM can
+    # actually read code, instead of burning a Mode-D call that bails
+    # with "insufficient signal to diagnose". They're tested separately
+    # in REAL_AGENT_FIRES below.
     "what's wrong with the build — keeps failing",
-    "investigate why the queue is stuck",
     "can you fix this error? it's been failing all day",
     "F12 shows undefined is not an object",
     'File "main.py", line 42, in <module>',
-    "diagnose the slow query",
+]
+
+# Iter 212f — debug verbs paired with a *target* (repo / file / flow /
+# auth / api) now route to Mode C, not D. Mode C gets repo context and
+# can call tools; Mode D doesn't. We use the route-level classifier for
+# this assertion since `is_debug_request` deliberately ignores them.
+REAL_AGENT_FIRES = [
+    # `debug <target>` → Mode C (agentic)
+    ("debug the login flow",   "C"),
+    ("debug full repo",        "C"),
+    ("review the auth module", "C"),
+    # `scan` / `audit` → Mode E (auditor is also agentic, runs the
+    # mode-E auditor which reads code). Either C or E is acceptable
+    # for the user; D is the only bad outcome.
+    ("scan the codebase",      "E"),
 ]
 
 
@@ -78,6 +96,22 @@ def test_real_debug_signals_still_fire():
     assert not missed, (
         "Real debug signals NOT routing to Mode D — regression "
         f"would let real bug reports fall through to chat mode: {missed}"
+    )
+
+
+def test_agentic_debug_requests_route_to_mode_c():
+    """Iter 212f — `debug <target>` / `investigate <target>` etc. now
+    route to Mode C/E (agentic) instead of Mode D (which used to bail
+    with "insufficient signal"). Mode C/E both get repo context."""
+    from routers.chat import classify_intent
+    misrouted = []
+    for msg, expected in REAL_AGENT_FIRES:
+        m = classify_intent(msg, None)
+        if m != expected:
+            misrouted.append((msg, expected, m))
+    assert not misrouted, (
+        "Agentic debug verbs misrouted: "
+        f"{misrouted} — must route to the agentic mode noted, never D."
     )
 
 

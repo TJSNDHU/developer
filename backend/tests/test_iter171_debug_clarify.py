@@ -53,9 +53,17 @@ class TestConcreteSignalDetection(unittest.TestCase):
             )
 
     def test_is_debug_request_still_matches_intent(self):
-        # We still want to *route* into Mode D for the verb — we just
-        # want Mode D itself to clarify instead of LLM-bailing.
-        self.assertTrue(is_debug_request("debug this please"))
+        # Iter 212f — bare verb "debug" no longer fires Mode D on its
+        # own (was burning LLM calls only to bail with "insufficient
+        # signal to diagnose"). It now only fires Mode D when paired
+        # with a SOFT error signal (error/bug/broken/etc.) in the
+        # same message. "debug this please" lacks any such signal so
+        # is_debug_request returns False — the router will send it
+        # to Mode A (general chat) which can ask "what would you like
+        # me to debug?" instead.
+        self.assertFalse(is_debug_request("debug this please"))
+        # Paired with an actual error term, it still fires:
+        self.assertTrue(is_debug_request("debug this error please"))
 
 
 class TestClarifyShortCircuit(unittest.IsolatedAsyncioTestCase):

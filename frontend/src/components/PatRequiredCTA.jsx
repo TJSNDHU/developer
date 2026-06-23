@@ -10,11 +10,18 @@
  * Detection is intentionally conservative — we only fire when the
  * message contains multiple PAT signals so we never show the CTA on
  * incidental mentions of "GitHub" or "token".
+ *
+ * Iter 212f — if the active project already has a saved PAT
+ * (`project.has_pat === true`), we suppress the CTA entirely. The
+ * user already provided the token at project creation; the LLM was
+ * just rambling about PATs in its answer. Avoids the "add PAT twice"
+ * UX bug where users had to re-paste the same token after every
+ * GitHub-related question.
  */
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Key, ArrowRight } from "lucide-react";
-import { getActiveProjectId } from "./TabBar";
+import { getActiveProjectId, useActiveProject } from "./TabBar";
 
 const PAT_SIGNALS = [
   /\b401\b.*\b(github|bad credentials|authentication|unauthor)/i,
@@ -36,6 +43,14 @@ function needsPat(text) {
 
 export default function PatRequiredCTA({ text }) {
   const navigate = useNavigate();
+  const activeProject = useActiveProject();
+
+  // Iter 212f — if the project already has a saved PAT, the LLM
+  // talking about PATs is just commentary, not an actionable
+  // "you need to set this up" signal. Hide the CTA entirely so
+  // users aren't prompted to re-enter the token they already gave us.
+  if (activeProject?.has_pat) return null;
+
   if (!needsPat(text)) return null;
 
   const projectId = getActiveProjectId();

@@ -285,6 +285,12 @@ def classify_intent(message: str, f12_payload: Optional[dict]) -> str:
         # "deploy to vercel" fell through to Mode A because the C regex
         # required "my|the …repo|project|app|code|file" after the verb.
         r"\bdeploy to (vercel|netlify|render|fly|railway|heroku|aws|cloudflare|production|prod|staging)\b",
+        # Iter 212f — "debug full repo", "investigate the login flow",
+        # "review the auth module" → agentic mode that actually reads
+        # code. Previously these fell into Mode D which then bailed
+        # with the "insufficient signal" template. The {0,3} word gap
+        # lets natural phrasing pass ("debug *the login* flow").
+        r"\b(debug|diagnose|investigate|review|trace)\b(?:\s+\w+){0,3}\s+\b(repo|repository|codebase|project|app|backend|frontend|file|folder|module|flow|auth|chat|api|router|endpoint)\b",
     ]
     for p in c_patterns:
         if _re_mode.search(p, message or "", _re_mode.IGNORECASE):

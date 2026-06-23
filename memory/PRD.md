@@ -6362,3 +6362,72 @@ weren't enough to anchor attention.
 
 ---
 
+
+### Iter 212f — PAT dedupe + Debug routing (CORE fixes) (Feb 2026) ✅
+
+**Two unrelated core bugs reported via the dogfood project**:
+
+#### 🔧 Fix 1 — "Add PAT" prompted twice
+
+`PatRequiredCTA.jsx` rendered the inline "Add PAT" CTA purely from
+regex matching the LLM's reply text. So any ORA answer that
+mentioned "personal access token" twice triggered the CTA — even
+when the project ALREADY had a saved PAT. Users were re-pasting
+the same token every chat.
+
+**Fix**: `PatRequiredCTA` now consults `useActiveProject().has_pat`.
+If the project has a PAT, the component returns null before the
+regex check runs. Backend already returns `has_pat: bool` on
+`/projects/list` (Iter 206), so no API change needed.
+
+#### 🔧 Fix 2 — "debug" / "debug full repo" got the "insufficient signal" template
+
+Bare `debug` / `diagnose` / `investigate` were HARD_DEBUG_SIGNALS
+in `mode_d_debugger.py` — they fired Mode D unconditionally, which
+then bailed with `"ROOT CAUSE: insufficient signal to diagnose"`
+because there was no stack trace to work with. Useless reply.
+
+**Fix**:
+- Removed bare `debug` / `diagnose` / `investigate` from HARD signals.
+  They're still in `DEBUG_ACTION_VERBS`, so pairing with a SOFT
+  error signal still fires D (e.g. "debug this 401").
+- Added a new Mode-C pattern in `classify_intent`:
+  `\b(debug|diagnose|investigate|review|trace)\b(?:\s+\w+){0,3}\s+\b(repo|repository|codebase|project|app|backend|frontend|file|folder|module|flow|auth|chat|api|router|endpoint)\b`
+- `debug full repo` / `debug the login flow` / `review the auth module`
+  now route to Mode C (agentic — reads code, can call tools).
+- `scan the codebase` / `audit the backend` already route to Mode E
+  (the auditor — also agentic) which is fine.
+- Bare `debug` with no target → Mode A so the LLM can clarify
+  ("what would you like me to debug?").
+
+#### Conversation diagnosis sent to user
+
+The user's broken conversation had THREE failures:
+1. **"you have fool access?"** → mis-routed to Mode D (likely a
+   stale F12 payload from a previous tab). Reply was the canned
+   "Invalid GitHub PAT format" template that fires when Mode D's
+   PAT-error path triggers. Fix 1 + Fix 2 together prevent this
+   class of mis-routing.
+2. **"tested?"** → Mode A (or C) LLM hallucinated about
+   `test_iter91_github_oauth_creds.py` without reading it.
+   CitationGuard CORRECTLY emitted the "Possible unsourced citations"
+   warning (Iter 209 behavior is unchanged), but it's a warning not
+   a block. Strengthening this to a hard re-prompt is a separate
+   Iter 213 task.
+3. **"debug" / "debug full repo"** → Fix 2 above.
+
+**Verified**: 66/66 backend tests pass (10 new Iter 212f + 56 prior).
+
+**Files touched**:
+- `frontend/src/components/PatRequiredCTA.jsx` — has_pat short-circuit.
+- `backend/services/mode_d_debugger.py` — HARD signals slimmed.
+- `backend/routers/chat.py` — new Mode-C pattern for `debug <target>`.
+- `backend/tests/test_iter212f_pat_dedupe_and_debug_routing.py` (new)
+- `backend/tests/test_iter171_debug_clarify.py` — flipped assertion.
+- `backend/tests/test_iter162_mode_d_tightening.py` — moved 4 phrases
+  from REAL_DEBUG_FIRES to a new REAL_AGENT_FIRES list.
+
+**Commit**: `fix(chat): hide Add-PAT CTA when project has PAT + route 'debug <target>' to agent mode`
+
+---
+

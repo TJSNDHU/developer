@@ -78,11 +78,15 @@ HARD_DEBUG_SIGNALS = [
     r"\bFile\s+\"[^\"]+\",\s+line\s+\d+",                            # py traceback
     r"\bundefined is not\b|\bcannot read prop\b|\bcannot read properties\b",
     r"\bf12 (says|shows|caught|reports|has)\b",
-    # Explicit debug-action verbs as standalone intent. If the user
-    # types "debug X" or "diagnose Y" we ALWAYS take them at their word.
-    r"\bdebug\b",
-    r"\bdiagnose\b",
-    r"\binvestigate\b",
+    # Iter 212f — REMOVED bare `\bdebug\b` / `\bdiagnose\b` /
+    # `\binvestigate\b` from the HARD list. On their own these are
+    # ambiguous: "debug" with no target burns an LLM call and the
+    # diagnoser bails with "insufficient signal to diagnose", which
+    # users (rightly) find useless. They are still in DEBUG_ACTION_VERBS,
+    # so they still pair-fire Mode D when a SOFT error signal is in the
+    # same message. A standalone "debug full repo" now routes through
+    # Mode C (agentic — read code, look at recent commits) where the
+    # LLM can actually do work instead of templating a refusal.
 ]
 
 # SOFT signals — need to be PAIRED with a debug action verb to fire D
