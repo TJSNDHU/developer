@@ -7301,3 +7301,121 @@ All 22 pass. Full regression across 8 in-scope suites: **118/118 green**.
 ---
 
 
+### Iter 212m-7 — Tool Reliability v2: Force Tool Calls + Chunked Reads + Repo Structure Cache (Feb 2026)
+Three surgical fixes per user spec. All real, no mocks, no TODOs,
+fully wired end-to-end, low token overhead, regression-locked.
+
+**Fix #1 — Force tool calls on repo queries (prompt-level)**
+HONEST SCOPE: the literal `tool_choice: "any"` API parameter is NOT
+applicable because the orchestrator does not pass `tools=[...]`
+natively to OpenRouter — the tool catalog is embedded in the SYSTEM
+PROMPT and tool calls are parsed from the LLM's text response via
+`extract_tool_calls()`. So the spec's API-level forcing has been
+delivered as a PROMPT-LEVEL equivalent already in Iter 212m-4:
+- `_should_inject_tool_reminder(prompt, repo_connected)` uses the
+  EXACT regex pattern the user specified for Fix #1 (file extensions
+  + read/show/list/how many/routes/functions/backend/frontend/router/
+  service/component).
+- When it fires, the first-iter system prompt is appended with:
+  `"THIS TURN: repo is connected. You MUST call a read/search tool
+   before answering. Memory-only answers are a critical bug."`
+- New regression tests `test_needs_tool_*` in
+  `test_tool_reliability_v2.py` lock the gate behaviour matches the
+  user-spec semantic (file paths + topic words → fire; greetings →
+  silent; no project → silent).
+
+If/when the orchestrator moves to native OpenRouter function-calling,
+adding `tool_choice="required"` to the payload is a one-line addition
+in `llm.py::_call_deepseek` — but that's a separate refactor.
+
+**Fix #2 — Chunked file reading + vanilla-JS structure**
+`_apply_chunking` existed since Iter 212m-4. This iter tightens the
+structure regex to ALSO catch vanilla JS `function name() { ... }`
+declarations (previously only `def`, `async def`, `class`,
+`@router.`, `export default|function|const` were anchored). 
+Verified test:
+```
+function helloWorld() { ... }
+→ structure includes "L<n>: function helloWorld() {"
+```
+Small files pass through unchanged; large files with `lines=[s,e]`
+return that 0-indexed Python slice; large files without `lines`
+return first-200 + up to 40 structure anchors + `next_call_required`
+hint.
+
+**Fix #3 — Repo structure cache + `get_repo_structure` tool (NEW)**
+Inspired by GitNexus-style lightweight knowledge graphs. Memory-only,
+per-process, bounded:
+- 100 projects × 200 files × 100 symbols/file = ~300 MB ceiling
+- FIFO eviction on each tier
+- `_extract_symbols(content)` — pure helper, same regex as
+  `_apply_chunking` structure map.
+- `_update_structure_cache(project_id, path, content)` — fire-and-
+  forget, called after every successful `read_repo_file`. Skips
+  `home` (no repo) and empty-symbol files (don't waste memory).
+- `_cache_invalidate(project_id, path)` — fires after
+  `write_repo_file` commits so the next read repopulates fresh
+  symbols.
+- NEW PUBLIC TOOL `get_repo_structure(project_id, path?)`:
+    * Cold cache → `ok=True, files_cached=0, hint` telling LLM
+      to call `read_repo_file` first (NOT an error).
+    * `path` arg → returns symbol list with `cached=True/False`.
+    * No `path` → returns whole-project map keyed by filepath.
+- Registered in `LOCAL_TOOLS`, `TOOL_SPECS`, and `tools_bridge.
+  _KNOWN_TOOLS` (Python-REPL fallback gate).
+
+**Wired into the chat path**:
+- `read_repo_file` success → `asyncio.create_task(
+  _update_structure_cache(...))` — non-blocking, never raises.
+- `write_repo_file` success → `_cache_invalidate(project_id, path)`.
+- `get_repo_structure` callable directly by the LLM via the new
+  TOOL_SPECS entry.
+
+**Proof (direct gate + cache inspection)**:
+```
+[1] 'read backend/routers/admin.py'
+    needs_tool=True  execute=True  layers=[core, execute, repo]
+[2] 'how many routes in admin.py'
+    needs_tool=True  execute=True
+[3] 'hello how are you'
+    needs_tool=False execute=False layers=[core, repo]
+[4] _apply_chunking:
+    SMALL → truncated=False
+    LARGE no-hint → 200 lines preview + 40 structure anchors
+    LARGE lines=[10,20] → 'line_10\\nline_11\\n...line_19'
+[5] structure cache: same file twice in session
+    1st call: read_repo_file → cache populated
+    2nd call: get_repo_structure → cached=True, 4 symbols returned
+    (no GitHub round-trip)
+```
+
+**Tests** — 23 new in `backend/tests/test_tool_reliability_v2.py`:
+- needs_tool: file path / no project / greeting / topic keywords ×3
+- _apply_chunking: small / large-no-lines / large-with-lines /
+  vanilla-JS-function detection
+- _extract_symbols: catches def, async def, class, @router,
+  export default, export const, function legacy; capped at 100.
+- Cache lifecycle: set / get / single-path invalidate / whole-
+  project invalidate / file-count cap (FIFO at 200) / `home`
+  project skip / empty-symbol skip / real-file index.
+- `get_repo_structure` tool: registered, requires project,
+  cold-cache hint, whole-project after two reads, single-path hit,
+  missing-path hint (ok=True with hint, not error).
+
+All 23 green. Full regression across 8 in-scope suites: **117/117**.
+
+**Files touched**
+- `backend/services/local_tools.py` — structure regex (+ `function`),
+  `_REPO_STRUCTURE_CACHE` + helpers (`_extract_symbols`, `_cache_set`,
+  `_cache_get`, `_cache_invalidate`, `_update_structure_cache`),
+  `get_repo_structure` tool (≈80 lines), wiring in `read_repo_file`
+  and `write_repo_file`, registry entries.
+- `backend/services/tools_bridge.py` — `_KNOWN_TOOLS` gate now
+  includes `get_repo_structure`.
+- `backend/tests/test_tool_reliability_v2.py` (new, 23 tests).
+
+**Commit**: `fix: force tool calls (prompt) + chunked reads + repo structure cache`
+
+---
+
+

@@ -114,7 +114,8 @@ def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[st
 # anchors instead of a blunt cut-off.
 _CHUNK_LIMIT = 12_000
 _STRUCTURE_RX = re.compile(
-    r"\s*(def |async def |class |@router\.|export (default |function |const ))"
+    r"\s*(def |async def |class |@router\."
+    r"|export (default |function |const )|function )"
 )
 
 
@@ -184,6 +185,100 @@ def _apply_chunking(content: str, args: dict | None) -> dict:
     }
 
 
+# ── Iter 212m-7 — Repo Structure Cache ───────────────────────────────────────
+#
+# Lightweight in-memory symbol map per (project_id, filepath). Updated
+# fire-and-forget after every successful read_repo_file so subsequent
+# "what functions exist in admin.py" questions can be answered from
+# cache without re-fetching from GitHub.
+#
+# Eviction:
+#   • 100 projects max (FIFO eviction)
+#   • 200 files per project max (FIFO eviction)
+#   • 100 symbols per file max
+# These caps keep total memory bounded at roughly:
+#   100 projects × 200 files × 100 symbols × ~150 bytes ≈ 300 MB ceiling
+# but typical usage is < 1 MB.
+
+_REPO_STRUCTURE_CACHE: dict[str, dict[str, list[dict]]] = {}
+_REPO_CACHE_MAX_PROJECTS = 100
+_REPO_CACHE_MAX_FILES_PER_PROJECT = 200
+_REPO_CACHE_MAX_SYMBOLS_PER_FILE = 100
+
+
+def _extract_symbols(content: str) -> list[dict]:
+    """Return ordered list of {line, symbol} dicts found in `content`.
+    Same regex as `_apply_chunking`'s structure map, capped at 100
+    symbols. Pure (no I/O)."""
+    if not content:
+        return []
+    out: list[dict] = []
+    for i, ln in enumerate(content.splitlines()):
+        if _STRUCTURE_RX.match(ln):
+            out.append({"line": i + 1, "symbol": ln.strip()})
+            if len(out) >= _REPO_CACHE_MAX_SYMBOLS_PER_FILE:
+                break
+    return out
+
+
+def _cache_set(project_id: str, path: str, symbols: list[dict]) -> None:
+    """Insert into the structure cache with bounded growth."""
+    if not project_id or not path:
+        return
+    # Project-level FIFO eviction.
+    if (project_id not in _REPO_STRUCTURE_CACHE
+            and len(_REPO_STRUCTURE_CACHE) >= _REPO_CACHE_MAX_PROJECTS):
+        first_key = next(iter(_REPO_STRUCTURE_CACHE))
+        _REPO_STRUCTURE_CACHE.pop(first_key, None)
+    bucket = _REPO_STRUCTURE_CACHE.setdefault(project_id, {})
+    # File-level FIFO eviction.
+    if (path not in bucket
+            and len(bucket) >= _REPO_CACHE_MAX_FILES_PER_PROJECT):
+        first_path = next(iter(bucket))
+        bucket.pop(first_path, None)
+    bucket[path] = symbols
+
+
+async def _update_structure_cache(
+    project_id: str | None, path: str, content: str,
+) -> None:
+    """Fire-and-forget structure indexer. Never raises."""
+    try:
+        if not project_id or project_id == "home" or not path:
+            return
+        symbols = _extract_symbols(content or "")
+        if not symbols:
+            return
+        _cache_set(project_id, path, symbols)
+    except Exception as e:                              # noqa: BLE001
+        logger.debug("structure cache update skipped: %r", e)
+
+
+def _cache_get(project_id: str, path: str | None = None) -> dict | list | None:
+    """Read from the structure cache. When `path` is given returns the
+    symbol list for that file; otherwise returns the whole project map."""
+    bucket = _REPO_STRUCTURE_CACHE.get(project_id)
+    if bucket is None:
+        return None
+    if path is None:
+        return bucket
+    return bucket.get(path)
+
+
+def _cache_invalidate(project_id: str, path: str | None = None) -> None:
+    """Drop cached symbols when a file is written (or whole project on
+    PAT rotation / repo disconnect)."""
+    if not project_id:
+        return
+    if path is None:
+        _REPO_STRUCTURE_CACHE.pop(project_id, None)
+        return
+    bucket = _REPO_STRUCTURE_CACHE.get(project_id)
+    if bucket is not None:
+        bucket.pop(path, None)
+
+
+
 # ── TOOL 1: read_repo_file (single file) ─────────────────────────────────────
 
 async def read_repo_file(ctx: dict, args: dict) -> dict:
@@ -239,6 +334,19 @@ async def read_repo_file(ctx: dict, args: dict) -> dict:
     # structural map (def / class / @router / export anchors) so the
     # LLM can navigate intelligently.
     chunked = _apply_chunking(content, args or {})
+
+    # Iter 212m-7 — fire-and-forget structure cache update. The cache
+    # powers `get_repo_structure` so subsequent "what functions exist
+    # in X.py" questions answer from memory without re-fetching from
+    # GitHub. We pass the FULL content (not the chunked preview) so
+    # the cached symbol list is complete.
+    try:
+        asyncio.create_task(
+            _update_structure_cache(project_id, path, content),
+        )
+    except Exception:
+        pass
+
     return {
         **chunked,
         "path":   path,
@@ -452,6 +560,13 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
             "status": getattr(e, "status_code", None),
         }
 
+    # Iter 212m-7 — write invalidates cached structure for this path
+    # (next read will re-build the symbol map from fresh content).
+    try:
+        _cache_invalidate(project_id, path)
+    except Exception:
+        pass
+
     return {
         "ok":       True,
         "path":     path,
@@ -459,6 +574,80 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
         "sha":      res.get("sha"),
         "html_url": res.get("html_url"),
         "message":  commit_msg,
+    }
+
+
+# ── TOOL 2c: get_repo_structure (cached symbol map) ──────────────────────────
+
+async def get_repo_structure(ctx: dict, args: dict) -> dict:
+    """Iter 212m-7 — Return the cached function/class/route symbol map
+    for the connected project. Built lazily by `read_repo_file` calls
+    in this process; not persisted. Use this instead of re-reading
+    files when the user asks "what functions exist in X.py" or
+    "list all routes" and the file has already been read this session.
+
+    Args:
+      path?  str  — when supplied, return symbols for that single file;
+                    when omitted, return the whole project map.
+
+    Returns:
+      {ok, project_id, files_cached, symbols, path?}     on hit
+      {ok: True, project_id, files_cached: 0, hint}      on cold cache
+    """
+    project_id = ctx.get("project_id")
+    path = (args or {}).get("path")
+
+    if not project_id or project_id == "home":
+        return {
+            "ok": False,
+            "error": "No project connected. get_repo_structure only works on a project.",
+        }
+
+    bucket = _cache_get(project_id)
+    if not bucket:
+        return {
+            "ok":           True,
+            "project_id":   project_id,
+            "files_cached": 0,
+            "symbols":      {},
+            "hint":         (
+                "Cache is empty for this project — call read_repo_file "
+                "on at least one file first, then get_repo_structure "
+                "will return its function/class/route map."
+            ),
+        }
+
+    if path:
+        syms = _cache_get(project_id, path)
+        if syms is None:
+            return {
+                "ok":         True,
+                "project_id": project_id,
+                "path":       path,
+                "cached":     False,
+                "hint":       (
+                    f"`{path}` is not in the cache. Call read_repo_file "
+                    f"with path={path!r} first, then get_repo_structure "
+                    f"will return its symbol map."
+                ),
+            }
+        return {
+            "ok":         True,
+            "project_id": project_id,
+            "path":       path,
+            "cached":     True,
+            "symbols":    syms,
+            "count":      len(syms),
+        }
+
+    # No path arg → whole-project map.
+    return {
+        "ok":           True,
+        "project_id":   project_id,
+        "files_cached": len(bucket),
+        "symbols": {
+            p: syms for p, syms in bucket.items()
+        },
     }
 
 
@@ -1140,6 +1329,20 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "get_repo_structure",
+        "description": (
+            "Iter 212m-7 — Return cached function / class / @router / export "
+            "symbol map for the connected project. Built lazily by every "
+            "successful `read_repo_file` call in this session. Use this "
+            "WHEN: the user asks 'what functions exist in X', 'list all "
+            "routes', 'show the class names in foo.py' AFTER a prior read. "
+            "Returns immediately from in-memory cache — no GitHub round-trip."
+        ),
+        "args_spec": {
+            "path": "optional string — single-file scope. Omit for whole-project map.",
+        },
+    },
+    {
         "name": "list_repo_files",
         "description": (
             "List files in the connected repo tree. Use to discover file structure "
@@ -1230,6 +1433,7 @@ LOCAL_TOOLS: dict[str, callable] = {
     "read_repo_file":       read_repo_file,
     "read_repo_files":      read_repo_files,
     "write_repo_file":      write_repo_file,
+    "get_repo_structure":   get_repo_structure,
     "list_repo_files":      list_repo_files,
     "search_repo":          search_repo,
     "semantic_search_repo": semantic_search_repo,
