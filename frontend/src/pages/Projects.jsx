@@ -409,6 +409,38 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   // form so the OAuth path can collect it cleanly.
   const [repoPat, setRepoPat] = useState("");
 
+  // Iter 212d — Free-form `owner/repo` input. The OAuth picker is
+  // limited to the active github.com session's repos; for a true
+  // multi-account flow the user MUST be able to type any repo string
+  // and have the PAT decide access. This is the source-of-truth path;
+  // the OAuth picker is now a convenience shortcut that just fills
+  // `manualRepo` for the user.
+  const [manualRepo, setManualRepo] = useState("");
+
+  // Iter 212d — derive the canonical repo identity from EITHER the
+  // free-form text input OR the OAuth picker selection. Manual entry
+  // wins because it lets the user reach repos in accounts that aren't
+  // the active OAuth session.
+  function _parseManualRepo(raw) {
+    const s = (raw || "").trim()
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/\.git$/i, "")
+      .replace(/\/+$/, "");
+    const parts = s.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    return {
+      full_name: `${parts[0]}/${parts[1]}`,
+      name: parts[1],
+      url: `https://github.com/${parts[0]}/${parts[1]}`,
+      default_branch: "main",
+      private: false,
+      _source: "manual",
+    };
+  }
+  const effectiveRepo = manualRepo.trim()
+    ? _parseManualRepo(manualRepo)
+    : selectedRepo;
+
   // Iter 212 — Debounced PAT verification.
   // After 800ms of no typing, if format is valid AND a repo is picked,
   // we POST /cto/projects/verify-pat (stateless GitHub check) and show
@@ -423,7 +455,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
   useEffect(() => {
     const trimmed = (repoPat || "").trim();
     // Reset on no PAT / no repo.
-    if (!trimmed || !selectedRepo) {
+    if (!trimmed || !effectiveRepo) {
       setPatCheck({ status: "idle", error: null, detail: "", scopes: [] });
       return;
     }
@@ -441,7 +473,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
       setPatCheck({ status: "loading", error: null, detail: "", scopes: [] });
       try {
         const r = await api.post("/cto/projects/verify-pat", {
-          repo: selectedRepo.full_name,
+          repo: effectiveRepo.full_name,
           pat:  trimmed,
         });
         const d = r.data || {};
@@ -467,7 +499,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
       }
     }, 800);
     return () => clearTimeout(id);
-  }, [repoPat, selectedRepo]);
+  }, [repoPat, effectiveRepo?.full_name]);
 
   // Iter 212 — show ALL repos in the picker (no filtering). Already-
   // connected repos are marked with a "Connected" pill and disabled
@@ -539,7 +571,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
 
   // OAuth path — submit straight from the repo card.
   async function handleConnectRepo() {
-    if (!selectedRepo) return;
+    if (!effectiveRepo) return;
     const trimmedPat = (repoPat || "").trim();
     if (!trimmedPat) {
       toast({ message: "Paste a GitHub PAT for this repo first.", kind: "warn" });
@@ -555,12 +587,12 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
     setBusy(true);
     try {
       await api.post("/cto/projects/add", {
-        name: selectedRepo.name,
-        github_url: selectedRepo.url || `https://github.com/${selectedRepo.full_name}`,
-        branch: selectedRepo.default_branch || "main",
+        name: effectiveRepo.name,
+        github_url: effectiveRepo.url || `https://github.com/${effectiveRepo.full_name}`,
+        branch: effectiveRepo.default_branch || "main",
         github_token: trimmedPat,
       });
-      toast({ message: `Connected ${selectedRepo.name} — PAT verified ✓`, kind: "success" });
+      toast({ message: `Connected ${effectiveRepo.name} — PAT verified ✓`, kind: "success" });
       onAdded();
     } catch (e2) {
       toast({ message: e2?.response?.data?.detail || "Connect failed", kind: "error" });
@@ -863,118 +895,155 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
               Select a repository
             </p>
             <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px" }}>
-              Choose which repo ORA should work on.
+              Type any <code style={{ background: "rgba(255,255,255,0.06)",
+                                       padding: "1px 6px", borderRadius: 4,
+                                       fontFamily: "'JetBrains Mono', monospace",
+                                       fontSize: 11 }}>owner/repo</code>
+              {" "}— ORA works on any GitHub repo your PAT can read.
             </p>
 
             <RobotGuide
               testid="proj-robot-guide-step2"
               kind={busy ? "info" : "success"}
               message={
-                reposLoading
-                  ? `Loading your GitHub repos…`
-                  : busy
-                    ? `Connecting <strong>${escapeHtml(selectedRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
-                    : selectedRepo
-                      ? patCheck.status === "ok"
-                        ? `Token verified ✓ — hit <strong>Connect repo</strong> below and I&rsquo;ll wire <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> up. <span class="ora-arrow">👇</span>`
-                        : patCheck.status === "loading"
-                          ? `Checking your token against <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong>… <span class="ora-arrow">⏳</span>`
-                          : patCheck.status === "error"
-                            ? `Token didn&rsquo;t pass — ${escapeHtml(patCheck.detail || "try a fresh one")}. Generate a new PAT above <span class="ora-arrow">👆</span> and paste again.`
-                            : `Nice — <strong>${escapeHtml(selectedRepo.full_name || selectedRepo.name)}</strong> picked. Now click <strong>Open GitHub → Create PAT</strong> below <span class="ora-arrow">👇</span>, set <strong>Contents: Read &amp; Write</strong>, and paste the token here.`
-                      : availableRepos.length === 0
-                        ? `No repos visible to this token. Re-authorize GitHub with broader access, or <strong>Switch GitHub account</strong> from Step 1.`
-                        : `Connected as <strong>@${escapeHtml(ghStatus.login || "you")}</strong>! Pick a repo below <span class="ora-arrow">👇</span> — then I&rsquo;ll walk you through creating a PAT.`
+                busy
+                  ? `Connecting <strong>${escapeHtml(effectiveRepo?.name || "repo")}</strong>… <span class="ora-arrow">⏳</span>`
+                  : effectiveRepo
+                    ? patCheck.status === "ok"
+                      ? `Token verified ✓ — hit <strong>Connect repo</strong> below and I&rsquo;ll wire <strong>${escapeHtml(effectiveRepo.full_name)}</strong> up. <span class="ora-arrow">👇</span>`
+                      : patCheck.status === "loading"
+                        ? `Checking your token against <strong>${escapeHtml(effectiveRepo.full_name)}</strong>… <span class="ora-arrow">⏳</span>`
+                        : patCheck.status === "error"
+                          ? `Token didn&rsquo;t pass — ${escapeHtml(patCheck.detail || "try a fresh one")}. Generate a new PAT below <span class="ora-arrow">👇</span> and paste again.`
+                          : `Repo set to <strong>${escapeHtml(effectiveRepo.full_name)}</strong>. Now click <strong>Open GitHub → Create PAT</strong> below <span class="ora-arrow">👇</span> and paste the token here.`
+                    : `Type the <strong>owner/repo</strong> below <span class="ora-arrow">👇</span> — works for <em>any</em> GitHub account, not just @${escapeHtml(ghStatus.login || "you")}.`
               }
             />
 
+            {/* Iter 212d — PRIMARY repo input is a free-form text field.
+                Works for ANY repo on ANY GitHub account as long as the
+                PAT below grants access. Decouples repo selection from
+                the OAuth session, which only knew about @{login}'s
+                repos. */}
+            <label style={{ display: "grid", gap: 6, marginTop: 14, marginBottom: 14 }}>
+              <span style={{ fontSize: 11, color: "var(--text-dim)",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                Repo (owner/name)
+              </span>
+              <input
+                data-testid="proj-step2-repo-input"
+                type="text"
+                autoComplete="off" autoCorrect="off" spellCheck={false}
+                value={manualRepo}
+                onChange={(e) => {
+                  setManualRepo(e.target.value);
+                  // Typing into the text field clears any picker
+                  // selection so `effectiveRepo` has one unambiguous
+                  // source. Selecting from the picker below will
+                  // overwrite `manualRepo` for the same reason.
+                  if (selectedRepo) setSelectedRepo(null);
+                }}
+                placeholder="octocat/Hello-World  •  or paste https://github.com/owner/repo"
+                className="input"
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+                  borderColor:
+                    manualRepo && !effectiveRepo ? "rgba(239,68,68,0.4)" :
+                    effectiveRepo                ? "rgba(245,158,11,0.4)" :
+                    undefined,
+                }}
+              />
+              {manualRepo && !effectiveRepo && (
+                <span style={{ fontSize: 11, color: "#ef4444" }}>
+                  Use the format <code>owner/repo</code> (e.g.{" "}
+                  <code>octocat/Hello-World</code>).
+                </span>
+              )}
+            </label>
+
             {reposLoading && (
               <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>
-                Loading your repos…
+                Loading your @{ghStatus.login || "you"} repos…
               </div>
             )}
 
-            <div data-testid="proj-repo-picker"
-                 style={{ display: "flex", flexDirection: "column", gap: 8,
-                          marginBottom: 16, maxHeight: 260, overflowY: "auto" }}>
-              {availableRepos.map((repo) => {
-                const isSel = selectedRepo?.full_name === repo.full_name;
-                const isConn = isRepoConnected(repo);
-                return (
-                  <button
-                    key={repo.full_name}
-                    type="button"
-                    data-testid={`proj-repo-row-${repo.full_name}`}
-                    disabled={isConn}
-                    onClick={() => !isConn && setSelectedRepo(repo)}
-                    title={isConn ? "Already connected as a project" : ""}
-                    style={{
-                      width: "100%", padding: "12px 14px",
-                      background: isSel ? "rgba(245,158,11,0.06)"
-                                        : "var(--bg-elev, rgba(255,255,255,0.03))",
-                      border: isSel ? "2px solid #f59e0b"
-                                    : "0.5px solid var(--border, rgba(255,255,255,0.08))",
-                      borderRadius: 8,
-                      cursor: isConn ? "not-allowed" : "pointer",
-                      opacity: isConn ? 0.45 : 1,
-                      display: "flex", alignItems: "center", gap: 10, textAlign: "left",
-                    }}>
-                    {repo.private
-                      ? <Lock size={16} style={{ color: "var(--text-dim)" }} />
-                      : <FolderGit2 size={16} style={{ color: "var(--text-dim)" }} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text)",
-                                   margin: 0, whiteSpace: "nowrap", overflow: "hidden",
-                                   textOverflow: "ellipsis" }}>
-                        {repo.name}
-                      </p>
-                      <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0,
-                                   fontFamily: "'JetBrains Mono', monospace" }}>
-                        {repo.full_name}{" · "}
-                        {repo.private ? "private · " : ""}
-                        {repo.default_branch || "main"}
-                      </p>
-                    </div>
-                    {isConn ? (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, color: "#22c55e",
-                        background: "rgba(34,197,94,0.12)",
-                        border: "0.5px solid rgba(34,197,94,0.3)",
-                        padding: "3px 8px", borderRadius: 999,
-                        fontFamily: "'JetBrains Mono', monospace",
-                        letterSpacing: "0.04em", textTransform: "uppercase",
-                      }}>Connected</span>
-                    ) : (
-                      isSel && <Check size={16} style={{ color: "#f59e0b" }} />
-                    )}
-                  </button>
-                );
-              })}
-              {!reposLoading && !repos.length && (
-                <div style={{ fontSize: 12, color: "var(--text-faint)",
-                               padding: "16px 0", textAlign: "center" }}>
-                  No repos visible to this token. Re-authorize with broader access.
+            {/* Secondary helper — the OAuth-derived repo list (only
+                shown when there's something to pick AND nothing typed
+                yet). Clicking a row fills `manualRepo` so the user
+                always sees the canonical owner/repo string. */}
+            {!manualRepo && availableRepos.length > 0 && (
+              <details
+                data-testid="proj-step2-oauth-picker-details"
+                style={{ marginBottom: 14 }}
+                open={availableRepos.length <= 6}>
+                <summary style={{
+                  fontSize: 11, color: "var(--text-faint)",
+                  cursor: "pointer", userSelect: "none",
+                  padding: "6px 0",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.04em", textTransform: "uppercase",
+                }}>
+                  Or pick from your @{ghStatus.login || "you"} repos ({availableRepos.length})
+                </summary>
+                <div data-testid="proj-repo-picker"
+                     style={{ display: "flex", flexDirection: "column", gap: 8,
+                              marginTop: 8, maxHeight: 220, overflowY: "auto" }}>
+                  {availableRepos.map((repo) => {
+                    const isConn = isRepoConnected(repo);
+                    return (
+                      <button
+                        key={repo.full_name}
+                        type="button"
+                        data-testid={`proj-repo-row-${repo.full_name}`}
+                        disabled={isConn}
+                        onClick={() => {
+                          if (isConn) return;
+                          // Fill the manual input so the user always
+                          // sees a single canonical source.
+                          setManualRepo(repo.full_name);
+                          setSelectedRepo(repo);
+                        }}
+                        title={isConn ? "Already connected as a project" : ""}
+                        style={{
+                          width: "100%", padding: "10px 12px",
+                          background: "var(--bg-elev, rgba(255,255,255,0.03))",
+                          border: "0.5px solid var(--border, rgba(255,255,255,0.08))",
+                          borderRadius: 8,
+                          cursor: isConn ? "not-allowed" : "pointer",
+                          opacity: isConn ? 0.45 : 1,
+                          display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                        }}>
+                        {repo.private ? <Lock size={14} /> : <Github size={14} />}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, color: "var(--text)",
+                                        overflow: "hidden", textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap" }}>
+                            {repo.full_name}
+                          </div>
+                          {repo.description && (
+                            <div style={{ fontSize: 11, color: "var(--text-faint)",
+                                          overflow: "hidden", textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap" }}>
+                              {repo.description}
+                            </div>
+                          )}
+                        </div>
+                        {isConn && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: "#22c55e",
+                            background: "rgba(34,197,94,0.12)",
+                            border: "0.5px solid rgba(34,197,94,0.3)",
+                            padding: "3px 8px", borderRadius: 999,
+                            fontFamily: "'JetBrains Mono', monospace",
+                            letterSpacing: "0.04em", textTransform: "uppercase",
+                          }}>Connected</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-
-            {selectedRepo && (
-              <div style={{
-                background: "rgba(245,158,11,0.06)",
-                border: "0.5px solid rgba(245,158,11,0.2)",
-                borderRadius: 8, padding: "10px 14px", marginBottom: 12,
-                display: "flex", alignItems: "center", gap: 8,
-              }}>
-                <Info size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
-                <p style={{ fontSize: 12, color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
-                  ORA will read{" "}
-                  <strong style={{ color: "var(--text)" }}>{selectedRepo.name}</strong>{" "}
-                  and commit fixes directly to{" "}
-                  <strong style={{ color: "var(--text)" }}>
-                    {selectedRepo.default_branch || "main"}
-                  </strong>.
-                </p>
-              </div>
+              </details>
             )}
 
             {/* Iter 212 — PAT entry surface inside Step 2.
@@ -983,13 +1052,13 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                 walks them through the GitHub flow; the big amber CTA
                 deep-links straight to GitHub's PAT creation page with
                 the project name pre-filled. */}
-            {selectedRepo && (
+            {effectiveRepo && (
               <div data-testid="proj-step2-pat-block"
                    style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                 <a
                   href={
                     "https://github.com/settings/personal-access-tokens/new" +
-                    "?name=" + encodeURIComponent(`ORA · ${selectedRepo.name}`) +
+                    "?name=" + encodeURIComponent(`ORA · ${effectiveRepo.name}`) +
                     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
                     "&expiration=" + encodeURIComponent("90")
                   }
@@ -1011,7 +1080,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                   margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.6,
                   color: "var(--text-dim, #94a3b8)",
                 }}>
-                  <li><strong style={{ color: "var(--text)" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{selectedRepo.full_name}</code>.</li>
+                  <li><strong style={{ color: "var(--text)" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{effectiveRepo.full_name}</code>.</li>
                   <li><strong style={{ color: "var(--text)" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>Contents: Read and write</code>.</li>
                   <li>Click <em>Generate token</em>, copy it, and paste below.</li>
                 </ol>
@@ -1104,14 +1173,14 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
               <button type="button"
                       data-testid="proj-connect-repo-btn"
                       onClick={handleConnectRepo}
-                      disabled={!selectedRepo || patCheck.status !== "ok" || busy}
+                      disabled={!effectiveRepo || patCheck.status !== "ok" || busy}
                       style={{
                         flex: 1, padding: "10px 0",
-                        background: selectedRepo && patCheck.status === "ok" && !busy ? "#f59e0b"
+                        background: effectiveRepo && patCheck.status === "ok" && !busy ? "#f59e0b"
                                                           : "var(--bg-elev, rgba(255,255,255,0.06))",
-                        color: selectedRepo && patCheck.status === "ok" && !busy ? "#0a0e1a" : "var(--text-faint)",
+                        color: effectiveRepo && patCheck.status === "ok" && !busy ? "#0a0e1a" : "var(--text-faint)",
                         border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600,
-                        cursor: selectedRepo && patCheck.status === "ok" && !busy ? "pointer" : "default",
+                        cursor: effectiveRepo && patCheck.status === "ok" && !busy ? "pointer" : "default",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}>
                 {busy ? "Connecting…"

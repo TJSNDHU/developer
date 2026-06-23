@@ -259,13 +259,12 @@ def test_frontend_renders_three_status_pills():
 
 
 def test_connect_button_gated_on_verified_pat():
-    """The Connect button must be disabled until patCheck.status === 'ok'."""
+    """The Connect button must be disabled until patCheck.status === 'ok'.
+
+    Iter 212d note: the gate now uses `effectiveRepo` (manual text
+    input OR OAuth picker) instead of `selectedRepo` alone."""
     assert 'patCheck.status !== "ok"' in PROJECTS_JSX
-    # Pre-Iter-212 gate was `!repoPat.trim()`. Make sure the disabled
-    # check no longer relies on raw text presence alone.
-    # (The verify effect itself still references repoPat.trim, so we
-    # only check the Connect button's disabled clause.)
-    assert "disabled={!selectedRepo || patCheck.status !== \"ok\" || busy}" in PROJECTS_JSX
+    assert "disabled={!effectiveRepo || patCheck.status !== \"ok\" || busy}" in PROJECTS_JSX
 
 
 def test_robot_guide_stagec_only_after_verification():

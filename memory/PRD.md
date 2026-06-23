@@ -6272,3 +6272,66 @@ accidentally connecting projects to the wrong cached account.
 
 ---
 
+
+### Iter 212d — REAL FIX: Step 2 free-form owner/repo input (Feb 2026) ✅
+
+**Root cause finally understood**: GitHub OAuth's `prompt=select_account`
+parameter is silently IGNORED by GitHub. So even after Iter 212c forced
+a "fresh OAuth" CTA, the popup always returned the active github.com
+session's account (@RerootsBeauty in user's case). Step 2 then only
+showed THAT account's repos — and they were all already connected
+→ dead-end.
+
+**The true fix**: decouple repo selection from OAuth. The PAT is the
+real source of access — let the user TYPE any `owner/repo` and let
+the backend verify against the PAT. OAuth picker survives as a
+shortcut, not a blocker.
+
+**Changes**:
+
+1. **`Projects.jsx` — new `manualRepo` state** drives a free-form text
+   input at the TOP of Step 2 (`data-testid="proj-step2-repo-input"`).
+   Accepts both `owner/repo` short form and full `https://github.com/...`
+   URLs (parses both via `_parseManualRepo`).
+2. **`effectiveRepo` derives from `manualRepo` first**, falling back to
+   the OAuth picker selection. Single canonical source.
+3. **OAuth picker demoted** to a collapsed `<details>` element labeled
+   "Or pick from your @{login} repos ({n})". Clicking a row mirrors
+   the choice into the text input.
+4. **Robot guide rewritten**: "Type the owner/repo below 👇 — works
+   for *any* GitHub account, not just @{login}".
+5. **`handleConnectRepo` + verify-pat effect + Connect-button gate**
+   all switched from `selectedRepo` → `effectiveRepo`.
+6. **Step-2 PAT block** also keyed to `effectiveRepo` (PAT creation
+   link auto-fills the user-typed repo name in the GitHub URL).
+
+**E2E proof on preview**:
+- ✅ Step 1 — "Continue with GitHub" primary, no @login leaked.
+- ✅ Manual PAT mode — entered `octocat/Hello-World` (NOT the cached
+  account's repo) + a fake PAT.
+- ✅ Backend hit GitHub, returned typed `invalid_token` error.
+- ✅ Toast: "GitHub rejected the PAT (401/403). Regenerate it...".
+- ✅ Modal preserved, no broken project persisted.
+- ✅ Tested live `curl` against verify-pat: `octocat/Hello-World`
+  + `nonexistent-org-x/repo-x` both return correct typed errors.
+
+**Tests** — 40/40 pass:
+- `test_iter212d_step2_manual_repo_input.py` (11 new) — manualRepo
+  state, effectiveRepo derivation, parser, picker demotion, click
+  mirroring, handler/effect rewiring, button gate, `_parse_repo`
+  short-form support.
+- `test_iter212b_verify_pat_endpoint.py` — updated stale
+  `selectedRepo` assertion to `effectiveRepo`.
+- `test_iter212_force_reauth_and_step2_pat.py` — updated stale
+  "Pick a repo below" assertion to "Type the owner/repo".
+
+**Files touched**:
+- `frontend/src/pages/Projects.jsx`
+- `backend/tests/test_iter212d_step2_manual_repo_input.py` (new)
+- `backend/tests/test_iter212b_verify_pat_endpoint.py` (1 assertion)
+- `backend/tests/test_iter212_force_reauth_and_step2_pat.py` (1 assertion)
+
+**Commit**: `fix(projects): step 2 accepts any owner/repo — decouples from OAuth session`
+
+---
+

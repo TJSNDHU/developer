@@ -89,12 +89,16 @@ def test_step2_pat_github_link_targets_pat_creation_page():
 
 
 def test_robot_guide_step2_has_two_stage_messaging():
-    """FIX 2 — robot guide branches on `selectedRepo` for stage-a vs
-    stage-b messaging. Stage-a: "Pick a repo"; Stage-b: "Now click
-    Open GitHub → Create PAT"."""
-    # Stage-a hint
-    assert re.search(r"Pick a repo below", PROJECTS_JSX), "stage-a hint missing"
-    # Stage-b hint mentions PAT creation
+    """Iter 212/212d — robot guide branches on `effectiveRepo` for
+    stage-a vs stage-b vs stage-c messaging.
+
+    Stage A (no repo yet): "Type the owner/repo below"
+    Stage B (repo set, PAT empty): "Open GitHub → Create PAT"
+    Stage C (verified): "Token verified ✓"
+    """
+    # Stage-a hint (Iter 212d copy — "Type the owner/repo").
+    assert re.search(r"Type the .*?owner/repo", PROJECTS_JSX), "stage-a hint missing"
+    # Stage-b hint mentions PAT creation.
     assert re.search(r"Open GitHub.*?Create PAT", PROJECTS_JSX), "stage-b CTA copy missing"
 
 
