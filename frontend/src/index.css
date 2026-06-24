@@ -328,6 +328,33 @@ body.aurem-glass #root {
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   border-top: 1px solid rgba(255, 200, 120, 0.10);
+  /* Iter 212m-15 — composer must always sit on its own stacking
+     context above the scrollable message list so a long inline
+     Monaco code block can never intercept clicks on the textarea. */
+  position: relative;
+  z-index: 4;
+  isolation: isolate;
+}
+
+/* Iter 212m-15 — Monaco hardening inside chat bubbles.
+   The hidden aria announce container + textarea Monaco creates for
+   accessibility are absolutely positioned and `tabindex=0` by
+   default. With long code blocks they could overlap the chat
+   composer in some layouts and steal pointer events. We:
+     1. Zero their pointer hit area (they're announce-only)
+     2. Drop their stacking so the composer always wins
+     3. Force their visible Editor to stay inside its bubble */
+.aurem-monaco-wrap .monaco-aria-container,
+.aurem-monaco-wrap .inputarea.ime-input {
+  pointer-events: none !important;
+}
+.aurem-monaco-wrap .monaco-editor,
+.aurem-monaco-wrap .monaco-editor .overflow-guard,
+.aurem-monaco-wrap .monaco-scrollable-element {
+  z-index: 0 !important;
+}
+.aurem-monaco-wrap {
+  contain: paint;
 }
 
 /* Iter 147 — unified composer card. Textarea + toolbar share one

@@ -337,9 +337,13 @@ async def _run_warm_agents(
 
     async def _mark_done(agent: str) -> None:
         try:
+            # Iter 212m-15 — $addToSet (not $push) so the outer
+            # `_bounded` wrapper can safely re-mark a timed-out agent
+            # without double-counting and pushing the progress bar
+            # past 100%.
             await db.warm_start_jobs.update_one(
                 {"job_id": job_id},
-                {"$push": {"agents_done": agent}},
+                {"$addToSet": {"agents_done": agent}},
             )
         except Exception:
             pass
@@ -464,10 +468,30 @@ async def _run_warm_agents(
             await _mark_done("graph")
 
     try:
+        # Iter 212m-15 — Cap every warm-start agent at 12s so a slow LLM
+        # call inside the graph builder can't keep the progress bar stuck
+        # at 80% (4/5 done). `_mark_done` always fires from each agent's
+        # finally block; the outer wait_for here is the hard ceiling for
+        # the whole job. Any agent that exceeds it is silently abandoned
+        # (logged via the agent's own except path) — its data was never
+        # critical for the next chat turn anyway, the brain/structure
+        # agents that DID complete already populate the context cache.
+        async def _bounded(coro, label: str) -> None:
+            try:
+                await asyncio.wait_for(coro, timeout=12.0)
+            except asyncio.TimeoutError:
+                logger.warning("warm-start %s agent: timed out after 12s", label)
+                await _mark_done(label)
+            except Exception as e:
+                logger.warning("warm-start %s agent: %r", label, e)
+                await _mark_done(label)
+
         await asyncio.gather(
-            agent_brain(), agent_recent(),
-            agent_structure(), agent_stack(),
-            agent_graph(),
+            _bounded(agent_brain(),     "brain"),
+            _bounded(agent_recent(),    "recent"),
+            _bounded(agent_structure(), "structure"),
+            _bounded(agent_stack(),     "stack"),
+            _bounded(agent_graph(),     "graph"),
             return_exceptions=True,
         )
         await db.warm_start_jobs.update_one(

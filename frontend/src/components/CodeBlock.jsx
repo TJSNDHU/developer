@@ -76,6 +76,13 @@ export default function CodeBlock({ language, code, filename }) {
       position: "relative", margin: "12px 0", borderRadius: 8,
       border: "1px solid var(--border)", overflow: "hidden",
       background: "#1e1e1e",
+      // Iter 212m-15 — scope Monaco's absolutely-positioned overlay
+      // widgets (scrollable-element, aria-container) so they can never
+      // bleed out of the bubble and steal pointer events from the
+      // chat composer below.
+      isolation: "isolate",
+      contain: "layout paint style",
+      zIndex: 0,
     }}>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -112,6 +119,16 @@ export default function CodeBlock({ language, code, filename }) {
           overflowX: "auto", background: "#1e1e1e",
         }}>{code}</pre>
       }>
+        {/* Iter 212m-15 — tabIndex=-1 + aria-hidden wrapper prevents
+            Monaco's hidden focus-stealing spans (monaco-aria-container,
+            monaco-scrollable-element) from showing up in the document
+            tab order or intercepting pointer events on the composer. */}
+        <div
+          tabIndex={-1}
+          aria-hidden="false"
+          className="aurem-monaco-wrap"
+          style={{ position: "relative", isolation: "isolate" }}
+        >
         <MonacoEditor
           height={height}
           defaultLanguage={lang}
@@ -140,6 +157,7 @@ export default function CodeBlock({ language, code, filename }) {
             renderWhitespace: "none",
           }}
         />
+        </div>
       </Suspense>
     </div>
   );

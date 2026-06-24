@@ -7558,3 +7558,94 @@ leaving the chat. The Deploy banner appears the instant a task hits
 ---
 
 
+### Iter 212m-15 — Warm-start timeout cap + Monaco overlay isolation (Feb 2026) ✅
+
+Two follow-ups from the testing-agent run (test_reports/iteration_10.json).
+Both pinned with backend regression tests so they can't regress silently.
+
+**Bug 1 — Loading bar stuck at 80%**
+The warm-start job fans out 5 background agents (`brain`, `recent`,
+`structure`, `stack`, `graph`). Progress is computed as
+`len(agents_done) / len(agents_total)`. The graph agent calls
+`_llm_describe_files` with a **25s LLM timeout** — wider than the
+frontend's 1.5s × 40-tick poll budget (60s). When that LLM call dragged,
+the four fast agents marked done immediately, sat at 80% for 20-30s,
+then snapped out either at "ready" or "idle" without ever rendering 100%.
+Users perceived the bar as "stuck".
+
+Fix in `backend/routers/cto_projects.py::_run_warm_agents`:
+1. **`_bounded(coro, label)` wrapper** — wraps each of the 5 agents in
+   `asyncio.wait_for(timeout=12.0)`. Any agent that exceeds 12s is
+   silently abandoned (logged) and `_mark_done(label)` fires anyway so
+   the progress bar can still reach 100%.
+2. **`$addToSet` instead of `$push`** on `agents_done` — both the
+   agent's own `finally` block AND the bounded wrapper's timeout branch
+   call `_mark_done`. Idempotent insert means a double-mark can never
+   inflate progress past `1.0`.
+
+Fix in `frontend/src/hooks/useWarmStart.js`:
+- When the poll sees `ready=true`, **explicitly call `setProgress(1)`
+  first**, then defer the `setStatus("ready")` transition by 250ms via
+  `setTimeout`. React paints the 100% frame before `WarmStatusBar`
+  returns `null` and unmounts. Cleaner UX, no perceived snap.
+
+**Bug 2 — Monaco editor inside chat bubbles overlapping the chat composer**
+Monaco creates several absolutely-positioned overlay nodes inside its
+DOM (`.monaco-scrollable-element`, `.monaco-aria-container`,
+`inputarea.ime-input`). With long inline code blocks the
+`monaco-aria-container` was intercepting Playwright (and screen-reader
+synthetic) clicks on the chat textarea below. Real keyboard users could
+also lose composer focus when tabbing through the page.
+
+Fix in `frontend/src/components/CodeBlock.jsx`:
+- Outer container gets `isolation: isolate`, `contain: "layout paint
+  style"`, and `zIndex: 0` — Monaco's overlay widgets now live in a
+  scoped stacking context that can't bleed up to siblings.
+- The `<MonacoEditor>` is wrapped in a div with
+  `className="aurem-monaco-wrap"`, `tabIndex={-1}` and
+  `position: relative; isolation: isolate;` — the wrapper is also the
+  CSS hook we target to disable pointer events on the announce-only
+  containers.
+
+Fix in `frontend/src/index.css`:
+- `.glass-composer` gets `position: relative; z-index: 4; isolation:
+  isolate;` — the composer now wins any z-index race against inline
+  message content.
+- New scoped rules disable `pointer-events` on
+  `.aurem-monaco-wrap .monaco-aria-container` and `.inputarea.ime-input`
+  (they're announce-only / hidden), and force the visible Monaco
+  layers to `z-index: 0`.
+
+**Tests** — 7 new in
+`backend/tests/test_iter212m15_warmstart_timeout_and_monaco_overlay.py`:
+- `$addToSet` is the only mark-done verb (regression-pin against
+  re-introducing `$push`)
+- Every agent goes through `_bounded(...)` with `timeout=12.0`
+- TimeoutError handler still calls `_mark_done(label)`
+- `useWarmStart.js` sets `progress(1)` before the deferred ready
+  transition
+- `CodeBlock.jsx` isolates stacking + wraps Monaco in
+  `aurem-monaco-wrap` + `tabIndex={-1}`
+- `.glass-composer` has `z-index: 4` + `isolation: isolate`
+- `.aurem-monaco-wrap .monaco-aria-container { pointer-events: none }`
+  is shipped
+
+All 7 green. 33 of 34 pre-existing warm-start / graph regression tests
+also green (one pre-existing failure on a deleted `WARM CONTEXT`
+orchestrator literal — unrelated to this iter).
+
+**Files touched**
+- `backend/routers/cto_projects.py` — `_bounded` wrapper + `$addToSet`
+  for `agents_done`.
+- `frontend/src/hooks/useWarmStart.js` — `setProgress(1)` + deferred
+  `setStatus("ready")`.
+- `frontend/src/components/CodeBlock.jsx` — stacking context +
+  `aurem-monaco-wrap`.
+- `frontend/src/index.css` — `.glass-composer` z-index/isolation +
+  `.aurem-monaco-wrap` pointer-events scoping.
+- `backend/tests/test_iter212m15_warmstart_timeout_and_monaco_overlay.py`
+  (NEW, 7 tests).
+
+---
+
+

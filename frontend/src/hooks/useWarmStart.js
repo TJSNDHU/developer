@@ -69,8 +69,19 @@ export function useWarmStart(projectId) {
             const sd = s?.data || {};
             setProgress(typeof sd.progress === "number" ? sd.progress : 0);
             if (sd.ready) {
-              cleanup();
-              setStatus("ready");
+              // Iter 212m-15 — when the job finishes mark progress at
+              // 100% explicitly then transition to "ready" on the next
+              // tick so the bar visually fills before WarmStatusBar
+              // unmounts (was previously snapping out at 80% if the
+              // last agent's $addToSet hadn't been read yet).
+              setProgress(1);
+              if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+              }
+              ticksRef.current = 0;
+              jobRef.current = null;
+              setTimeout(() => setStatus("ready"), 250);
             } else if (sd.status === "failed") {
               cleanup();
               setStatus("idle");
