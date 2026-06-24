@@ -7812,3 +7812,112 @@ All 18 green.
 ---
 
 
+### Iter 212m-18 — GLM-5.2 primary + Claude watchdog + SSE step streaming (Feb 2026) ✅
+
+Three intertwined features shipped together:
+
+**Part 1 — GLM-5.2 callable from llm.py**
+New model slug `z-ai/glm-5.2` (overridable via `GLM_MODEL` env) wired
+through OpenRouter using the same auth + retry pattern as
+`_call_claude`. The new `_call_glm(system, user, max_tokens,
+temperature)` returns the assistant content string and falls back to
+DeepSeek if `OPENROUTER_API_KEY` is missing (graceful degrade — never
+hard-fails the chat path).
+
+**Part 2 — Review-mode routing in `call_llm_with_meta`**
+New keyword argument `review_mode` accepts `"swift"` / `"pro"` /
+`"maxx"`. When set, the legacy DeepSeek/Claude routing is bypassed and
+the call is dispatched per the founder's spec:
+
+  • **Swift** — GLM-5.2 only. Zero Claude calls under any condition.
+    `provider="glm-5.2"`, `fallback_chain=["glm-5.2"]`.
+  • **Pro** — GLM-5.2 first. If GLM returns empty OR raises, fall back
+    to Claude Sonnet so the user never sees a blank reply.
+    `provider="claude-sonnet-pro-fallback"` on fallback,
+    `fallback_chain=["glm-5.2","claude-sonnet"]`.
+  • **Maxx** — GLM-5.2 produces a draft; Claude is then handed the
+    draft inside a `"Review and improve this code:"` prompt and the
+    improved version is what ships. Two LLM calls per turn. If Claude
+    review fails, returns the GLM draft as-is (never blanks).
+    `provider="glm-5.2+claude-review"`,
+    `fallback_chain=["glm-5.2","claude-sonnet-review"]`.
+
+Maxx-budget gate still applies on Pro/Maxx — when free/starter users
+hit the cap, the mode silently degrades to Swift (GLM only) instead of
+charging overage. Pro+ keep Claude as fallback with overage tracked.
+
+**Part 3 — SSE step streaming**
+The orchestrator now accepts a `step_hook(text: str, done: bool=False)`
+callback fired at real phase boundaries:
+  - `"🤔 Thinking…"` — initial frame + before each LLM call
+  - `"🔍 Claude reviewing & improving…"` — Maxx mode Claude pass
+  - `"⚙️ GLM empty — falling back to Claude…"` — Pro fallback
+  - `"📖 Reading repo/URL/web…"` — read tool dispatch
+  - `"✍️ Writing files…"` — write tool dispatch
+  - `"🚀 Committing/Shipping/Handing off…"` — commit / ship tools
+  - `"✅ Done"` — final return, `done=True`
+
+The chat SSE worker registers `_step(text, done)` that pushes
+`{"type":"step","text":...,"done":...}` onto the event queue. The
+consumer loop forwards each as `data: {"type":"step","text":"…",
+"done":false}` to the browser, so the live progress indicator now
+shows real orchestrator phases instead of a generic "thinking…" tick.
+
+Tool→label mapping lives in `services/orchestrator.py::_STEP_LABELS`
+(read tools → 📖, write tools → ✍️, commit/ship tools → 🚀, anything
+else → "⚙️ Running {tool_name}…"). The label is fired the moment the
+tool actually dispatches — no fake delays.
+
+**Live verification on preview** (all three modes hit a real GLM /
+Claude call against the founder account's OpenRouter key):
+- Swift smoke — `provider=glm-5.2`, steps `[🤔, 🤔, ✅]`.
+- Pro smoke — `provider=glm-5.2` (GLM returned non-empty so no Claude
+  fallback was needed), steps `[🤔, 🤔, ✅]`.
+- Maxx smoke — `provider=glm-5.2+claude-review`, steps `[🤔, 🤔,
+  🔍 Claude reviewing & improving…, ⚙️ Running get_repo_info…, 🤔,
+  🔍 Claude reviewing…, ✅ Done]` — TWO LLM calls visible per turn as
+  spec'd.
+
+**Tests** — 16 new in
+`backend/tests/test_iter212m18_glm_primary_claude_watchdog_sse_steps.py`:
+- `_GLM_MODEL == "z-ai/glm-5.2"` (env default pin)
+- `_call_glm` exists
+- Swift → GLM only, Claude never called
+- Pro happy path → GLM only
+- Pro fallback path → GLM empty → Claude, `glm-5.2`+`claude-sonnet`
+  fallback chain
+- Pro fallback when GLM raises → Claude
+- Maxx → both GLM AND Claude called, Claude receives the GLM draft
+  inside its user prompt with "review/improve" instruction
+- Maxx Claude-fails → returns GLM draft (`provider=glm-5.2-no-review`)
+- Maxx GLM-empty → Claude answers directly (`claude-sonnet-maxx-direct`)
+- Legacy chat-mode (no `review_mode` arg) still goes to DeepSeek —
+  unchanged behaviour for callers not yet migrated
+- `step_hook` fires 🤔 in Swift and 🔍 review in Maxx
+- Orchestrator plumbs `review_mode` + `step_hook` down to
+  `call_llm_with_meta` (static-source pin)
+- Tool dispatch in orchestrator fires `_step_label_for_tool` (static pin)
+- Chat SSE worker registers `_step` callback + forwards
+  `{"type":"step", "text":..., "done":...}` frames to the client
+  (static pin)
+
+All 16 green. 46/46 across 212m-15..18 green. Backend healthy, hot-reload
+clean.
+
+**Files touched**
+- `backend/services/llm.py` — `_GLM_MODEL`, `_call_glm`, expanded
+  `call_llm_with_meta(review_mode, step_hook)` with the three-mode
+  routing block.
+- `backend/services/orchestrator.py` — `_STEP_LABELS` +
+  `_step_label_for_tool` helper, plumbed `step_hook` + `review_mode`
+  through `chat_with_tools` → `call_llm_with_meta` on both the main
+  iter call and the CitationGuard retry, ✅ Done emit on success return.
+- `backend/routers/chat.py` — SSE worker registers `_step(text, done)`
+  callback, queues `step` events, consumer-loop branch forwards them
+  as `data: {"type":"step", "text":"…", "done":bool}`.
+- `backend/tests/test_iter212m18_glm_primary_claude_watchdog_sse_steps.py`
+  (NEW, 16 tests).
+
+---
+
+

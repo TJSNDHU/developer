@@ -1692,6 +1692,23 @@ async def chat_stream(
                 _orig_activity_hook = activity.__setitem__
                 def _activity(label: str):
                     activity["label"] = label
+                # Iter 212m-18 — Steps queue. The orchestrator fires the
+                # callback at real phase boundaries (LLM round, tool
+                # dispatch, final return) and we push each event onto
+                # the same SSE queue the worker uses for `tick` / `mode`
+                # frames. The router-side `while True:` consumer below
+                # ships these through to the browser as
+                # `data: {"type":"step", "text":"…", "done":false}`.
+                def _step(text: str, done: bool = False):
+                    try:
+                        q.put_nowait({
+                            "type": "step", "text": text, "done": bool(done),
+                        })
+                    except Exception:
+                        pass
+                # Initial 🤔 frame so the UI immediately moves off the
+                # generic "thinking…" tick.
+                _step("🤔 Thinking…")
                 result = await chat_with_tools(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
@@ -1704,6 +1721,7 @@ async def chat_stream(
                     activity_hook=_activity,
                     live_invocations_ref=_published,
                     mode=req_mode_stream,
+                    step_hook=_step,
                 )
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):
@@ -1837,6 +1855,18 @@ async def chat_stream(
                 # Iter 42 — forward classified mode (A/B/C/D/E) to UI so
                 # the pill renders BEFORE tokens stream.
                 yield f"data: {json.dumps({'type': 'mode', 'mode': ev['mode']})}\n\n"
+            elif ev["type"] == "step":
+                # Iter 212m-18 — orchestrator phase event ("🤔 Thinking…",
+                # "📖 Reading repo…", "✍️ Writing files…", "🚀 Committing…",
+                # "✅ Done"). Streamed verbatim — frontend renders these
+                # in the live progress strip.
+                yield (
+                    "data: " + json.dumps({
+                        "type": "step",
+                        "text": ev.get("text", ""),
+                        "done": bool(ev.get("done", False)),
+                    }) + "\n\n"
+                )
             elif ev["type"] == "error":
                 yield f"data: {json.dumps({'error': ev['error']})}\n\n"
                 return

@@ -184,6 +184,42 @@ POST_EDIT_HOOKS: dict[str, str] = {
     "tsx": "cd /app/frontend && yarn build 2>&1 | tail -20",
 }
 
+# Iter 212m-18 — tool-name → human-readable step label for the SSE
+# step stream. Buckets cover every observable orchestrator tool today;
+# anything we don't recognise falls back to a generic "running …" label
+# so the SSE consumer still sees a frame on every tool dispatch.
+_STEP_LABELS = {
+    # Read-from-repo / read-from-web → 📖
+    "read_repo_file":           "📖 Reading repo…",
+    "read_repo_files":          "📖 Reading repo…",
+    "list_repo_files":          "📖 Reading repo…",
+    "search_repo":              "📖 Searching repo…",
+    "semantic_search_repo":     "📖 Searching repo…",
+    "fetch_url":                "📖 Reading URL…",
+    "read_url":                 "📖 Reading URL…",
+    "web_search":               "📖 Searching web…",
+    "web_search_and_summarize": "📖 Searching web…",
+    "firecrawl_scrape":         "📖 Scraping web…",
+    "firecrawl_crawl_site":     "📖 Crawling web…",
+    # Write tools → ✍️
+    "write_repo_file":          "✍️ Writing files…",
+    "write_file":               "✍️ Writing files…",
+    "edit_file":                "✍️ Writing files…",
+    "create_file":              "✍️ Writing files…",
+    "patch_file":               "✍️ Writing files…",
+    "push_fix":                 "✍️ Writing files…",
+    # Commit / ship → 🚀
+    "github_commit":            "🚀 Committing…",
+    "aurem_ship":               "🚀 Shipping…",
+    "aurem_handoff":            "🚀 Handing off to CTO…",
+    "ship_via_cto":             "🚀 Handing off to CTO…",
+}
+
+
+def _step_label_for_tool(tool_name: str) -> str:
+    return _STEP_LABELS.get(tool_name, f"⚙️ Running {tool_name}…")
+
+
 # Tool names that produce write-side-effects on repo files.
 # Iter 212m-6 — `write_repo_file` is the canonical chat-mode write
 # tool. The others stay for compatibility with any external tools that
@@ -1297,6 +1333,8 @@ async def chat_with_tools(
     activity_hook=None,                 # iter 36: optional callback(label)
     live_invocations_ref: Optional[list] = None,  # see _worker timeout guard
     mode: str = "swift",                # Iter 153 — review mode (swift/pro/maxx)
+    step_hook=None,                     # Iter 212m-18 — optional callback(text, done=False)
+                                        # for SSE step events
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -1663,6 +1701,16 @@ async def chat_with_tools(
             transcript,
             max_tokens=token_budget, mode=llm_mode,
             user_id=user_id,
+            # Iter 212m-18 — Swift/Pro/Maxx routing.
+            #   swift → GLM only
+            #   pro   → GLM, fallback Claude on empty/error
+            #   maxx  → GLM then Claude review+improve
+            # `mode` here is the review-mode string from the chat
+            # router (clamped to the user's tier). When it's not one of
+            # the three, `call_llm_with_meta` falls through to legacy
+            # DeepSeek/Claude routing untouched.
+            review_mode=(mode if mode in {"swift", "pro", "maxx"} else None),
+            step_hook=step_hook,
         )
         content = meta.get("content") or ""
         final_provider = meta.get("provider") or final_provider
@@ -1770,6 +1818,8 @@ async def chat_with_tools(
                             retry_transcript,
                             max_tokens=token_budget, mode=llm_mode,
                             user_id=user_id,
+                            review_mode=(mode if mode in {"swift", "pro", "maxx"} else None),
+                            step_hook=step_hook,
                         )
                         return (retry_meta or {}).get("content", "") or ""
 
@@ -1855,6 +1905,15 @@ async def chat_with_tools(
             except Exception as _e:                          # noqa: BLE001
                 logger.warning("hallucination_guard wedged: %r", _e)
 
+            # Iter 212m-18 — final SSE step event so the chat UI can flip
+            # the step indicator to ✅ as soon as the orchestrator decides
+            # this iter produced the final answer.
+            if step_hook:
+                try:
+                    step_hook("✅ Done", True)
+                except Exception:
+                    pass
+
             return {
                 "ok": meta.get("ok", True),
                 "content": content,
@@ -1914,6 +1973,15 @@ async def chat_with_tools(
             if activity_hook:
                 try:
                     activity_hook(f"running {tool_name}…")
+                except Exception:
+                    pass
+            # Iter 212m-18 — surface a human-readable phase label to the
+            # SSE step stream so the chat UI shows "📖 Reading repo…" /
+            # "✍️ Writing files…" / "🚀 Committing…" at the moment the
+            # tool actually fires (not before, not on a fake delay).
+            if step_hook:
+                try:
+                    step_hook(_step_label_for_tool(tool_name))
                 except Exception:
                     pass
             res = await invoke_local_tool(tool_name, tool_args, local_ctx)
