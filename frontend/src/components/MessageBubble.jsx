@@ -26,6 +26,7 @@ import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
 import PatRequiredCTA from "./PatRequiredCTA";
 import SystemSignalBanner from "./SystemSignalBanner";
+import StepCards from "./StepCards";   // Iter 212m-19 — live step cards
 
 // ---- Helpers (only used here) ----------------------------------------------
 
@@ -675,6 +676,17 @@ export default function MessageBubble({
               display: "inline-flex", flexDirection: "column",
               gap: 6, minWidth: 220,
             }}>
+              {/* Iter 212m-19 — Live step cards.
+                  When the orchestrator (Iter 212m-18) is firing SSE
+                  step events, `m.steps` is populated. Render the
+                  stack of ✅/⏳ cards INSTEAD of the legacy generic
+                  "thinking…" line so the user sees ORA's plan
+                  executing in real time. The progress bar above
+                  still drives the overall % so we don't lose that
+                  signal. */}
+              {Array.isArray(m.steps) && m.steps.length > 0 && (
+                <StepCards steps={m.steps} streaming={!!m.streaming} />
+              )}
               {/* Iter 136/141 — Top-of-bubble progress line.
                  Iter 141 replaces the asymptotic time-based dummy
                  with REAL milestone progress driven by SSE events:
@@ -719,7 +731,10 @@ export default function MessageBubble({
                 );
               })()}
               <span data-testid="chat-thinking" style={{
-                display: "inline-flex", alignItems: "center", gap: 8,
+                display: Array.isArray(m.steps) && m.steps.length > 0
+                  ? "none"   // Iter 212m-19 — step cards subsume this
+                  : "inline-flex",
+                alignItems: "center", gap: 8,
                 color: "var(--text-faint)", fontStyle: "italic", fontSize: 13,
                 fontFamily: "'JetBrains Mono', monospace",
               }}>

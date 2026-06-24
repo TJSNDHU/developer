@@ -30,6 +30,7 @@ import TemperatureBadge from "./TemperatureBadge";
 import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
 import PostTaskScan from "./PostTaskScan";
+import LiveStepFloatingCard from "./LiveStepFloatingCard";  // Iter 212m-19
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
 // calls, and SSE stream control so each concern can be unit-tested
@@ -212,6 +213,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // Iter 212m-19 — Live step floating card. Tracks the steps + model
+  // + token estimate emitted during the current chat turn. Hidden
+  // until the first step lands; auto-hides 3s after the orchestrator
+  // signals `done`. The same `steps` data is mirrored into the
+  // streaming message's `steps` field for the in-bubble cards.
+  const [liveStepCard, setLiveStepCard] = useState(null);
   // Iter 131 — message-list toolbar state.
   // `hideOlder` collapses everything older than the last
   // HIDE_OLDER_THRESHOLD messages into a count badge (UI only — DB
@@ -1004,6 +1011,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       : null;
     lastF12PayloadRef.current = f12Payload;
 
+    // Iter 212m-19 — fresh floating-card session: clear any leftover
+    // steps from the previous turn so the new turn starts at zero.
+    setLiveStepCard({ steps: [], provider: null, tokens: 0, visible: true });
+
     await streamChat({
       prompt: finalPrompt,
       projectId: activeProject?.project_id || null,
@@ -1081,6 +1092,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         // the orchestrator. Anchor the bar at 15% so the user gets
         // immediate visual proof the backend is alive.
         if (m && m.provider) providerSeen = m.provider;
+        // Iter 212m-19 — surface model name on the floating card the
+        // moment the orchestrator returns its first meta frame.
+        if (m && m.provider) {
+          setLiveStepCard((cur) => cur ? { ...cur, provider: m.provider } : cur);
+        }
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1101,6 +1117,36 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // Iter 35/36: server emits periodic {thinking:true, elapsed_s, activity}
       // frames during the tool-call loop so we can show a live counter +
       // a status label ("running 3 tools in parallel…").
+      // Iter 212m-19 — Live step cards. Each SSE `{type:"step", text,
+      // done}` from the orchestrator (Iter 212m-18) lands here. We
+      // append to the streaming bubble's `steps` array AND fan it out
+      // to the floating-card state so the right-rail progress card
+      // can render in parallel.
+      onStep: (s) => {
+        const stepObj = {
+          text: s.text || "",
+          done: !!s.done,
+          ts:   Date.now(),
+        };
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            const steps = [...(last.steps || []), stepObj];
+            copy[copy.length - 1] = { ...last, steps };
+          }
+          return copy;
+        });
+        setLiveStepCard((cur) => {
+          const steps = [...((cur && cur.steps) || []), stepObj];
+          return {
+            steps,
+            provider: (cur && cur.provider) || null,
+            tokens:   (cur && cur.tokens)   || 0,
+            visible:  true,
+          };
+        });
+      },
       onThinking: (elapsed, activity, invocations) => {
         // Iter 167 — fan out file paths from tool invocations so the
         // KnowledgeGraph drawer can glow the nodes ORA is touching
@@ -1152,6 +1198,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onToken: (tok) => {
+        // Iter 212m-19 — rough live token count for the floating card
+        // footer ("glm-5.2 · 1.2k tokens"). Counts WORDS as a proxy
+        // since the backend doesn't emit a token count per chunk —
+        // good enough for the visible "X.Xk tokens" display.
+        setLiveStepCard((cur) => {
+          if (!cur) return null;
+          const added = (tok || "").length;
+          return { ...cur, tokens: (cur.tokens || 0) + Math.max(1, Math.round(added / 4)) };
+        });
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1196,6 +1251,29 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onDone: (d) => {
+        // Iter 212m-19 — mark the floating card done so it can
+        // auto-close 3s later, and finalise its model+token footer.
+        setLiveStepCard((cur) => {
+          if (!cur) return null;
+          const steps = cur.steps && cur.steps.length
+            ? (() => {
+                const lastIdx = cur.steps.length - 1;
+                // Only mutate if the tail isn't already a done frame.
+                if (cur.steps[lastIdx]?.done) return cur.steps;
+                const copy = cur.steps.slice();
+                copy[lastIdx] = { ...copy[lastIdx], done: true };
+                return copy;
+              })()
+            : cur.steps;
+          return {
+            ...cur,
+            steps,
+            provider: d.provider || cur.provider || null,
+            // Rough token estimate from the streaming bubble.
+            tokens: cur.tokens || 0,
+            visible: true,
+          };
+        });
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1234,6 +1312,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         setTimeout(() => taRef.current?.focus(), 80);
       },
       onError: (err) => {
+        // Iter 212m-19 — hide the floating card on error so it
+        // doesn't sit there with an in-progress ⏳ forever.
+        setLiveStepCard(null);
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1287,8 +1368,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
           transition: "flex 240ms cubic-bezier(0.4,0,0.2,1)",
+          position: "relative",   // Iter 212m-19 — anchor for floating card
         }}
       >
+      {/* Iter 212m-19 — Live step floating card. Pinned top-right of
+          the chat panel while ORA is processing; auto-closes 3s after
+          the orchestrator emits ✅ Done. Mirrors the same step events
+          rendered inline via <StepCards/> so the user can glance at
+          either spot. */}
+      {liveStepCard && liveStepCard.visible
+        && Array.isArray(liveStepCard.steps)
+        && liveStepCard.steps.length > 0 && (
+        <LiveStepFloatingCard
+          steps={liveStepCard.steps}
+          provider={liveStepCard.provider}
+          tokens={liveStepCard.tokens}
+          onClose={() => setLiveStepCard(null)}
+        />
+      )}
       {/* Iter 165 — Warm Start status bar. Renders while the 4
           background agents are pre-loading project context after a
           project select. Auto-hides on ready/idle. */}

@@ -7921,3 +7921,107 @@ clean.
 ---
 
 
+### Iter 212m-19 — Live step cards UI + floating progress card (Feb 2026) ✅
+
+Frontend half of the Iter 212m-18 SSE step pipeline. The orchestrator
+already emits `{type:"step", text, done}` frames; this iter consumes
+them and renders two complementary UI surfaces:
+
+**1. <StepCards/> inside the assistant bubble** (`StepCards.jsx`, NEW)
+Stack of cards rendered above the existing progress bar while ORA is
+streaming. Each card shows:
+  - ✅ for completed steps (everything except the tail)
+  - ⏳ for the in-progress step (animated, only while `streaming` is
+    true and the tail step's `done` flag is false)
+  - Monospace text, dark card, no per-card border-radius — they share
+    one rounded container so they visually connect like terminal log
+    lines. The card wrapper has `overflow: hidden` for the seam look.
+Mounted in `MessageBubble.jsx` (line ~673). The legacy
+`<span data-testid="chat-thinking">` "thinking · 1.2s" pill is
+collapsed (`display:none`) when `m.steps` is populated — the step
+cards subsume it.
+
+**2. <LiveStepFloatingCard/> pinned top-right of the chat panel**
+(`LiveStepFloatingCard.jsx`, NEW)
+Visible the moment the first step lands; auto-closes 3s after the
+orchestrator emits ✅ Done. Layout:
+  - Phase pills row — `[🤔 Thinking] [📖 Reading repo] [✍️ Writing]
+    [🚀 Committing] [✅ Done]`. The pill matching the most recent
+    step is highlighted (amber border + glow); pills for phases
+    that have appeared at least once are dimmed-green;
+    not-yet-reached pills are flat grey.
+  - Step log — newest at bottom, every step prefixed with `›`.
+  - Footer — `model · X.Xk tokens` (provider from the meta SSE
+    frame; token estimate from streamed chunks at ~4 chars/token).
+The pill mapping uses the emoji prefix on each step.text — the
+canonical labels from `orchestrator.py::_STEP_LABELS` make this
+stable.
+
+**Plumbing**
+- `lib/api.js#streamChat()` accepts new `onStep` callback and routes
+  `payload.type === "step"` frames to it.
+- `ChatPanel.jsx` registers `onStep` to append the step to BOTH the
+  streaming message's `steps` array AND a top-level `liveStepCard`
+  state. `setLiveStepCard({steps:[]…})` is reset at the start of
+  every `streamChat` call so a previous turn's steps never bleed
+  into the next.
+- `onMeta` updates `liveStepCard.provider` so the footer shows the
+  model name (`glm-5.2`, `claude-sonnet-pro-fallback`,
+  `glm-5.2+claude-review`, etc.) the moment the orchestrator's
+  meta frame lands — before tokens even start.
+- `onToken` increments a rolling token estimate for the footer.
+- `onDone` flips the tail step's `done:true` so
+  `LiveStepFloatingCard`'s 3s auto-close timer fires.
+- `onError` clears `liveStepCard` immediately so it doesn't sit there
+  with a stale ⏳.
+
+**Data-testid contract** (consumed by the testing agent and by the
+regression pins):
+- `step-cards`, `step-card-{idx}` — in-bubble stack
+- `live-step-floating-card` + `data-done="true|false"`
+- `live-step-phases`, `live-step-pill-{thinking|reading|writing|committing|done}`
+- `live-step-log`
+- `live-step-footer`, `live-step-model`, `live-step-tokens`
+
+**Tests** — 12 new in
+`backend/tests/test_iter212m19_live_step_cards_and_floating_card.py`:
+- `lib/api.js` accepts `onStep` + routes `type:"step"` frames
+- `StepCards.jsx` exists, exposes per-card testid, animates ⏳ on the
+  tail step, shows ✅ for finished, uses JetBrains Mono, container
+  has `overflow:hidden` (seam look)
+- `LiveStepFloatingCard.jsx` exists with all five phase pills, model
+  + token footer testids, `setTimeout` for 3s auto-close, `isDone`
+  state flip
+- Floating-card phase mapping covers every backend emoji prefix
+  (📖/✍️/🚀/✅/🔍/⚙️)
+- ChatPanel.jsx imports + renders `<LiveStepFloatingCard>` gated on
+  `liveStepCard.visible && steps.length > 0`
+- ChatPanel.jsx registers `onStep` handler, resets card on new turn,
+  feeds provider into the card via onMeta, flips tail `done:true` on
+  onDone, clears card on onError
+- MessageBubble.jsx imports + renders `<StepCards>` and hides the
+  legacy chat-thinking pill when `m.steps` is populated
+
+All 12 green. **58/58 across 212m-15 → 212m-19** green. Backend
+healthy, frontend lint clean (only pre-existing warnings on legacy
+hooks). Backend SSE step events confirmed live by Iter 212m-18 smoke
+(Swift `[🤔, 🤔, ✅]`, Maxx `[🤔, 🔍 Claude reviewing, ⚙️ Running
+get_repo_info, 🤔, 🔍, ✅ Done]`).
+
+**Files touched**
+- `frontend/src/lib/api.js` — `onStep` plumbed into `streamChat`.
+- `frontend/src/components/StepCards.jsx` (NEW, ~115 LOC).
+- `frontend/src/components/LiveStepFloatingCard.jsx` (NEW, ~175 LOC).
+- `frontend/src/components/ChatPanel.jsx` — `liveStepCard` state,
+  `onStep` registration, reset on new turn, provider/token
+  plumbing on onMeta/onToken, flip-done on onDone, clear on onError,
+  render `<LiveStepFloatingCard>` inside the chat-panel pane.
+- `frontend/src/components/MessageBubble.jsx` — `<StepCards>` import
+  + render inside the streaming bubble, legacy thinking pill
+  conditionally hidden when steps are present.
+- `backend/tests/test_iter212m19_live_step_cards_and_floating_card.py`
+  (NEW, 12 tests).
+
+---
+
+

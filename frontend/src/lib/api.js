@@ -111,7 +111,9 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     f12Payload = null,
                                     onMeta, onMode, onToken, onWatchdog, onWatchdogPending,
                                     onOpsRedirect,
-                                    onThinking, onTaskHandoff, onDone, onError, signal }) {
+                                    onThinking, onTaskHandoff, onDone, onError,
+                                    onStep,   // Iter 212m-19 — live step cards
+                                    signal }) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -152,6 +154,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.meta) onMeta?.(payload);
         else if (payload.type === "mode") onMode?.(payload);
+        else if (payload.type === "step") onStep?.(payload);   // Iter 212m-19
         else if (payload.type === "ops_redirect") onOpsRedirect?.(payload);
         else if (payload.type === "task_handoff") onTaskHandoff?.(payload);
         else if (payload.token) onToken?.(payload.token);
