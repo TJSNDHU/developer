@@ -1,0 +1,38 @@
+{
+  "summary": "Iter 212m-9 BYOH Deploy UI — full backend + frontend e2e validation passed. Backend: 13/13 unit tests + 11/11 live HTTP tests pass. Frontend: Preview→Deploy toggle, ConfigForm rendering, client-side PEM validation, vault-503 error surfacing, regression on view-toggle/close all verified. ShipDialog banner contract validated via source review (real done-state requires PAT/LLM tokens — out of scope per request).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m9_deploy_ui.py",
+    "/app/backend/tests/test_iter212m9_deploy_http.py",
+    "/app/test_reports/pytest/iter212m9_http.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DeployPanel.jsx is 680 lines — borderline but acceptable for now; consider splitting ConfigForm/Toolbar/LogStream into sub-files if the panel grows further (file-size heuristic threshold >700).",
+    "Save config currently shows the backend 503 (vault_unavailable) detail dict serialized inside deploy-cfg-error — UX-wise the message is human-readable but the JSON-stringified detail.msg field is what surfaces; this works because the implementation extracts .detail.msg. Verified live: error renders the friendly msg.",
+    "Hybrid fallback contract is correctly implemented: GET /config/{pid} returns scope='project' when project row exists, scope='user' on fallback, configured=false when neither exists. Private key is never returned in cleartext (masked to '••••...').",
+    "POST /deploy/run with project_id correctly persists project_id on the run row and uses the project-scoped host; verified by unit test test_run_uses_project_scoped_cfg_when_project_id_given.",
+    "Limit clamping (≤100) on /deploy/runs verified at HTTP layer (request limit=999999 returns ≤100 rows)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m9_deploy_http.py (NEW — 11 live HTTP integration tests against the preview backend)"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 — 13 unit + 11 HTTP)",
+    "frontend": "100% (8/8 critical UI checks: deploy-toggle visible, panel renders no_config, all 8 config testids present, save disabled when empty, non-PEM yields deploy-cfg-error, valid-PEM POST surfaces vault-503 in deploy-cfg-error, toggle off restores preview, view-toggle + preview-close regression pass)"
+  },
+  "test_credentials": "test@aurem.dev / AuremTest2026! (from /app/memory/test_credentials.md). Vault env AUREM_CTO_MASTER_KEY is intentionally unset on preview — POST /config returns 503 which is surfaced cleanly in deploy-cfg-error.",
+  "seed_data_creation": "None. Test user already has demo-app project pre-seeded.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend deploy router (routers/deploy.py) is locked by /app/backend/tests/test_iter212m9_deploy_ui.py (mocked, fast) and /app/backend/tests/test_iter212m9_deploy_http.py (live preview, ~2s). Use both as regression. DeployPanel UI is exercised end-to-end via Preview→Deploy toggle on demo-app for test@aurem.dev. The ship-deploy-banner is rendered conditionally on (shipState.status==='shipped' && taskInfo.status==='done' && activeProject.project_id && onOpenDeployTab) — reproducing a fully-done shipped chat task in CI is impractical without GitHub PAT + LLM creds; contract was verified by source inspection (lines 42-46, 126-165 of ShipDialog.jsx).",
+  "rca_of_the_issue": "No bugs found. All 24 backend tests + 8 frontend UI assertions pass. Implementation matches the contract documented in the review_request."
+}

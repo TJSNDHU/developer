@@ -15,7 +15,7 @@
  * Iter 62: extracted from ChatPanel.jsx as part of the P1 split.
  */
 import React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
 import ShipLintBadge from "./ShipLintBadge";
 import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
@@ -31,14 +31,28 @@ export default function ShipDialog({
   activeProject,
   onShip,
   onRollback,
+  onOpenDeployTab,
 }) {
   if (!handoffBrief) return null;
+
+  // Iter 212m-9 — "Code shipped — ready to go live?" reminder. Renders
+  // whenever the shipped task is fully done so the user can jump
+  // straight to the Deploy panel without hunting for the toolbar
+  // button.
+  const showDeployBanner = (
+    shipState.status === "shipped"
+    && taskInfo?.status === "done"
+    && !!activeProject?.project_id
+    && typeof onOpenDeployTab === "function"
+  );
 
   return (
     <div data-testid={`ship-cto-row-${idx}`} style={{
       marginTop: 10, paddingLeft: 4,
-      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+      display: "flex", alignItems: "stretch", gap: 10, flexWrap: "wrap",
+      flexDirection: "column",
     }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       {!canShip ? (
         <div style={{ fontSize: 11, color: "var(--text-faint)", fontStyle: "italic" }}>
           {exhausted
@@ -106,6 +120,48 @@ export default function ShipDialog({
         <span style={{ fontSize: 11, color: "var(--danger)" }}>
           {shipState.error}
         </span>
+      )}
+      </div>
+
+      {showDeployBanner && (
+        <div
+          data-testid={`ship-deploy-banner-${idx}`}
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 14px",
+            background: "linear-gradient(90deg, var(--accent-soft) 0%, transparent 100%)",
+            border: "1px solid var(--accent-2)",
+            borderRadius: 6,
+            flexWrap: "wrap",
+          }}
+        >
+          <Rocket size={14} color="var(--accent-2)" />
+          <span style={{
+            fontSize: 12, color: "var(--text)", fontWeight: 600,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            🚀 Code shipped — ready to go live?
+          </span>
+          <span style={{
+            fontSize: 11, color: "var(--text-dim)", flex: 1, minWidth: 120,
+          }}>
+            Push the merged commit to your server with one click.
+          </span>
+          <button
+            data-testid={`ship-deploy-banner-btn-${idx}`}
+            onClick={onOpenDeployTab}
+            style={{
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              background: "var(--accent-2)", color: "var(--bg)",
+              border: "1px solid var(--accent-2)", borderRadius: 4,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Open Deploy →
+          </button>
+        </div>
       )}
     </div>
   );

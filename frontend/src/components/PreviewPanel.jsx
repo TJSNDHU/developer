@@ -11,9 +11,10 @@
  * so any code rendered here cannot read parent state.
  */
 import React, { useMemo, useState } from "react";
-import { X, Copy, RefreshCw, Code2, Eye, ExternalLink, Loader2 } from "lucide-react";
+import { X, Copy, RefreshCw, Code2, Eye, ExternalLink, Loader2, Rocket } from "lucide-react";
 import { toast } from "./Toast";
 import { api } from "../lib/api";
+import DeployPanel from "./DeployPanel";
 
 const RENDERABLE = new Set([
   "html", "htm",
@@ -107,9 +108,9 @@ function buildIframeDoc(block) {
 </body></html>`;
 }
 
-export default function PreviewPanel({ blocks, onClose, activeProject }) {
+export default function PreviewPanel({ blocks, onClose, activeProject, initialViewMode }) {
   const [activeTab, setActiveTab] = useState(0);
-  const [viewMode, setViewMode] = useState("preview"); // 'preview' | 'code'
+  const [viewMode, setViewMode] = useState(initialViewMode || "preview"); // 'preview' | 'code' | 'deploy'
   const [refreshKey, setRefreshKey] = useState(0);
   // Iter 170c — Codebase browse mode.
   //   `codebase`        — { files: [{path, size}], owner, repo, branch } once loaded
@@ -283,6 +284,17 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
             live preview
           </span>
         )}
+        {viewMode === "deploy" && (
+          <span style={{
+            color: "var(--accent-2)",
+            fontSize: 10, letterSpacing: "0.18em",
+            fontFamily: "'JetBrains Mono', monospace",
+            textTransform: "uppercase", marginRight: 6,
+            flexShrink: 0,
+          }}>
+            🚀 deploy
+          </span>
+        )}
 
         {/* File tabs */}
         <div style={{
@@ -342,6 +354,8 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
             data-testid="preview-view-toggle"
             onClick={() => {
               setViewMode((v) => {
+                // From deploy → return to preview default
+                if (v === "deploy") return "preview";
                 const next = v === "preview" ? "code" : "preview";
                 if (next === "code") {
                   // If we only have live_url placeholders and a project
@@ -377,7 +391,26 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
           >
             {viewMode === "preview"
               ? <><Code2 size={11} /> Code</>
-              : <><Eye size={11} /> Preview</>}
+              : viewMode === "code"
+                ? <><Eye size={11} /> Preview</>
+                : <><Eye size={11} /> Preview</>}
+          </button>
+        )}
+        {activeProject?.project_id && (
+          <button
+            data-testid="preview-deploy-toggle"
+            onClick={() => setViewMode((v) => (v === "deploy" ? "preview" : "deploy"))}
+            className="btn-ghost"
+            style={{
+              padding: "4px 10px", fontSize: 11, flexShrink: 0,
+              background: viewMode === "deploy" ? "var(--accent-2)" : "transparent",
+              color:      viewMode === "deploy" ? "var(--bg)"        : "var(--text-dim)",
+              border: `1px solid ${viewMode === "deploy" ? "var(--accent-2)" : "var(--border)"}`,
+              borderRadius: 4,
+            }}
+            title="Deploy to your VPS"
+          >
+            <Rocket size={11} /> Deploy
           </button>
         )}
         <button
@@ -396,7 +429,9 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
 
       {/* Body */}
       <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-        {viewMode === "preview" && isLiveUrl ? (
+        {viewMode === "deploy" ? (
+          <DeployPanel activeProject={activeProject} />
+        ) : viewMode === "preview" && isLiveUrl ? (
           <iframe
             key={`liveurl-${block.code}-${refreshKey}`}
             data-testid="preview-iframe-live"
@@ -469,6 +504,7 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
       </div>
 
       {/* Footer */}
+      {viewMode !== "deploy" && (
       <div style={{
         display: "flex", gap: 8,
         padding: "6px 12px",
@@ -517,6 +553,7 @@ export default function PreviewPanel({ blocks, onClose, activeProject }) {
           }
         </span>
       </div>
+      )}
     </aside>
   );
 }

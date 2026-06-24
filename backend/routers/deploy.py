@@ -49,15 +49,13 @@ class DeployConfigBody(BaseModel):
     repo_path:    str = Field(..., min_length=1, max_length=255)
     branch:       str = Field("main", min_length=1, max_length=64)
     compose_file: str = Field("docker-compose.yml", min_length=1, max_length=128)
+    # Iter 212m-9 — optional per-project scope. When set, config saves
+    # under (user_id, project_id) and overrides the user-level default
+    # for that project. When omitted, behaves as before (user-level).
+    project_id:   str = Field("", max_length=64)
 
 
-@router.get("/config")
-async def get_config(authorization: str = Header(None)) -> dict[str, Any]:
-    me = await current_dev(authorization)
-    db = require_db()
-    row = await db.aurem_cto_deploy_configs.find_one(
-        {"user_id": me["user_id"]}, {"_id": 0},
-    )
+def _serialize_cfg(row: dict | None) -> dict[str, Any]:
     if not row:
         return {"configured": False}
     return {
@@ -70,7 +68,48 @@ async def get_config(authorization: str = Header(None)) -> dict[str, Any]:
         "compose_file":  row.get("compose_file", "docker-compose.yml"),
         "private_key":   "•••••••• (write-only — never returned)",
         "updated_at":    row.get("updated_at"),
+        "project_id":    row.get("project_id") or None,
+        "scope":         "project" if row.get("project_id") else "user",
     }
+
+
+async def _find_cfg(db, user_id: str, project_id: str | None) -> dict | None:
+    """Per-project lookup with fallback to user-level (project_id=None).
+    Iter 212m-9: enables hybrid scoping so existing user-level configs
+    keep working for projects that don't have a dedicated config yet."""
+    if project_id:
+        row = await db.aurem_cto_deploy_configs.find_one(
+            {"user_id": user_id, "project_id": project_id}, {"_id": 0},
+        )
+        if row:
+            return row
+    return await db.aurem_cto_deploy_configs.find_one(
+        {"user_id": user_id,
+         "$or": [{"project_id": None}, {"project_id": {"$exists": False}}]},
+        {"_id": 0},
+    )
+
+
+@router.get("/config")
+async def get_config(authorization: str = Header(None)) -> dict[str, Any]:
+    me = await current_dev(authorization)
+    db = require_db()
+    row = await _find_cfg(db, me["user_id"], None)
+    return _serialize_cfg(row)
+
+
+@router.get("/config/{project_id}")
+async def get_config_for_project(project_id: str,
+                                  authorization: str = Header(None)
+                                  ) -> dict[str, Any]:
+    """Iter 212m-9 — hybrid fallback. Returns the project-scoped config
+    if one exists, otherwise the user-level default. UI uses the
+    `scope` field to badge whether the user is editing the shared
+    default or a per-project override."""
+    me = await current_dev(authorization)
+    db = require_db()
+    row = await _find_cfg(db, me["user_id"], project_id)
+    return _serialize_cfg(row)
 
 
 @router.post("/config")
@@ -88,10 +127,12 @@ async def save_config(body: DeployConfigBody,
     if "BEGIN" not in pk or "PRIVATE KEY" not in pk:
         raise HTTPException(400, "private_key_must_be_pem")
     enc = await encrypt(me["user_id"], pk, kind="ssh_private_key")
+    pid = (body.project_id or "").strip() or None
     await db.aurem_cto_deploy_configs.update_one(
-        {"user_id": me["user_id"]},
+        {"user_id": me["user_id"], "project_id": pid},
         {"$set": {
             "user_id":         me["user_id"],
+            "project_id":      pid,
             "host":            body.host.strip(),
             "port":            body.port,
             "username":        body.username.strip(),
@@ -103,15 +144,19 @@ async def save_config(body: DeployConfigBody,
         }},
         upsert=True,
     )
-    return {"ok": True}
+    return {"ok": True, "project_id": pid}
 
 
 @router.delete("/config")
-async def delete_config(authorization: str = Header(None)) -> dict[str, Any]:
+async def delete_config(project_id: str = "",
+                        authorization: str = Header(None)) -> dict[str, Any]:
     me = await current_dev(authorization)
     db = require_db()
-    await db.aurem_cto_deploy_configs.delete_one({"user_id": me["user_id"]})
-    return {"ok": True}
+    pid = project_id.strip() or None
+    await db.aurem_cto_deploy_configs.delete_one(
+        {"user_id": me["user_id"], "project_id": pid},
+    )
+    return {"ok": True, "project_id": pid}
 
 
 def _deploy_command(cfg: dict, mode: str = "deploy") -> str:
@@ -249,9 +294,8 @@ async def run_deploy(body: DeployRunBody = DeployRunBody(),
                      authorization: str = Header(None)) -> dict[str, Any]:
     me = await current_dev(authorization)
     db = require_db()
-    cfg = await db.aurem_cto_deploy_configs.find_one(
-        {"user_id": me["user_id"]}, {"_id": 0},
-    )
+    pid = (body.project_id or "").strip() or None
+    cfg = await _find_cfg(db, me["user_id"], pid)
     if not cfg:
         raise HTTPException(400, "deploy_not_configured")
 
@@ -345,3 +389,33 @@ async def history(authorization: str = Header(None)) -> dict[str, Any]:
     ).sort("started_at", -1).limit(20)
     rows = [d async for d in cur]
     return {"runs": rows}
+
+
+@router.get("/runs")
+async def list_runs(project_id: str = "",
+                    limit: int = 20,
+                    authorization: str = Header(None)) -> dict[str, Any]:
+    """Iter 212m-9 — alias for /history with optional `project_id`
+    filter. The Deploy panel uses this to show only the runs that
+    target the currently-open project."""
+    me = await current_dev(authorization)
+    db = require_db()
+    q: dict[str, Any] = {"user_id": me["user_id"]}
+    pid = project_id.strip()
+    if pid:
+        q["project_id"] = pid
+    limit = max(1, min(limit, 100))
+    cur = db.aurem_cto_deploy_runs.find(
+        q, {"_id": 0, "output": 0},
+    ).sort("started_at", -1).limit(limit)
+    rows = [d async for d in cur]
+    return {"runs": rows, "project_id": pid or None}
+
+
+@router.get("/runs/{run_id}/logs")
+async def runs_logs(run_id: str,
+                    since: int = 0,
+                    authorization: str = Header(None)) -> dict[str, Any]:
+    """Iter 212m-9 — alias for /log/{run_id} matching the
+    `/deploy/runs/{run_id}/logs` REST shape the UI prompt requested."""
+    return await get_log(run_id, since=since, authorization=authorization)

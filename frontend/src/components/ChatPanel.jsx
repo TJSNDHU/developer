@@ -243,6 +243,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     () => localStorage.getItem(PREVIEW_KEY) === "1"
   );
   const [previewBlocks, setPreviewBlocks] = useState([]);
+  // Iter 212m-9 — when the ShipDialog banner is clicked we want the
+  // PreviewPanel to mount directly in deploy mode. Tracking it here
+  // (paired with the panel key) forces a clean remount so the deploy
+  // view is shown on first render.
+  const [previewInitialMode, setPreviewInitialMode] = useState("preview");
+  const openDeployTab = useCallback(() => {
+    setPreviewInitialMode("deploy");
+    setPreviewOpen(true);
+    try { localStorage.setItem(PREVIEW_KEY, "1"); } catch { /* noop */ }
+  }, []);
   const [usage, setUsage] = useState(null);  // {used, effective_limit, remaining, pct_used, is_exhausted}
   // Iter 38: agent selector. Persisted in localStorage so the user keeps
   // their pick across reloads. Default "auto" = our existing routing.
@@ -1496,6 +1506,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                 activeProject={activeProject}
                 exhausted={exhausted}
                 onTaskCompleted={triggerTaskFollowup}
+                onOpenDeployTab={openDeployTab}
               />
               {suggestions.length > 0 && (
                 <div
@@ -1979,14 +1990,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         const finalBlocks = [...liveBlock, ...previewBlocks];
         return (
           <PreviewPanel
-            key={activeProject?.project_id || "home"}
+            key={`${activeProject?.project_id || "home"}::${previewInitialMode}`}
+            initialViewMode={previewInitialMode}
             blocks={finalBlocks.length > 0 ? finalBlocks : [{
               lang: "text",
               code: activeProject
                 ? `No preview URL set for "${activeProject.name}". Open Projects → Edit → "Live preview URL" to add one (e.g. https://yoursite.com).`
                 : "No code blocks in the current chat yet. Ask AUREM to write some — Hint: ```html ... ``` or ```jsx ... ``` will render live here.",
             }]}
-            onClose={togglePreview}
+            onClose={() => {
+              togglePreview();
+              setPreviewInitialMode("preview");
+            }}
             activeProject={activeProject}
           />
         );

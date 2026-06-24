@@ -311,6 +311,7 @@ function WatchdogPanel({ idx, wd, onRegenerate }) {
 export default function MessageBubble({
   idx, dbTurnIndex, m, onRegenerate, sessionId,
   activeProject, exhausted, onTaskCompleted,
+  onOpenDeployTab,
 }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
@@ -882,6 +883,7 @@ export default function MessageBubble({
           activeProject={activeProject}
           onShip={shipViaCTO}
           onRollback={rollbackShipped}
+          onOpenDeployTab={onOpenDeployTab}
         />
 
         {/* Iter 51 — Auto-handoff (Mode D→C, etc.) progress card.
