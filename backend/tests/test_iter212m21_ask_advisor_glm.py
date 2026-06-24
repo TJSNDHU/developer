@@ -48,7 +48,7 @@ def test_ora_branch_uses_glm_model_constant():
     # Locate the ora branch by its activity label.
     idx = src.find('"asking GLM-5.2…"')
     assert idx >= 0, "ora→GLM branch missing — activity label gone"
-    body = src[idx:idx + 2000]
+    body = src[idx:idx + 3500]
     assert '"provider":        "glm-5.2"' in body
     assert '"model":           _GLM_MODEL' in body
     assert '"fallback_chain":  ["glm-5.2"]' in body

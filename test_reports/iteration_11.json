@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 212m-22 — Ask Advisor (ORA panel) full-response regression. Created /app/backend/tests/test_iter212m22_ask_advisor_full_response.py with 9 tests (3 static guarantees + 6 live SSE tests) hitting the preview env (https://launch-pad-237.preview.emergentagent.com). All 9 PASSED. Also re-ran the prior Iter 212m-21 suite (8 tests) after fixing a slice-window regression caused by m22's added inline comments — now all 8 PASS. Combined 17/17 PASS in ~60s. Founder bug is fixed: ambiguous prompts ('Help me fix it', 'What should I do') now return ~700-char clarifying questions with multi-line structure; clear prompts ('Explain JWT auth in 3 paragraphs') return ≥400-char multi-paragraph answers. SSE stream emits clean 🤔 Thinking… → ✅ Done (done:true) frames. Meta frame reports provider='glm-5.2' confirming Iter 212m-21 GLM routing is intact. Step-frame count stays at 2 on the happy path — no orchestrator fall-through. Backend smoke curl on 'Help me fix it' confirmed a 720-char clarifying reply with proper Markdown structure and bullet list.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m22_ask_advisor_full_response.py",
+    "/app/backend/tests/test_iter212m21_ask_advisor_glm.py",
+    "/app/test_reports/pytest/iter212m22_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ORA_PANEL_TONE in routers/chat.py:43 — R5 rule is well written: explicitly bans one-line replies and mandates either full answer OR specific clarifying question. Good fix.",
+    "routers/chat.py:1681 — max_tokens=2500 (bumped from 1500) on _call_glm in ora branch. Comment explains the rationale clearly (1500 + 150-word ceiling caused mid-thought truncation).",
+    "routers/chat.py:1664-1697 — try/except around _call_glm with fall-through to orchestrator path on error. _step('✅ Done', True) fires before return so the floating progress card always closes cleanly.",
+    "Minor: routers/chat.py is 2671 lines — flagged for future refactor; not blocking. The ora branch logic itself is well-contained at lines 1646-1708.",
+    "Test-window fragility: test_iter212m21_ask_advisor_glm.py used hard-coded src[idx:idx+2000] slices to find string literals — Iter 212m-22's added comments broke one slice. Widened to 3500 to absorb future comment additions. Consider switching those tests to a non-slice search (just `assert pattern in src` after the activity-label anchor) to remove the regression risk entirely."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m22_ask_advisor_full_response.py (NEW — 9 regression tests)",
+    "/app/backend/tests/test_iter212m21_ask_advisor_glm.py (minor — widened slice window from 2000→3500 to accommodate Iter 212m-22 inline comments; assertions unchanged)"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 pytest passing: 9 new Iter 212m-22 + 8 prior Iter 212m-21)",
+    "frontend": "not tested (per request — backend only)"
+  },
+  "test_credentials": "test@aurem.dev / AuremTest2026! — founder account on preview env. Login validated: returns is_unlimited=true, tier=founder. Stored in /app/memory/test_credentials.md.",
+  "seed_data_creation": "None — tests use unique throwaway session_ids (test-iter212m22-<hash>) and do not create persistent rows.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "1) The /api/aurem-dev/chat/stream SSE framing uses two non-obvious shapes: token frames are {\"token\": \"…\"} with NO `type` field, and meta frames are {\"meta\": true, \"provider\": \"…\"} also with NO `type` field. The first meta frame carries provider='aurem-cto' as a placeholder; the SECOND meta frame (emitted after the LLM resolves) carries the real provider (e.g. 'glm-5.2'). Always overwrite, do not first-wins. 2) Heartbeat frames {\"thinking\": true, \"elapsed_s\": …, \"activity\": \"asking GLM-5.2…\"} stream every ~600ms — these are NOT step frames (no `type: step`) so they don't inflate step count. 3) On the ora happy path expect exactly 2 step frames: '🤔 Thinking…' (done:false) and '✅ Done' (done:true). >4 = orchestrator fall-through bug. 4) End-of-stream is a {\"done\": true, \"provider\": \"…\", …} frame with no `type` field — also carries final provider. 5) Each live test costs ~6s of GLM time; the 9-test suite runs in ~76s. 6) Backend URL via REACT_APP_BACKEND_URL env var (preview = launch-pad-237.preview.emergentagent.com). 7) Iter 212m-21 source tests use brittle hard-coded slice windows around the activity label — widen them if you add inline comments to the ora branch.",
+  "rca_of_the_issue": "BUG (founder report): Ask Advisor returning one-line dead-end replies instead of completing the analysis or asking a clarifying question. ROOT CAUSES (all three combined, fix needed all three): (a) ORA_PANEL_TONE had a hard '150 words max' + '3 lines max' ceiling that told GLM to truncate — even for ambiguous prompts where a clarifying question is the right move. (b) max_tokens=1500 in routers/chat.py line ~1656 truncated longer answers mid-sentence. (c) No explicit rule banning one-line dead-end replies — model was free to pick the shortest valid completion. FIXES (applied by main agent, verified by this test pass): (1) Removed the 150-word/3-line caps from ORA_PANEL_TONE. (2) Added R5 'ALWAYS GIVE A COMPLETE RESPONSE' rule that explicitly bans one-liners and mandates either full answer OR specific clarifying question naming the missing fact. (3) Bumped max_tokens 1500 → 2500. VERIFICATION: live test on preview with prompt 'Help me fix it' now returns 720-char clarifying question listing 4 specific candidate failure modes the user can pick from (error message? feature behavior? build/deploy? specific file?) — exactly per R5 spec. Stream closes cleanly with ✅ Done(done:true) — no premature disconnect. provider='glm-5.2' confirms Iter 212m-21 routing intact."
+}
