@@ -77,8 +77,17 @@ There is no IDE plug-in to install for the core flow. Code goes from chat to com
 - **Codebase indexer** — semantic file index for repo-aware retrieval (`services/codebase_indexer.py`)
 - **Warm Start** — pre-fetched repo + Brain + Graph in <1 s on session resume (`WarmStatusBar.jsx`, `warm_start_jobs` TTL index)
 - **Live task popup** — floating SSE-driven progress bar (`LiveTaskPopup.jsx`, `TaskLiveTape.jsx`)
+  · iter 212m-10: synthetic `task_handoff` frame on fast-finish so the popup latches on for 1-2 s ships
 - **Ship Wall** — public feed of completed tasks at `/wall` (`pages/ShipWall.jsx`)
 - **F12 error capture** — browser errors auto-attached to next chat turn (`ChatPanelF12.jsx`)
+
+### Deploy (BYOH — Bring-Your-Own-Host)
+- **Per-project SSH config** with hybrid fallback to a user-level default (iter 212m-9, `routers/deploy.py`)
+- **DeployPanel** — 4-state UI (no_config / idle / deploying / done|failed) inside the Preview side panel (`components/DeployPanel.jsx`)
+- **One-click actions** — `Deploy now`, `Dry run` (auth + compose validation, no restart), `Rollback`
+- **Live log tail** — polled SSE-style cursor at `GET /deploy/runs/{run_id}/logs?since=N`
+- **"Code shipped — ready to go live?"** reminder banner on every completed Ship-via-CTO task (`ShipDialog.jsx`)
+- **Encrypted SSH keys** at rest via `AUREM_CTO_MASTER_KEY` — never returned in the clear from the API
 
 ### Ask Advisor side panel (`ORASidePanel.jsx`)
 - Slides in from the right on demand (35vw, 360–680px clamped)
@@ -99,6 +108,13 @@ There is no IDE plug-in to install for the core flow. Code goes from chat to com
 - **Post-task scan** — regex security + import lint on every shipped file, fire-and-forget after commit (`services/post_task_scanner.py`, `PostTaskScan.jsx`)
 - **Repo audit mode** — full static scan exposed via `Mode E Auditor` (`services/mode_e_auditor.py`)
 - **Architecture health** baseline tracking (`services/architecture_health.py`)
+- **False-positive hygiene** (iter 212m-11):
+  - `openai_key` excludes `sk-aurem-*` / `sk-test-*` placeholders via negative lookahead
+  - `requests_no_verify` scoped to real HTTP clients (`requests` / `httpx` / `urllib`) — no longer fires on `{"verify": False}` config dicts
+  - `token_assignment` drops bare `token` (catches only `bearer`/`auth_token`/`access_token`/`refresh_token`), requires 16+ char literal
+  - `generic_secret` raised to 16 chars, negative-lookbehind so `client_secret = os.getenv(...)` no longer fires
+  - **Per-line opt-out** — append `# vanguard: ignore` (Py) or `// vanguard: ignore` (JS) to a line to suppress a single finding without whitelisting the whole file
+  - **LLM verify agent** normalises Python `True/False/None` → JSON `true/false/null` before `json.loads()` so a single literal slip no longer drops the entire review (which previously defaulted to `pass=True` and silently missed findings)
 
 ### Subscriptions & monetization
 - **Stripe Checkout** — subscription mode, monthly + annual price IDs, `/g/pay/` → `/c/pay/` URL rewrite (iter 183 fix)
@@ -112,20 +128,20 @@ There is no IDE plug-in to install for the core flow. Code goes from chat to com
 
 ---
 
-## API Endpoints (188 routes across 30 routers)
+## API Endpoints (191 routes across 30 routers)
 
 | Router | Routes | Purpose |
 | :--- | :---: | :--- |
 | `admin.py` | 57 | Admin panel — users, tasks, financials, integrations, vanguard |
 | `cto_projects.py` | 20 | Project CRUD, task submit/stream/cancel, parallel agents |
 | `chat.py` | 12 | Chat send/stream/history, sessions, support-email draft |
+| `deploy.py` | 9 | BYOH SSH deploy — config (per-project + user-level), run, runs history, log tail |
 | `shipwall.py` | 7 | Public ship feed |
 | `thinking_hints.py` | 7 | UI loading hints |
 | `mcp.py` | 6 | JSON-RPC MCP endpoint + API key management |
 | `oauth.py` | 6 | OAuth 2.1 + PKCE for hosted IDE integration |
 | `payments.py` | 6 | Stripe checkout, webhook, my-plan, billing portal |
 | `automations.py` | 6 | Scheduled hooks |
-| `deploy.py` | 6 | Deploy log / metadata |
 | `github_deploy.py` | 6 | Railway/Vercel deploy bridge |
 | `github_oauth.py` | 5 | GitHub OAuth dance + token storage |
 | `trust.py` | 5 | Trust badge + verification |
@@ -250,6 +266,7 @@ DB_NAME=aurem_dev
 # Auth + secrets
 JWT_SECRET=<long random>
 AUREM_MASTER_KEY=<fernet key>
+AUREM_CTO_MASTER_KEY=<fernet key>   # iter 212m-9: encrypts BYOH SSH private keys
 ADMIN_EMAIL=you@example.com
 FOUNDER_EMAILS=founder@example.com,cofounder@example.com
 
