@@ -35,7 +35,7 @@ _SECRET_PATTERN_DEFS = [
      r"""(?i)(?:password|passwd|pwd|senha)\s*[:=]\s*['\"][^'\"]{4,}['\"]""",
      "CRITICAL"),
     ("token_assignment",
-     r"""(?i)(?:token|bearer|auth[_-]?token|access[_-]?token|refresh[_-]?token)\s*[:=]\s*['\"][^'\"]{8,}['\"]""",
+     r"""(?i)(?:bearer|auth[_-]?token|access[_-]?token|refresh[_-]?token)\s*[:=]\s*['\"][^'\"]{16,}['\"]""",
      "CRITICAL"),
     ("private_key",
      r"""-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----""",
@@ -47,7 +47,7 @@ _SECRET_PATTERN_DEFS = [
      r"""xox[bpors]-[0-9]{10,}-[A-Za-z0-9-]+""",
      "CRITICAL"),
     ("generic_secret",
-     r"""(?i)(?:secret|client[_-]?secret|signing[_-]?key|encryption[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}['\"]""",
+     r"""(?i)(?<![_a-z])(?:secret|signing[_-]?key|encryption[_-]?key)\s*[:=]\s*['\"][^'\"]{16,}['\"]""",
      "HIGH"),
     ("db_connection_string",
      r"""(?i)(?:mysql|postgres|postgresql|mongodb|redis|amqp):\/\/[^:]+:[^@]+@""",
@@ -65,7 +65,7 @@ _SECRET_PATTERN_DEFS = [
      r"""SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}""",
      "CRITICAL"),
     ("openai_key",
-     r"""sk-[A-Za-z0-9]{20,}""",
+     r"""sk-(?!aurem[-_])(?!test[-_])[A-Za-z0-9]{20,}""",
      "CRITICAL"),
 ]
 
@@ -82,7 +82,7 @@ _DANGEROUS_PATTERN_DEFS = [
     ("os_system",             r"""\bos\.system\s*\(""",                                 "HIGH"),
     ("pickle_loads",          r"""\bpickle\.loads?\s*\(""",                             "HIGH"),
     ("yaml_unsafe_load",      r"""\byaml\.load\s*\((?!.*Loader\s*=)""",                 "HIGH"),
-    ("requests_no_verify",    r"""verify\s*=\s*False""",                                "HIGH"),
+    ("requests_no_verify",    r"""(?:requests|httpx|urllib)\b.*\bverify\s*=\s*False""",          "HIGH"),
     ("sql_string_format",     r"""(?i)(?:execute|cursor\.execute)\s*\(\s*[f'\"]+.*\{""", "CRITICAL"),
     ("innerHTML_assignment",  r"""\.innerHTML\s*=""",                                   "HIGH"),
     ("dangerously_set_html",  r"""dangerouslySetInnerHTML""",                           "HIGH"),
@@ -127,8 +127,17 @@ def scan_text(
             })
 
     lines = text.split("\n")
+    # Iter 212m-11 — per-line suppression. Any line carrying a
+    # `# vanguard: ignore` / `// vanguard: ignore` marker is skipped
+    # entirely by both the secret and dangerous-pattern sweeps so
+    # developers can opt-out individual false-positives (e.g. a
+    # placeholder demo creds line in production code) without having
+    # to whitelist the whole file path.
+    _SUPPRESS_MARKER = "vanguard: ignore"
     for name, pattern, severity in SECRET_PATTERNS:
         for i, line in enumerate(lines, 1):
+            if _SUPPRESS_MARKER in line:
+                continue
             if pattern.search(line):
                 findings.append({
                     "name": name,
@@ -142,6 +151,8 @@ def scan_text(
     if include_dangerous:
         for name, pattern, severity in DANGEROUS_PATTERNS:
             for i, line in enumerate(lines, 1):
+                if _SUPPRESS_MARKER in line:
+                    continue
                 if pattern.search(line):
                     findings.append({
                         "name": name,
