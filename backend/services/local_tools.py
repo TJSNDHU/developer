@@ -567,6 +567,16 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
     except Exception:
         pass
 
+    # Iter 212m-13 — also drop the short-TTL GitHub-API cache so any
+    # `read_repo_file` call later in this same turn sees the new
+    # content (otherwise the LLM would write-then-read its own stale
+    # body and conclude the patch wasn't applied).
+    try:
+        from .github_cache import invalidate_repo
+        invalidate_repo(owner, repo, branch)
+    except Exception:
+        pass
+
     return {
         "ok":       True,
         "path":     path,

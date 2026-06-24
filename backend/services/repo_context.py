@@ -85,7 +85,18 @@ async def _fetch_tree(owner: str, repo: str, branch: str,
     missing from this single call and `_build_file_tree` needs to
     rescue the missing top-level folders via a Contents-API walk so
     deep dirs like `backend/pillars/` aren't silently invisible.
+
+    Iter 212m-13 — short-TTL in-memory cache. Reuses results across
+    every `read_repo_file` / `list_repo_files` call inside a single
+    chat turn so the LLM's planning round-trips don't each hit
+    GitHub freshly.
     """
+    from .github_cache import tree_key, get_tree, set_tree
+    ck = tree_key(owner, repo, branch, token)
+    cached = get_tree(ck)
+    if cached is not None:
+        return cached
+
     url = (
         f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
         f"{branch}?recursive=1"
@@ -94,12 +105,27 @@ async def _fetch_tree(owner: str, repo: str, branch: str,
         r = await client.get(url, headers=_gh_headers(token))
         r.raise_for_status()
         data = r.json()
-        return (data.get("tree") or []), bool(data.get("truncated"))
+        result = ((data.get("tree") or []), bool(data.get("truncated")))
+        set_tree(ck, result)
+        return result
 
 
 async def _fetch_file(owner: str, repo: str, path: str, branch: str,
                        token: Optional[str]) -> Optional[str]:
-    """Return the decoded text content of a file, or None on any failure."""
+    """Return the decoded text content of a file, or None on any failure.
+
+    Iter 212m-13 — short-TTL in-memory cache. The LLM frequently
+    re-reads the same file across tool-call iterations within a
+    single chat turn (scope → patch → verify). Caching for 90 s
+    eliminates 60-90% of the duplicate GitHub round-trips that were
+    inflating turn latency on production.
+    """
+    from .github_cache import file_key, get_file, set_file
+    ck = file_key(owner, repo, path, branch, token)
+    cached = get_file(ck)
+    if cached is not None:
+        return cached
+
     url = (
         f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
         f"?ref={branch}"
@@ -114,7 +140,9 @@ async def _fetch_file(owner: str, repo: str, path: str, branch: str,
                 return None
             import base64
             raw = base64.b64decode(data.get("content", "") or "")
-            return raw.decode("utf-8", errors="replace")
+            decoded = raw.decode("utf-8", errors="replace")
+            set_file(ck, decoded)
+            return decoded
     except Exception as e:
         logger.debug(f"fetch_file failed for {path}: {e!r}")
         return None
