@@ -1,0 +1,77 @@
+{
+  "summary": "Live PRODUCTION (auremcto.com) browser E2E test against founder account (teji.ss1986@gmail.com / Singh1986$). Auth + dashboard + projects + chat (basic & with tool) + repo context + color markers + TaskLiveTape + PAT API + /payments/my-plan + /usage/me + ORA console-error + 4xx/5xx audit all validated. Two real bugs found: (P0) inflated 'Almost out — recharge' banner for an is_unlimited founder, (P0) ~20s latency on a 1-word benign chat. Several UI overlay issues caused test-script clicks to fail (Monaco editor + chat-toolbar intercept pointer events) — also documented. Stripe/billing portal/admin/mobile/preview-deploy tabs could NOT be fully exercised in-browser because of those overlays + nav blocking; documented as 'not fully tested' rather than 'broken'. Backend remains green: every fetch in 4 sessions returned 200 (zero 4xx/5xx, zero console errors).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "WalletBanner / sidebar token signal",
+        "issue": "Banner shows '🚨 Almost out — recharge to keep building.' for founder account where /api/aurem-dev/usage/me returns is_unlimited=true, remaining=1,000,000,000,000, is_exhausted=false, tier=founder. The warning is read from the wrong field (likely raw tokens_granted=10000 vs used=368104 → negative diff) instead of effective_limit / is_unlimited. Founder confirmed earlier the wallet was -18,921 — the API now says unlimited, so the banner is stale/incorrect.",
+        "selector": "text='🚨 Almost out — recharge to keep building.'",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Chat composer / Monaco editor overlay",
+        "issue": "Playwright reports '<div data-testid=\"chat-toolbar\" data-typing-hidden=\"false\"> intercepts pointer events' and '<span ... extractHandoffBrief ...> from monaco-scrollable-element intercepts pointer events' on the textarea click. Monaco code editor opens by default and overlaps composer/chat area after a project loads — real keyboard users may also lose composer focus when the editor steals events.",
+        "selector": "[data-testid=\"chat-toolbar\"] overlay over <textarea>",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "ProjectHeader",
+        "issue": "A large red 'Delete project' button is rendered in the top header right next to 'Preview' / 'Ask Advisor'. One mis-click on a live project = destructive irreversible action. Move behind a settings menu or require confirm modal.",
+        "selector": "button:has-text('Delete project')",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Basic chat (no project)",
+        "issue": "Prompt='hi, just say hello back in one word' → reply='hello' but end-to-end latency = 20.28s (target <5s, audit hypothesis was 'simple chat <5s'). Provider=DeepSeek. This refutes the 'slowness is only LLM-thinking on vague prompts' hypothesis — even the smallest prompt is 4x over budget on prod. Likely cold-start / cold connection / sequential pre-flight (auth refresh + session resolve + LLM dispatch). Worth profiling chat_send middleware on prod.",
+        "affected_selectors": ["textarea (composer)", "[class*='essage']"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dashboard header (project tab strip)",
+        "issues": [
+          "Destructive 'Delete project' button rendered in the same toolbar as benign Preview / Ask Advisor — no confirm step visible from the header click level.",
+          "'Loading your project... 80%' status bar stayed at 80% during the dogfood load — either the meter never finishes or the final 20% transition is instant + invisible. UX-wise users may think the project is stuck."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_10.json",
+    "/app/test_reports/prod_e2e_phase1.json",
+    "/app/test_reports/prod_e2e_phase2.json"
+  ],
+  "action_items": [
+    "P0 — Fix wallet banner logic: read `is_unlimited`/`effective_limit` from /usage/me instead of (tokens_granted - used). The banner is false-positive on every founder/unlimited account.",
+    "P0 — Investigate 20s latency for a 1-word benign 'hello' chat on prod (basic chat path, no project, no tools). Profile orchestrator.chat_with_tools cold-start, LLM dispatch, and session resolve.",
+    "P1 — Move 'Delete project' out of the top-bar; require confirm modal at minimum. Currently a 1-click destructive control next to Preview.",
+    "P1 — Fix Monaco editor + chat-toolbar overlay intercepting pointer events on the chat composer when a project is active. Real users using AT/keyboard nav will hit the same focus-steal we observed.",
+    "P2 — Add data-testid='project-tab-{name}' to the project tab buttons (only matched via role/text in tests).",
+    "P2 — Investigate why 'Loading your project... 80%' status bar never visibly reaches 100% — either fix the meter or hide it sooner.",
+    "Retest after fixes — stripe checkout redirect, billing portal redirect, /admin UI consumption, mobile responsive at 375x812, preview/code file tree clicks, and deploy panel form testids could NOT be exercised in this run because of overlay/click failures cascading into nav timeouts. They are NOT confirmed broken — they were blocked by the bugs above. Single follow-up pass should clear them all."
+  ],
+  "critical_code_review_comments": [
+    "Wallet banner trust the API: /usage/me already returns `is_unlimited` and `is_exhausted` — the banner should be driven by those, not a client-side subtraction.",
+    "Iter 212m-12 color pills WORK on prod — data-testid='ora-line-issue' rendered correctly when ORA replied '[ISSUE] No GitHub repo is currently connected.' Good regression.",
+    "Iter 212m-14 hallucination_guard is NOT yet on prod (confirmed — no [ISSUE] Self-check: footers seen). Per context note this is expected; don't flag.",
+    "TaskLiveTape (right rail) IS firing real tool steps on dogfood — captured: Security check → Reading repo → Committing → Verifying → Verified live → Vanguard clean. This directly refutes the founder's 'tools nahi fire ho rahe' worry. Tools DO fire; the perception is likely from the 10–20s LLM latency between tool calls.",
+    "Provider attribution renders correctly ('DeepSeek wrote' badge in chat bubbles)."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (every API hit during browser session returned 200, zero 4xx/5xx, zero console.error captured across ~4 minutes of live use)",
+    "frontend": "~70% (auth ✅, dashboard ✅, sidebar+tabs ✅, project switch ✅, basic chat ✅ but slow, project chat ✅ (TaskLiveTape verified), color markers ✅, /usage/me + /payments/my-plan ✅, PAT API ✅. Pricing/stripe/billing-portal/admin-UI/mobile/preview-tree/deploy-form testids = NOT fully exercised due to overlay click blockers — needs one follow-up pass.)"
+  },
+  "test_credentials": "teji.ss1986@gmail.com / Singh1986$ — FOUNDER account on prod, is_unlimited=true, tier=founder. Held in memory only, not written to test fixtures.",
+  "seed_data_creation": "None — read-only audit per request. Did NOT click Ship via CTO, did NOT save SSH config, did NOT submit Stripe checkout.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "1) Use the Playwright role-based locator `page.get_by_role('button', name='dogfood')` — generic `text='dogfood'` doesn't resolve the tab (sidebar text leak). 2) The chat composer is occluded by Monaco + chat-toolbar after a project loads — to programmatically type, dispatch keyboard events directly to <textarea> via DOM (focus()+value+input event) OR collapse Monaco first via the Preview-close icon. 3) Stripe/billing endpoints were NOT discovered via my curl audit; check `/app/backend/routers/payments.py` for the real routes before testing. 4) For Ship via CTO regression: needs a project where ORA has already returned an aurem-handoff brief — pre-seed a chat session OR mock the handoff for the test (DO NOT click on real dogfood). 5) Founder is_unlimited=true on prod — `is_exhausted` is always false so any 'exhausted/upgrade' CTA driven by client math is a bug. 6) Iter 212m-14 not on prod yet — don't assert presence of '[ISSUE] Self-check:' footers on auth claims.",
+  "rca_of_the_issue": "BUG-1 (wallet banner false-positive): The 'Almost out — recharge to keep building' banner is driven by client-side arithmetic on `tokens_granted` minus `used` instead of trusting the API's `is_unlimited` / `is_exhausted` booleans. For the founder, tokens_granted=10000 and used=368104 → naive diff = -358104 → 'almost out' even though effective_limit=1_000_010_000 and remaining=1_000_000_000_000. Fix: in the wallet banner component, short-circuit `if (usage.is_unlimited) return null;` BEFORE any subtraction. BUG-2 (20s basic-chat latency): single 1-word hello reply taking 20s suggests either (a) provider DeepSeek cold-start, (b) sequential preflight (session-resolve → tools-decide → llm-dispatch) instead of parallel, or (c) the orchestrator running planning passes even for trivial prompts. Profile orchestrator.chat_with_tools at the prod backend with a timing log per stage to confirm."
+}
