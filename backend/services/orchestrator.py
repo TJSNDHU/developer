@@ -895,6 +895,7 @@ _SECTION_LAYER: dict[str, str] = {
     # repo move to L3.
     "TOP-OF-MIND HARD RULES (READ EVERY TURN — VIOLATING THESE IS A BUG)": "core",
     "TONE & FORMAT": "core",
+    "COLOR MARKERS — USE FOR FINDINGS / FIXES / STATUS": "core",
     "IDENTITY & FOUNDER QUESTIONS — ZERO FABRICATION": "core",
     "DO NOT LEAK INTERNAL MECHANICS": "core",
     "NEVER": "core",
