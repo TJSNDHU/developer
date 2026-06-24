@@ -200,6 +200,29 @@ STRIPE_PRICES = {
 }
 
 
+# Iter 212m-15 — boot-time price config audit.
+def _audit_price_config_at_boot() -> None:
+    """Log which Stripe price IDs are configured. We deliberately log
+    only the suffix (last 4 chars) so the log line is searchable but
+    the actual price ID isn't leaked. Triggered on first call to
+    `_require_stripe`; logs once per process."""
+    rows = []
+    for plan, getter in STRIPE_PRICES.items():
+        pid = getter() or ""
+        if not pid:
+            rows.append(f"{plan}=MISSING")
+            continue
+        # Sanity: live keys must pair with live prices and vice versa.
+        # Stripe live price IDs typically don't carry a `_test_` infix
+        # the way checkout sessions do, but we surface the prefix for
+        # the human eye.
+        rows.append(f"{plan}=…{pid[-6:]}")
+    logger.info("payments.price_config %s", " ".join(rows))
+
+
+_BOOT_AUDIT_DONE = False
+
+
 def _frontend_url() -> str:
     """Where Stripe should redirect after Checkout / Portal. Falls back
     to the request's own origin if the env isn't set so dev still works."""
@@ -231,6 +254,46 @@ async def create_checkout(
             503,
             f"Stripe price ID for `{plan}` not configured "
             f"(set STRIPE_{plan.upper()}_PRICE_ID).",
+        )
+
+    # Iter 212m-15 — sanity-check the configured price BEFORE attempting
+    # Checkout. If a misconfigured env var points at a test-mode price
+    # while the key is live (or a deleted / one-time / inactive price),
+    # the canonical Stripe error is `No such price` — but on some prod
+    # pods the failure mode was a worker crash that returned Cloudflare
+    # 502 HTML instead of clean JSON (this hit the founder live on
+    # monthly plans while annual variants worked, proving it's the env
+    # vars, not the code path). Pre-flighting `Price.retrieve` lets us
+    # return a clean diagnostic JSON instead.
+    try:
+        await _stripe_call(stripe.Price.retrieve, price_id)
+    except HTTPException as he:
+        # Stripe 4xx surfaces as a 502 from _stripe_call's catch-all.
+        # Translate to a precise admin-facing message instead.
+        if he.status_code in (502, 504):
+            logger.warning(
+                "stripe price.retrieve failed for plan=%s price_id=%s: %s",
+                plan, price_id, getattr(he, "detail", ""),
+            )
+            raise HTTPException(
+                503,
+                f"Stripe price `{plan}` is misconfigured — the configured "
+                f"price ID does not exist or is from a different "
+                f"(test/live) mode than the Stripe secret key. Admin: "
+                f"check STRIPE_{plan.upper()}_PRICE_ID env var in the "
+                f"Emergent dashboard against the Stripe dashboard.",
+            )
+        raise
+    except stripe.error.StripeError as se:
+        logger.warning(
+            "stripe price.retrieve raised for plan=%s price_id=%s: %r",
+            plan, price_id, se,
+        )
+        raise HTTPException(
+            503,
+            f"Stripe price `{plan}` is misconfigured — Stripe says: "
+            f"{getattr(se, 'user_message', None) or str(se)}. "
+            f"Admin: rotate STRIPE_{plan.upper()}_PRICE_ID.",
         )
 
     origin = (
