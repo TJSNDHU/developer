@@ -7490,3 +7490,71 @@ ORA ka tool-calling production pe actually kaam kare.
 ---
 
 
+## Iter 212m-9 — BYOH Deployment UI (Feb 2026)
+
+**User prompt (Msg 645)**: Wire a Deployment UI on top of the existing
+`backend/routers/deploy.py` (SSH BYOH). Per-project deploy config with
+hybrid fallback to user-level when no project-scoped config exists.
+
+**What shipped**
+- **Backend** (`backend/routers/deploy.py`):
+  - `DeployConfigBody.project_id` (optional) — saves config per
+    (user_id, project_id) tuple; legacy user-level row keeps working
+    when `project_id` is omitted.
+  - `_find_cfg(db, user_id, pid)` — hybrid fallback helper (project-scoped
+    first, then user-level via `$or {project_id: null|missing}`).
+  - New endpoints: `GET /deploy/config/{project_id}` (hybrid),
+    `GET /deploy/runs?project_id=…&limit=…` (alias for /history with
+    filter + ≤100 clamp), `GET /deploy/runs/{run_id}/logs?since=N`
+    (alias for /log/{run_id}). Existing endpoints preserved.
+  - `POST /deploy/run` now resolves cfg via `_find_cfg`, persists
+    `project_id` on the run row for filterable history.
+- **Frontend** (`frontend/src/components/DeployPanel.jsx`, NEW 680 LOC):
+  Single-component state machine with 4 phases — `no_config`/`idle`/
+  `deploying`/`done|failed`. Sub-components: `ConfigForm` (SSH setup
+  with PEM-format client-side guard), `LogStream` (poll-driven 1.5s
+  tail with auto-scroll + DEPLOY_HEAD echo), `HistoryList` (selectable
+  recent runs + scoped to project_id when active). Toolbar exposes
+  Deploy now / Dry run / Rollback / Edit / Delete actions with
+  testids (deploy-now-btn, deploy-dry-run-btn, deploy-rollback-btn,
+  deploy-edit-cfg-btn, deploy-delete-cfg-btn).
+- **Frontend** (`PreviewPanel.jsx`): new `initialViewMode` prop and a
+  `preview-deploy-toggle` button in the toolbar (only when
+  `activeProject?.project_id` exists). Body branches on
+  `viewMode === "deploy"` to render `<DeployPanel/>`; footer hidden
+  in deploy mode.
+- **Frontend** (`ChatPanel.jsx`): `previewInitialMode` state +
+  `openDeployTab()` callback wired through to `MessageBubble` and
+  `ShipDialog` so the banner click opens preview directly in deploy
+  view (key rebound to remount cleanly).
+- **Frontend** (`ShipDialog.jsx`): new "🚀 Code shipped — ready to go
+  live?" reminder banner (`data-testid=ship-deploy-banner-{idx}`)
+  rendered when `shipState.status === 'shipped' && taskInfo?.status
+  === 'done' && activeProject?.project_id`. Open Deploy → button
+  (`ship-deploy-banner-btn-{idx}`) triggers `onOpenDeployTab`.
+
+**Tests**
+- `backend/tests/test_iter212m9_deploy_ui.py` — 13 unit tests
+  (mocked DB; <1s). Covers hybrid fallback, project_id filtering,
+  log cursor pagination, 404 on unknown runs, 400 when no cfg.
+- `backend/tests/test_iter212m9_deploy_http.py` — 11 live HTTP
+  tests against preview (added by testing agent).
+- 100% backend (24/24) + 100% frontend (8/8) via testing_agent_v3_fork.
+
+**Why it matters**
+Founders dogfooding ORA can now ship → review → deploy without
+leaving the chat. The Deploy banner appears the instant a task hits
+"done", removing the "where do I deploy this?" friction beat.
+
+**Files touched**
+- `backend/routers/deploy.py` (+~110 lines)
+- `backend/tests/test_iter212m9_deploy_ui.py` (NEW, 13 tests)
+- `frontend/src/components/DeployPanel.jsx` (NEW, 680 LOC)
+- `frontend/src/components/PreviewPanel.jsx` (+ deploy toggle + body branch)
+- `frontend/src/components/ChatPanel.jsx` (+ previewInitialMode + openDeployTab)
+- `frontend/src/components/MessageBubble.jsx` (+ onOpenDeployTab prop pass-through)
+- `frontend/src/components/ShipDialog.jsx` (+ deploy banner block)
+
+---
+
+
