@@ -518,6 +518,26 @@ export default function MessageBubble({
       });
       const taskId = r.data?.task_id || null;
       setShipState({ status: "shipped", taskId, error: null });
+      // Iter 212m-10 — fire `ora-task-handoff` immediately on a
+      // successful ship so the floating LiveTaskPopup latches on
+      // BEFORE the SSE stream is established. Fast tasks (1-2s
+      // commits) previously finished before the SSE handler could
+      // relay the `task_handoff` frame — the synthetic `done`
+      // emitted by the backend's fast-finish branch in
+      // `routers/cto_projects.py::task_stream` skips that frame
+      // entirely, so the popup never surfaced for quick ships.
+      // Dispatching here makes the popup independent of SSE timing.
+      if (taskId) {
+        try {
+          window.dispatchEvent(new CustomEvent("ora-task-handoff", {
+            detail: {
+              task_id: taskId,
+              project_id: activeProject?.project_id || "",
+              source: "ship_via_cto_click",
+            },
+          }));
+        } catch { /* CustomEvent unsupported on really old browsers */ }
+      }
       // Persist on the turn so refresh/rejoin doesn't show the button again
       if (taskId && sessionId) {
         try {

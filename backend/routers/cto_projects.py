@@ -1740,9 +1740,29 @@ async def task_stream(task_id: str, authorization: str = Header(None)):
         if q is None:
             q = asyncio.Queue(maxsize=256)
             _task_queues[task_id] = q
+
+        def _build_synthetic_handoff(t: dict) -> dict:
+            """Iter 212m-10 — when the worker finishes before the SSE
+            client connects (common for 1-2s commits), the queue is
+            empty and we synthesise only a `done` frame from Mongo.
+            Without a `task_handoff` frame the floating LiveTaskPopup
+            never latches on, so we mint one here too."""
+            return {
+                "type": "task_handoff",
+                "step": "task_handoff",
+                "pct": None,
+                "ts": time.time(),
+                "kind": "task_handoff",
+                "project_id": t.get("project_id") or "",
+                "sha": (t.get("commit_sha") or "")[:7],
+                "source": "task_stream_synthetic",
+            }
+
         # If the task already terminated before the client connected,
         # emit a single synthetic final frame and exit immediately.
         if task.get("status") in ("done", "failed"):
+            if task["status"] == "done":
+                yield f"data: {json.dumps(_build_synthetic_handoff(task))}\n\n"
             final = {
                 "type": "done" if task["status"] == "done" else "fail",
                 "step": (f"Done — {task.get('commit_sha','')[:7]}"
@@ -1766,9 +1786,12 @@ async def task_stream(task_id: str, authorization: str = Header(None)):
                 # process restart).
                 t = await db.cto_tasks.find_one(
                     {"task_id": task_id}, {"_id": 0, "status": 1,
-                                            "commit_sha": 1, "error": 1},
+                                            "commit_sha": 1, "error": 1,
+                                            "project_id": 1},
                 )
                 if t and t.get("status") in ("done", "failed"):
+                    if t["status"] == "done":
+                        yield f"data: {json.dumps(_build_synthetic_handoff(t))}\n\n"
                     final = {
                         "type": "done" if t["status"] == "done" else "fail",
                         "step": (f"Done — {t.get('commit_sha','')[:7]}"
