@@ -45,6 +45,16 @@ function FailedCard({ taskId, task }) {
       setRetrying(false);
     }
   }
+  // Iter 212m-12 — show the friendly translation when the backend
+  // has populated it, falling back to the raw error otherwise. The
+  // raw error is collapsed behind a "Show technical details"
+  // toggle so non-technical founders aren't staring at stack
+  // traces.
+  const [showRaw, setShowRaw] = useState(false);
+  const plain = task.error_plain || "";
+  const steps = Array.isArray(task.error_steps) ? task.error_steps : [];
+  const suggestion = task.error_suggestion || "";
+
   return (
     <div data-testid={`ship-status-${taskId}`} style={{
       padding: "10px 12px",
@@ -71,9 +81,81 @@ function FailedCard({ taskId, task }) {
           {retrying ? "Re-queuing…" : "↻ Retry"}
         </button>
       </div>
+
+      {plain && (
+        <div
+          data-testid={`ship-error-plain-${taskId}`}
+          style={{ marginTop: 8, fontSize: 13, color: "var(--text)",
+                   lineHeight: 1.55, fontFamily: "inherit" }}
+        >
+          {plain}
+        </div>
+      )}
+
+      {steps.length > 0 && (
+        <ol
+          data-testid={`ship-error-steps-${taskId}`}
+          style={{
+            margin: "8px 0 4px",
+            paddingLeft: 22,
+            fontSize: 12,
+            color: "var(--text-dim)",
+            fontFamily: "inherit",
+            lineHeight: 1.55,
+          }}
+        >
+          {steps.map((s, i) => (
+            <li key={i} style={{ marginBottom: 3 }}>{s}</li>
+          ))}
+        </ol>
+      )}
+
+      {suggestion && (
+        <div
+          data-testid={`ship-error-suggestion-${taskId}`}
+          style={{
+            marginTop: 6, padding: "6px 10px",
+            background: "rgba(255,197,96,0.08)",
+            border: "1px solid rgba(255,197,96,0.3)",
+            borderRadius: 4,
+            fontSize: 11, color: "var(--accent-2)",
+            fontFamily: "inherit", lineHeight: 1.5,
+          }}
+        >
+          💡 {suggestion}
+        </div>
+      )}
+
       {task.error && (
-        <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)", whiteSpace: "pre-wrap" }}>
-          {String(task.error).slice(0, 240)}
+        <div style={{ marginTop: 8 }}>
+          <button
+            data-testid={`ship-show-raw-${taskId}`}
+            onClick={() => setShowRaw((v) => !v)}
+            className="btn-ghost"
+            style={{
+              padding: "2px 6px", fontSize: 10,
+              color: "var(--text-faint)",
+              borderColor: "var(--border)",
+            }}
+          >
+            {showRaw ? "▾ Hide technical details" : "▸ Show technical details"}
+          </button>
+          {showRaw && (
+            <pre
+              data-testid={`ship-error-raw-${taskId}`}
+              style={{
+                marginTop: 6, padding: "8px 10px",
+                background: "var(--bg)", color: "var(--text-faint)",
+                border: "1px solid var(--border)", borderRadius: 4,
+                fontSize: 10, lineHeight: 1.45,
+                whiteSpace: "pre-wrap", wordBreak: "break-word",
+                fontFamily: "'JetBrains Mono', monospace",
+                maxHeight: 220, overflow: "auto",
+              }}
+            >
+              {String(task.error).slice(0, 1200)}
+            </pre>
+          )}
         </div>
       )}
     </div>

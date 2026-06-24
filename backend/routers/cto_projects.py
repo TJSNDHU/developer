@@ -1878,6 +1878,23 @@ async def _log(task_id: str, step: str, status: str = "info"):
 async def _set_status(task_id: str, **fields):
     db = get_db()
     if db is not None:
+        # Iter 212m-12 — auto-translate failure errors into a
+        # non-technical Hinglish explanation with concrete steps so
+        # founders aren't staring at raw stack traces. We only run
+        # the translator when the new status is `failed` AND a
+        # raw error string is being set.
+        if fields.get("status") == "failed" and fields.get("error"):
+            try:
+                from services.error_translator import translate
+                friendly = await translate(fields["error"])
+                fields["error_plain"]      = friendly.get("plain") or ""
+                fields["error_steps"]      = friendly.get("steps") or []
+                fields["error_suggestion"] = friendly.get("suggestion") or ""
+                fields["error_source"]     = friendly.get("source") or "unknown"
+            except Exception as _e:                  # noqa: BLE001
+                # Translator must never block the failure write —
+                # fall back to leaving only `error` populated.
+                logger.warning("error_translator wedged: %r", _e)
         await db.cto_tasks.update_one({"task_id": task_id}, {"$set": fields})
 
 

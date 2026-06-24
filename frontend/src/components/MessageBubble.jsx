@@ -590,7 +590,7 @@ export default function MessageBubble({
           }
           style={{
             padding: "12px 16px",
-            fontSize: 14, lineHeight: 1.6,
+            fontSize: 16, lineHeight: 1.65,
             color: m.error ? "var(--danger)" : "var(--text)",
             whiteSpace: "pre-wrap", wordBreak: "break-word",
           }}

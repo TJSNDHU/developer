@@ -12,12 +12,50 @@
  *     (handled by the caller, see MessageBubble usage).
  *   - inline `code` spans (single backtick) → <code> with monospace
  *     styling
+ *   - Iter 212m-12 — line-leading [ISSUE]/[FIX]/[OK] tags → color
+ *     pills (red / green / blue) so non-technical founders can
+ *     scan findings, fixes and OK-confirmations at a glance.
  *   - everything else → plain text with pre-wrap
  */
 import React, { useMemo } from "react";
 import CodeBlock from "./CodeBlock";
 
 const FENCE_RE = /```([a-zA-Z0-9_+\-.]*)?[ \t]*([^\n`]*)\n([\s\S]*?)```/g;
+
+// Iter 212m-12 — line-leading color tags. Case-insensitive. The
+// matching tag is stripped from the displayed text; the rest of
+// the line is wrapped in a tinted pill so the user sees ONE clean
+// "🔴 it's broken because…" / "🟢 fix this…" / "🔵 already fine"
+// row instead of dense paragraphs. Common aliases supported too
+// (Issue:/Problem:/Bug:/Error: → red; Fix:/Action:/TODO: → green;
+//  OK:/Working:/Looks good: → blue) so older ORA responses still
+// colorize without the assistant having to relearn the tag scheme.
+const TAG_RULES = [
+  {
+    kind: "issue",
+    re: /^(\s*)(\[ISSUE\]|Issue:|Problem:|Bug:|Error:)\s*/i,
+    color:      "var(--danger)",
+    background: "rgba(239, 68, 68, 0.08)",
+    border:     "rgba(239, 68, 68, 0.35)",
+    label:      "ISSUE",
+  },
+  {
+    kind: "fix",
+    re: /^(\s*)(\[FIX\]|Fix:|Action:|TODO:|To fix:)\s*/i,
+    color:      "rgb(74, 222, 128)",
+    background: "rgba(74, 222, 128, 0.08)",
+    border:     "rgba(74, 222, 128, 0.35)",
+    label:      "FIX",
+  },
+  {
+    kind: "ok",
+    re: /^(\s*)(\[OK\]|OK:|Working:|Looks good:|Already fine:|Verified:)\s*/i,
+    color:      "rgb(96, 165, 250)",
+    background: "rgba(96, 165, 250, 0.08)",
+    border:     "rgba(96, 165, 250, 0.35)",
+    label:      "OK",
+  },
+];
 
 function splitFences(text) {
   if (!text) return [];
@@ -53,7 +91,7 @@ function renderInline(text, keyPrefix) {
       return (
         <code key={`${keyPrefix}-${i}`} style={{
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 12,
+          fontSize: 13,
           padding: "1px 5px",
           borderRadius: 3,
           background: "rgba(255,255,255,0.06)",
@@ -67,10 +105,63 @@ function renderInline(text, keyPrefix) {
   });
 }
 
+// Iter 212m-12 — wrap each text segment's lines in optional color
+// pills. Lines without a tag are passed through to the existing
+// inline-code renderer untouched.
+function renderTextSegment(text, keyPrefix) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return lines.map((line, li) => {
+    const rule = TAG_RULES.find((r) => r.re.test(line));
+    if (!rule) {
+      return (
+        <React.Fragment key={`${keyPrefix}-l${li}`}>
+          {renderInline(line, `${keyPrefix}-l${li}`)}
+          {li < lines.length - 1 ? "\n" : null}
+        </React.Fragment>
+      );
+    }
+    const stripped = line.replace(rule.re, "$1");
+    return (
+      <React.Fragment key={`${keyPrefix}-l${li}`}>
+        <span
+          data-testid={`ora-line-${rule.kind}`}
+          style={{
+            display: "inline-block",
+            padding: "2px 8px",
+            margin: "2px 0",
+            borderRadius: 4,
+            background: rule.background,
+            border: `1px solid ${rule.border}`,
+            color: rule.color,
+          }}
+        >
+          <span style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            marginRight: 8,
+            opacity: 0.85,
+          }}>{rule.label}</span>
+          <span style={{ color: "var(--text)" }}>
+            {renderInline(stripped, `${keyPrefix}-l${li}-i`)}
+          </span>
+        </span>
+        {li < lines.length - 1 ? "\n" : null}
+      </React.Fragment>
+    );
+  });
+}
+
 export default function RenderedMessage({ text }) {
   const segments = useMemo(() => splitFences(text), [text]);
   if (segments.length === 0) {
-    return <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{text}</span>;
+    return (
+      <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {renderTextSegment(text, "root")}
+      </span>
+    );
   }
   return (
     <div data-testid="rendered-message">
@@ -81,7 +172,7 @@ export default function RenderedMessage({ text }) {
             return (
               <pre key={i} style={{
                 whiteSpace: "pre-wrap", margin: "8px 0",
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
               }}>{"```aurem-handoff\n" + s.code + "\n```"}</pre>
             );
           }
@@ -96,7 +187,7 @@ export default function RenderedMessage({ text }) {
         }
         return (
           <span key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {renderInline(s.value, `t${i}`)}
+            {renderTextSegment(s.value, `t${i}`)}
           </span>
         );
       })}
