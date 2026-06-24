@@ -449,8 +449,27 @@ async def chat_send(
     If maxx_mode=True, runs Emergent watchdog review after DeepSeek reply."""
     user = await current_dev(authorization)
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
-    repo_ctx = await get_repo_context(user["user_id"], body.project_id or "")
-    url_ctx = await build_url_context(body.prompt)
+    # Iter 212m-15 — parallelise the two pre-flight context fetches AND
+    # log the cumulative timing for each stage so the next time a
+    # founder reports "even 'hi' takes 20s", we can pinpoint whether
+    # the cost is in repo_ctx, url_ctx, LLM dispatch, or persist. The
+    # chat_stream endpoint was parallelised in iter 157 — chat_send
+    # was left sequential, which is why founder's first message hit
+    # 20s on prod (testing agent finding iter 212m-14).
+    t_start = time.time()
+    # Fast-path: when the user has no project bound, get_repo_context
+    # is a no-op that still does a Mongo round-trip. Skip it.
+    pid = (body.project_id or "").strip()
+    if pid and pid != "home":
+        repo_ctx_task = asyncio.create_task(
+            get_repo_context(user["user_id"], pid)
+        )
+    else:
+        async def _no_repo(): return ""
+        repo_ctx_task = asyncio.create_task(_no_repo())
+    url_ctx_task = asyncio.create_task(build_url_context(body.prompt))
+    repo_ctx, url_ctx = await asyncio.gather(repo_ctx_task, url_ctx_task)
+    t_preflight = time.time()
     extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
     # Iter 153 — clamp the requested review mode to whatever the user's
     # tier allows. Falls back to the BEST mode they have access to so
@@ -469,6 +488,7 @@ async def chat_send(
         project_id=body.project_id,
         mode=req_mode,
     )
+    t_llm = time.time()
     content = result.get("content", "") or ""
     provider = result.get("provider", "") or ""
     mode = _detect_mode(body.prompt)
@@ -493,6 +513,25 @@ async def chat_send(
             _maybe_set_title(user["user_id"], body.session_id, body.prompt)
         )
     tokens_remaining = await _deduct_tokens(user["user_id"], content)
+    # Iter 212m-15 — stage timing instrumentation. Lets us spot whether
+    # a slow turn was the LLM (normal — 5-15s on cold OpenRouter), or
+    # one of the cheap pre-flight steps stalling (which would be a
+    # real bug). Format: chat_send.timing pre=<s> llm=<s> persist=<s>
+    # total=<s> prompt_len=<n> project_id=<pid|none>
+    try:
+        t_done = time.time()
+        logger.info(
+            "chat_send.timing pre=%.3f llm=%.3f persist=%.3f total=%.3f "
+            "prompt_len=%d project_id=%s",
+            t_preflight - t_start,
+            t_llm - t_preflight,
+            t_done - t_llm,
+            t_done - t_start,
+            len(body.prompt or ""),
+            pid or "none",
+        )
+    except Exception:
+        pass
     return {
         "ok": result.get("ok", True),
         "content": content,

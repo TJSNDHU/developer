@@ -103,21 +103,28 @@ function DashboardBody() {
   }, []);
 
   // Iter 212m-5 — Delete-project guard. Visible only when an active
-  // project is set. Confirm → DELETE /cto/projects/{id} → switch the
-  // tab bar back to Home and refresh the list. NEVER deletes silently.
+  // project is set. Iter 212m-15 upgrade — replaced the cheap
+  // `window.confirm` (one reflex OK-click = irreversible delete) with
+  // a typed-name confirmation modal (the GitHub / Stripe pattern). The
+  // user has to literally type the project name before the destructive
+  // POST is fired — eliminates the "click red button by accident"
+  // class of accidents the testing agent flagged on prod.
   const [deletingProject, setDeletingProject] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const openDeleteModal = useCallback(() => {
+    if (!project?.project_id) return;
+    setDeleteConfirmInput("");
+    setShowDeleteModal(true);
+  }, [project]);
   const handleDeleteProject = useCallback(async () => {
     if (!project?.project_id || deletingProject) return;
-    const ok = window.confirm(
-      `Delete project "${project.name}" permanently?\n\n` +
-      `This removes the PAT, repo link, and all task history for this project. ` +
-      `Your GitHub repo itself is NOT touched. This cannot be undone.`,
-    );
-    if (!ok) return;
+    if (deleteConfirmInput.trim() !== project.name) return;
     setDeletingProject(true);
     try {
       await api.delete(`/cto/projects/${project.project_id}`);
       toast({ message: `Deleted "${project.name}".`, kind: "success" });
+      setShowDeleteModal(false);
       setActiveProjectId(null);            // switches TabBar to Home and refreshes list
       navigate("/dashboard");
     } catch (e) {
@@ -128,7 +135,7 @@ function DashboardBody() {
     } finally {
       setDeletingProject(false);
     }
-  }, [project, deletingProject, navigate]);
+  }, [project, deletingProject, deleteConfirmInput, navigate]);
 
   // Track ORA panel open-state so the launch button can hide while the
   // panel is already on screen (the panel header already says Ask Advisor,
@@ -227,7 +234,7 @@ function DashboardBody() {
         {project && (
           <button
             data-testid="delete-project-btn"
-            onClick={handleDeleteProject}
+            onClick={openDeleteModal}
             disabled={deletingProject}
             title={`Delete "${project.name}" project permanently (does NOT touch GitHub)`}
             style={{
@@ -313,6 +320,98 @@ function DashboardBody() {
 
       {showWizard && (
         <NewUserWizard onComplete={() => setShowWizard(false)} />
+      )}
+
+      {showDeleteModal && project && (
+        <div
+          data-testid="delete-project-modal-overlay"
+          onClick={() => !deletingProject && setShowDeleteModal(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9600,
+            background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div
+            data-testid="delete-project-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 480, width: "100%",
+              background: "var(--panel)",
+              border: "1px solid var(--danger)",
+              borderRadius: 8,
+              padding: 28,
+              color: "var(--text)",
+              boxShadow: "0 24px 60px -12px rgba(0,0,0,0.7), 0 0 24px -8px var(--danger)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <Trash2 size={18} color="var(--danger)" />
+              <h2 style={{ margin: 0, fontSize: 16, color: "var(--danger)", letterSpacing: "0.05em" }}>
+                Delete project — confirm
+              </h2>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.55, margin: "0 0 6px" }}>
+              You are about to permanently delete <b style={{ color: "var(--text)" }}>{project.name}</b>.
+              This removes the saved PAT, repo link, and all task history for this project.
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-faint)", lineHeight: 1.55, margin: "0 0 18px" }}>
+              Your GitHub repository at <code>{project.github_owner}/{project.github_repo}</code> is
+              <b style={{ color: "var(--accent-2)" }}> NOT </b>touched. This cannot be undone.
+            </p>
+            <label style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em",
+                            textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+              Type <code style={{ color: "var(--danger)", background: "rgba(239,68,68,0.08)",
+                                  padding: "1px 5px", borderRadius: 3 }}>{project.name}</code> to confirm
+            </label>
+            <input
+              data-testid="delete-project-confirm-input"
+              autoFocus
+              value={deleteConfirmInput}
+              onChange={(e) => setDeleteConfirmInput(e.target.value)}
+              disabled={deletingProject}
+              placeholder={project.name}
+              style={{
+                width: "100%", padding: "8px 10px",
+                background: "var(--bg)", color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 4, fontSize: 13,
+                fontFamily: "'JetBrains Mono', monospace",
+                marginBottom: 16,
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                data-testid="delete-project-cancel"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deletingProject}
+                className="btn-ghost"
+                style={{ padding: "7px 14px", fontSize: 12 }}
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="delete-project-confirm"
+                onClick={handleDeleteProject}
+                disabled={deletingProject || deleteConfirmInput.trim() !== project.name}
+                style={{
+                  padding: "7px 14px", fontSize: 12, fontWeight: 600,
+                  background: "var(--danger)", color: "#0a0a0a",
+                  border: "1px solid var(--danger)", borderRadius: 4,
+                  cursor: (deletingProject || deleteConfirmInput.trim() !== project.name)
+                    ? "not-allowed" : "pointer",
+                  opacity: (deleteConfirmInput.trim() !== project.name) ? 0.4 : 1,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {deletingProject ? "Deleting…" : "Delete forever"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

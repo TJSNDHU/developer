@@ -94,6 +94,10 @@ export default function TabBar() {
         <Tab
           key={p.project_id}
           testid={`tab-${p.project_id}`}
+          // Iter 212m-15 — also expose a name-slug testid so Playwright
+          // scripts can drive `getByTestId('project-tab-dogfood')`
+          // instead of needing the opaque project_id.
+          nameTestid={`project-tab-${(p.name || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}`}
           label={p.name}
           Icon={FolderGit2}
           active={active === p.project_id}
@@ -129,10 +133,11 @@ export default function TabBar() {
   );
 }
 
-function Tab({ testid, label, Icon, active, onClick, onClose }) {
+function Tab({ testid, nameTestid, label, Icon, active, onClick, onClose }) {
   return (
     <div
       data-testid={testid}
+      data-name-testid={nameTestid}
       onClick={onClick}
       role="button"
       style={{

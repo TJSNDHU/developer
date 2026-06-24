@@ -39,13 +39,19 @@ const TOAST_FOR = {
   10: { kind: "error", msg: "🚨 Almost out — recharge to keep building." },
 };
 
-export default function TokenBell({ tokens, collapsed }) {
+export default function TokenBell({ tokens, unlimited, collapsed }) {
   const [ringing, setRinging] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const seenRef = useRef(loadSeen());
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Iter 212m-15 — founder / Team-plan unlimited accounts must NEVER
+    // see the recharge ring or modal even if the raw `tokens` field
+    // surfaces a negative value (which can happen when the server
+    // reports tokens_granted-used without first checking is_unlimited).
+    // Bail out before any threshold math runs.
+    if (unlimited) return;
     if (typeof tokens !== "number") return;
     // Find lowest threshold crossed that hasn't been shown yet.
     const newly = THRESHOLDS.filter(
@@ -72,17 +78,19 @@ export default function TokenBell({ tokens, collapsed }) {
     }
   }, [tokens]);
 
-  const color = tone(tokens);
-  const display = typeof tokens === "number"
-    ? (tokens >= 1000 ? `${Math.floor(tokens / 100) / 10}k` : tokens)
-    : "—";
+  const color = unlimited ? "var(--ok)" : tone(tokens);
+  const display = unlimited
+    ? "∞"
+    : (typeof tokens === "number"
+        ? (tokens >= 1000 ? `${Math.floor(tokens / 100) / 10}k` : tokens)
+        : "—");
 
   return (
     <>
       <div
         data-testid="token-bell"
         onClick={() => { setRinging(false); navigate("/tokens"); }}
-        title={`${tokens ?? "—"} tokens remaining`}
+        title={unlimited ? "Unlimited tokens (founder / Team plan)" : `${tokens ?? "—"} tokens remaining`}
         style={{
           position: "relative",
           display: "flex",
@@ -94,7 +102,9 @@ export default function TokenBell({ tokens, collapsed }) {
           cursor: "pointer",
           border: "1px solid var(--border)",
           borderRadius: 4,
-          background: tokens <= 50 ? "rgba(255,107,107,0.05)" : "transparent",
+          background: !unlimited && tokens <= 50
+            ? "rgba(255,107,107,0.05)"
+            : "transparent",
           transition: "border-color 120ms, background 120ms",
         }}
         onMouseEnter={(e) => (e.currentTarget.style.borderColor = color)}
@@ -122,7 +132,7 @@ export default function TokenBell({ tokens, collapsed }) {
             {display}
           </span>
         )}
-        {collapsed && typeof tokens === "number" && tokens <= 500 && (
+        {collapsed && !unlimited && typeof tokens === "number" && tokens <= 500 && (
           <span
             style={{
               position: "absolute",
@@ -186,7 +196,7 @@ function RechargeModal({ tokens, onRecharge, onDismiss }) {
           style={{ color: "var(--danger)", marginBottom: 12 }}
         />
         <h2 className="serif" style={{ margin: "0 0 10px", fontSize: 22 }}>
-          You're almost out of tokens
+          You&apos;re almost out of tokens
         </h2>
         <p style={{ color: "var(--text-dim)", fontSize: 13, margin: "0 0 22px" }}>
           {tokens} tokens remaining. Recharge to keep building with AUREM Dev.

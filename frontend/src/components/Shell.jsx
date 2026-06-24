@@ -211,19 +211,42 @@ export default function Shell({ children, requireAuth }) {
   }, [isMobile]);
 
   // ── Token wallet polling ───────────────────────────────────────────
+  // Iter 212m-15 — `is_unlimited` short-circuit. Founder / Team-plan
+  // accounts return `is_unlimited=true` with effective_limit ~1e12; the
+  // raw `tokens_remaining` field can still surface as negative (from
+  // `tokens_granted - used` math on the server side) which used to
+  // make TokenBell scream 'Almost out — recharge' at users who had
+  // an unlimited quota. Track the flag separately and pass it down so
+  // the bell can short-circuit BEFORE any threshold math runs.
   const [tokensRemaining, setTokensRemaining] = useState(
     () => (getUser() || {}).tokens_remaining ?? null
+  );
+  const [tokensUnlimited, setTokensUnlimited] = useState(
+    () => !!((getUser() || {}).is_unlimited)
   );
 
   const refreshTokens = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await api.get("/auth/tokens");
-      const t = r.data?.tokens_remaining;
-      if (typeof t === "number") {
-        setTokensRemaining(t);
+      // Prefer the richer /usage/me endpoint which returns is_unlimited /
+      // is_exhausted / effective_limit. Fall back to /auth/tokens (older)
+      // for backward compat if /usage/me 404s (rare; only on very old
+      // backends pre-iter 80).
+      let used = null;
+      let unlimited = false;
+      try {
+        const r = await api.get("/usage/me");
+        used = r.data?.remaining;
+        unlimited = !!r.data?.is_unlimited;
+      } catch {
+        const r2 = await api.get("/auth/tokens");
+        used = r2.data?.tokens_remaining;
+      }
+      if (typeof used === "number") {
+        setTokensRemaining(used);
+        setTokensUnlimited(unlimited);
         const u = getUser();
-        if (u) saveUser({ ...u, tokens_remaining: t });
+        if (u) saveUser({ ...u, tokens_remaining: used, is_unlimited: unlimited });
       }
     } catch { /* ignore */ }
   }, [token]);
@@ -728,7 +751,7 @@ export default function Shell({ children, requireAuth }) {
 
           <div style={{ marginTop: "auto", display: "grid", gap: 10, paddingTop: 12 }}>
             {token && (
-              <TokenBell tokens={tokensRemaining} collapsed={collapsed} />
+              <TokenBell tokens={tokensRemaining} unlimited={tokensUnlimited} collapsed={collapsed} />
             )}
 
             {token && user && !collapsed && (
