@@ -192,6 +192,21 @@ async def _run_once() -> None:
                 f"{counts['warn']} warn, {counts['broken']} broken, "
                 f"{counts['missing']} missing"
             )
+            # Iter 212m-17 — fire Top-up Alerts processor so any new
+            # critical/warning integrations land in `topup_alerts` and
+            # trigger the founder email immediately, not just at the
+            # next admin Overview refresh.
+            try:
+                from services.topup_alerts import process_snapshot
+                alert_result = await process_snapshot(_db, snap)
+                if alert_result["new_alert_count"]:
+                    logger.warning(
+                        f"🚨 Top-up alerts: "
+                        f"{alert_result['new_alert_count']} new, "
+                        f"emailed={alert_result['emailed']}"
+                    )
+            except Exception as e:
+                logger.warning(f"topup_alerts processing: {e!r}")
     except Exception as e:
         logger.warning(f"integration health daily refresh failed: {e!r}")
 

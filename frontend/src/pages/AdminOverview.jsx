@@ -20,13 +20,15 @@ export default function AdminOverview() {
   const [metrics, setMetrics] = useState(null);       // iter 188
   const [patterns, setPatterns] = useState(null);     // iter 212m — user patterns insights
   const [funnel,  setFunnel]  = useState(null);       // iter 212m-3 — activation funnel
+  const [alerts,  setAlerts]  = useState(null);       // iter 212m-17 — top-up alerts
+  const [refreshingHealth, setRefreshingHealth] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes, funnelRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes, funnelRes, alertsRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
@@ -37,6 +39,7 @@ export default function AdminOverview() {
           api.get("/admin/overview-metrics", { headers: h }),
           api.get("/admin/insights/user-patterns", { headers: h }),
           api.get("/admin/insights/activation-funnel", { headers: h }),
+          api.get("/admin/alerts", { headers: h }),
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
@@ -47,6 +50,7 @@ export default function AdminOverview() {
       if (metricsRes.status  === "fulfilled") setMetrics(metricsRes.value.data);
       if (patternsRes.status === "fulfilled") setPatterns(patternsRes.value.data);
       if (funnelRes.status   === "fulfilled") setFunnel(funnelRes.value.data);
+      if (alertsRes.status   === "fulfilled") setAlerts(alertsRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -70,6 +74,33 @@ export default function AdminOverview() {
       Loading system overview…
     </div>
   );
+
+  // Iter 212m-17 — Top-up Alerts handlers.
+  const refreshHealthAndAlerts = async () => {
+    setRefreshingHealth(true);
+    try {
+      const h = { Authorization: `Bearer ${getToken()}` };
+      await api.post("/admin/integrations/refresh", null, { headers: h });
+      const a = await api.get("/admin/alerts", { headers: h });
+      setAlerts(a.data);
+    } catch { /* silent */ }
+    finally { setRefreshingHealth(false); }
+  };
+  const dismissAlert = async (alertId) => {
+    try {
+      const h = { Authorization: `Bearer ${getToken()}` };
+      await api.post(`/admin/alerts/${alertId}/dismiss`, null, { headers: h });
+      // Optimistic remove
+      setAlerts((cur) => cur ? {
+        ...cur,
+        alerts: (cur.alerts || []).filter((x) => x.alert_id !== alertId),
+        counts: {
+          ...cur.counts,
+          active: Math.max(0, (cur.counts?.active || 1) - 1),
+        },
+      } : cur);
+    } catch { /* silent */ }
+  };
 
   const dbOk = health?.db === true;
   const uptimeMin = health?.uptime_s ? Math.floor(health.uptime_s / 60) : 0;
@@ -96,6 +127,14 @@ export default function AdminOverview() {
           {uptimeMin > 0 && <> · uptime {uptimeMin}m</>}
         </div>
       )}
+
+      {/* ── Iter 212m-17 — Top-up Alerts banner ────────────────── */}
+      <TopupAlertsBanner
+        alerts={alerts}
+        refreshing={refreshingHealth}
+        onRefresh={refreshHealthAndAlerts}
+        onDismiss={dismissAlert}
+      />
 
       {/* ── System health ───────────────────────────────────── */}
       <Section title="System health">
@@ -595,6 +634,174 @@ export default function AdminOverview() {
 
 
 /* ── Sub-components ──────────────────────────────────────────── */
+
+function TopupAlertsBanner({ alerts, refreshing, onRefresh, onDismiss }) {
+  const active = (alerts?.alerts || []).filter((a) => a.status === "active");
+  const counts = alerts?.counts || {};
+  const critical = active.filter((a) => a.severity === "critical");
+  const warning  = active.filter((a) => a.severity === "warning");
+
+  if (!alerts) return null;
+
+  // Healthy state — a slim green confirmation strip with a Refresh button.
+  if (active.length === 0) {
+    return (
+      <div
+        data-testid="topup-alerts-banner-ok"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 14px", marginBottom: 16,
+          background: "rgba(29,158,117,0.08)",
+          border: "1px solid rgba(29,158,117,0.25)",
+          borderRadius: 6,
+          fontSize: 12, color: "#1D9E75",
+        }}
+      >
+        <span>✓ All integrations healthy — no top-up alerts.</span>
+        <button
+          data-testid="topup-alerts-refresh"
+          onClick={onRefresh}
+          disabled={refreshing}
+          style={{
+            fontSize: 10, padding: "3px 10px",
+            background: "transparent",
+            border: "1px solid rgba(29,158,117,0.4)",
+            borderRadius: 4, color: "#1D9E75",
+            cursor: refreshing ? "wait" : "pointer",
+            opacity: refreshing ? 0.6 : 1,
+          }}
+        >
+          {refreshing ? "Probing…" : "Re-probe now"}
+        </button>
+      </div>
+    );
+  }
+
+  const accent = critical.length ? "#E24B4A" : "#F59E0B";
+  const bgRgb  = critical.length ? "226,75,74" : "245,158,11";
+
+  return (
+    <div
+      data-testid="topup-alerts-banner"
+      style={{
+        marginBottom: 18,
+        padding: "12px 16px",
+        background: `rgba(${bgRgb}, 0.08)`,
+        border: `1px solid rgba(${bgRgb}, 0.35)`,
+        borderRadius: 8,
+      }}
+    >
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 10,
+      }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 15 }}>
+            {critical.length ? "🚨" : "⚠️"}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: accent }}>
+            {critical.length > 0 && (
+              <>
+                <span data-testid="topup-alerts-critical-count">
+                  {critical.length}
+                </span>{" "}critical
+              </>
+            )}
+            {critical.length > 0 && warning.length > 0 && <> · </>}
+            {warning.length > 0 && (
+              <>
+                <span data-testid="topup-alerts-warning-count">
+                  {warning.length}
+                </span>{" "}warning
+              </>
+            )}
+            {" "}integration alert{(critical.length + warning.length) === 1 ? "" : "s"}
+          </span>
+          <span style={{ fontSize: 10, color: "var(--text-faint)" }}>
+            (total active: {counts.active ?? active.length})
+          </span>
+        </div>
+        <button
+          data-testid="topup-alerts-refresh"
+          onClick={onRefresh}
+          disabled={refreshing}
+          style={{
+            fontSize: 10, padding: "4px 10px",
+            background: "transparent",
+            border: `1px solid rgba(${bgRgb}, 0.5)`,
+            borderRadius: 4, color: accent,
+            cursor: refreshing ? "wait" : "pointer",
+            opacity: refreshing ? 0.6 : 1,
+            fontWeight: 600, letterSpacing: ".04em",
+          }}
+        >
+          {refreshing ? "Probing…" : "Re-probe now"}
+        </button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {active.slice(0, 6).map((a) => (
+          <div
+            key={a.alert_id}
+            data-testid={`topup-alert-${a.alert_id}`}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 10,
+              padding: "8px 10px",
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.05)",
+              borderRadius: 5,
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: "var(--text)" }}>
+                <span style={{
+                  display: "inline-block", marginRight: 8,
+                  padding: "1px 6px",
+                  background: a.severity === "critical"
+                    ? "rgba(226,75,74,0.18)" : "rgba(245,158,11,0.18)",
+                  color: a.severity === "critical" ? "#E24B4A" : "#F59E0B",
+                  borderRadius: 3, fontSize: 9,
+                  letterSpacing: ".06em", textTransform: "uppercase",
+                }}>
+                  {a.severity}
+                </span>
+                {a.integration_name}
+              </div>
+              <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 2 }}>
+                {a.summary}
+              </div>
+              {a.fix_hint && (
+                <div style={{ color: "var(--text-faint)", fontSize: 10, marginTop: 2 }}>
+                  → {a.fix_hint}
+                </div>
+              )}
+            </div>
+            <button
+              data-testid={`topup-alert-dismiss-${a.alert_id}`}
+              onClick={() => onDismiss(a.alert_id)}
+              style={{
+                fontSize: 9, padding: "3px 8px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: 3, color: "var(--text-faint)",
+                cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        ))}
+        {active.length > 6 && (
+          <div style={{ fontSize: 10, color: "var(--text-faint)", textAlign: "center", marginTop: 4 }}>
+            + {active.length - 6} more
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function Section({ title, children }) {
   return (

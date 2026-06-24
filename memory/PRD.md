@@ -7724,3 +7724,91 @@ the user to action:
 ---
 
 
+### Iter 212m-17 — Top-up Alerts engine (Feb 2026) ✅
+
+When an external integration's balance / credits / health degrades on
+production, the founder used to find out only by accident — usually when
+a chat call started failing. This iter adds an end-to-end **Top-up
+Alerts** system that:
+
+1. **Classifies** every integration-health probe result into
+   `critical` / `warning` / `nominal`.
+2. **Dedupes** per (integration_id, severity, day) so the founder gets
+   at most one email per day per issue.
+3. **Emails** the founder via Resend (reuses the existing
+   `_send_via_resend` pattern from `daily_digest`).
+4. **Persists** every alert so the admin Overview tab can render a
+   banner with dismiss buttons.
+5. **Auto-resolves** alerts on the next probe when the integration
+   flips back to `ok`.
+
+**Classification rules** (`services/topup_alerts.py::classify`)
+- `status="broken"` → **critical**
+- `status="warn"` with money-keyword pattern (`credits low`,
+  `balance out`, `$0.…`, `0 credits` etc.) → **critical**
+- `status="warn"` on a core integration
+  (openrouter / emergent_llm / stripe / mongodb) → **critical**
+- `status="warn"` elsewhere → **warning**
+- `status="missing"` / `"ok"` → no alert
+
+**Wiring**
+- `services/topup_alerts.py` — engine (classifier, dedupe, Resend email,
+  email renderer, public `process_snapshot(db, snap)` entrypoint).
+- `services/daily_digest.py` — daily 06:00 UTC cron calls
+  `process_snapshot()` after the integration refresh so the founder
+  gets a morning summary email of any degraded integrations.
+- `routers/admin.py::integrations_refresh` — manual `/admin/integrations/refresh`
+  also calls `process_snapshot()` so a re-probe-now click fires
+  immediate emails for any new issues.
+- `GET  /admin/alerts?status=active|resolved|dismissed|all` — list +
+  counts (active, critical, warning).
+- `POST /admin/alerts/{alert_id}/dismiss` — admin acknowledges +
+  actioned. Same alert can re-fire tomorrow if the integration is
+  still degraded (per-day dedupe).
+
+**Frontend** (`pages/AdminOverview.jsx`)
+- New `TopupAlertsBanner` component rendered above System health.
+- Healthy state: slim green strip `"✓ All integrations healthy — no
+  top-up alerts."` with a Re-probe button.
+- Degraded state: amber/red banner with severity pills, per-alert
+  Dismiss buttons, fix-hint inline, "Re-probe now" CTA at the top.
+- Testids: `topup-alerts-banner`, `topup-alerts-banner-ok`,
+  `topup-alerts-refresh`, `topup-alerts-critical-count`,
+  `topup-alerts-warning-count`, `topup-alert-{id}`,
+  `topup-alert-dismiss-{id}`.
+
+**Live verification on preview**
+- POST `/admin/integrations/refresh` → 3 critical alerts created
+  (OpenRouter $0.37 left, Tavily HTTP 432, Firecrawl exhausted)
+- ADMIN_EMAIL set + RESEND_API_KEY set → **email sent** to founder.
+- Second refresh same day → 0 new alerts, no email re-send.
+- DISMISS alert → active count drops 3 → 2.
+- 404 on unknown alert_id.
+- AdminOverview DOM verified to render `data-testid="topup-alerts-banner"`.
+
+**Tests** — 18 new in `backend/tests/test_iter212m17_topup_alerts.py`:
+- Classifier: broken/warn/money-keyword/core-integration/sentry-warn/
+  ok/missing.
+- Email renderer: critical-only, warning-only, mixed subjects.
+- Day key UTC format.
+- Persistence (in-memory fake Mongo): first-sighting create, same-day
+  dedupe (seen_count increments), auto-resolve when probe flips to ok,
+  process_snapshot returns `emailed=False` when ADMIN_EMAIL absent.
+- Router wiring pins: `/admin/alerts` + `/admin/alerts/{id}/dismiss`
+  registered, `daily_digest` imports `process_snapshot`,
+  `AdminOverview.jsx` renders `TopupAlertsBanner` + consumes both
+  `/admin/alerts` and `/admin/integrations/refresh`.
+
+All 18 green.
+
+**Files touched**
+- `backend/services/topup_alerts.py` (NEW, ~240 LOC).
+- `backend/services/daily_digest.py` (+ `process_snapshot` hook).
+- `backend/routers/admin.py` (+ refresh hook + 2 new endpoints).
+- `frontend/src/pages/AdminOverview.jsx` (+ alerts state, fetchers,
+  refresh handler, dismiss handler, `TopupAlertsBanner` component).
+- `backend/tests/test_iter212m17_topup_alerts.py` (NEW, 18 tests).
+
+---
+
+

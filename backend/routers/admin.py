@@ -1745,9 +1745,67 @@ async def integrations_refresh(
         {"$set": snap},
         upsert=True,
     )
+    # Iter 212m-17 — process new top-up alerts inline so the founder
+    # gets an immediate email when a refresh surfaces a broken probe
+    # (instead of waiting for the next daily cron at 06:00 UTC).
+    try:
+        from services.topup_alerts import process_snapshot
+        alert_result = await process_snapshot(db, snap)
+        snap["alerts_processed"] = alert_result
+    except Exception as e:
+        logger.warning(f"topup_alerts on manual refresh: {e!r}")
     # Iter 212m-16 — return the fresh snapshot so the admin UI can
     # render the result without a second roundtrip to /integrations/health.
     return snap
+
+
+# ── Iter 212m-17 — Top-up Alerts admin endpoints ────────────────────────
+
+
+@router.get("/alerts")
+async def list_alerts(
+    status: str = "active",
+    authorization: Optional[str] = Header(None),
+):
+    """List integration top-up alerts. `status` filter accepts
+    `active` (default), `resolved`, `dismissed`, or `all`."""
+    await _require_admin(authorization)
+    db = require_db()
+    query: dict = {}
+    if status != "all":
+        query["status"] = status
+    rows = await db.topup_alerts.find(
+        query, {"_id": 0}
+    ).sort("first_seen", -1).limit(100).to_list(100)
+    counts = {
+        "active":    await db.topup_alerts.count_documents({"status": "active"}),
+        "critical":  await db.topup_alerts.count_documents(
+            {"status": "active", "severity": "critical"}
+        ),
+        "warning":   await db.topup_alerts.count_documents(
+            {"status": "active", "severity": "warning"}
+        ),
+    }
+    return {"alerts": rows, "counts": counts}
+
+
+@router.post("/alerts/{alert_id}/dismiss")
+async def dismiss_alert(
+    alert_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Manually dismiss an alert — admin acknowledged + actioned. Does
+    NOT prevent the same alert from firing again tomorrow if the
+    integration is still in the same state (the dedupe key is per-day)."""
+    await _require_admin(authorization)
+    db = require_db()
+    r = await db.topup_alerts.update_one(
+        {"alert_id": alert_id},
+        {"$set": {"status": "dismissed", "dismissed_at": time.time()}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Alert not found")
+    return {"ok": True, "alert_id": alert_id, "status": "dismissed"}
 
 
 # ── Iter 100 — Live Financial Command Center ───────────────────────────
