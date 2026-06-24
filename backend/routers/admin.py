@@ -102,7 +102,7 @@ async def dashboard(authorization: Optional[str] = Header(None)):
     ).sort("created_at", -1).limit(5).to_list(5)
 
     recent_users = await db.dev_users.find(
-        {}, {"_id": 0, "password_hash": 0, "github.access_token": 0}
+        {}, {"_id": 0, "password": 0, "password_hash": 0, "github.access_token": 0}
     ).sort("created_at", -1).limit(5).to_list(5)
 
     return {
@@ -243,7 +243,7 @@ async def list_users(
         query["created_at"] = {"$gte": buckets[window]}
 
     users = await db.dev_users.find(
-        query, {"_id": 0, "password_hash": 0, "github.access_token": 0}
+        query, {"_id": 0, "password": 0, "password_hash": 0, "github.access_token": 0}
     ).sort("created_at", -1).limit(100).to_list(100)
 
     # Iter 120 — flatten 300 round-trips (3 count_documents per user) into
@@ -280,7 +280,7 @@ async def get_user(user_id: str, authorization: Optional[str] = Header(None)):
     db = require_db()
     user = await db.dev_users.find_one(
         {"user_id": user_id},
-        {"_id": 0, "password_hash": 0, "github.access_token": 0},
+        {"_id": 0, "password": 0, "password_hash": 0, "github.access_token": 0},
     )
     if not user:
         raise HTTPException(404, "User not found")
@@ -1745,6 +1745,9 @@ async def integrations_refresh(
         {"$set": snap},
         upsert=True,
     )
+    # Iter 212m-16 — return the fresh snapshot so the admin UI can
+    # render the result without a second roundtrip to /integrations/health.
+    return snap
 
 
 # ── Iter 100 — Live Financial Command Center ───────────────────────────

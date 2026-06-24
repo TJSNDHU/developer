@@ -38,7 +38,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PROBE_TIMEOUT = 12.0
+PROBE_TIMEOUT = 20.0  # Iter 212m-16 — bumped 12→20s. At 12s the daily
+# 06:00 UTC cron was marking 7/11 probes as broken under event-loop
+# contention, even though the integrations were fully functional
+# (manual /integrations/refresh consistently shows them green in 2-4s
+# each). 20s gives the parallel `asyncio.gather` more headroom on cold
+# DNS / TLS hosts without inflating the manual refresh latency.
 
 
 def _now_iso() -> str:

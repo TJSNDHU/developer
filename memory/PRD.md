@@ -7649,3 +7649,78 @@ orchestrator literal — unrelated to this iter).
 ---
 
 
+### Iter 212m-16 — Production admin-panel audit (Feb 2026) ✅
+
+Live audit of `auremcto.com/admin` against the founder account
+(`teji.ss1986@gmail.com`). 35/35 admin endpoints respond 200. Found and
+fixed three issues; documented two user-environment blockers.
+
+**🔴 SECURITY FIX — bcrypt password hashes leaking via `/admin/users`**
+`routers/admin.py` had THREE find-projection bugs where the field
+`password_hash: 0` was used to scrub the user object — but the actual
+field set by `routers/auth.py::signup` is just `password`, so the
+projection was a no-op. Every call to `/admin/dashboard`, `/admin/users`,
+and `/admin/users/{user_id}` was returning the full bcrypt hash to any
+authenticated admin (and the live response was verified to contain
+`$2b$12$…` on production).
+
+Fix: every dev_users projection now lists both keys
+(`"password": 0, "password_hash": 0`) so legacy rows that ever stored
+under either field stay scrubbed.
+
+Verified on preview:
+- `/admin/users` → 29 users, **0 password leaks**, keys clean
+- `/admin/users/{uid}` → leak=False
+- `/admin/dashboard` → recent_users sanitised
+
+**🟠 `/admin/integrations/refresh` returned `None`**
+The POST handler upserted the fresh snapshot but fell off the end without
+a `return`. The admin UI had to follow up with a GET to
+`/integrations/health` to actually read it. Now returns the full snap
+(`{results, summary, generated_at, trigger}`) on success.
+
+Verified on preview: refresh returns 11 results + summary + trigger="manual".
+
+**🟠 Daily integration-health cron marking 7/11 probes as broken**
+The 06:00 UTC daily cron's snapshot consistently showed
+"Probe timed out after 12.0s" on github_oauth, emergent_llm, openrouter,
+tavily, firecrawl, resend, vercel, mongodb — but a manual refresh shows
+the exact same probes green with 2-4s latency each. Cause: event-loop
+contention when 11 probes hit `asyncio.gather` simultaneously on cold
+DNS / TLS hosts. Bumped `PROBE_TIMEOUT` from 12s → 20s — gives the
+parallel batch enough headroom to actually complete without rejecting
+fully-functional integrations.
+
+**Tests** — 5 new in
+`backend/tests/test_iter212m16_admin_password_leak_and_health.py`:
+- `password: 0` projection present in list_users, get_user, dashboard
+  recent_users
+- `/integrations/refresh` returns snap (regression pin for the dropped
+  return statement)
+- `PROBE_TIMEOUT = 20.0` is set + the old 12.0 literal is gone
+
+All 5 green.
+
+**Production user-environment blockers (NOT code bugs)** — flagged for
+the user to action:
+- 🔴 **Monthly Stripe plans return 503** with `No such price:
+  price_1TfXGf2XYZ7cJIy2…`. The IDs in production env have placeholder
+  `XYZ` segments — they were never replaced with real Stripe Live-mode
+  recurring Price IDs. User must rotate `STRIPE_STARTER_PRICE_ID`,
+  `STRIPE_PRO_PRICE_ID`, `STRIPE_TEAM_PRICE_ID`. Annual plans work
+  perfectly (verified live).
+- 🟡 **OpenRouter balance**: $0.37 of $16 spent — top up before chat
+  starts failing.
+- 🟡 **Tavily Search**: returns HTTP 432 (likely banned IP / invalid
+  key). Re-issue the Tavily key.
+- 🟡 **Firecrawl**: credits exhausted.
+
+**Files touched**
+- `backend/routers/admin.py` — 3 projection fixes + `return snap`.
+- `backend/services/integration_health.py` — `PROBE_TIMEOUT = 20.0`.
+- `backend/tests/test_iter212m16_admin_password_leak_and_health.py`
+  (NEW, 5 tests).
+
+---
+
+
