@@ -224,6 +224,7 @@ def _f12_has_real_signal(payload: dict) -> bool:
 # first-chat response.
 _TRANSIENT_PROXY_CODES = {
     408,                                                # Request Timeout
+    499,                                                # Client Closed Request (Iter 212m-8)
     502, 503, 504,                                      # Bad Gateway / SU / GT
     520, 521, 522, 523, 524, 525, 526, 527, 530,        # Cloudflare-specific
 }
@@ -236,6 +237,15 @@ def _is_transient_proxy_error(status: int, body) -> bool:
     AND body looks like HTML (or is empty — proxy edge cases)."""
     if status not in _TRANSIENT_PROXY_CODES:
         return False
+    # Iter 212m-8 — HTTP 499 (Client Closed Request) is by definition
+    # client-side: the browser cancelled the request. The response body
+    # may be a JSON error from our own 499 handler — body shape does
+    # NOT change the fact that it's a transient disconnect, not an app
+    # bug. Drop it from F12 signal unconditionally so a stale 499 in
+    # the browser's capture buffer can't hijack Mode D on the next
+    # user prompt (root cause of "ORA ignores my read request").
+    if status == 499:
+        return True
     b = (body or "")
     if isinstance(b, bytes):
         try:

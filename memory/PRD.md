@@ -7419,3 +7419,74 @@ All 23 green. Full regression across 8 in-scope suites: **117/117**.
 ---
 
 
+### Iter 212m-8 — Mode-D 499 Hijack Bug Fix (CRITICAL — PRODUCTION) (Feb 2026)
+User reported on production (`auremcto.com`): ORA was completely
+ignoring tool-call requests like `"Read backend/routers/deploy.py"`
+and instead returning canned diagnoses like
+`"🟡 Root cause: Client disconnected before receiving full response
+from the API endpoint, causing a 499 error (client closed request)"`.
+
+**Diagnosis chain**:
+1. Production build_hash showed `m1c52af7` which is a file-mtime
+   fallback (not a git hash) — the deploy WAS recent (`a96b157`
+   range), Iter 212m-1 through 212m-5 endpoints all returned 401
+   (exist) not 404 (missing). So this was NOT a "redeploy needed"
+   problem.
+2. Searched the canned response text — found verbatim in
+   `services/mode_d_debugger.py::run_debug_session`. The user's
+   prompt was being routed to Mode D (the debugger) even though
+   their prompt contained no error signal.
+3. Traced classify_intent: line 266 of `routers/chat.py` —
+   `if f12_payload and _f12_has_real_signal(f12_payload): return "D"`.
+   The F12 payload (browser's auto-capture of console + network
+   errors) was hijacking intent BEFORE the user's prompt was even
+   examined.
+4. `_f12_has_real_signal` accepts ANY 4xx/5xx in the network buffer
+   as a "real signal" unless filtered by `_is_transient_proxy_error`.
+   The set `_TRANSIENT_PROXY_CODES` covered 408, 502-504, 520-530
+   — **but NOT 499**.
+
+**Why 499 is special**: HTTP 499 is "Client Closed Request" — it
+fires whenever the browser cancels a streaming chat connection,
+which is constant for our `/chat/stream` SSE endpoint (the user
+typing again, navigating, page refresh). The browser's F12 buffer
+holds these 499s for the entire session. Every subsequent prompt
+then re-triggers Mode D on the same stale 499 → user's actual
+intent is never reached.
+
+**Fix** (2 surgical edits in `routers/chat.py`):
+1. `_TRANSIENT_PROXY_CODES` set now includes `499`.
+2. `_is_transient_proxy_error` short-circuits 499 to return True
+   regardless of body shape — our backend's 499 handler returns
+   JSON (not HTML), so the existing body-content check would
+   otherwise miss it.
+
+**Tests** — 8 new in `backend/tests/test_iter212m8_mode_d_499_bypass.py`:
+- 499 in transient set
+- 499 with JSON body → transient (bug-specific)
+- 499 with bytes body → transient
+- 499 with empty body → transient
+- Real 500 with app body → NOT transient (regression guard)
+- 502 with HTML body → still transient (legacy regression guard)
+- F12 with ONLY a 499 → no signal (the exact production bug)
+- F12 with 499 + real 500 → still signals (we don't over-filter)
+- F12 with 499 + console.error → still signals
+- End-to-end `classify_intent` with stale 499 + "Read deploy.py" →
+  must NOT route to Mode D
+
+All 8 green. Full regression across 6 in-scope suites: **99/99**.
+
+**Production deploy required**: Yeh fix preview pe live hai. User
+ko production redeploy karna padega (Save to GitHub → Deploy) taki
+ORA ka tool-calling production pe actually kaam kare.
+
+**Files touched**
+- `backend/routers/chat.py` — `_TRANSIENT_PROXY_CODES.add(499)` +
+  `_is_transient_proxy_error` short-circuit for 499.
+- `backend/tests/test_iter212m8_mode_d_499_bypass.py` (new, 8 tests).
+
+**Commit**: `fix(chat): drop stale HTTP 499 from F12 signal so Mode D doesn't hijack tool-call requests`
+
+---
+
+
