@@ -9,7 +9,7 @@
  * - "+" button opens the Projects page to add/connect a new repo
  */
 import React, { useEffect, useState, useCallback } from "react";
-import { Home, X, Plus, FolderGit2 } from "lucide-react";
+import { X, Plus, FolderGit2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 
@@ -83,13 +83,11 @@ export default function TabBar() {
         overflowX: "auto", minHeight: 42,
       }}
     >
-      <Tab
-        testid="tab-home"
-        label="Home"
-        Icon={Home}
-        active={!active}
-        onClick={() => switchTo(null)}
-      />
+      {/* Iter 212m-20 — Home tab removed per founder request.
+          The chat panel always operates inside a project scope; the
+          "no project" state is reachable via /projects sidebar.
+          Removing the Home pill cleans up the tab strip so customers
+          don't accidentally drop out of their active project. */}
       {projects.map((p) => (
         <Tab
           key={p.project_id}

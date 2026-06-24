@@ -17,6 +17,7 @@ import AuremAdminPanel from "../components/AuremAdminPanel";
 import AdminOverview from "./AdminOverview";
 import AgentTokenPanel from "../components/AgentTokenPanel";
 import AdminThinkingHints from "../components/AdminThinkingHints";
+import TwoFactorCard from "../components/TwoFactorCard";  // Iter 212m-20
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -1600,6 +1601,11 @@ function SettingsPage() {
         className="btn-primary" style={{ marginTop: 14 }}>
         {busy ? "Saving…" : "Save settings"}
       </button>
+
+      {/* Iter 212m-20 — Admin 2FA enrollment card. Place this BEFORE
+          the Stripe card so a brand-new admin is nudged toward the
+          security best practice first. */}
+      <TwoFactorCard />
 
       {/* Iter 191 — Stripe API key card with edit/save + live ping
           (green/red status light, account info, error reason). */}

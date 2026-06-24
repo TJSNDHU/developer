@@ -30,6 +30,7 @@ from routers.engagement import router as engagement_router
 from routers.unlock import router as unlock_router
 from routers.projects import router as projects_router
 from routers.auth import router as auth_router
+from routers.mfa import router as mfa_router  # Iter 212m-20 — admin 2FA
 from routers.chat import router as chat_router
 from routers.github_oauth import router as github_oauth_router
 from routers.cto_projects import router as cto_projects_router
@@ -891,6 +892,7 @@ app.include_router(engagement_router,   prefix="/api/aurem-dev")
 app.include_router(projects_router,      prefix="/api/aurem-dev")
 app.include_router(unlock_router,       prefix="/api/aurem-dev")
 app.include_router(auth_router,         prefix="/api/aurem-dev")
+app.include_router(mfa_router,          prefix="/api/aurem-dev")  # Iter 212m-20 — admin 2FA
 app.include_router(chat_router,         prefix="/api/aurem-dev")
 app.include_router(github_oauth_router, prefix="/api/aurem-dev")
 app.include_router(cto_projects_router, prefix="/api/aurem-dev")

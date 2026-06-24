@@ -173,3 +173,7 @@ xlsxwriter==3.2.9
 yarl==1.24.2
 youtube-transcript-api==1.0.3
 zipp==4.1.0
+
+pyotp==2.10.0
+qrcode==8.2
+pillow==12.2.0

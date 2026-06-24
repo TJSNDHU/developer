@@ -55,3 +55,37 @@ def create_token(user_id: str, email: str, is_admin: bool = False) -> str:
         "exp": int(time.time()) + 86400 * 30,  # 30 days
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def create_mfa_pending_token(user_id: str, email: str) -> str:
+    """Iter 212m-20 — short-lived JWT that ONLY carries the intent to
+    complete a 2FA challenge. Cannot be used to call any other endpoint
+    (the `mfa_pending=True` claim + 5-minute expiry are enforced by
+    `consume_mfa_pending_token`). Returned by /auth/login when the
+    admin's account has 2FA enabled; consumed by /auth/login/2fa-verify
+    in exchange for the real session JWT."""
+    payload = {
+        "user_id":     user_id,
+        "email":       email,
+        "mfa_pending": True,
+        "exp":         int(time.time()) + 5 * 60,   # 5 min window
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def consume_mfa_pending_token(token: str) -> dict:
+    """Validate the mfa_pending token. Returns the payload on success,
+    raises HTTPException(401) otherwise. The token is single-purpose —
+    the caller MUST have already verified the 2FA code BEFORE issuing
+    a real session token via `create_token`."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "2FA challenge expired — log in again")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid 2FA token")
+    if not payload.get("mfa_pending"):
+        raise HTTPException(401, "Not a 2FA challenge token")
+    if not payload.get("user_id"):
+        raise HTTPException(401, "Malformed 2FA token")
+    return payload

@@ -8025,3 +8025,129 @@ get_repo_info, 🤔, 🔍, ✅ Done]`).
 ---
 
 
+### Iter 212m-20 — Admin TOTP 2FA + Home tab removal (Feb 2026) ✅
+
+Two founder-asked changes shipped together.
+
+**Change 1 — Admin login 2FA (TOTP / RFC 6238)**
+Fully-local TOTP via `pyotp` + `qrcode` — no external service, works with
+Google Authenticator, 1Password, Authy, Bitwarden, Microsoft
+Authenticator, any RFC-compliant app. Two-leg login:
+
+  1. `POST /auth/login` — when the matched user has
+     `is_admin=True AND mfa_enabled=True`, returns
+     `{ok:true, mfa_required:true, mfa_token:<5-min JWT>}` instead of
+     the real session JWT.
+  2. `POST /auth/login/2fa-verify {mfa_token, code|backup_code}` —
+     validates the 6-digit TOTP (or a one-time backup code), then
+     returns the real session JWT + user payload. Backup codes are
+     single-use: a consumed code is removed from
+     `dev_users.mfa_backup_codes` so it can never be reused.
+
+Admin enrollment surface in `routers/mfa.py`:
+  - `GET  /admin/2fa/status` — `{enabled, has_pending, backup_codes_remaining}`
+  - `POST /admin/2fa/enroll-start` — generates secret + QR PNG (base64
+    data URL) + 8 plaintext backup codes (shown ONCE). Stashes the
+    pending secret + bcrypt-hashed backup codes; does NOT enable 2FA
+    yet — the user still needs to confirm with the verify step.
+  - `POST /admin/2fa/enroll-verify {code}` — admin scanned the QR +
+    typed the 6-digit code. We move `mfa_secret_pending → mfa_secret`,
+    flip `mfa_enabled=true`, persist the (already-hashed) backup
+    codes. The plaintext backup codes were ONLY exposed in the
+    enroll-start response — the DB only stores bcrypt hashes.
+  - `POST /admin/2fa/disable {code|backup_code}` — admin must prove
+    possession of the authenticator OR a valid backup code, so a
+    compromised session token alone can't lift the protection.
+
+`cto_services/auth.py` got `create_mfa_pending_token` +
+`consume_mfa_pending_token` — separate JWT type with a `mfa_pending=True`
+claim + 5-minute expiry. Cannot be used as a session token for any
+other endpoint.
+
+Frontend:
+  - `pages/Login.jsx` — handles the `mfa_required` response, swaps to
+    a 6-digit code input form, includes a "Use a backup code →" toggle
+    for the recovery path. Testids: `login-2fa-form`,
+    `login-2fa-code-input`, `login-2fa-backup-input`, `login-2fa-submit`,
+    `login-2fa-toggle-backup`, `login-2fa-cancel`.
+  - `components/TwoFactorCard.jsx` (NEW, ~315 LOC) — Admin Settings
+    card showing enabled/disabled badge + 4-step enrollment flow
+    (start → QR + backup codes shown ONCE → 6-digit confirm → done).
+    Disable flow takes either a TOTP code or a backup code. Testids:
+    `admin-2fa-card`, `admin-2fa-enroll-cta`, `admin-2fa-qr`,
+    `admin-2fa-secret`, `admin-2fa-backup-codes`,
+    `admin-2fa-confirm-submit`, `admin-2fa-disable-cta`,
+    `admin-2fa-disable-confirm`, `admin-2fa-copy-backups`.
+  - Mounted into `pages/Admin.jsx` Settings panel ABOVE the Stripe card
+    so a new admin is nudged toward the security best-practice first.
+
+`requirements.txt` — `pyotp==2.10.0`, `qrcode==8.2`, `pillow==12.2.0`
+already present.
+
+**Change 2 — Home tab removed from project chat panel**
+`components/TabBar.jsx` no longer renders the `<Tab testid="tab-home">`
+pill. Removed the `Home` lucide-react import. The chat panel always
+operates inside a project scope; users can still reach the "no
+project" state via the `/projects` sidebar.
+
+**Live verification on preview** — full end-to-end smoke through
+backend curl:
+  - Single-step login (no 2FA) → 200 + token issued
+  - `GET /admin/2fa/status` → `{enabled:false, backup_codes_remaining:0}`
+  - `POST /admin/2fa/enroll-start` → 200, secret (32 chars),
+    QR PNG base64, 8 backup codes (`A3F7-2K9P-XQ4M` style)
+  - Live TOTP code generated via `pyotp.TOTP(secret).now()` →
+    `POST /admin/2fa/enroll-verify {code}` → `{ok:true, enabled:true}`
+  - `GET /admin/2fa/status` → `{enabled:true, backup_codes_remaining:8}`
+  - Re-login → `{mfa_required:true, mfa_token:"eyJ…"}` (NO session
+    token issued yet)
+  - Wrong code on `/auth/login/2fa-verify` → 401 "Invalid 2FA code"
+  - Correct code → real session JWT issued + `is_admin:true`
+  - `POST /admin/2fa/disable {code}` with valid TOTP → `{enabled:false}`
+  - Login flips back to single-step
+
+**Tests** — 22 new in
+`backend/tests/test_iter212m20_admin_2fa_and_tabbar.py`:
+  - `services/mfa.py` — secret length, otpauth URL format, QR PNG
+    magic bytes, TOTP verify accept/reject, non-digit reject, backup
+    code uniqueness + dash format, hash roundtrip, single-use
+    consumption, unknown-code reject (10 tests)
+  - `cto_services/auth.py` — mfa_pending token roundtrip, rejection
+    of normal session JWTs, 5-minute expiry (3 tests)
+  - `routers/mfa.py` — registered in `main.py`, all 4 endpoints
+    present + admin-gated (2 tests)
+  - `routers/auth.py` — login short-circuits to mfa_required when
+    admin has 2FA, `/login/2fa-verify` exists + accepts backup codes
+    via `consume_backup_code` (2 tests)
+  - `frontend` — Home tab + `Home,` import removed from TabBar.jsx,
+    Login.jsx handles `mfa_required` + has `login-2fa-form` testid +
+    backup toggle, `TwoFactorCard.jsx` exists + consumes all 4
+    endpoints + has all enrollment testids, Admin.jsx mounts the card,
+    requirements.txt has pyotp + qrcode (5 tests)
+
+All 22 green. **80/80 across iter 212m-15 → 20** green. No regressions.
+
+**Files touched**
+- `backend/requirements.txt` — `pyotp==2.10.0`, `qrcode==8.2`, `pillow==12.2.0`.
+- `backend/cto_services/auth.py` — `create_mfa_pending_token` +
+  `consume_mfa_pending_token` helpers.
+- `backend/services/mfa.py` (NEW, ~115 LOC) — TOTP secret gen, QR PNG,
+  verify_code, backup-code hash + single-use redemption.
+- `backend/routers/mfa.py` (NEW, ~220 LOC) — admin enroll/verify/
+  disable/status.
+- `backend/routers/auth.py` — login gates admin accounts with
+  `mfa_enabled`, new `/login/2fa-verify` endpoint, shared
+  `_issue_session` builder.
+- `backend/main.py` — register `mfa_router`.
+- `frontend/src/pages/Login.jsx` — 2FA challenge form + backup toggle.
+- `frontend/src/components/TwoFactorCard.jsx` (NEW, ~315 LOC).
+- `frontend/src/pages/Admin.jsx` — mounts `<TwoFactorCard/>` ABOVE the
+  Stripe card in the Settings panel.
+- `frontend/src/components/TabBar.jsx` — Home pill removed.
+- `backend/tests/test_iter212m20_admin_2fa_and_tabbar.py` (NEW, 22 tests).
+- `memory/test_credentials.md` — documented the 2FA behaviour so the
+  testing agent doesn't trip over it.
+
+---
+
+

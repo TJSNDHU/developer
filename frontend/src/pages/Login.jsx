@@ -27,6 +27,12 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Iter 212m-20 — Admin 2FA challenge state. `null` = normal email/pw
+  // form. `{ mfa_token, email }` = the password was correct but the
+  // account has TOTP enabled, so we now collect the 6-digit code.
+  const [mfaState, setMfaState] = useState(null);
+  const [mfaCode,  setMfaCode]  = useState("");
+  const [useBackup, setUseBackup] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
@@ -34,6 +40,13 @@ export default function Login() {
     setError(null);
     try {
       const r = await api.post("/auth/login", { email: email.trim(), password });
+      // Iter 212m-20 — admin 2FA gate. Switch to the 2FA step instead
+      // of issuing a session.
+      if (r.data?.mfa_required && r.data?.mfa_token) {
+        setMfaState({ mfa_token: r.data.mfa_token, email: r.data.email || email });
+        setBusy(false);
+        return;
+      }
       setToken(r.data.token);
       setUser({
         user_id: r.data.user_id,
@@ -42,10 +55,38 @@ export default function Login() {
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
       });
-      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
+      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch { /* ignore */ }
       navigate(next, { replace: true });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign in failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Iter 212m-20 — submit the second-leg verify with the 6-digit code
+  // (or a backup recovery code) in exchange for the real session JWT.
+  async function submitMfa(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const payload = { mfa_token: mfaState.mfa_token };
+    if (useBackup) payload.backup_code = mfaCode.trim();
+    else           payload.code        = mfaCode.replace(/\D/g, "");
+    try {
+      const r = await api.post("/auth/login/2fa-verify", payload);
+      setToken(r.data.token);
+      setUser({
+        user_id: r.data.user_id,
+        email: r.data.email,
+        name: r.data.name,
+        tier: r.data.tier,
+        tokens_remaining: r.data.tokens_remaining,
+      });
+      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch { /* ignore */ }
+      navigate(next, { replace: true });
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Invalid 2FA code. Try again.");
     } finally {
       setBusy(false);
     }
@@ -140,7 +181,7 @@ export default function Login() {
             <span>OR EMAIL</span>
             <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
           </div>
-          <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
+          <form onSubmit={submit} style={{ display: mfaState ? "none" : "grid", gap: 16 }}>
             <label>
               <span className="label-mini">Email</span>
               <input
@@ -188,6 +229,105 @@ export default function Login() {
               <LogIn size={15} /> {busy ? "Signing in…" : "Sign in"}
             </button>
           </form>
+
+          {/* Iter 212m-20 — second leg of admin 2FA login. Shown only
+              after the password step returned `mfa_required:true`. */}
+          {mfaState && (
+            <form
+              data-testid="login-2fa-form"
+              onSubmit={submitMfa}
+              style={{ display: "grid", gap: 16 }}
+            >
+              <div style={{
+                fontSize: 12, color: "var(--text-dim)",
+                padding: "10px 12px", borderRadius: 4,
+                background: "rgba(255,197,96,0.06)",
+                border: "1px solid rgba(255,197,96,0.25)",
+              }}>
+                🔐 Two-factor required for <strong>{mfaState.email}</strong>.
+                {useBackup
+                  ? " Enter a backup code from when you enrolled."
+                  : " Enter the 6-digit code from your authenticator app."}
+              </div>
+              <label>
+                <span className="label-mini">
+                  {useBackup ? "Backup code" : "Authenticator code"}
+                </span>
+                <input
+                  data-testid={useBackup ? "login-2fa-backup-input" : "login-2fa-code-input"}
+                  className="input"
+                  type="text"
+                  required
+                  autoFocus
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  placeholder={useBackup ? "XXXX-XXXX-XXXX" : "000000"}
+                  inputMode={useBackup ? "text" : "numeric"}
+                  pattern={useBackup ? undefined : "[0-9]{6}"}
+                  maxLength={useBackup ? 14 : 6}
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    letterSpacing: useBackup ? "0.12em" : "0.4em",
+                    fontSize: 18,
+                    textAlign: "center",
+                  }}
+                />
+              </label>
+              {error && (
+                <div data-testid="login-2fa-error" style={{
+                  fontSize: 12, color: "var(--danger)",
+                  border: "1px solid rgba(255,107,107,0.25)",
+                  background: "rgba(255,107,107,0.06)",
+                  padding: "10px 12px", borderRadius: 4,
+                }}>
+                  {error}
+                </div>
+              )}
+              <button
+                type="submit"
+                data-testid="login-2fa-submit"
+                className="btn-primary"
+                disabled={busy || mfaCode.length < (useBackup ? 12 : 6)}
+                style={{ justifyContent: "center" }}
+              >
+                <LogIn size={15} /> {busy ? "Verifying…" : "Verify & sign in"}
+              </button>
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                fontSize: 11, color: "var(--text-dim)",
+              }}>
+                <button
+                  type="button"
+                  data-testid="login-2fa-toggle-backup"
+                  onClick={() => { setUseBackup((v) => !v); setMfaCode(""); setError(null); }}
+                  style={{
+                    background: "transparent", border: "none",
+                    color: "var(--accent-2)", cursor: "pointer",
+                    padding: 0, fontSize: 11,
+                  }}
+                >
+                  {useBackup
+                    ? "← Use authenticator code instead"
+                    : "Use a backup code →"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="login-2fa-cancel"
+                  onClick={() => {
+                    setMfaState(null); setMfaCode(""); setUseBackup(false);
+                    setError(null);
+                  }}
+                  style={{
+                    background: "transparent", border: "none",
+                    color: "var(--text-faint)", cursor: "pointer",
+                    padding: 0, fontSize: 11,
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
 
           <div style={{
             marginTop: 22, paddingTop: 18,
