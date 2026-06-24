@@ -8151,3 +8151,98 @@ All 22 green. **80/80 across iter 212m-15 → 20** green. No regressions.
 ---
 
 
+### Iter 212m-21 — Ask Advisor → GLM-5.2 (drops aurem.live upstream + DeepSeek) (Feb 2026) ✅
+
+Before this iter the Ask Advisor surface had THREE different LLM paths
+depending on who clicked the bell:
+  • Founders (`agent="ora"`) → `services.ora_client.call_ora()` →
+    aurem.live's hosted ORA model.
+  • Non-founders → silent downgrade to `agent="auto"` →
+    orchestrator → Swift mode → GLM-5.2 (since iter 212m-18).
+  • `/chat/ora/draft-support-email` → `deepseek/deepseek-chat`
+    direct via `call_openrouter_model`.
+
+After this iter EVERY Ask Advisor LLM call routes through
+**GLM-5.2 (`z-ai/glm-5.2`) via OpenRouter** using the existing
+`_call_glm()` function from `services/llm.py` (built in iter 212m-18).
+No new LLM wrappers; same primary model as Swift mode for a single
+source of truth.
+
+**Change 1 — `agent="ora"` branch (founder + UI default)**
+The `services.ora_client.call_ora()` import is gone. The branch now:
+  1. Builds `ora_system = (extra_sys + ORA_PANEL_TONE).strip()` so
+     the Ask Advisor persona (the iter 185 two-mode framework + the
+     four read-before-write verification rules) sits on top of the
+     project repo/brain/url context.
+  2. Calls `await _call_glm(system=ora_system, user=body.prompt,
+     max_tokens=1500, temperature=0.2)` directly.
+  3. Packages the response as the same `{ok, content, provider:
+     "glm-5.2", model: _GLM_MODEL, fallback_chain: ["glm-5.2"], mode:
+     "ora"}` result frame the orchestrator path emits, so the
+     frontend pill / floating progress card / telemetry all see the
+     correct model name.
+  4. On any exception → falls through to the existing
+     orchestrator block (which itself runs Swift→GLM), so the user
+     never gets a blank reply.
+
+**Change 2 — `_step` callback hoisted to top of `_worker`**
+`_step(text, done)` was previously defined a few hundred lines INSIDE
+`_worker`, AFTER the agent="ora" branch. Calling it from the ora
+branch raised `UnboundLocalError` silently (caught by the broad
+`except Exception` → fell through to the orchestrator path → tests
+appeared to pass because the orchestrator emitted its own steps,
+masking the bug). `_step` is now defined at the top of `_worker` so
+the ora branch can fire 🤔 Thinking / ✅ Done frames into the same
+SSE queue the iter 212m-19 floating card consumes.
+
+**Change 3 — `/chat/ora/draft-support-email` model swap**
+The escalation email drafter (triggered when the Advisor's first-pass
+fix didn't resolve the user's issue) was calling
+`call_openrouter_model(model="deepseek/deepseek-chat", …)`. Now uses
+`model=_GLM_MODEL` (imported lazily inline) so even the support-email
+path stays on GLM-5.2 for primary-LLM unification.
+
+**Live verification on preview**
+- POST /chat/stream with `{agent:"ora", prompt:"Say ok"}` on the
+  founder account → `provider="glm-5.2"`, content "ok", 10 SSE
+  frames, exactly two step events (`🤔 Thinking…` then `✅ Done`)
+  — i.e. NO orchestrator fall-through (which would emit ≥4 step
+  frames for the tool-loop pre-amble).
+- `grep -c "from services.ora_client import call_ora" chat.py` → 0
+  (aurem.live upstream import fully removed from chat.py).
+- `meta` SSE frame carries `provider:"glm-5.2"`, `mode:"chat"`.
+
+**Tests** — 8 new in
+`backend/tests/test_iter212m21_ask_advisor_glm.py`:
+  - `call_ora` import gone, `_call_glm` + `_GLM_MODEL` imported
+  - ora-branch result dict publishes `provider:"glm-5.2"`,
+    `model:_GLM_MODEL`, `fallback_chain:["glm-5.2"]`, `mode:"ora"`
+  - ora-branch system prompt still uses `ORA_PANEL_TONE` on top of
+    `extra_sys`
+  - GLM-error fallback path exists (`except Exception as glm_err` +
+    fall-through comment)
+  - **`_step` callback defined BEFORE the agent="ora" branch fires it**
+    (regression pin for the UnboundLocalError this iter discovered)
+  - `/chat/ora/draft-support-email` no longer references
+    `deepseek/deepseek-chat` in its `call_openrouter_model(...)`
+    invocation; `_GLM_MODEL` imported at the call site
+  - Iter 212m-18 swift→GLM routing in `services/llm.py` still in place
+  - Non-founder `agent="ora"` → `agent="auto"` silent downgrade
+    still intact
+
+All 8 green. **88/88 across iter 212m-15 → 21** green. Backend healthy,
+hot-reload clean.
+
+**Files touched**
+- `backend/routers/chat.py`
+  - `_worker`: `_step` hoisted to the top (UnboundLocalError fix)
+  - `agent="ora"` branch: `call_ora` upstream removed, replaced with
+    `_call_glm` + ORA_PANEL_TONE system prompt + GLM result frame +
+    fall-through on error
+  - `/chat/ora/draft-support-email`:
+    `call_openrouter_model(model=_GLM_MODEL, …)`
+- `backend/tests/test_iter212m21_ask_advisor_glm.py` (NEW, 8 tests).
+
+---
+
+

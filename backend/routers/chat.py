@@ -1248,6 +1248,18 @@ async def chat_stream(
                     })
 
         async def _worker():
+            # Iter 212m-21 — promote `_step` from the post-fast-path
+            # block to top-of-worker scope so the agent="ora" GLM
+            # branch can emit phase frames (🤔 / ✅) without an
+            # UnboundLocalError. The post-fast-path block now reuses
+            # this same closure instead of redefining it.
+            def _step(text: str, done: bool = False):
+                try:
+                    q.put_nowait({
+                        "type": "step", "text": text, "done": bool(done),
+                    })
+                except Exception:
+                    pass
             try:
                 # ─── Iter 42 — Mode D fix-confirmation fast path ─────────
                 # If the user previously got a Mode D diagnosis with an
@@ -1614,70 +1626,60 @@ async def chat_stream(
                     await q.put({"type": "result", "result": result})
                     return
 
-                # Iter 38: ORA branch. Founder-only — checked at the
-                # endpoint surface below. Skips orchestrator + tools
-                # entirely; calls aurem.live's hosted ORA model.
+                # Iter 38 / Iter 212m-21 — ORA branch (Ask Advisor).
+                # Was: aurem.live's hosted ORA model (call_ora upstream).
+                # Now: routed through the locally-hosted GLM-5.2
+                # (`z-ai/glm-5.2`) via OpenRouter — same model as Swift
+                # mode (see services/llm.py::_call_glm, Iter 212m-18) so
+                # there's a single source of truth for the primary LLM
+                # and we don't pay for the aurem.live indirection.
                 if (body.agent or "auto").lower() == "ora":
-                    from services.ora_client import call_ora
-                    from fastapi import HTTPException as _HTTPExc
-                    activity["label"] = "calling ORA on aurem.live…"
-                    # ORA is aurem.live's hosted brain — it has its own
-                    # context system. We MUST NOT dump our local repo tree
-                    # (it's huge, and upstream caps system_hint at 400 chars
-                    # → 422). Send only a tiny scope hint instead.
-                    ora_hint = None
+                    from services.llm import _call_glm, _GLM_MODEL
+                    activity["label"] = "asking GLM-5.2…"
+                    # Ask Advisor voice / verification rules go on top
+                    # of the project context (`extra_sys`) so GLM has
+                    # the same persona discipline the upstream had
+                    # plus full repo/brain awareness.
+                    ora_system = (
+                        (extra_sys + "\n\n" if extra_sys else "")
+                        + ORA_PANEL_TONE
+                    ).strip()
                     try:
-                        if body.project_id and body.project_id != "home":
-                            _proj = await get_db().cto_projects.find_one(
-                                {"project_id": body.project_id, "user_id": user_id}
-                            )
-                            if _proj:
-                                owner = _proj.get("github_owner", "")
-                                repo  = _proj.get("github_repo", "")
-                                br    = _proj.get("branch", "main")
-                                if owner and repo:
-                                    ora_hint = f"User is scoped to repo {owner}/{repo}@{br}."[:380]
-                    except Exception:
-                        ora_hint = None
-                    # Graceful upstream failure: if aurem.live errors (their
-                    # own LLM 500, 429, 504, etc.), DO NOT crash the SSE
-                    # stream — auto-fall back to the local AUREM orchestrator
-                    # so the user always gets a real answer. The error is
-                    # logged as INFO (not ERROR) so production logs aren't
-                    # spammed with upstream issues out of our control.
-                    try:
-                        resp = await call_ora(
-                            message=body.prompt,
-                            session_id=body.session_id,
-                            system_hint=ora_hint,
+                        # Iter 212m-18 step_hook contract — fire a
+                        # phase frame so the floating progress card +
+                        # in-bubble step cards (Iter 212m-19) light up
+                        # exactly like a normal chat turn.
+                        _step("🤔 Thinking…")
+                        glm_text = await _call_glm(
+                            system=ora_system,
+                            user=body.prompt,
+                            max_tokens=1500,
+                            temperature=0.2,
                         )
+                        _step("✅ Done", True)
                         result = {
-                            "ok":       bool(resp.get("ok", True)),
-                            "content":  resp.get("reply") or "",
-                            "provider": f"ora-{resp.get('model','?')}",
-                            "fallback_chain": ["ora"],
-                            "iterations": 1,
-                            "tool_calls_run": 0,
+                            "ok":              bool((glm_text or "").strip()),
+                            "content":         glm_text or "",
+                            "provider":        "glm-5.2",
+                            "model":           _GLM_MODEL,
+                            "fallback_chain":  ["glm-5.2"],
+                            "iterations":      1,
+                            "tool_calls_run":  0,
                             "tool_invocations": [],
-                            "mode": "ora",
+                            "mode":            "ora",
                         }
                         await q.put({"type": "result", "result": result})
                         return
-                    except _HTTPExc as ora_err:
-                        # Iter 107 — log the FIRST trip at INFO, but once
-                        # the circuit-breaker is open (status 503 from
-                        # ora_client without an HTTP call), drop to DEBUG
-                        # to silence production log spam.
-                        _ora_status = getattr(ora_err, "status_code", 0)
-                        _ora_detail = str(getattr(ora_err, "detail", "")).lower()
-                        if _ora_status == 503 and "circuit" in _ora_detail:
-                            logger.debug("ora upstream circuit-open — using AUREM")
-                        else:
-                            logger.info(
-                                "ora upstream unavailable (%s) — falling back to AUREM",
-                                _ora_status or "?",
-                            )
-                        activity["label"] = "ORA unavailable — switching to AUREM CTO…"
+                    except Exception as glm_err:
+                        # If GLM errors, fall through to the orchestrator
+                        # path below — that path uses the full
+                        # call_llm_with_meta(review_mode=swift) routing
+                        # so the user never sees a blank reply.
+                        logger.info(
+                            "ora→GLM unavailable (%r) — falling back to "
+                            "orchestrator", glm_err,
+                        )
+                        activity["label"] = "GLM unavailable — switching to AUREM CTO…"
                         # Fall through to the AUREM/orchestrator path below.
 
                 activity["label"] = "thinking…"
@@ -1692,20 +1694,9 @@ async def chat_stream(
                 _orig_activity_hook = activity.__setitem__
                 def _activity(label: str):
                     activity["label"] = label
-                # Iter 212m-18 — Steps queue. The orchestrator fires the
-                # callback at real phase boundaries (LLM round, tool
-                # dispatch, final return) and we push each event onto
-                # the same SSE queue the worker uses for `tick` / `mode`
-                # frames. The router-side `while True:` consumer below
-                # ships these through to the browser as
-                # `data: {"type":"step", "text":"…", "done":false}`.
-                def _step(text: str, done: bool = False):
-                    try:
-                        q.put_nowait({
-                            "type": "step", "text": text, "done": bool(done),
-                        })
-                    except Exception:
-                        pass
+                # Iter 212m-18 — Steps queue. `_step` is now defined at
+                # the top of _worker (Iter 212m-21) so the agent="ora"
+                # branch above can fire phase frames before we get here.
                 # Initial 🤔 frame so the UI immediately moves off the
                 # generic "thinking…" tick.
                 _step("🤔 Thinking…")
@@ -2611,8 +2602,14 @@ async def draft_support_email(
         "Return ONLY the email body."
     )
 
+    # Iter 212m-21 — was deepseek/deepseek-chat. The Ask Advisor
+    # surface (incl. the support-email drafter that fires when a
+    # founder's first-pass fix didn't work) now routes through
+    # GLM-5.2 via OpenRouter — same model as Swift mode for a single
+    # primary-LLM source of truth.
+    from services.llm import _GLM_MODEL
     email_body = await call_openrouter_model(
-        model="deepseek/deepseek-chat",
+        model=_GLM_MODEL,
         system="You write concise support emails.",
         user=prompt,
         max_tokens=250,
