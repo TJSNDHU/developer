@@ -768,6 +768,15 @@ AUREM_CTO_PERSONA = (
     "  - NEVER say 'I've identified' / 'investigation shows' / "
     "'confirmed' unless the tool results literally contain the words you "
     "claim were found.\n"
+    "  - **STATUS CLAIMS RULE (Iter 212m-14)**: NEVER state a credential, "
+    "token, PAT, branch, file, repo, or service is *unauthorized*, "
+    "*expired*, *invalid*, *missing*, *broken*, *forbidden*, or "
+    "*permission-denied* unless a tool call THIS TURN literally "
+    "returned that error code (401/403/404) or that exact word. If "
+    "you didn't run the tool, you don't know. The correct phrasing "
+    "is 'I haven't verified — should I call `check_pat` to confirm?' "
+    "NOT 'the PAT appears unauthorized'. Diagnosing without evidence "
+    "is the #1 way you lose trust when shipping code.\n"
     "  - If you do not have evidence, SAY SO PLAINLY: 'I haven't read "
     "X.py yet — let me fetch it.' and call the tool. Do NOT plug the gap "
     "with plausible-sounding fabrication. Hallucinated citations are the "
@@ -1827,6 +1836,25 @@ async def chat_with_tools(
                         )
                 except Exception as _re:
                     logger.warning("agents: review tail failed: %r", _re)
+            # Iter 212m-14 — runtime hallucination guard. Post-processes
+            # the final content: when the LLM makes a credential/auth
+            # status claim ("PAT appears unauthorized", "401 forbidden",
+            # "token is expired") and NO tool call this turn surfaced
+            # that error, we append a visible transparency footer so
+            # the founder is signalled to verify. Never throws — guard
+            # crash falls back to returning the original content.
+            try:
+                from services.hallucination_guard import apply as _hg_apply
+                content, _flagged = _hg_apply(content, invocations)
+                if _flagged:
+                    logger.info(
+                        "hallucination_guard flagged %d unsupported claim(s) "
+                        "in turn (project_id=%s, iters=%d)",
+                        len(_flagged), project_id, iters,
+                    )
+            except Exception as _e:                          # noqa: BLE001
+                logger.warning("hallucination_guard wedged: %r", _e)
+
             return {
                 "ok": meta.get("ok", True),
                 "content": content,
