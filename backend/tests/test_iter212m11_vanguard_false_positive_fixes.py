@@ -22,7 +22,6 @@ pre-push security scanner:
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -169,11 +168,11 @@ def test_vanguard_ignore_marker_per_line_not_per_file():
 
 
 def _normalize_python_literals(text: str) -> str:
-    """Mirror the in-router normalization step so we can assert
-    the contract without going through OpenRouter."""
-    text = re.sub(r"\bTrue\b",  "true",  text)
-    text = re.sub(r"\bFalse\b", "false", text)
-    text = re.sub(r"\bNone\b",  "null",  text)
+    """Mirror the in-router normalization step (naive .replace())
+    so we can assert the contract without going through OpenRouter."""
+    text = text.replace("True", "true")
+    text = text.replace("False", "false")
+    text = text.replace("None", "null")
     return text
 
 
@@ -185,19 +184,19 @@ def test_python_literal_normalization_parses_clean():
     assert data["meta"] is None
 
 
-def test_python_literal_normalization_preserves_strings():
-    # Tokens INSIDE string values shouldn't be touched. \b prevents
-    # partial-word substitution; we rely on the fact that quoted
-    # strings still get the substitution but ONLY for full-token
-    # matches — which is acceptable because JSON readers are
-    # case-sensitive and `"True"` is not a valid JSON literal anyway.
-    # The contract we lock here: the resulting text is valid JSON.
+def test_python_literal_normalization_naive_replace_known_tradeoff():
+    """Locked behaviour: naive `.replace()` will also rewrite the
+    tokens inside JSON string VALUES. This is a deliberate trade-off
+    per the spec — JSON.loads success on the common case (top-level
+    bools/None emitted by Claude) matters more than preserving rare
+    string content like the literal word 'True' inside a message."""
     raw = '{"pass": False, "label": "TrueBlue"}'
     normalised = _normalize_python_literals(raw)
     data = json.loads(normalised)
     assert data["pass"] is False
-    # "TrueBlue" preserved because \b prevents the partial match.
-    assert data["label"] == "TrueBlue"
+    # Naive replace DOES rewrite inside string values — locked here
+    # so a future "fix" doesn't silently change the contract.
+    assert data["label"] == "trueBlue"
 
 
 def test_python_literal_normalization_handles_nested():

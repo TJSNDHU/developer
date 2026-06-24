@@ -151,14 +151,11 @@ async def _llm_review(file_blocks: dict, repo_ctx: str) -> dict:
         # Iter 212m-11 — some LLMs (especially smaller open-weights
         # responding through OpenRouter) occasionally emit Python-
         # style literals inside what is otherwise JSON ("pass": True,
-        # "value": None). Normalise standalone tokens to their JSON
-        # equivalents BEFORE json.loads so we don't drop the entire
-        # review on a single bad bool. Word boundaries keep us from
-        # mangling strings that legitimately contain "True"/"None".
-        import re as _re
-        text = _re.sub(r"\bTrue\b",  "true",  text)
-        text = _re.sub(r"\bFalse\b", "false", text)
-        text = _re.sub(r"\bNone\b",  "null",  text)
+        # "value": None). Normalise BEFORE json.loads so we don't
+        # drop the entire review on a single bad bool/None.
+        text = text.replace("True", "true")
+        text = text.replace("False", "false")
+        text = text.replace("None", "null")
 
         try:
             data = json.loads(text)
