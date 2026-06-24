@@ -8246,3 +8246,81 @@ hot-reload clean.
 ---
 
 
+### Iter 212m-22 — Ask Advisor full response (no one-line cutoff) (Feb 2026) ✅
+
+**Bug** (founder report): Ask Advisor was returning a one-line reply
+and stopping instead of completing the task or asking a clarifying
+question.
+
+**Root cause** — three compounding factors:
+  (a) `ORA_PANEL_TONE` had a hard "150 words max" + "3 lines max"
+      ceiling that told GLM to truncate even when a complete answer or
+      a clarifying question was the right move.
+  (b) `max_tokens=1500` in the agent="ora" branch's `_call_glm()` call
+      could mid-sentence-clip longer answers.
+  (c) Nothing in the system prompt explicitly forbade one-line
+      dead-end replies — GLM was free to pick the shortest valid
+      completion.
+
+**Fix** (`routers/chat.py`):
+
+1. **Removed the 150-word + 3-line ceilings** from `ORA_PANEL_TONE`.
+2. **Added R5 "ALWAYS GIVE A COMPLETE RESPONSE"** permanent rule:
+   > Never reply with a single line that leaves the user stranded.
+   > Every response must EITHER (a) complete the full analysis /
+   > answer / fix, with all the context the user needs to act on it
+   > — code, file paths, numbered steps where appropriate; OR (b)
+   > ask ONE specific, narrowly-scoped clarifying question that
+   > names the missing fact. A one-line 'okay' / 'sure' / 'done' /
+   > 'I understand' is NOT a valid response.
+3. **Bumped `max_tokens` 1500 → 2500** in the `_call_glm` invocation.
+4. Expanded MODE 1 + MODE 2 + ALWAYS + NEVER bullets so the model
+   has explicit room to expand without hitting an implicit cap.
+5. Streaming still closes cleanly: `_step("✅ Done", True)` fires
+   before the return so the floating progress card (Iter 212m-19)
+   transitions out.
+
+**Live verification on preview**
+- Ambiguous "Help me fix it" → 720-char clarifying question listing
+  4 specific candidate failure modes (error message? feature
+  behavior? build/deploy? specific file?) — exactly per R5 spec.
+- Clear "Explain JWT auth in 3 paragraphs and list the security
+  trade-offs" → 4,637 chars / 25 lines structured Markdown response.
+- SSE step frames: exactly 2 (`🤔 Thinking…` then `✅ Done done=true`)
+  → no orchestrator fall-through.
+- Meta frame `provider="glm-5.2"` → iter 212m-21 routing intact.
+
+**Tests** — 9 new in
+`backend/tests/test_iter212m22_ask_advisor_full_response.py`
+(written by `testing_agent_v3_fork` on the bug-report request):
+  - 3 static guarantees — R5 rule present, max_tokens=2500 set on the
+    ora `_call_glm` call, no 150-word ceiling in ORA_PANEL_TONE
+  - 6 live SSE tests on the preview env — ambiguous prompt returns
+    ≥80-char clarifying question, clear task returns ≥400-char
+    multi-paragraph, exactly 2 step frames on happy path, meta
+    provider="glm-5.2", clean ✅ Done done=true close, multiple
+    ambiguous prompts never collapse to one-liner
+
+Plus Iter 212m-21 test slice windows widened 2000 → 3500 to absorb
+the inline comments added this iter (assertions unchanged).
+
+All 9 new + 8 prior Iter 212m-21 = **17/17 PASS** under the testing
+agent's harness on the preview env. Full suite **97/97 green** across
+Iter 212m-15 → 22. Backend healthy.
+
+**Verified by testing_agent_v3_fork** — required by the founder's
+system_reminder for bug fixes (not optional). Report at
+`/app/test_reports/iteration_11.json`.
+
+**Files touched**
+- `backend/routers/chat.py` — ORA_PANEL_TONE rewrite (R5 +
+  expanded MODE 1/2 + ALWAYS/NEVER bullets), `_call_glm` max_tokens
+  1500 → 2500.
+- `backend/tests/test_iter212m22_ask_advisor_full_response.py`
+  (NEW, 9 tests — written by testing agent).
+- `backend/tests/test_iter212m21_ask_advisor_glm.py` (slice windows
+  2000 → 3500).
+
+---
+
+
