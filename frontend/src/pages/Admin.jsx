@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, MessageCircle, Folder, ListChecks,
   Cpu, CreditCard, Network as SitemapIcon, Settings as SettingsIcon,
   LogOut, ExternalLink, ArrowLeft, Loader2, Brain, Eye, Terminal,
-  Mail, Activity, Plug, GitBranch, Zap, ShieldAlert, DollarSign,
+  Mail, Activity, Plug, GitBranch, Zap, ShieldAlert, DollarSign, ShieldCheck,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
@@ -18,6 +18,7 @@ import AdminOverview from "./AdminOverview";
 import AgentTokenPanel from "../components/AgentTokenPanel";
 import AdminThinkingHints from "../components/AdminThinkingHints";
 import TwoFactorCard from "../components/TwoFactorCard";  // Iter 212m-20
+import AdminHouseRules from "../components/AdminHouseRules";  // Iter 212m-24
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -2090,6 +2091,7 @@ const NAV = [
   { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
   { id: "support", label: "Support Emails", Icon: Mail },
   { id: "audit", label: "Audit", Icon: ShieldAlert },
+  { id: "house_rules", label: "House Rules", Icon: ShieldCheck },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -2167,6 +2169,7 @@ export default function Admin({ initialTab = "overview" }) {
       case "payments": return <PaymentsPage />;
       case "support": return <SupportPage />;
       case "audit": return <AuditPage />;
+      case "house_rules": return <AdminHouseRules />;
       case "settings": return <SettingsPage />;
       default: return <Dashboard />;
     }

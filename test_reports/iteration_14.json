@@ -1,0 +1,41 @@
+{
+  "summary": "Iter 212m-24 — Admin House Rules — FULL E2E verification on PREVIEW. Backend regression suite (26/26): 11 iter212m-24 unit + 9 iter212m-23 URL-tool + 6 iter157 cold-start, all PASS. Live HTTP E2E (8 pass / 1 skip): auth guards (401/403 for unauthenticated GET+PUT), default OFF/empty doc, PUT→GET round trip, swift mode SEES [HOUSE-RULE-OK] marker when chat+swift toggles ON, pro mode does NOT see marker when pro toggle OFF, cross-mode isolation (chat+maxx ON does not leak into swift), and advisor scoping (ora_panel=True sees marker when only enabled_advisor=true, normal chat does not). Frontend: founder logged in, /admin → House Rules nav → section renders with all 9 expected data-testids present, live/inactive badge correct, save round-trips with 'House rules saved' toast, warning-no-target appears when prompt typed but no toggle on, warning-no-mode appears when chat ON but no modes, chat-modes section dims when ORA Chat OFF. House_rules doc reset to OFF/empty after tests.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/admin/house-rules", "issue": "Non-admin 403 path could not be verified on PREVIEW because the only non-admin seed account (qa-prod@aurem.dev) is PROD-only per test_credentials.md. Unauthenticated 401/403 is verified. Recommend seeding a preview-only non-admin row to cover this regression-tightly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m24_house_rules.py",
+    "/app/backend/tests/test_iter212m24_e2e_house_rules.py",
+    "/app/test_reports/pytest/iter212m24_results.xml",
+    "/app/test_reports/pytest/iter212m24_e2e_results.xml"
+  ],
+  "action_items": [
+    "(low) Seed a non-admin preview MongoDB row so the 'non-admin → 403 on /admin/house-rules' assertion can be enforced in preview CI rather than skipped.",
+    "(low) Save success path emits an aria-live toast that disappears after ~2s; testing detection caught it via screenshot but the playwright [role=status] query missed it because of the timing. Consider adding data-testid='house-rules-save-toast' so headless tests can assert it deterministically."
+  ],
+  "critical_code_review_comments": [
+    "services/house_rules.py uses an in-process 30s TTL cache (_CACHE) — multi-worker deployments will have inconsistent reads for up to 30s after a save. Acceptable for a single-pod preview but worth a note for prod with >1 backend pod (eventual consistency).",
+    "PUT /admin/house-rules returns {'ok': true, 'house_rules': {...}} but GET returns the doc directly at the top level. Inconsistent shape — both should match (frontend handles it, but external consumers / pytest had to special-case)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m24_e2e_house_rules.py (NEW — 9 live HTTP tests; 8 pass, 1 skip)"
+  ],
+  "success_rate": {
+    "backend": "100% (26/26 regression + 8/8 runnable live E2E; 1 skipped due to env, not code)",
+    "frontend": "100% (all 9 expected testids present, save round-trips, all three warnings + dim state verified)"
+  },
+  "test_credentials": "Founder teji.ss1986@gmail.com / FounderOwn123! works on PREVIEW. JWT field is 'token' (not 'access_token') on /auth/login response.",
+  "seed_data_creation": "None. After tests, house_rules MongoDB doc reset to {prompt:'', all toggles false} — verified via GET. Subsequent runs see clean OFF state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 212m-24 (Admin House Rules) is fully verified on PREVIEW backend (https://launch-pad-237.preview.emergentagent.com). All toggles + cross-mode + advisor isolation works end-to-end via real LLM responses. Founder JWT comes back under key 'token' (NOT 'access_token') from /api/aurem-dev/auth/login — earlier iter reports said 'access_token'; the e2e fixture _login() handles both. The marker-based proof technique (prompt instructs model to prepend a literal [HOUSE-RULE-OK] token) is reliable on swift mode (~5-8s per chat). For non-admin 403 coverage on preview, you'll need to seed a non-admin user row — qa-prod is prod-only. House_rules doc currently OFF/empty.",
+  "rca of the issue": "N/A — no defects found. Feature ships as designed: admin PUT writes singleton doc → services.house_rules.get_active_house_rules(target, mode) is called from chat_send (target='chat', mode=body.mode), chat_stream main path (target='chat' when ora_panel=False), and chat_stream advisor path (target='advisor' when ora_panel=True). The returned prompt is wrapped by format_house_rules_block (which adds the 'HIGHEST PRIORITY — READ FIRST' header) and PREPENDED to extra_sys before the persona/tools/repo context, so the model genuinely sees it first. Verified live via marker emission."
+}

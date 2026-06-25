@@ -3248,3 +3248,53 @@ async def resolve_error(
         raise HTTPException(status_code=404, detail="error_not_found")
     return {"ok": True, "resolved": True}
 
+
+
+# ── Iter 212m-24 — House Rules (admin-defined ORA prompt) ───────────
+# A single global system-prompt-style block that ORA reads BEFORE its
+# own persona / tool catalog / project context, with individual
+# green/red toggles per target (chat, advisor) and per mode (swift,
+# pro, maxx). See services/house_rules.py for storage + injection.
+
+class HouseRulesPayload(BaseModel):
+    prompt:           str = ""
+    enabled_chat:     bool = False
+    enabled_advisor:  bool = False
+    enabled_swift:    bool = False
+    enabled_pro:      bool = False
+    enabled_maxx:     bool = False
+
+
+@router.get("/house-rules")
+async def admin_house_rules_read(authorization: Optional[str] = Header(None)):
+    """Return the current house-rules doc. Admin-only."""
+    await _require_admin(authorization)
+    from services.house_rules import get_house_rules_doc
+    doc = await get_house_rules_doc()
+    # Mongo's _id is fine to return as the literal "singleton" string.
+    # datetime → iso for JSON.
+    ua = doc.get("updated_at")
+    if hasattr(ua, "isoformat"):
+        doc = {**doc, "updated_at": ua.isoformat()}
+    return doc
+
+
+@router.put("/house-rules")
+async def admin_house_rules_write(
+    payload: HouseRulesPayload,
+    authorization: Optional[str] = Header(None),
+):
+    """Persist the house-rules doc. Admin-only.
+
+    Validates and writes the singleton document; invalidates the
+    in-process cache so the next chat turn picks up the new rules.
+    """
+    admin = await _require_admin(authorization)
+    from services.house_rules import set_house_rules_doc
+    try:
+        doc = await set_house_rules_doc(
+            payload.model_dump(), by_user_id=admin.get("user_id") or "",
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, "house_rules": doc}

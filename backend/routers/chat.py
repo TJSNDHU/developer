@@ -493,6 +493,25 @@ async def chat_send(
     # card + web_sources chip in the UI and logs into tool_invocations.
     t_preflight = time.time()
     extra_sys = repo_ctx or ""
+    # Iter 212m-24 — Admin House Rules (HIGHEST PRIORITY).
+    # If the admin has enabled house rules for `chat` + the requested
+    # mode, prepend the rules block at the very top of extra_sys so it
+    # arrives BEFORE the orchestrator's persona stack and OVERRIDES
+    # every other instruction the model sees.
+    try:
+        from services.house_rules import (
+            get_active_house_rules, format_house_rules_block,
+        )
+        _hr_prompt = await get_active_house_rules(
+            "chat", (body.mode or "swift").lower(),
+        )
+        if _hr_prompt:
+            extra_sys = (
+                format_house_rules_block(_hr_prompt)
+                + ("\n\n" + extra_sys if extra_sys else "")
+            )
+    except Exception as _hre:
+        logger.debug("house_rules injection skipped (chat/send): %r", _hre)
     # Iter 153 — clamp the requested review mode to whatever the user's
     # tier allows. Falls back to the BEST mode they have access to so
     # the request never errors out from a missing entitlement.
@@ -1213,6 +1232,28 @@ async def chat_stream(
         s for s in (repo_ctx, brain_ctx, url_ctx) if s
     )
 
+    # Iter 212m-24 — Admin House Rules (HIGHEST PRIORITY).
+    # For SSE chat (non-Advisor), scope is "chat" + the requested mode.
+    # For Ask Advisor turns (body.ora_panel == True) we re-resolve
+    # below with target="advisor" so the advisor toggle drives that
+    # flow. Either way the rules block is PREPENDED to extra_sys so
+    # ORA reads them BEFORE its own persona / tools / project ctx.
+    if not body.ora_panel:
+        try:
+            from services.house_rules import (
+                get_active_house_rules, format_house_rules_block,
+            )
+            _hr_prompt = await get_active_house_rules(
+                "chat", (body.mode or "swift").lower(),
+            )
+            if _hr_prompt:
+                extra_sys = (
+                    format_house_rules_block(_hr_prompt)
+                    + ("\n\n" + extra_sys if extra_sys else "")
+                )
+        except Exception as _hre:
+            logger.debug("house_rules injection skipped (chat/stream): %r", _hre)
+
     # Iter 159 — ASK ORA panel uses a deliberately CASUAL voice.
     # This block is injected ONLY when the caller sets ora_panel=true
     # (the floating right-side panel). The main coding chat is
@@ -1226,6 +1267,19 @@ async def chat_stream(
     # the full prompt.
     if body.ora_panel:
         extra_sys = (extra_sys + "\n\n" + ORA_PANEL_TONE).strip()
+        # Iter 212m-24 — House Rules for Ask Advisor (advisor toggle).
+        try:
+            from services.house_rules import (
+                get_active_house_rules, format_house_rules_block,
+            )
+            _hr_prompt_adv = await get_active_house_rules("advisor", None)
+            if _hr_prompt_adv:
+                extra_sys = (
+                    format_house_rules_block(_hr_prompt_adv)
+                    + ("\n\n" + extra_sys if extra_sys else "")
+                )
+        except Exception as _hre:
+            logger.debug("house_rules injection skipped (advisor): %r", _hre)
 
     async def gen():
         import time as _t
