@@ -1,25 +1,28 @@
 """
-Iter 172 — Shell-command aurem-handoff guards.
+Iter 172 — Shell-command aurem-handoff guards (UPDATED in Iter 212m-26).
 
 Failure mode being closed:
    AUREM LLM emits an `aurem-handoff` fence containing
      {"command": "pip install twilio", "files": []}
    The persona EXPLICITLY forbids this (handoffs are for file edits;
    shell commands run via `execute_bash`). When the user replies with
-   "install" / "do it" / "do it fix the issue properly", the ship-
-   shortcut OR full orchestrator would try to enqueue the shell
-   command as a CTO task. The worker hangs because there are no files
-   to commit → user sees "thinking · 365.4s" → rage-quit.
+   "install" / "do it" / "do it fix the issue properly", the
+   orchestrator would try to enqueue the shell command as a CTO task.
+   The worker hangs because there are no files to commit → user sees
+   "thinking · 365.4s" → rage-quit.
 
-Three layers of defense, all tested below:
+Layers of defense remaining after Iter 212m-26:
   1. `_handoff_brief_is_shell_command()` recogniser — covers raw
      ("pip install X"), JSON ({"command":"pip install X","files":[]}),
      and a wide array of package-manager / system commands.
-  2. `_maybe_ship_shortcut()` refuses to ship those briefs and emits
-     a clear "use a different mechanism" SSE stream.
-  3. `_maybe_guard_shell_handoff_followup()` catches OTHER short
-     follow-ups ("do it fix the issue properly", "now install",
-     "make it work") BEFORE they reach the expensive orchestrator.
+  2. `_maybe_guard_shell_handoff_followup()` catches short follow-ups
+     ("do it fix the issue properly", "now install", "make it work")
+     BEFORE they reach the expensive orchestrator.
+
+Iter 212m-26 NOTE: the second layer — `_maybe_ship_shortcut()` — was
+DELETED along with the entire auto-ship path. Shipping now requires
+a manual click on the "🚀 Ship via CTO" button. Tests covering that
+removed layer are pruned below.
 """
 from __future__ import annotations
 import json
@@ -33,7 +36,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from routers.chat import (    # noqa: E402
     _handoff_brief_is_shell_command,
     _maybe_guard_shell_handoff_followup,
-    _maybe_ship_shortcut,
 )
 
 
@@ -124,63 +126,16 @@ def _stub_db_with_handoff_message(handoff_body: str):
     return db
 
 
-class TestShipShortcutRefusesShellHandoff(unittest.IsolatedAsyncioTestCase):
-    async def test_pip_install_handoff_yields_block_stream(self):
-        body = _make_body("ship")
-        # Patch get_db to return a session whose latest handoff is shell.
+class TestShipShortcutRefusesShellHandoff(unittest.TestCase):
+    """Iter 212m-26: _maybe_ship_shortcut() and the entire auto-ship
+    keyword path were deleted. Manual click is the only ship route now.
+    The two tests that used to live here are gone with the feature."""
+    def test_no_longer_applicable(self):
+        # This class is intentionally a no-op stub so the test report
+        # has a visible record of the removal.
         from routers import chat as chat_mod
-        db = _stub_db_with_handoff_message(
-            '{"command": "pip install twilio", "files": []}'
-        )
-        orig = chat_mod.get_db
-        chat_mod.get_db = lambda: db
-        try:
-            result = await _maybe_ship_shortcut(
-                body=body, user_id="u1", repo_ctx="",
-            )
-            self.assertIsNotNone(result, "should return a guard stream")
-            # Drain the generator into a single payload string
-            chunks = []
-            async for c in result:
-                chunks.append(c)
-            blob = "".join(chunks)
-            # Must be a clear refusal — not a "shipped" message
-            self.assertIn("aurem-handoff-guard", blob)
-            self.assertNotIn("Shipped via shortcut", blob)
-            # Reconstruct the user-visible text from streamed SSE tokens
-            # so we can check substrings that happen to span chunks.
-            import re as _re
-            text = "".join(
-                json.loads(line[len("data: "):])["token"]
-                for line in blob.split("\n\n")
-                if line.startswith("data: ") and '"token"' in line
-            )
-            self.assertIn("shell command", text.lower())
-            self.assertIn("requirements.txt", text)
-            # Must mark blocked_reason in the done frame
-            self.assertIn("shell_command_in_handoff", blob)
-        finally:
-            chat_mod.get_db = orig
-
-    async def test_real_file_edit_handoff_still_ships(self):
-        body = _make_body("ship")
-        from routers import chat as chat_mod
-        db = _stub_db_with_handoff_message(
-            "Edit `backend/routers/sms.py` to add a /api/sms/send POST "
-            "route that uses TwilioRestClient."
-        )
-        orig = chat_mod.get_db
-        chat_mod.get_db = lambda: db
-        try:
-            result = await _maybe_ship_shortcut(
-                body=body, user_id="u1", repo_ctx="",
-            )
-            # Should be a stream (the normal ship path), NOT None
-            self.assertIsNotNone(result)
-            # But we won't drain it (it would call _enqueue_cto_task).
-            # The key assertion: it didn't pre-empt with the shell guard.
-        finally:
-            chat_mod.get_db = orig
+        self.assertFalse(hasattr(chat_mod, "_maybe_ship_shortcut"))
+        self.assertFalse(hasattr(chat_mod, "_looks_like_ship_confirmation"))
 
 
 # ─────────────────────────────────────────────────────────────────────

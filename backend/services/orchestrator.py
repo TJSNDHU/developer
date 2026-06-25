@@ -1615,7 +1615,15 @@ async def chat_with_tools(
     # Iter 153 — Maxx mode forces Claude (code-class) to write the
     # primary response so we skip the review pass at the end.
     use_code_model = _is_code_task(prompt, history_lines) or (mode == "maxx")
-    token_budget = 3500 if use_code_model else 1500
+    # Iter 212m-26 — Production fix: chat budget bumped 1500 → 4000.
+    # 1500 was truncating GLM-5.2 mid-sentence on multi-paragraph
+    # answers, surfacing as the "ORA replies only one line then stops"
+    # bug. Honors `LLM_CHAT_MAX_TOKENS` env override (see llm.py).
+    token_budget = (
+        int(os.getenv("LLM_CODE_MAX_TOKENS", "3500"))
+        if use_code_model
+        else int(os.getenv("LLM_CHAT_MAX_TOKENS", "4000"))
+    )
     llm_mode = "code" if use_code_model else "chat"
 
     # Iter 157 — PER-TURN ORCHESTRATOR DEADLINE.

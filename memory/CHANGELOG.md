@@ -6,6 +6,62 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-26 — Truncation + Auto-Ship Removal (Feb 25 2026) ✅
+
+**Two production bugs reported by user on auremcto.com.**
+
+### Bug #1 — ORA reply truncates to 1 line ✅ FIXED
+
+- **Root cause**: `MAX_TOKENS["chat"] = 1500` in `services/llm.py` +
+  orchestrator's `token_budget = 3500 if use_code_model else 1500`.
+  GLM-5.2 hit the 1500-token cap mid-paragraph, surfacing as the
+  "only one line then stops" bug.
+- **Fix**: Both raised to **4000** with env override
+  `LLM_CHAT_MAX_TOKENS`. Code-mode honors `LLM_CODE_MAX_TOKENS`.
+- **E2E proof**: prompt "explain in 5 paragraphs: FastAPI, React,
+  MongoDB, Redis, Docker" — reply now **3442 chars / 18 lines / all
+  5 sections / ends with full natural sentence**.
+
+### Bug #2 — "SHIP VIA CTO" button auto-triggers ✅ FIXED
+
+- **Root cause**: `_maybe_ship_shortcut` in `routers/chat.py` auto-
+  fired a CTO task whenever the user typed a short confirmation
+  ("yes", "ok", "fix", "go", "do it"...) after an assistant turn
+  containing an aurem-handoff fence. The manual "🚀 Ship via CTO"
+  button was bypassed — common conversational replies silently
+  committed to GitHub.
+- **Real fix (no patchwork — per user)**: DELETED the entire path:
+  - `_SHIP_CONFIRMATIONS` set (~10 lines)
+  - `_normalise_confirmation` (~3 lines)
+  - `_looks_like_ship_confirmation` (~5 lines)
+  - `_maybe_clarify_short_fix` (~38 lines)
+  - `_maybe_ship_shortcut` function body (~234 lines)
+  - Call site in `chat_stream` (~12 lines)
+  - 4 obsolete test files / blocks removed:
+    - `test_iter87_ship_shortcut.py` (DELETED)
+    - `test_iter125_ship_shortcut_task_handoff.py` (DELETED)
+    - `test_iter132_ship_shortcut_tick_emission.py` (DELETED)
+    - `test_iter136_hard_timeout_enforced.py::test_ship_shortcut_has_hard_timeout` (DELETED)
+    - `test_iter169_fix_hallucination_guards.py::test_clarify_guard_*` (4 tests REMOVED)
+    - `test_iter172_shell_handoff_guard.py::TestShipShortcutRefusesShellHandoff` (REPLACED with stub)
+- **Shell-handoff guard preserved**: orthogonal protection that
+  catches `pip install` / `npm install` fake handoffs stays active.
+- **E2E proof**: seeded a session with an aurem-handoff fence, user
+  posted "yes" — response was a normal `aurem-cto` orchestrator
+  reply, no `aurem-ship-shortcut`, no `ship_shortcut: true`, no
+  `task_handoff` frame, no `task_id` minted. Manual button click in
+  `MessageBubble.jsx → ShipDialog → onShip={shipViaCTO}` remains
+  the ONLY path that creates a CTO task.
+
+**Tests**: `tests/test_iter212m26_truncation_and_autoship_removal.py`
+— 10 source pins + runtime assertion. **60/60 pass** in the curated
+regression suite (212m-23 through 212m-26 + iter157 + iter169 + iter172).
+
+> **Deployment note**: Both fixes are PREVIEW only. User must
+> redeploy to push to `auremcto.com` production.
+
+---
+
 ## Iter 212m-25 — F12 Auto-clear + Logo Cache-Clean Button (Feb 25 2026) ✅
 
 **Feature**: Two UX hygiene fixes for the customer interface.

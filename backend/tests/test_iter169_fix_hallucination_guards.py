@@ -1,9 +1,10 @@
-"""Iter 169 — guardrails against 'fix' hallucinations.
+"""Iter 169 — guardrails against 'fix' hallucinations (PARTIAL).
 
-Three protections under test:
-  1. Short 'fix'/'ship'/'do it' messages with NO prior `aurem-handoff`
-     fence in the recent history must trigger a clarification reply
-     (not a 150s reasoning loop that hallucinates file paths).
+  1. ~~Short 'fix'/'ship'/'do it' messages with NO prior `aurem-handoff`~~
+     ~~fence in the recent history must trigger a clarification reply~~
+     REMOVED in Iter 212m-26 along with the entire `_maybe_clarify_short_fix`
+     and ship-shortcut auto-trigger path. Short replies now fall into
+     the normal orchestrator and get a conversational answer.
   2. The CTO persona must contain Rule 8 — ANALYSIS → SPEC CONTRACT —
      forbidding analysis turns that end without a concrete spec.
   3. The orchestrator budget-hit message must surface real files read
@@ -12,88 +13,10 @@ Three protections under test:
 """
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 
 CHAT_PATH = Path(__file__).parent.parent / "routers" / "chat.py"
 ORCH_PATH = Path(__file__).parent.parent / "services" / "orchestrator.py"
-
-
-# ── Fix 1 ─────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_clarify_guard_fires_on_bare_fix_without_spec(monkeypatch):
-    """Bare 'fix' with no prior handoff fence -> clarification text."""
-    from routers import chat as chat_router
-
-    fake_db = MagicMock()
-    fake_db.chat_sessions.find_one = AsyncMock(return_value={
-        "messages": [
-            {"role": "user", "content": "hi"},
-            {"role": "assistant", "content": "hey, what's up"},
-        ],
-    })
-    monkeypatch.setattr(chat_router, "get_db", lambda: fake_db)
-
-    class _Body:
-        prompt = "fix"
-        session_id = "s1"
-    out = await chat_router._maybe_clarify_short_fix(body=_Body(), user_id="u1")
-    assert out is not None
-    assert "Which file" in out
-    assert "What's the problem" in out
-
-
-@pytest.mark.asyncio
-async def test_clarify_guard_skips_when_prior_handoff_exists(monkeypatch):
-    """Don't clarify when an aurem-handoff fence is in recent history;
-    let the ship-shortcut take over instead."""
-    from routers import chat as chat_router
-
-    fake_db = MagicMock()
-    fake_db.chat_sessions.find_one = AsyncMock(return_value={
-        "messages": [
-            {"role": "user", "content": "fix the bug"},
-            {"role": "assistant", "content":
-             "```aurem-handoff\nfile: foo.py\n```"},
-        ],
-    })
-    monkeypatch.setattr(chat_router, "get_db", lambda: fake_db)
-
-    class _Body:
-        prompt = "ship it"
-        session_id = "s1"
-    out = await chat_router._maybe_clarify_short_fix(body=_Body(), user_id="u1")
-    assert out is None  # ship-shortcut handles it
-
-
-@pytest.mark.asyncio
-async def test_clarify_guard_skips_substantive_prompt(monkeypatch):
-    """A long, real instruction must NOT trigger the clarify guard."""
-    from routers import chat as chat_router
-
-    fake_db = MagicMock()
-    fake_db.chat_sessions.find_one = AsyncMock(return_value={"messages": []})
-    monkeypatch.setattr(chat_router, "get_db", lambda: fake_db)
-
-    class _Body:
-        prompt = "please rewrite services/llm.py to remove the Anthropic SDK"
-        session_id = "s1"
-    out = await chat_router._maybe_clarify_short_fix(body=_Body(), user_id="u1")
-    assert out is None
-
-
-@pytest.mark.asyncio
-async def test_clarify_guard_no_db(monkeypatch):
-    from routers import chat as chat_router
-    monkeypatch.setattr(chat_router, "get_db", lambda: None)
-    class _Body:
-        prompt = "fix"
-        session_id = "s1"
-    out = await chat_router._maybe_clarify_short_fix(body=_Body(), user_id="u1")
-    assert out is None
 
 
 # ── Fix 2 ─────────────────────────────────────────────────────────────

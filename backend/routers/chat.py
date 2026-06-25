@@ -637,26 +637,24 @@ async def available_modes(authorization: Optional[str] = Header(None)) -> dict:
 
 
 
-# ── Iter 87: "ship" shortcut helper ─────────────────────────────────────
-# When the prior assistant turn already emitted an ```aurem-handoff
-# fence and the new user prompt is a short confirmation ("ship",
-# "do it", "go", "yes", etc.), queue the cto_task directly from the
-# prior brief. This skips the orchestrator entirely — no second
-# reasoning loop, no second tool call budget, no 90 s wall.
-
-# Phrases that mean "execute the previous handoff brief" and ONLY that.
-# Short list on purpose — if the user types anything substantive we
-# want the normal reasoning loop, not a silent ship.
-_SHIP_CONFIRMATIONS = {
-    "ship", "ship it", "ship via cto", "do it", "do it now",
-    "go", "go ahead", "yes", "yep", "ok", "okay", "proceed",
-    "please ship", "ship please", "send it", "execute", "run it",
-    # Iter 169 — "fix" / "fix it" / "apply" / "apply the fix" were
-    # caught by _FIX_CONFIRM regex but missing here, so neither the
-    # ship-shortcut nor the clarify-guard fired. User typed "fix",
-    # fell through to a full reasoning loop, hit budget, hallucinated.
-    "fix", "fix it", "apply", "apply the fix", "sure",
-}
+# ── Iter 212m-26 — REMOVED auto-ship-shortcut path (no patchwork) ────
+# Previously this module contained a `_maybe_ship_shortcut` function
+# plus a `_SHIP_CONFIRMATIONS` keyword set that AUTO-FIRED a CTO task
+# whenever the user typed a short confirmation ("yes", "ok", "fix",
+# "go", etc.) after an assistant turn that contained an aurem-handoff
+# fence. That bypassed the user's explicit click on the "🚀 Ship via
+# CTO" button in MessageBubble.jsx — so common conversational replies
+# silently shipped commits to GitHub.
+#
+# The clarify-short-fix guard depended on the same keyword set and is
+# also gone. The user must now click the "🚀 Ship via CTO" button to
+# ship. Short "yes"/"ok"/"fix" replies flow into the normal
+# orchestrator and get a conversational answer.
+#
+# The shell-command-handoff guard (`_maybe_guard_shell_handoff_followup`,
+# below) is independent of this and stays — it intercepts terminal-
+# command "handoffs" that the worker can't actually commit and gives
+# the user a clear "add to requirements.txt instead" message.
 
 _HANDOFF_FENCE_RE = re.compile(
     r"```aurem-handoff\s*\n([\s\S]*?)```",
@@ -674,9 +672,9 @@ _HANDOFF_FENCE_RE = re.compile(
 # the worker would hang trying to interpret a shell command as a file
 # edit (the user reported a 365 s "thinking…" with no resolution).
 #
-# We catch this at the ship-shortcut entry point and at the clarify
-# guard so the user gets a clear "this needs a different mechanism"
-# message instead of a stalled task.
+# We catch this at the shell-handoff follow-up guard so the user gets
+# a clear "this needs a different mechanism" message instead of a
+# stalled task.
 _SHELL_COMMAND_TOKENS = (
     "pip install", "pip3 install", "pip uninstall",
     "npm install", "npm i ", "npm add", "yarn add", "yarn install",
@@ -708,56 +706,6 @@ def _handoff_brief_is_shell_command(brief: str) -> bool:
     if has_empty_files and has_command_key:
         return True
     return any(tok in blob for tok in _SHELL_COMMAND_TOKENS)
-
-
-def _normalise_confirmation(prompt: str) -> str:
-    return (prompt or "").strip().lower().rstrip(".!?")
-
-
-def _looks_like_ship_confirmation(prompt: str) -> bool:
-    p = _normalise_confirmation(prompt)
-    if not p or len(p) > 30:
-        return False
-    return p in _SHIP_CONFIRMATIONS
-
-
-async def _maybe_clarify_short_fix(*, body, user_id: str) -> Optional[str]:
-    """Iter 169 — when the user says a bare 'fix' / 'ship' / 'do it'
-    but no prior assistant turn has an ```aurem-handoff fence in the
-    recent history, do NOT start an expensive reasoning loop that will
-    hallucinate file paths and burn the budget. Reply immediately with
-    a one-shot clarification so the user re-asks with a concrete target.
-
-    Returns the clarification text when the guard trips, or None to let
-    the normal orchestrator path run.
-    """
-    if not _looks_like_ship_confirmation(body.prompt):
-        return None
-    db = get_db()
-    if db is None:
-        return None
-    sess = await db.chat_sessions.find_one(
-        {"user_id": user_id, "session_id": body.session_id},
-        {"messages": 1, "_id": 0},
-    )
-    msgs = (sess or {}).get("messages") or []
-    recent = msgs[-6:] if len(msgs) >= 6 else msgs
-    has_spec = any(
-        m.get("role") == "assistant"
-        and "aurem-handoff" in (m.get("content") or "")
-        for m in recent
-    )
-    if has_spec:
-        return None  # ship-shortcut already handled this
-    return (
-        "I don't have a concrete fix ready to ship.\n\n"
-        "Tell me specifically:\n"
-        "- **Which file** needs fixing?\n"
-        "- **What's the problem?** (paste the error, "
-        "or describe the bug in one line)\n\n"
-        "Then I'll read the file and give you a ship-ready spec — "
-        "no guessing, no broad sweeps."
-    )
 
 
 async def _maybe_guard_shell_handoff_followup(
@@ -827,241 +775,6 @@ async def _maybe_guard_shell_handoff_followup(
     return None
 
 
-async def _maybe_ship_shortcut(*, body, user_id: str, repo_ctx: str):
-    """Return an async generator that streams the ship-shortcut result,
-    or None when the shortcut doesn't apply (caller falls through to
-    the normal orchestrator path)."""
-    if not _looks_like_ship_confirmation(body.prompt):
-        return None
-    db = get_db()
-    if db is None:
-        return None
-    sess = await db.chat_sessions.find_one(
-        {"user_id": user_id, "session_id": body.session_id},
-        {"messages": 1, "_id": 0},
-    )
-    msgs = (sess or {}).get("messages") or []
-    # Walk back to find the most recent assistant turn with a handoff fence.
-    brief = None
-    for m in reversed(msgs):
-        if m.get("role") != "assistant":
-            continue
-        match = _HANDOFF_FENCE_RE.search(m.get("content") or "")
-        if match:
-            brief = match.group(1).strip()
-            break
-    if not brief:
-        return None
-
-    # Iter 172 — Refuse to ship shell-command handoffs.
-    # The LLM sometimes wraps a shell command (pip/npm/etc.) inside an
-    # aurem-handoff fence, violating the persona rule. Enqueuing that
-    # as a CTO task makes the worker hang because there are no file
-    # edits to commit. Stream a clear message instead so the user
-    # knows exactly what went wrong and what to ask for next.
-    if _handoff_brief_is_shell_command(brief):
-        async def _shell_block_stream():
-            meta = {
-                "meta": True,
-                "session_id": body.session_id,
-                "provider": "aurem-handoff-guard",
-                "mode": "A",
-                "temperature": 0.0,
-                "thinking_s": 0.0,
-                "tool_calls_run": 0,
-            }
-            yield f"data: {json.dumps(meta)}\n\n"
-            msg = (
-                "I can't ship that brief — it's a shell command "
-                "(`pip install` / `npm install` / etc.), not a file "
-                "edit. The `aurem-handoff` mechanism only commits "
-                "code changes to your repo.\n\n"
-                "What you probably want instead:\n"
-                "• **Add the dependency to `requirements.txt` or "
-                "`package.json`** and I'll ship that file edit — your "
-                "deploy pipeline will install it.\n"
-                "• Or, if you need to run the command in the dev "
-                "container right now, run it locally — I can't `pip "
-                "install` into the live container from a ship task.\n\n"
-                "Want me to add `twilio` to `requirements.txt`? Reply "
-                "**\"add twilio to requirements\"** and I'll spec it."
-            )
-            for i in range(0, len(msg), 16):
-                yield f"data: {json.dumps({'token': msg[i:i+16]})}\n\n"
-            yield (
-                "data: " + json.dumps({
-                    "done": True,
-                    "session_id": body.session_id,
-                    "provider": "aurem-handoff-guard",
-                    "verified_paths": [],
-                    "blocked_reason": "shell_command_in_handoff",
-                }) + "\n\n"
-            )
-        return _shell_block_stream()
-
-    # Stream a small confirmation turn and queue the task.
-    async def _stream():
-        import time as _t
-        t_start = _t.monotonic()
-        meta = {
-            "meta": True,
-            "session_id": body.session_id,
-            "provider": "aurem-ship-shortcut",
-            "mode": "C",
-            "temperature": 0.0,
-            "thinking_s": 0.0,
-            "tool_calls_run": 0,
-            "ship_shortcut": True,
-        }
-        yield f"data: {json.dumps(meta)}\n\n"
-
-        # Iter 132 — Mode C ship shortcut tick emission. Without periodic
-        # tick frames the chat UI shows "Thinking…" with no elapsed timer
-        # while _enqueue_cto_task runs (GitHub repo checks, etc. — can take
-        # several seconds). We run the heavy work as a background task and
-        # interleave {thinking:true, elapsed_s, activity} frames every 0.5s
-        # so MessageBubble.jsx renders the live counter exactly like the
-        # normal chat_with_tools path.
-        stop_event = asyncio.Event()
-        activity = {"label": "queueing ship task…"}
-
-        def _emit_tick() -> str:
-            elapsed = round(_t.monotonic() - t_start, 1)
-            return (
-                "data: " + json.dumps({
-                    "thinking":  True,
-                    "elapsed_s": elapsed,
-                    "activity":  activity["label"],
-                }) + "\n\n"
-            )
-
-        # First tick immediately so the UI swaps "…" → "0.0s" instantly.
-        yield _emit_tick()
-
-        # Default to the user's current/last project — if none we can't
-        # actually queue, so degrade gracefully with a clear message.
-        project_id = body.project_id or ""
-        if not project_id or project_id == "home":
-            content = (
-                "🚢 Ship-shortcut detected, but no project is selected. "
-                "Open a project in the sidebar and run **ship** again."
-            )
-            for i in range(0, len(content), 16):
-                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
-            return
-
-        # Run the heavy work (DB fetch + GitHub validation + enqueue) in a
-        # background task while we yield tick frames every 0.5 s.
-        async def _do_enqueue():
-            try:
-                from routers.cto_projects import _enqueue_cto_task
-                return ("ok", await _enqueue_cto_task(
-                    user_id=user_id, project_id=project_id, task_text=brief,
-                ))
-            except Exception as e:
-                return ("error", e)
-
-        enqueue_t = asyncio.create_task(_do_enqueue())
-        # Iter 136 — hard ceiling on the enqueue so a hung GitHub /
-        # Mongo call can never strand the user on "thinking…" forever.
-        # 60 s is conservative — a healthy enqueue completes in <3 s.
-        _SHIP_ENQUEUE_TIMEOUT_S = float(os.getenv("SHIP_ENQUEUE_TIMEOUT_S", "60"))
-        _ship_start = _t.monotonic()
-        try:
-            while not enqueue_t.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(enqueue_t), timeout=0.5)
-                except asyncio.TimeoutError:
-                    if _t.monotonic() - _ship_start > _SHIP_ENQUEUE_TIMEOUT_S:
-                        enqueue_t.cancel()
-                        content = (
-                            f"🚢 Ship-shortcut timed out after "
-                            f"{int(_SHIP_ENQUEUE_TIMEOUT_S)}s — GitHub / Mongo "
-                            "did not respond. Please retry the prompt."
-                        )
-                        for i in range(0, len(content), 16):
-                            yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
-                        yield (
-                            "data: " + json.dumps({
-                                "done": True,
-                                "session_id": body.session_id,
-                                "provider": "aurem-ship-shortcut",
-                                "verified_paths": [],
-                                "timed_out": True,
-                            }) + "\n\n"
-                        )
-                        return
-                    yield _emit_tick()
-            kind, payload = enqueue_t.result()
-        finally:
-            stop_event.set()
-
-        if kind == "error":
-            e = payload
-            content = (
-                f"🚢 Ship-shortcut failed to queue: {type(e).__name__}: {e}. "
-                "Try again, or run the task from a fresh prompt."
-            )
-            for i in range(0, len(content), 16):
-                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
-            return
-
-        res = payload
-        if not res.get("ok"):
-            reason = res.get("reason", "unknown")
-            content = (
-                f"🚢 Ship-shortcut blocked: **{reason}**. "
-                "Connect a GitHub repo (Settings → GitHub) and retry."
-            )
-            for i in range(0, len(content), 16):
-                yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'session_id': body.session_id, 'provider': 'aurem-ship-shortcut', 'verified_paths': []})}\n\n"
-            return
-
-        task_id = res["task_id"]
-        # Iter 125 — emit the same `task_handoff` SSE frame the Mode D→C
-        # path uses so the floating LiveTaskPopup mounts immediately. The
-        # shortcut path previously only stuffed task_id in the `done`
-        # payload, which `onDone` doesn't read — so the popup never
-        # appeared on ship shortcuts (the most common Mode C trigger).
-        yield (
-            "data: " + json.dumps({
-                "type": "task_handoff",
-                "task_id": task_id,
-                "project_id": res.get("project_id") or project_id,
-                "source": "ship_shortcut",
-            }) + "\n\n"
-        )
-        content = (
-            f"🚢 **Shipped via shortcut** — task `{task_id}` queued from the "
-            f"previous handoff brief. The worker will commit directly to "
-            f"your repo; live progress is in the task tape below."
-        )
-        # Mark the task so the UI knows it came from a shortcut.
-        try:
-            await db.cto_tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"source": "chat_ship_shortcut"}},
-            )
-        except Exception:
-            pass
-        for i in range(0, len(content), 16):
-            yield f"data: {json.dumps({'token': content[i:i+16]})}\n\n"
-        done_payload = {
-            "done": True,
-            "provider": "aurem-ship-shortcut",
-            "session_id": body.session_id,
-            "verified_paths": [],
-            "ship_shortcut": True,
-            "task_id": task_id,
-        }
-        yield f"data: {json.dumps(done_payload)}\n\n"
-
-    return _stream()
-
-
 @router.post("/stream")
 async def chat_stream(
     request: Request,
@@ -1128,35 +841,25 @@ async def chat_stream(
     repo_ctx = await _safe(get_repo_context(user_id, body.project_id or ""), "repo_context")
     url_ctx = ""
 
-    # ── Iter 87: "ship" shortcut ──────────────────────────────────────
-    # When the user's prompt is just "ship" / "do it" / "go" right after
-    # an assistant turn that already emitted an ```aurem-handoff fence,
-    # the model SHOULD NOT re-run the whole reasoning loop. That's the
-    # bug we kept seeing on auremcto.com: 10 tool calls / 90 s budget /
-    # timeout / no progress. Instead, lift the brief from the prior
-    # turn and queue the cto_task directly.
-    shipped_via_shortcut = await _maybe_ship_shortcut(
-        body=body, user_id=user_id, repo_ctx=repo_ctx,
+    # ── Iter 212m-26 — Auto-ship-shortcut REMOVED ─────────────────────
+    # Previously this point invoked `_maybe_ship_shortcut(...)` which
+    # auto-fired a CTO task whenever the user typed a short confirma-
+    # tion ("yes", "ok", "fix", "go") after an assistant turn with an
+    # aurem-handoff fence. That bypassed the user's manual click on
+    # the "🚀 Ship via CTO" button (MessageBubble.jsx → ShipDialog).
+    #
+    # The sibling `_maybe_clarify_short_fix` guard depended on the
+    # same keyword detection and is also gone. Shipping now ONLY
+    # happens when the user explicitly clicks the button. Short
+    # conversational replies flow into the normal orchestrator.
+
+    # Iter 172 — independent guard: if the most recent assistant
+    # handoff was a shell command, intercept ANY short follow-up
+    # before it stalls the orchestrator. (Still active — this is
+    # orthogonal to the auto-ship behaviour.)
+    _clarify_text = await _maybe_guard_shell_handoff_followup(
+        body=body, user_id=user_id,
     )
-    if shipped_via_shortcut is not None:
-        return StreamingResponse(
-            shipped_via_shortcut, media_type="text/event-stream",
-        )
-
-    # Iter 169 — sibling guard: if user said "fix"/"ship" but no prior
-    # handoff fence exists, return a one-shot clarification stream
-    # instead of running a 150s reasoning loop that will hallucinate
-    # file paths. Emits as a normal SSE turn so the chat UI renders it
-    # the same as any other assistant reply.
-    _clarify_text = await _maybe_clarify_short_fix(body=body, user_id=user_id)
-
-    # Iter 172 — broader guard: if the most recent assistant handoff
-    # was a shell command, intercept ANY short follow-up (not just
-    # exact ship confirmations) before it stalls the orchestrator.
-    if _clarify_text is None:
-        _clarify_text = await _maybe_guard_shell_handoff_followup(
-            body=body, user_id=user_id,
-        )
 
     if _clarify_text is not None:
         async def _clarify_stream():

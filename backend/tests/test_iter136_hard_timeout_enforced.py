@@ -64,15 +64,8 @@ def test_tick_only_triggers_timeout_past_deadline() -> None:
     )
 
 
-def test_ship_shortcut_has_hard_timeout() -> None:
-    """The Iter 132 ship-shortcut tick loop must also enforce a hard
-    timeout — without one a hung GitHub/Mongo enqueue stranded users on
-    'thinking…' forever."""
-    src = _src()
-    assert "SHIP_ENQUEUE_TIMEOUT_S" in src, (
-        "ship-shortcut must enforce a hard enqueue timeout"
-    )
-    # Cancel + emit done with timed_out flag.
-    assert "Ship-shortcut timed out after" in src, (
-        "ship-shortcut must surface a clear timeout message"
-    )
+# Iter 212m-26: `test_ship_shortcut_has_hard_timeout` removed along
+# with the entire ship-shortcut feature. The user demanded the auto-
+# ship path be deleted so the manual "🚀 Ship via CTO" button is the
+# ONLY way to ship. The general deadline pins above (per chat turn,
+# tick-vs-event) remain the active timeout regression suite.

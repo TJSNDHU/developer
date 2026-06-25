@@ -65,13 +65,18 @@ def _retry_delay(attempt: int) -> float:
     cap = _BASE_DELAY_S * (2 ** (attempt - 1))
     return random.uniform(0, cap)
 
-# Token caps per mode
+# Token caps per mode.
+# Iter 212m-26 — Production fix: raised `chat` from 1500 → 4000.
+# A 1500-token ceiling on chat replies meant GLM-5.2 was truncating
+# multi-paragraph answers mid-sentence, surfacing as the "ORA only
+# replies one line then stops" bug. Allow an env override so the
+# value can be tuned in production without redeploying.
 MAX_TOKENS = {
-    "chat":    1500,
-    "code":    3500,   # iter 35: raised for code tasks
-    "review":  4096,   # iter 40: bumped for Claude Two-Agent review
+    "chat":    int(os.getenv("LLM_CHAT_MAX_TOKENS", "4000")),
+    "code":    int(os.getenv("LLM_CODE_MAX_TOKENS", "3500")),
+    "review":  int(os.getenv("LLM_REVIEW_MAX_TOKENS", "4096")),
     "title":     30,
-    "default": 1000,
+    "default": int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "1500")),
 }
 
 # Temperature per mode
