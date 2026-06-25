@@ -22,7 +22,13 @@ from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
 from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 from services.repo_context import get_repo_context
-from services.url_fetcher import build_url_context
+# NOTE: `build_url_context` (eager URL scraper) was REMOVED.
+# URL fetching is now handled exclusively via the `fetch_url` tool
+# inside `services/orchestrator.py` (forced pre-execution when the
+# prompt contains an http(s) URL). This routes URL access through the
+# standard tool-invocation logging + SSE step card + web_sources chip
+# pipeline instead of silently stuffing scraped content into the
+# system prompt.
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -478,16 +484,15 @@ async def chat_send(
     # is a no-op that still does a Mongo round-trip. Skip it.
     pid = (body.project_id or "").strip()
     if pid and pid != "home":
-        repo_ctx_task = asyncio.create_task(
-            get_repo_context(user["user_id"], pid)
-        )
+        repo_ctx = await get_repo_context(user["user_id"], pid)
     else:
-        async def _no_repo(): return ""
-        repo_ctx_task = asyncio.create_task(_no_repo())
-    url_ctx_task = asyncio.create_task(build_url_context(body.prompt))
-    repo_ctx, url_ctx = await asyncio.gather(repo_ctx_task, url_ctx_task)
+        repo_ctx = ""
+    # Iter 212m-23 — URL context is NO LONGER eagerly stuffed here.
+    # The orchestrator force-invokes the `fetch_url` tool when the
+    # prompt contains an http(s) URL, which surfaces a proper step
+    # card + web_sources chip in the UI and logs into tool_invocations.
     t_preflight = time.time()
-    extra_sys = "\n\n".join(s for s in (repo_ctx, url_ctx) if s)
+    extra_sys = repo_ctx or ""
     # Iter 153 — clamp the requested review mode to whatever the user's
     # tier allows. Falls back to the BEST mode they have access to so
     # the request never errors out from a missing entitlement.
@@ -1094,10 +1099,15 @@ async def chat_stream(
             logger.warning(f"chat-context: {label} failed ({e!r}) — degrading")
             return ""
 
-    repo_ctx, url_ctx = await asyncio.gather(
-        _safe(get_repo_context(user_id, body.project_id or ""), "repo_context"),
-        _safe(build_url_context(body.prompt), "url_context"),
-    )
+    # Iter 212m-23 — URL fetching is NO LONGER done eagerly here.
+    # The orchestrator force-invokes `fetch_url` tool when the prompt
+    # contains an http(s) URL (see services/orchestrator.py forced
+    # URL pre-fetch block). This routes URL content through the
+    # standard tool-invocation pipeline so users see a 📖 Reading URL…
+    # step card and a 🌐 web_sources chip — no more silent context
+    # stuffing that bypassed the tool UI.
+    repo_ctx = await _safe(get_repo_context(user_id, body.project_id or ""), "repo_context")
+    url_ctx = ""
 
     # ── Iter 87: "ship" shortcut ──────────────────────────────────────
     # When the user's prompt is just "ship" / "do it" / "go" right after

@@ -1,0 +1,32 @@
+{
+  "summary": "Iter 212m-23 backend-only E2E verification on PREVIEW. All 20 targeted tests pass (9 source-pin + 6 cold-start + 5 new live E2E). Eager build_url_context() scraper is fully removed from chat.py (only present in comments/NOTE lines). On PREVIEW backend, URL prompts now dispatch fetch_url via standard orchestration with forced:true marker and emit a '📖 Reading URL…' step card; non-URL prompts do NOT trigger forced pre-fetch (regression-safe). No <tool_call>/arg_value leakage in user-visible token frames. Tavily upstream returns 432 quota error — that's a billing matter, not a code bug, and the tool is still correctly DISPATCHED and LOGGED in the SSE stream as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/chat/stream", "issue": "Schema accepts both 'prompt' (required) and 'message' fields — the in-scope new test had to send both for compatibility. Not a regression of this iter; just worth a schema note."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m23_url_tool_real_fix.py",
+    "/app/backend/tests/test_iter157_cold_start_fixes.py",
+    "/app/backend/tests/test_iter212m23_e2e_url_tool_real_fix.py",
+    "/app/test_reports/pytest/iter212m23_e2e_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "chat.py is still very large (~1100+ lines visible); future iteration should split chat_send and chat_stream into separate module files.",
+    "Two parameter names ('prompt' vs 'message') in /chat/stream payload is confusing — pick one and deprecate the other.",
+    "orchestrator.py FORCED URL PRE-FETCH block (lines 1657-1763) is well-scoped but ~110 lines; consider extracting `_forced_url_prefetch(prompt, invocations, step_hook)` helper for readability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m23_e2e_url_tool_real_fix.py (NEW — 5 E2E tests, all passing)"
+  ],
+  "success_rate": {"backend": "100% (20/20 targeted tests)", "frontend": "n/a — skipped per request"},
+  "test_credentials": "Founder login teji.ss1986@gmail.com / FounderOwn123! works against PREVIEW backend (single-step, no 2FA). Token returned as 'access_token', user_id under user.id (=72986b01e66d4beda9251e62751c1392 in this run).",
+  "seed_data_creation": "None — used ad-hoc chat session IDs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 212m-23 fix is FULLY VERIFIED on PREVIEW. Live SSE proof transcript (captured by /tmp/capture_proof.py): URL prompt 'Read https://fastapi.tiangolo.com/ and summarise the first H1.' → HTTP 200, 7.4s, step frames include '📖 Reading URL…' and '📖 Scraping web…', 10 fetch_url invocations with forced:True (status=error due to Tavily 432 quota — expected, billing not code), 0 tool_call/arg_value leaks in user tokens. Plain 'hello' → 0 fetch_url invocations, 2.3s. build_url_context only appears in chat.py as a NOTE comment on line 25 and a doc-comment on line 1078. The wider regression suite (iter129/130 persona size pins, iter86 hard_timeout pin) has pre-existing failures unrelated to this change and were not in scope.",
+  "rca of the issue": "Previous bug: eager build_url_context() ran in parallel with the LLM call and stuffed scraped HTML into extra_system_prompt without going through tool orchestration → no step card, no tool_invocations log, no web_sources chips, and (worst) the model sometimes echoed raw <tool_call> tags into the user-visible token stream. Real fix in this iteration: (1) DELETED the eager call site in routers/chat.py — replaced with NOTE comments and `repo_ctx = await get_repo_context(...)` only; (2) ADDED a FORCED URL PRE-FETCH block in services/orchestrator.py BEFORE the main reasoning loop that detects URLs via extract_urls(prompt)[:3] and invokes fetch_url through the standard invoke_local_tool/invoke_tool path, appending a {'forced': True} entry to invocations[] and emitting step_hook with _STEP_LABELS['fetch_url']. Result: URLs now route through standard tool dispatch → step cards appear, invocations are logged, no raw tool_call leakage, and non-URL prompts are untouched. Verified live against PREVIEW backend with founder account."
+}

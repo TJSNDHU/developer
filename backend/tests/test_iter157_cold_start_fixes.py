@@ -93,19 +93,24 @@ def test_orchestrator_has_per_turn_budget_guard():
     )
 
 
-# ── 4. Context builders run in parallel + bounded ─────────────────────
+# ── 4. Context builder bounded ────────────────────────────────────────
 
 def test_chat_context_builders_parallelised_and_bounded():
-    """chat.py:chat_stream must run repo_ctx + url_ctx in parallel with
-    a per-builder timeout (the _safe wrapper). Sequential awaiting was
-    the dominant contributor to the 300s production stalls."""
+    """chat.py:chat_stream must wrap repo_ctx in the _safe per-builder
+    timeout wrapper. Sequential, untimed awaiting was the dominant
+    contributor to the 300s production stalls.
+
+    Iter 212m-23 — `build_url_context` was REMOVED (eager URL scraping
+    bypassed the tool UI). URL handling now lives in the orchestrator's
+    forced fetch_url pre-fetch path, so this test no longer pins
+    `build_url_context`. We still pin _safe(get_repo_context()).
+    """
     src = open(os.path.join(
         os.path.dirname(__file__), "..", "routers", "chat.py"
     )).read()
-    # Parallel: gather over the safe wrappers.
-    assert "asyncio.gather(" in src
     assert "_safe(get_repo_context(" in src
-    assert "_safe(build_url_context(" in src
+    # Eager URL scraper removed — must NOT appear in chat.py routes.
+    assert "_safe(build_url_context(" not in src
     # Bounded: per-call asyncio.wait_for(timeout=…) inside _safe.
     assert "asyncio.wait_for(coro, timeout" in src
 

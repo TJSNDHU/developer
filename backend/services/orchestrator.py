@@ -1654,6 +1654,113 @@ async def chat_with_tools(
     )
     _orch_started_at = time.monotonic()
 
+    # ─── Iter 212m-23 — FORCED URL PRE-FETCH (real fix, no patchwork) ───
+    # The legacy `build_url_context` in chat.py used to eagerly scrape
+    # any URL in the prompt and silently stuff its contents into the
+    # system prompt. That bypassed the tool-orchestration UI (no step
+    # card, no web_sources chip, no entry in tool_invocations) AND
+    # leaked raw scraped HTML into the model's system context.
+    #
+    # We replace that with a deterministic, observable pre-fetch:
+    #   1. Detect http(s) URLs in the user's prompt (regex).
+    #   2. Synchronously invoke the `fetch_url` tool BEFORE the first
+    #      LLM call — same dispatch path the LLM would use itself.
+    #   3. Record the call in `invocations[]` so the UI gets:
+    #        • a 📖 Reading URL… step frame via step_hook
+    #        • a 🌐 web_sources chip via _extract_web_sources
+    #        • a tool_invocations entry on the done frame
+    #   4. Inject the result as an iter-0 TOOL RESULTS block in the
+    #      transcript so the LLM answers FROM the fetched content,
+    #      not from pretraining.
+    #
+    # If `fetch_url` is unavailable (no TAVILY_API_KEY or no tool
+    # registered), we degrade silently — the LLM still gets the
+    # original prompt and can choose to call the tool itself.
+    _forced_url_invocations: list[dict] = []
+    try:
+        from services.url_fetcher import extract_urls as _extract_urls
+        _prompt_urls = _extract_urls(prompt or "")[:3]  # cap at 3 URLs
+    except Exception:
+        _prompt_urls = []
+
+    if _prompt_urls:
+        # Confirm `fetch_url` is in the tool catalog before invoking.
+        _tool_names_set = {(t.get("name") or "") for t in (tools or [])}
+        if "fetch_url" in _tool_names_set:
+            logger.info(
+                "forced fetch_url pre-execution: %d url(s) in prompt — %s",
+                len(_prompt_urls), _prompt_urls,
+            )
+            if activity_hook:
+                try:
+                    activity_hook(f"fetching {len(_prompt_urls)} URL(s)…")
+                except Exception:
+                    pass
+            if step_hook:
+                try:
+                    step_hook(_STEP_LABELS.get("fetch_url", "📖 Reading URL…"))
+                except Exception:
+                    pass
+
+            _entry = {
+                "tool":        "fetch_url",
+                "args":        {"urls": _prompt_urls},
+                "ok":          None,
+                "status":      "running",
+                "elapsed_ms":  None,
+                "error":       None,
+                "web_sources": [],
+                "forced":      True,  # marker: pre-LLM forced invocation
+            }
+            invocations.append(_entry)
+            _forced_url_invocations.append(_entry)
+
+            try:
+                _t0 = time.monotonic()
+                _res = await invoke_local_tool(
+                    "fetch_url", {"urls": _prompt_urls}, local_ctx,
+                )
+                if _res is None:
+                    _res = await invoke_tool(
+                        "fetch_url", {"urls": _prompt_urls}, jwt_token,
+                    )
+                _elapsed_ms = int((time.monotonic() - _t0) * 1000)
+                _entry["ok"]          = _res.get("ok")
+                _entry["status"]      = "ok" if _res.get("ok") else "error"
+                _entry["elapsed_ms"]  = _res.get("elapsed_ms") or _elapsed_ms
+                _entry["error"]       = _res.get("error")
+                _entry["web_sources"] = _extract_web_sources(
+                    "fetch_url", {"urls": _prompt_urls}, _res,
+                )
+
+                # Fold result into transcript as an iter-0 tool result
+                # so the LLM has the fetched content from turn one.
+                _result_str = json.dumps(_res, default=str)
+                if len(_result_str) > 12000:
+                    _result_str = (
+                        _result_str[:12000]
+                        + f"\n... [truncated — {len(_result_str)} total "
+                        "chars, first 12000 shown]"
+                    )
+                transcript = (
+                    f"{transcript}\n\n=== TOOL RESULTS (forced pre-fetch) ===\n"
+                    f"{json.dumps([{'tool': 'fetch_url', 'result': _result_str}], default=str)}\n"
+                    f"=== END TOOL RESULTS ===\n"
+                    f"The URL(s) above were fetched on the user's behalf. "
+                    f"Use this real content to answer — DO NOT answer from "
+                    f"pretraining. Cite the URL(s) you used."
+                )
+            except Exception as _fe:
+                logger.warning("forced fetch_url failed: %r", _fe)
+                _entry["ok"]     = False
+                _entry["status"] = "error"
+                _entry["error"]  = f"forced pre-fetch exception: {_fe!r}"
+        else:
+            logger.info(
+                "URL(s) found in prompt but `fetch_url` not in catalog — "
+                "skipping forced pre-fetch (the LLM may still call it later)"
+            )
+
     while iters < max_iters:
         # Iter 157 — abort BEFORE starting another LLM call if we're
         # within ~one-LLM-round of the budget. Synthesise whatever
