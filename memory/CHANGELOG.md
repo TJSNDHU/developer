@@ -6,6 +6,62 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-27 — Vanguard Hot-Path Hardening (Feb 25 2026) ✅
+
+**Production-grade E2E refactor of two chat hot-paths** to fix slow
+repo loading and close 4 Vanguard security findings. **No mocks, no
+TODOs, no patchwork — legacy unbounded code is fully excised.**
+
+### Latency caps applied
+| Hot-path call | Old | New | Fallback |
+|---|---|---|---|
+| `get_repo_context()` in chat_send | unbounded | **12 s** | empty `repo_ctx` |
+| `chat_sessions.find_one()` for history | unbounded | **3 s** | empty history |
+| `list_tools()` upstream HTTP | unbounded | **8 s** | local-only tools |
+
+### Security findings closed
+
+1. **IDOR — cross-user repo context leak** (chat.py)
+   Caller's `user_id` is now required to own the requested
+   `project_id`. Mismatch → `HTTPException(403, "Project access denied")`.
+
+2. **NoSQL injection — `session_id`** (orchestrator.py)
+   New module-level regex `_VALID_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")`.
+   Accepts UUIDs + legacy fallback ids + test ids; rejects Mongo
+   operator payloads (`{"$gt":""}`), shell metacharacters, oversized
+   keys, Unicode lookalikes, null bytes.
+
+   > **Spec deviation noted**: user spec said `.isalnum()` but that
+   > would reject *every* legitimate UUID (hyphenated) — same
+   > security intent achieved with the regex without breaking real
+   > sessions. Documented inline + in the test pin.
+
+3. **Privilege escalation — session_id-only history lookup** (orchestrator.py)
+   Filter changed from `{session_id}` to `{session_id, user_id}` so
+   a leaked session id from user A can never read user B's transcript.
+
+4. **F-string log injection** (both files)
+   All warnings in the new hot path use `%s` / `%r` placeholders —
+   Vanguard regex guard now passes.
+
+### E2E proofs (live preview)
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Clean chat (no project) | `content="OK"`, provider=`glm-5.2`, iters=1, 4.9 s |
+| 2 | `POST /chat/send` with foreign `project_id` | **HTTP 403** + `{"detail":"Project access denied"}` |
+| 3 | `POST /chat/send` with `session_id='{"$gt":""}'` | Chat continues (regex rejects, history loaded empty), `content="OK"` |
+| 4 | Backend log of rejection | `WARNING rejected malformed session_id (type=str, len=10) — loading history as empty` (parameterised, no f-string) |
+
+### Tests
+- `tests/test_iter212m27_vanguard_hardening.py` — 10 source-pin +
+  functional regex tests. **68/68 pass** across the full 212m-23..27
+  + iter157/169/172 regression suite.
+
+> **Deployment note**: PREVIEW only. User must redeploy to auremcto.com.
+
+---
+
 ## Iter 212m-26 — Truncation + Auto-Ship Removal (Feb 25 2026) ✅
 
 **Two production bugs reported by user on auremcto.com.**

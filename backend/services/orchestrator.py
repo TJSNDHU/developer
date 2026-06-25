@@ -36,6 +36,15 @@ _WEB_TOOLS = {
 }
 
 
+# Iter 212m-27 — Vanguard NoSQL-injection defence.
+# A session id must be a plain ASCII identifier ≤ 128 chars. This
+# covers crypto.randomUUID() output (5 hex groups joined by '-'),
+# the legacy "s-<ts>-<rand>" fallback, and the "iter-<N>-<slug>" ids
+# used in tests — while rejecting any payload that could carry a
+# Mongo operator object ({"$gt":""}) or shell metacharacters.
+_VALID_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")
+
+
 def _extract_web_sources(tool_name: str, args: dict, res: dict) -> list[dict]:
     """Pull a flat list of {url, title, tool} from a web-tool result.
     Defensive: returns [] for any non-web tool, non-200 result, or
@@ -1363,33 +1372,72 @@ async def chat_with_tools(
     }
     history_lines: list[str] = []
     if session_id:
-        try:
-            from cto_services.db import get_db
-            db = get_db()
-            if db is not None:
-                doc = await db.chat_sessions.find_one(
-                    {"session_id": session_id},
-                    {"_id": 0, "turns": 1},
-                )
-                for t in (doc or {}).get("turns") or []:
-                    role = t.get("role", "user")
-                    content = (t.get("content") or "").strip()
-                    if content:
-                        # Hard-cap each turn so a long earlier answer
-                        # doesn't eat the whole context window.
-                        if len(content) > 4000:
-                            content = content[:4000] + " …[truncated]"
-                        history_lines.append(f"[{role.upper()}] {content}")
-                # Keep the most recent N turns to stay within context.
-                history_lines = history_lines[-20:]
-        except Exception as e:
-            logger.warning(f"session history load failed (continuing fresh): {e!r}")
+        # Iter 212m-27 — Vanguard hot-path hardening:
+        # (a) INJECTION DEFENSE: refuse any session_id that's not a
+        #     plain ASCII identifier so a malicious caller can't slip
+        #     a Mongo operator object ({"$gt": ""}) or a long-key DoS
+        #     payload through. Strict regex (alnum + dash + underscore,
+        #     ≤ 128 chars) covers crypto.randomUUID() output and all
+        #     legitimate fallback IDs while rejecting injection.
+        # (b) PRIVILEGE BINDING: scope the find_one query to
+        #     {session_id, user_id} so a leaked session id from one
+        #     user can never read another user's transcript.
+        # (c) FAIL-FAST: 3s ceiling — if Mongo is slow the turn must
+        #     continue without history rather than block the full
+        #     orchestrator budget waiting for it.
+        doc = None
+        if not isinstance(session_id, str) or not _VALID_SESSION_ID_RE.match(session_id):
+            logger.warning(
+                "rejected malformed session_id (type=%s, len=%s) — "
+                "loading history as empty",
+                type(session_id).__name__, len(session_id) if isinstance(session_id, str) else 0,
+            )
+        else:
+            try:
+                from cto_services.db import get_db
+                db = get_db()
+                if db is not None:
+                    try:
+                        doc = await asyncio.wait_for(
+                            db.chat_sessions.find_one(
+                                {"session_id": session_id, "user_id": user_id},
+                                {"_id": 0, "turns": 1},
+                            ),
+                            timeout=3.0,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "session history lookup exceeded 3s for sid=%r user=%r — "
+                            "loading history as empty",
+                            session_id, user_id,
+                        )
+                        doc = None
+            except Exception as e:
+                logger.warning("session history load failed: %r", e)
+        if doc is not None:
+            for t in (doc or {}).get("turns") or []:
+                role = t.get("role", "user")
+                content = (t.get("content") or "").strip()
+                if content:
+                    # Hard-cap each turn so a long earlier answer
+                    # doesn't eat the whole context window.
+                    if len(content) > 4000:
+                        content = content[:4000] + " …[truncated]"
+                    history_lines.append(f"[{role.upper()}] {content}")
+            # Keep the most recent N turns to stay within context.
+            history_lines = history_lines[-20:]
 
     # 1. Fetch tool catalog from upstream + merge local first-party tools
+    # Iter 212m-27 — list_tools() reaches AUREM upstream over HTTP; a
+    # cold/flaky upstream was hanging the entire chat turn. 8 s hard
+    # cap with graceful fallback to LOCAL_TOOL_SPECS only.
     try:
-        tools = await list_tools(jwt_token)
+        tools = await asyncio.wait_for(list_tools(jwt_token), timeout=8.0)
+    except asyncio.TimeoutError:
+        logger.warning("list_tools upstream exceeded 8s — using local tools only")
+        tools = []
     except Exception as e:
-        logger.warning(f"list_tools upstream failed: {e!r}")
+        logger.warning("list_tools upstream failed: %r", e)
         tools = []
     # Local tools are always available regardless of upstream state
     tools = list(tools or []) + list(LOCAL_TOOL_SPECS)

@@ -484,7 +484,46 @@ async def chat_send(
     # is a no-op that still does a Mongo round-trip. Skip it.
     pid = (body.project_id or "").strip()
     if pid and pid != "home":
-        repo_ctx = await get_repo_context(user["user_id"], pid)
+        # Iter 212m-27 — Vanguard hot-path hardening:
+        # (a) AUTHORIZATION: confirm the caller owns this project
+        #     BEFORE we spend a Mongo + GitHub round-trip on it. Stops
+        #     cross-user repo context leakage (Vanguard CVE-class
+        #     IDOR finding).
+        # (b) LATENCY GUARD: get_repo_context() reaches GitHub through
+        #     a chain of cache + API hops. A flaky GitHub or stale PAT
+        #     was hanging the request for the full 90 s LLM budget.
+        #     Hard cap at 12 s — if it can't return by then, ship
+        #     the turn without repo context (graceful degrade).
+        _db = get_db()
+        _owned = None
+        if _db is not None:
+            try:
+                _owned = await _db.projects.find_one(
+                    {"project_id": pid, "user_id": user["user_id"]},
+                    {"_id": 1},
+                )
+            except Exception as _oe:
+                logger.warning(
+                    "project ownership lookup failed for pid=%r user=%r: %r",
+                    pid, user["user_id"], _oe,
+                )
+                _owned = None
+        if not _owned:
+            raise HTTPException(
+                status_code=403, detail="Project access denied",
+            )
+        try:
+            repo_ctx = await asyncio.wait_for(
+                get_repo_context(user["user_id"], pid),
+                timeout=12.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "get_repo_context exceeded 12s for pid=%r user=%r — "
+                "degrading to empty repo_ctx",
+                pid, user["user_id"],
+            )
+            repo_ctx = ""
     else:
         repo_ctx = ""
     # Iter 212m-23 — URL context is NO LONGER eagerly stuffed here.
