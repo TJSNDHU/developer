@@ -15,9 +15,12 @@ import {
   ChevronsLeft, ChevronsRight, FolderGit2, Menu, X, Trophy, Gift,
 } from "lucide-react";
 import { api, getUser, getToken, logout, healthApi, newSessionId, setUser as saveUser } from "../lib/api";
+import { clearUICacheAndReload } from "../lib/cacheCleaner";
+import { toast } from "./Toast";
 import TokenBell from "./TokenBell";
 import PWAInstallPrompt from "./PWAInstallPrompt";
 import FloatingORAButton from "./FloatingORAButton";
+import ClearCacheButton from "./ClearCacheButton";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -413,16 +416,45 @@ export default function Shell({ children, requireAuth }) {
               gap: 8,
             }}
           >
-            <NavLink
-              to={token ? "/dashboard" : "/"}
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.preventDefault();
+                // Iter 212m-25 — Logo click = clear UI cache + auto
+                // refresh the CURRENT page (login stays). User asked
+                // for this so cached UI state never sticks to a
+                // stale render after a deploy or weird transient.
+                try {
+                  const { cleared } = await clearUICacheAndReload();
+                  const total = (cleared.localStorage || 0)
+                                + (cleared.sessionStorage || 0)
+                                + (cleared.indexedDB || 0)
+                                + (cleared.caches || 0);
+                  toast({
+                    message: `🧹 Cache cleared (${total} item${total === 1 ? "" : "s"}) — refreshing…`,
+                    kind: "success",
+                  });
+                } catch (err) {
+                  toast({
+                    message: `Cache clear failed: ${err.message || err}`,
+                    kind: "error",
+                  });
+                }
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 paddingLeft: collapsed ? 0 : 6,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "inherit",
+                fontFamily: "inherit",
+                textAlign: "left",
               }}
               data-testid="brand-link"
-              title="AUREM Dev"
+              title="Click to clear cache and refresh (you stay signed in)"
             >
               <Zap size={20} style={{ color: "var(--accent)", flexShrink: 0 }} />
               {!collapsed && (
@@ -445,7 +477,7 @@ export default function Shell({ children, requireAuth }) {
                   </span>
                 </div>
               )}
-            </NavLink>
+            </button>
             {!collapsed && (
               <button
                 data-testid="sidebar-collapse-btn"
@@ -478,6 +510,10 @@ export default function Shell({ children, requireAuth }) {
               </button>
             )}
           </div>
+
+          {/* Iter 212m-25 — Clear-cache button right under the brand
+              (hidden when the sidebar is collapsed). */}
+          <ClearCacheButton collapsed={collapsed} testid="clear-cache-btn" />
 
           {/* Expand button when collapsed (placed below brand for tap target) */}
           {collapsed && (

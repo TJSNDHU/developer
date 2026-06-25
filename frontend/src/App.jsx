@@ -18,6 +18,7 @@
  *     first hit by the browser).
  */
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import useAutoClearConsole from "./lib/useAutoClearConsole";
 import { useEffect, lazy, Suspense } from "react";
 import Toaster from "./components/Toast";
 
@@ -80,6 +81,15 @@ function RouteLoader() {
   );
 }
 
+// Iter 212m-25 — Tiny child of <BrowserRouter> that owns the
+// auto-clear-console hook. Has to live INSIDE the router because
+// the hook reads `useLocation()` to fire console.clear() on every
+// route change. Rendering nothing visible.
+function AutoClearConsoleHost() {
+  useAutoClearConsole();
+  return null;
+}
+
 export default function App() {
   // Iter 101 — Capture `?ref=<uid>` on any landing, stash in localStorage
   // so Signup can attribute the referrer after account creation.
@@ -109,6 +119,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <AutoClearConsoleHost />
       <Toaster />
       <Suspense fallback={<RouteLoader />}>
         <Routes>

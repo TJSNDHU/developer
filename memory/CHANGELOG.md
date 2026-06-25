@@ -6,6 +6,50 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-25 — F12 Auto-clear + Logo Cache-Clean Button (Feb 25 2026) ✅
+
+**Feature**: Two UX hygiene fixes for the customer interface.
+
+1. **F12 console auto-clear** — DevTools console clears automatically
+   on app startup, on every route change, AND every 30 seconds.
+   Escape hatch: `window.__AUREM_DISABLE_AUTO_CLEAR_CONSOLE = true`
+   in console disables it for a debugging session.
+
+2. **Logo click = cache clear + auto-refresh** — Clicking the AUREM
+   Dev logo (sidebar top-left) wipes UI cache (sessionStorage,
+   non-auth localStorage, IndexedDB, ServiceWorker caches) and
+   auto-reloads the CURRENT page with a `?_cc=<ts>` cache-bust param.
+   Login (`aurem_token` + `aurem_user`) is preserved — user stays
+   signed in.
+
+3. **Explicit "🧹 Clear cache" button** — Sits right under the logo
+   when the sidebar is expanded; same behaviour as logo click, plus
+   a toast confirming how many items were cleared.
+
+**Files**
+- NEW `frontend/src/lib/cacheCleaner.js` — `clearUICache()` +
+  `clearUICacheAndReload()`.
+- NEW `frontend/src/lib/useAutoClearConsole.js` — startup + route +
+  30s periodic hook.
+- NEW `frontend/src/components/ClearCacheButton.jsx` — pill button.
+- MOD `frontend/src/components/Shell.jsx` — brand NavLink → button
+  with clear+reload handler; ClearCacheButton inserted under brand.
+- MOD `frontend/src/App.jsx` — `<AutoClearConsoleHost />` child of
+  `<BrowserRouter>` so `useLocation()` works.
+- NEW `frontend/src/lib/cacheCleaner.test.js` — Jest unit tests.
+- NEW `backend/tests/test_iter212m25_cache_cleanup_sources.py` —
+  9 source-level pins (all pass).
+
+**E2E proof** (manual playwright):
+- Seeded `misc_cache_v3`, `ui_pref_collapsed` in localStorage and
+  `scroll_pos_settings`, `draft_text` in sessionStorage.
+- Clicked `[data-testid='clear-cache-btn']`.
+- After 2.5s: `aurem_token` + `aurem_user` STILL present; all 4
+  seeded items gone; URL = `/settings?_cc=mqsx9uxu`; page rendered
+  with user data still visible.
+
+---
+
 ## Iter 212m-24 — Admin House Rules (Feb 25 2026) ✅
 
 **Feature**: A global "House Rules" prompt that ORA reads FIRST
