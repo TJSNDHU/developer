@@ -322,12 +322,15 @@ body.aurem-glass #root {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Composer bar over the glass background */
+/* Composer bar over the glass background.
+   Iter 212m-36 — `border-top` removed so the Founder Offer banner
+   (rounded top corners) can sit visually flush against the composer.
+   Iter 212m-38 — `!important` removed from `background` so inline
+   styles (e.g. the founder-offer amber tint) can override it. */
 .glass-composer {
-  background: rgba(13, 16, 24, 0.32) !important;
+  background: rgba(13, 16, 24, 0.32);
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border-top: 1px solid rgba(255, 200, 120, 0.10);
   /* Iter 212m-15 — composer must always sit on its own stacking
      context above the scrollable message list so a long inline
      Monaco code block can never intercept clicks on the textarea. */

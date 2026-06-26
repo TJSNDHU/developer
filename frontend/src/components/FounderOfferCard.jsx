@@ -144,20 +144,32 @@ export default function FounderOfferCard({ projectId }) {
   if (!visible) return null;
 
   // ── Render ───────────────────────────────────────────────────
-  // Slim footer strip — sits BELOW the chat composer like a status
-  // bar. Single line by default; expands inline when the user clicks
-  // "Fix my site" so the composer never gets pushed off-screen.
+  // Banner attached to the TOP of the chat composer. Rounded top
+  // corners flow visually into the composer's flat top edge below.
+  // Brighter, fully readable copy (no dim/muddy text).
   return (
     <div
       data-testid="founder-offer-card"
       style={{
-        margin: "6px 16px 4px",
-        padding: "6px 12px",
+        // Iter 212m-37 — edge-to-edge layout. No side margins so the
+        // banner spans the full chat-panel width and visually fuses
+        // with the composer below. Top corners kept rounded (they
+        // touch the panel's outer rounded glass surface).
+        margin: 0,
+        padding: "10px 16px",
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        background: "transparent",
-        borderTop: "1px solid rgba(234,179,8,0.18)",
+        background: "linear-gradient(180deg, rgba(234,179,8,0.16) 0%, rgba(234,179,8,0.08) 100%)",
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        // Side + top border only — bottom edge fuses with composer.
+        borderTop: "1px solid rgba(234,179,8,0.45)",
+        borderLeft: "1px solid rgba(234,179,8,0.45)",
+        borderRight: "1px solid rgba(234,179,8,0.45)",
+        borderBottom: "none",
       }}
     >
       <div
@@ -170,13 +182,13 @@ export default function FounderOfferCard({ projectId }) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <span aria-hidden="true" style={{ fontSize: 13, opacity: 0.9 }}>🎁</span>
+          <span aria-hidden="true" style={{ fontSize: 16 }}>🎁</span>
           <span
             data-testid="founder-offer-headline"
             style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--text-dim, #c9c9c9)",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#fde68a",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -187,11 +199,11 @@ export default function FounderOfferCard({ projectId }) {
           <span
             data-testid="founder-offer-counter"
             style={{
-              fontSize: 11,
+              fontSize: 12,
               color: counterColor,
               fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: "0.04em",
-              opacity: 0.85,
+              fontWeight: 600,
               whiteSpace: "nowrap",
             }}
           >
@@ -206,23 +218,24 @@ export default function FounderOfferCard({ projectId }) {
             disabled={loading}
             onClick={handleClaim}
             style={{
-              padding: "4px 10px",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#facc15",
-              background: "transparent",
-              border: "1px solid rgba(234,179,8,0.40)",
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#0b0b0b",
+              background: "#facc15",
+              border: "none",
               borderRadius: 6,
               cursor: loading ? "wait" : "pointer",
               fontFamily: "inherit",
               whiteSpace: "nowrap",
-              transition: "background 120ms ease, color 120ms ease",
+              transition: "background 120ms ease, transform 120ms ease",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(234,179,8,0.10)";
+              e.currentTarget.style.background = "#fde047";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.background = "#facc15";
             }}
           >
             {loading ? "Reserving…" : "Fix my site →"}
@@ -242,7 +255,7 @@ export default function FounderOfferCard({ projectId }) {
       {stage === "running" && (
         <div
           data-testid="founder-offer-running"
-          style={{ fontSize: 11, color: "var(--text-dim, #888)" }}
+          style={{ fontSize: 12, color: "#fde68a" }}
         >
           Running the fix in your repo… we&apos;ll ping you when the
           commit lands.
@@ -252,7 +265,7 @@ export default function FounderOfferCard({ projectId }) {
       {stage === "error" && error && (
         <div
           data-testid="founder-offer-error"
-          style={{ fontSize: 11, color: "#f87171" }}
+          style={{ fontSize: 12, color: "#fca5a5" }}
         >
           {error}
         </div>

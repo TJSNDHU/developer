@@ -1754,6 +1754,38 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         </div>
       )}
 
+      {/* Iter 212m-36 — composer status bar + token banner moved
+          OUTSIDE the form so they sit ABOVE the founder-offer banner
+          (per the user-locked layout: status updates → offer →
+          composer, all flowing visually into each other). */}
+      <TokenBanner usage={usage} />
+
+      <div className="composer-status-bar" data-testid="composer-status-bar">
+        <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
+        <F12Badge
+          errorCount={f12.errorCount}
+          hasErrors={f12.hasErrors}
+          onSendToORA={() => {
+            const payload = f12.flush();
+            const cc = payload?.console_errors?.length || 0;
+            const nc = payload?.network_errors?.length || 0;
+            const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+            setInput(msg);
+            lastF12PayloadRef.current = payload;
+            setTimeout(() => {
+              const form = taRef.current && taRef.current.form;
+              if (form) form.requestSubmit();
+            }, 50);
+          }}
+        />
+      </div>
+
+      {/* Iter 212m-35 — Founder Offer attached to the TOP of the
+          composer. Rounded top corners flow visually into the form
+          below (which has a flat top edge here). Auto-hides when
+          has_fully_claimed, sold-out, or >3 days since signup. */}
+      <FounderOfferCard projectId={activeProject?.project_id} />
+
       <form
         data-testid="chat-form"
         onSubmit={send}
@@ -1773,35 +1805,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           outline: dragOver ? "2px dashed var(--accent-2)" : "none",
           outlineOffset: -8,
           transition: "outline 120ms ease",
+          // Iter 212m-37 — match the founder banner's amber side
+          // borders so the offer + composer read as one unified
+          // container.  Bottom corners stay rounded; top stays flat
+          // (the banner's rounded top corners cap the whole stack).
+          borderLeft: "1px solid rgba(234,179,8,0.45)",
+          borderRight: "1px solid rgba(234,179,8,0.45)",
+          borderBottom: "1px solid rgba(234,179,8,0.45)",
+          borderBottomLeftRadius: 12,
+          borderBottomRightRadius: 12,
+          // Iter 212m-38 — composer background matches the founder
+          // banner's bottom gradient stop so the two surfaces fuse
+          // into a single amber-tinted block with NO dark seam
+          // between them. Uses !important via inline style to override
+          // the `.glass-composer` rule in index.css.
+          background: "rgba(234,179,8,0.08)",
         }}
       >
-        <TokenBanner usage={usage} />
-
-        {/* Iter 147 — top status bar. Renders mode pill, F12 badge, and
-            the MAXX-active indicator above the input. The container
-            auto-collapses (display:none on :empty) so when no signal
-            is active the composer hugs the input tightly. */}
-        <div className="composer-status-bar" data-testid="composer-status-bar">
-          <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
-          <F12Badge
-            errorCount={f12.errorCount}
-            hasErrors={f12.hasErrors}
-            onSendToORA={() => {
-              const payload = f12.flush();
-              const cc = payload?.console_errors?.length || 0;
-              const nc = payload?.network_errors?.length || 0;
-              const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
-              setInput(msg);
-              lastF12PayloadRef.current = payload;
-              setTimeout(() => {
-                const form = taRef.current && taRef.current.form;
-                if (form) form.requestSubmit();
-              }, 50);
-            }}
-          />
-          {/* Iter 154 — legacy MAXX active-pill removed. The selected
-              mode is already shown by ModeSelector's accent border on
-              its Maxx pill, so this duplicate pill was visual noise. */}
+        {/* Iter 212m-36 — TokenBanner + composer-status-bar moved
+            outside the form (above the FounderOfferCard). The form
+            now starts directly with the textarea wrapper. */}
           {/* Iter 158 — tier-aware thinking-state upsell pill.
               Appears 600ms into a chat-busy cycle, slides in with a
               soft amber glow, and converts dead wait time into a
@@ -1834,7 +1857,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ⚠ No repo linked — click to connect
             </button>
           )}
-        </div>
 
         {/* Iter 59 — Attachment pills. */}
         {attachments.length > 0 && (
@@ -2072,13 +2094,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         </div>
         </div>
       </form>
-
-      {/* Iter 212m-34 — Founder Offer footer strip. Sits BELOW the
-          composer (matches the user-referenced Cursor/Cline layout
-          where status / promo rows live under the input, not above).
-          Auto-hides when has_fully_claimed, sold-out, or >3 days
-          since signup. */}
-      <FounderOfferCard projectId={activeProject?.project_id} />
 
       {/* Iter 148 — Connect-repo helper dialog. Surfaces only when the
           user explicitly opens it (no-repo pill or red GH status icon).

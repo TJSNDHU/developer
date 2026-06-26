@@ -13,6 +13,20 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-35 / 212m-36 — Banner attached to composer top + composer border drop (Feb 26 2026) ✅
+**Visual fix** for the user's red-marked screenshot.
+
+- `FounderOfferCard` moved BACK to above `<form>` (was below in 212m-34).
+  Rounded top corners only (`borderTopLeftRadius/Right: 12, Bottom: 0`),
+  `borderBottom: none`. Verified flush — `CARD_BOTTOM == FORM_TOP, GAP=0`.
+- Bright readable colors: headline `#fde68a`, counter `#22c55e`, button
+  `#facc15` solid yellow with dark text.
+- `.glass-composer { border-top: ... }` **deleted** so there's no
+  visible "black boundary" between message list and composer.
+- `TokenBanner` + `composer-status-bar` (F12 / Mode pill) hoisted OUT of
+  the form so when active they render ABOVE the founder banner.
+- 4 source-pin tests refreshed + 212m-30→34 regression — **61/61 pass**.
+
 ### Iter 212m-34 — Footer-strip card + homepage founder pill (Feb 26 2026) ✅
 **Visual fix** matching the user-shared Cursor/Cline footer-row reference.
 

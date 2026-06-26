@@ -6,6 +6,59 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-35 / 212m-36 — Founder offer attached to composer top + composer border drop (Feb 26 2026) ✅
+
+Two micro-iters bundled — both pure layout fixes against the user's
+annotated screenshots.
+
+### 212m-35 — Banner attached to composer TOP, rounded top corners only
+- `FounderOfferCard` moved back to mount BEFORE `<form>` so it sits
+  immediately above the chat composer (per the user's red-marked
+  reference screenshot).
+- Styling: `border-top-left-radius / border-top-right-radius: 12 px`,
+  bottom corners flat (`0`), `border-bottom: none`. The banner now
+  visually flows into the composer beneath it.
+- Bright readable copy: headline `#fde68a` (amber), counter `#22c55e`
+  bold mono (green when > 50 spots), button `#facc15` solid yellow
+  with `#0b0b0b` dark text — fully legible on dark mode.
+- Pixel-perfect flush verified: `CARD_BOTTOM=922.0 == FORM_TOP=922.0`.
+
+### 212m-36 — Composer "black boundary" removed + status pills moved up
+- `index.css` — `.glass-composer` `border-top: 1px solid rgba(255,200,120,0.10)`
+  **deleted**. The visible amber/dark line above the composer is gone,
+  letting the founder banner's rounded top corners be the sole visual
+  separator between the message list and the input.
+- `ChatPanel.jsx` — `TokenBanner` + `composer-status-bar` (Mode pill +
+  F12 errors badge) moved OUTSIDE the `<form>` and rendered BEFORE the
+  founder banner. Now the visual stack is:
+  ```
+  [message list]
+  [TokenBanner]              ← when usage is low
+  [composer-status-bar]      ← when F12 errors or mode pill active
+  [FounderOfferCard]         ← rounded top, attached to form below
+  [form (.glass-composer)]   ← no border-top, dark glass surface
+  ```
+- Stray `</div>` from the moved status-bar removed; JSX parser clean.
+
+### Tests
+- `test_founder_card_is_attached_to_top_of_chat_form_in_jsx` —
+  asserts mount index < form open index.
+- `test_founder_card_styling_has_rounded_top_only` — checks
+  `borderTopLeftRadius/Right: 12`, `borderBottom...: 0`,
+  `borderBottom: "none"`, brighter text colors, and that the previous
+  transparent-footer styling is gone.
+- Full 212m-30 → 34 regression: **61/61 pass**.
+
+### Live E2E proofs
+| Scenario | Result |
+|---|---|
+| Fresh signup + active project on `/dashboard` | Banner renders flush atop composer, `GAP=0.0` between them |
+| Banner copy + counter | `🎁 Free SEO fix from the founder` (amber) + `· 500 spots remaining` (green) + `Fix my site →` (yellow solid button) |
+| Composer top border | gone — message list flows straight into banner's rounded corners |
+| F12 errors / mode pill (when active) | render above the banner instead of inside the composer |
+
+---
+
 ## Iter 212m-34 — Footer-strip card + homepage founder pill (Feb 26 2026) ✅
 
 **Visual polish round** — user shared a Cursor/Cline reference where
