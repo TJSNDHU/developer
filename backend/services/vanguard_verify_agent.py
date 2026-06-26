@@ -17,6 +17,18 @@ silently skipped LLM review, leaving only the regex floor. Now it
 goes through the same OPENROUTER_API_KEY all other LLM calls use, so
 the second-agent review actually runs in production.
 
+Iter 212m-41 — soften the LLM blocking rule. The previous prompt told
+the agent `pass` was false on ANY CRITICAL or HIGH finding, which made
+Claude (now overly diligent) block routine commits on theoretical
+HIGH risks (e.g. `localStorage.setItem("token", …)`, inline `style=`,
+React `dangerouslySetInnerHTML` in a tooltip, etc.). The regex floor
+(`scan_file_blocks`) is what guarantees the real CRITICAL gates; the
+LLM agent is now advisory for HIGH and only blocks on CRITICAL. Two
+new env vars provide escape hatches:
+
+  VANGUARD_VERIFY_BLOCK_LEVEL = CRITICAL | HIGH | OFF   (default CRITICAL)
+  VANGUARD_VERIFY_ENABLED     = 1/0                     (default 1)
+
 Public API
 ----------
     await verify_patch(file_blocks, repo_ctx=...) -> {
@@ -47,6 +59,31 @@ _VERIFY_MODEL = os.environ.get(
     "anthropic/claude-sonnet-4.5",
 )
 
+# Iter 212m-41 — env-tunable severity threshold + kill-switch.
+_BLOCK_LEVEL = (
+    os.environ.get("VANGUARD_VERIFY_BLOCK_LEVEL", "CRITICAL") or "CRITICAL"
+).upper()
+_ENABLED = (
+    os.environ.get("VANGUARD_VERIFY_ENABLED", "1").lower()
+    in ("1", "true", "yes", "on")
+)
+
+
+def _severity_blocks(severity: str) -> bool:
+    """Should this finding actually block the commit?
+    Honours VANGUARD_VERIFY_BLOCK_LEVEL.
+
+      OFF       → never blocks
+      CRITICAL  → only CRITICAL findings block
+      HIGH      → CRITICAL or HIGH findings block
+    """
+    sev = (severity or "").upper()
+    if _BLOCK_LEVEL == "OFF":
+        return False
+    if _BLOCK_LEVEL == "HIGH":
+        return sev in ("CRITICAL", "HIGH")
+    return sev == "CRITICAL"
+
 _VERIFY_SYSTEM = """You are the **Vanguard Verify Agent** — a dedicated security
 reviewer that re-audits code patches BEFORE they are committed. You are
 NOT the same agent that wrote the code. Your sole job is to find
@@ -70,6 +107,27 @@ Review the patch for ALL of these dimensions:
  11. Direct SQL with user-controlled fragments
  12. Race conditions — async without lock, non-atomic check-then-write
 
+SEVERITY RULES (Iter 212m-41 — production calibration):
+  CRITICAL = an attacker can OWN the system or read other users' data
+             RIGHT NOW with this exact patch deployed. Examples:
+             real hard-coded API key, eval(user_input), SQL string
+             concatenation on a user-controlled fragment, an unauth'd
+             admin route.  Be SURE before you mark anything critical.
+  HIGH     = real risk but needs preconditions (e.g. user already
+             authenticated, internal-only endpoint, defence-in-depth).
+             Examples: localStorage of a short-lived JWT,
+             dangerouslySetInnerHTML of a static literal string.
+  MEDIUM/LOW = code-smell, style, or theoretical risk.
+
+DO NOT MARK CRITICAL/HIGH for:
+  • Inline CSS via React's `style={{}}` prop (this is not XSS).
+  • Routine `localStorage.setItem` / `getItem` for app state.
+  • `console.log` / `console.error` in dev paths.
+  • UI styling, JSX class names, refactors that don't touch auth or IO.
+  • Adding a UI banner / pill / button / copy change.
+  • Reusing an existing pattern that already exists elsewhere in the
+    repo — if the pattern is widespread, the verdict is INFO at most.
+
 You MUST respond with VALID JSON only, no prose:
 {
   "pass": true | false,
@@ -80,7 +138,9 @@ You MUST respond with VALID JSON only, no prose:
   "summary": "1-paragraph executive summary"
 }
 
-`pass` is FALSE if any finding is CRITICAL or HIGH. Empty findings = pass.
+Set `pass` to FALSE ONLY when there is at least one finding you
+genuinely believe is CRITICAL by the rules above. Empty findings,
+all MEDIUM/LOW, or HIGH-only findings → set `pass` to TRUE.
 """
 
 
@@ -216,18 +276,58 @@ async def _e2b_smoke(file_blocks: dict) -> dict:
         return {"pass": True, "skipped": True, "reason": str(e)}
 
 
-async def verify_patch(file_blocks: dict, repo_ctx: str = "unknown") -> dict:
+async def verify_patch(
+    file_blocks: dict,
+    repo_ctx: str = "unknown",
+    *,
+    mode: str = "swift",
+) -> dict:
     """Top-level entrypoint. Combines:
       1) regex Vanguard scan (the 24 baseline patterns)
       2) separate Vanguard Verify Agent (LLM second opinion)
       3) E2B smoke import if patch has executable Python
 
-    All three must pass for the patch to be considered safe to commit.
+    Blocking rule (Iter 212m-41 / 212m-42):
+      • Regex CRITICAL ALWAYS blocks (real secrets / dangerous APIs).
+      • LLM findings block ONLY when their severity meets the
+        configured threshold for the active `mode` (Swift / Pro / Maxx).
+      • E2B smoke-import failure ALWAYS blocks (syntax/import errors).
+      • Admin can flip the master enabled flag from `/admin/vanguard`
+        to skip the LLM + E2B passes entirely — regex floor still gates
+        on its own CRITICAL findings.
     """
+    from .vanguard_config import get_mode_settings
+    enabled, block_level = await get_mode_settings(mode)
+
     findings: list[dict] = []
     regex_findings = scan_file_blocks(file_blocks or {})
     findings.extend(regex_findings)
     regex_blocked = has_critical(regex_findings)
+
+    if not enabled:
+        return {
+            "pass":     not regex_blocked,
+            "findings": findings,
+            "summary":  (
+                "regex: "
+                f"{'BLOCK' if regex_blocked else 'pass'} "
+                f"({len(regex_findings)} findings) | "
+                "verify-agent + e2b disabled by admin"
+            ),
+            "regex":    {"blocked": regex_blocked, "count": len(regex_findings)},
+            "agent":    {"pass": True, "findings": [], "summary": "disabled"},
+            "e2b":      {"pass": True, "skipped": True, "reason": "disabled"},
+            "mode":     mode,
+            "block_level": "OFF",
+        }
+
+    def _blocks(severity: str) -> bool:
+        sev = (severity or "").upper()
+        if block_level == "OFF":
+            return False
+        if block_level == "HIGH":
+            return sev in ("CRITICAL", "HIGH")
+        return sev == "CRITICAL"
 
     # Always run the second agent + E2B in parallel — they don't depend
     # on each other and the latency budget matters.
@@ -236,10 +336,15 @@ async def verify_patch(file_blocks: dict, repo_ctx: str = "unknown") -> dict:
     llm_review, e2b_result = await asyncio.gather(llm_task, e2b_task,
                                                   return_exceptions=False)
 
-    for f in llm_review.get("findings", []):
+    blocking_llm_findings = [
+        f for f in llm_review.get("findings", []) or []
+        if _blocks(f.get("severity", ""))
+    ]
+    llm_blocked = bool(blocking_llm_findings) and block_level != "OFF"
+
+    for f in llm_review.get("findings", []) or []:
         f.setdefault("source", "vanguard_verify_agent")
         findings.append(f)
-    llm_blocked = not llm_review.get("pass", True)
     e2b_blocked = not e2b_result.get("pass", True)
 
     overall_pass = not (regex_blocked or llm_blocked or e2b_blocked)
@@ -248,9 +353,13 @@ async def verify_patch(file_blocks: dict, repo_ctx: str = "unknown") -> dict:
     summary_parts.append(f"regex: {'BLOCK' if regex_blocked else 'pass'} "
                          f"({len(regex_findings)} findings)")
     if llm_review.get("model"):
-        summary_parts.append(f"verify-agent ({llm_review['model']}): "
-                             f"{'BLOCK' if llm_blocked else 'pass'} "
-                             f"({len(llm_review.get('findings', []))} findings)")
+        n_findings = len(llm_review.get("findings", []) or [])
+        n_block    = len(blocking_llm_findings)
+        summary_parts.append(
+            f"verify-agent ({llm_review['model']}, {mode}/{block_level}): "
+            f"{'BLOCK' if llm_blocked else 'pass'} "
+            f"({n_findings} findings, {n_block} ≥{block_level})"
+        )
     else:
         summary_parts.append("verify-agent: skipped")
     if e2b_result.get("skipped"):
@@ -265,4 +374,6 @@ async def verify_patch(file_blocks: dict, repo_ctx: str = "unknown") -> dict:
         "regex":    {"blocked": regex_blocked, "count": len(regex_findings)},
         "agent":    llm_review,
         "e2b":      e2b_result,
+        "mode":     mode,
+        "block_level": block_level,
     }

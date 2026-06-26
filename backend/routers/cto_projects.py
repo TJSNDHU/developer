@@ -2676,8 +2676,14 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         try:
             await _log(task_id, "🛡️ Vanguard verify agent reviewing patch…")
             from services.vanguard_verify_agent import verify_patch
+            # Iter 212m-42 — derive the active mode from the task envelope
+            # so the per-mode Vanguard config (set from /admin/vanguard)
+            # can apply the right severity threshold per Swift / Pro / Maxx.
+            # We only carry the maxx_mode boolean at this layer; treat
+            # everything else as Swift (the safest, strictest default).
+            _vg_mode = "maxx" if maxx_mode else "swift"
             verify_result = await verify_patch(
-                edits, repo_ctx=f"{owner}/{repo}@{branch}"
+                edits, repo_ctx=f"{owner}/{repo}@{branch}", mode=_vg_mode,
             )
             await _log(task_id, f"🛡️ Verify: {verify_result['summary']}",
                        "info" if verify_result["pass"] else "error")

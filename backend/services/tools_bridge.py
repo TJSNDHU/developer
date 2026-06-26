@@ -53,10 +53,45 @@ def _open_upstream_cooldown() -> None:
     _upstream_giving_up_until = time.monotonic() + _UPSTREAM_COOLDOWN_S
 
 
-# Same regex as upstream gateway for tool call extraction
+# Iter 212m-41 — extended tool-call stripper.
+#
+# The old regex only matched fenced JSON (```tool_call / ```json …```),
+# which Claude + GLM started bypassing in production by emitting:
+#   (1)  bare JSON objects on their own line, e.g.
+#        `{"name": "fetch_url", "arguments": {"url": "..."}}`
+#   (2)  OpenAI-style envelope:
+#        `{"tool_calls":[{"name":"X","arguments":{...}}]}`
+#   (3)  XML-style fences:  `<tool_call>...</tool_call>`
+#   (4)  Verbose pre/postamble like `Calling fetch_url with:` followed
+#        by a JSON blob.
+# All four leak into Ask Advisor turns where there's no orchestrator
+# tool loop to consume them, surfacing in the UI as raw JSON.  This
+# patch widens the stripper without changing the call sites.
 _TOOL_CALL_RE = re.compile(
-    r'```(?:tool_call|json)\s*\n(.*?)\n```',
+    r'```(?:tool_call|tool|json|function|function_call)\s*\n(.*?)\n```',
     re.DOTALL | re.IGNORECASE
+)
+
+_TOOL_CALL_XML_RE = re.compile(
+    r'<\s*(?:tool_call|function_call|tool|function)\b[^>]*>'
+    r'(.*?)</\s*(?:tool_call|function_call|tool|function)\s*>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+# Bare JSON object whose top-level key looks like a tool invocation.
+# We anchor on the keys we care about so we don't strip legitimate
+# JSON the user might be discussing (e.g. an API response sample).
+_TOOL_CALL_BARE_JSON_RE = re.compile(
+    r'(?:^|\n)\s*\{\s*"(?:tool_calls?|function_call|name)"\s*:\s*'
+    r'(?:"[A-Za-z_][\w.-]*"|\[).*?\}\s*(?=\n|$)',
+    re.DOTALL,
+)
+
+# OpenAI-style preamble noise ("Calling X with: { ... }")
+_TOOL_CALL_PREAMBLE_RE = re.compile(
+    r'(?:^|\n)\s*(?:Calling|Invoking|Executing|Running|I will (?:call|use))\s+'
+    r'`?[a-zA-Z_][\w.-]*`?\s+(?:with|:)\s*\n?\s*\{.*?\}\s*(?=\n|$)',
+    re.DOTALL | re.IGNORECASE,
 )
 
 
@@ -262,18 +297,21 @@ def extract_tool_calls(text: str) -> list[dict]:
 
 
 def strip_tool_calls(text: str) -> str:
-    """Remove any ```tool_call``` / ```json``` tool-call fences from text.
+    """Remove every shape of tool-call leakage from a model reply.
 
-    Iter 35: the orchestrator EXECUTES tool calls behind the scenes; the
-    user must never see them in the final streamed answer. Previously,
-    when the LLM emitted a tool_call fence in its FINAL iteration (max
-    iters hit without convergence), the raw JSON got streamed to the UI
-    and rendered as a markdown code block — exact bug the user reported.
+    Iter 35 introduced the original fenced-JSON stripper.
+    Iter 212m-41 extended it to also drop XML fences, bare top-level
+    JSON tool envelopes, and "Calling X with:" preambles after we
+    observed Claude/GLM emitting all four shapes in production Ask
+    Advisor turns where there's no orchestrator loop to consume them.
     """
     if not text:
         return text
     cleaned = _TOOL_CALL_RE.sub("", text)
-    # Collapse runs of >2 blank lines that the fence removal might have left
+    cleaned = _TOOL_CALL_XML_RE.sub("", cleaned)
+    cleaned = _TOOL_CALL_BARE_JSON_RE.sub("\n", cleaned)
+    cleaned = _TOOL_CALL_PREAMBLE_RE.sub("\n", cleaned)
+    # Collapse runs of >2 blank lines that the strips might have left
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 

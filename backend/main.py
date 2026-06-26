@@ -946,6 +946,7 @@ app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
 app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
+app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

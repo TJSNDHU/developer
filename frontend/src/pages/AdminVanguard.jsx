@@ -13,6 +13,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import VanguardConfigPanel from "../components/VanguardConfigPanel";
 
 const SEV_COLOR = {
   CRITICAL: "#ff6b6b",
@@ -105,6 +106,11 @@ export default function AdminVanguard() {
           </button>
         </div>
       </header>
+
+      {/* Iter 212m-42 — admin selector for per-mode Vanguard config.
+          Mounted directly under the header so the operator hits the
+          control they need first, with the audit dashboard below. */}
+      <VanguardConfigPanel />
 
       {err && (
         <div data-testid="vanguard-err" style={{ maxWidth: 1240, margin: "0 auto 16px",
