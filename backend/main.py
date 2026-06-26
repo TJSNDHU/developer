@@ -322,6 +322,20 @@ async def lifespan(app: FastAPI):
         except Exception as _e:
             logger.warning(f"oauth TTL indexes failed: {_e}")
 
+        # Iter 212m-28 — TTL index on repo_context_timings so the
+        # per-turn instrumentation never grows unbounded. 7 days is
+        # enough for week-over-week regression checks.
+        try:
+            await app.state.db.repo_context_timings.create_index(
+                "ts",
+                expireAfterSeconds=7 * 24 * 60 * 60,
+                background=True,
+                name="ts_ttl_7d",
+            )
+            logger.info("📊 repo_context_timings TTL index ensured (7d)")
+        except Exception as _e:
+            logger.warning("repo_context_timings TTL index failed: %r", _e)
+
         # Iter 123 — wire deploy_logger.
         try:
             from services.deploy_logger import log_deploy_event
