@@ -706,10 +706,45 @@ async def run_debug_session(
 
     can_auto_fix = diagnosis.get("needs_commit", False) and bool(diagnosis.get("commit_task"))
 
+    handoff_fence = ""
     if can_auto_fix:
+        # Iter 212m-46 — embed a proper aurem-handoff fence in the
+        # diagnosis reply so the frontend's MessageBubble renders the
+        # manual "🚀 Ship via CTO" button on this very bubble. NO
+        # auto-ship anywhere — the user MUST click to commit.
+        #
+        # The brief is sanitised so it passes the seven extraction
+        # gates in MessageBubble.jsx::extractHandoffBrief:
+        #   • length / line caps
+        #   • no '?' inside the fence (turn into '.')
+        #   • no permission phrases ("should I", "would you like")
+        #   • at least one mutation verb ("write", "edit", "fix")
+        #   • at least one concrete file-path token (file_to_check)
+        #   • Gate 7 escape: includes "write" which is in NEW_FILE_HINTS
+        #     so paths that weren't read this turn still pass.
+        _task = (diagnosis.get("commit_task") or "").strip()
+        _task = _task.replace("?", ".")
+        # Strip permission-asking openings that may leak from the LLM.
+        for _bad in ("should i ", "shall i ", "may i ", "can i ",
+                     "would you like ", "want me to ", "do you want "):
+            if _task.lower().startswith(_bad):
+                _task = _task[len(_bad):]
+                break
+        _files = list(diagnosis.get("files_to_check") or [])[:6]
+        _files = [f for f in _files if isinstance(f, str) and f.strip()]
+        files_block = ""
+        if _files:
+            files_block = "\nFiles to edit:\n" + "\n".join(f"- {f}" for f in _files)
+        handoff_fence = (
+            "\n\n```aurem-handoff\n"
+            "Apply the diagnosed fix and write the changes to disk.\n"
+            f"Fix: {_task}"
+            f"{files_block}\n"
+            "```"
+        )
         confirm_line = (
-            f"\n\nI can fix this automatically. Want me to ship the fix?\n"
-            f"Task: _{diagnosis['commit_task']}_"
+            "\n\nI can fix this automatically. Click the "
+            "**🚀 Ship via CTO** button below to commit the fix to your repo."
         )
     else:
         confirm_line = "\n\nThis fix doesn't require a code change — you can apply it manually."
@@ -719,6 +754,7 @@ async def run_debug_session(
         f"**Fix:** {fix_str}"
         f"{files_str}"
         f"{confirm_line}"
+        f"{handoff_fence}"
     )
 
     # 5. Log as Mode D

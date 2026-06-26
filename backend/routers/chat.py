@@ -1090,11 +1090,19 @@ async def chat_stream(
                 except Exception:
                     pass
             try:
-                # ─── Iter 42 — Mode D fix-confirmation fast path ─────────
-                # If the user previously got a Mode D diagnosis with an
-                # auto-fixable issue, we stashed `pending_fix_task` on the
-                # chat session. A short "yes / fix it / ship it" reply
-                # triggers a Mode C task using that stored description.
+                # ─── Iter 212m-46 — KILL auto-ship on Mode D fix-confirm ─────
+                # The previous behaviour auto-enqueued a real CTO task when
+                # the user typed any "yes / ok / fix it" reply after a
+                # Mode D diagnosis. That bypassed the manual "🚀 Ship via
+                # CTO" button on the diagnosis bubble and the user reported
+                # commits firing without their consent.
+                #
+                # HARD RULE: never auto-ship. The Mode D diagnosis bubble
+                # now carries its own aurem-handoff fence (added in
+                # mode_d_debugger.py at iter 212m-46), so the Ship button
+                # already lives on that bubble. We just clear the legacy
+                # pending_fix_task flag and politely redirect the user to
+                # click the button — NO _enqueue_cto_task call here.
                 if body.session_id and is_fix_confirmation(body.prompt or ""):
                     _db = get_db()
                     if _db is not None:
@@ -1104,89 +1112,28 @@ async def chat_stream(
                         )
                         _pending = (_sess or {}).get("pending_fix_task") if _sess else None
                         if _pending and (not _sess.get("user_id") or _sess.get("user_id") == user_id):
-                            # Clear the pending flag so a stray "yes" later
-                            # doesn't accidentally fire another task.
+                            # Clear the legacy pending flag (we no longer
+                            # act on it; it's kept on the schema only so
+                            # we don't break older deployments mid-roll).
                             await _db.chat_sessions.update_one(
                                 {"session_id": body.session_id},
                                 {"$unset": {"pending_fix_task": ""}},
                             )
-                            await q.put({"type": "mode", "mode": "C"})
-                            # Iter 46 — actually enqueue a real Mode C task
-                            # (previously this only emitted a friendly reply
-                            # with the task description; no real cto_tasks
-                            # row was created).
-                            from routers.cto_projects import _enqueue_cto_task
-                            enq = await _enqueue_cto_task(
-                                user_id=user_id,
-                                project_id=body.project_id,
-                                task_text=_pending,
-                                bg=None,
-                                maxx_mode=body.maxx_mode,
+                            await q.put({"type": "mode", "mode": "D"})
+                            reply = (
+                                "👆 Scroll up to my diagnosis bubble and click "
+                                "the **🚀 Ship via CTO** button — that's the "
+                                "only path that commits the fix. I never "
+                                "auto-ship; every commit needs your explicit "
+                                "click so you stay in control."
                             )
-                            # Iter 48 — Sentry: this is the exact code path
-                            # that silently failed in production (friendly
-                            # reply, no real task). Capture every outcome.
-                            try:
-                                import sentry_sdk
-                                sentry_sdk.add_breadcrumb(
-                                    category="mode_handoff",
-                                    message="Mode D → C handoff fired",
-                                    level="info",
-                                    data={
-                                        "ok": enq.get("ok"),
-                                        "reason": enq.get("reason"),
-                                        "task_id": enq.get("task_id"),
-                                        "project_id": enq.get("project_id"),
-                                    },
-                                )
-                                if not enq.get("ok"):
-                                    sentry_sdk.capture_message(
-                                        f"Mode D→C handoff failed: {enq.get('reason', 'unknown')}",
-                                        level="error",
-                                    )
-                            except Exception:
-                                pass
-                            if enq.get("ok"):
-                                reply = (
-                                    "On it — Mode C task **queued** and the "
-                                    f"agent is starting now.\n\n"
-                                    f"_Task:_ {_pending}\n"
-                                    f"_Project:_ `{enq.get('project_id')}`  "
-                                    f"_Task ID:_ `{enq.get('task_id')}`\n\n"
-                                    "I'll commit the fix automatically. "
-                                    "Open the task list to watch progress."
-                                )
-                            elif enq.get("reason") == "no_project":
-                                reply = (
-                                    "I diagnosed the issue, but you don't "
-                                    "have a connected GitHub project yet. "
-                                    "Add one from the dashboard and I'll "
-                                    "ship the fix immediately."
-                                )
-                            elif enq.get("reason") == "no_pat":
-                                reply = (
-                                    "The diagnosis is ready, but I don't "
-                                    "have a working GitHub token for this "
-                                    "project. Reconnect it from the "
-                                    "dashboard and re-run."
-                                )
-                            else:
-                                reply = (
-                                    "Couldn't enqueue the fix right now "
-                                    f"({enq.get('reason', 'unknown')}). "
-                                    "Try again in a moment."
-                                )
                             result = {
                                 "ok": True, "content": reply,
-                                "provider": "mode-d-handoff",
-                                "fallback_chain": ["mode_d_handoff"],
+                                "provider": "mode-d-redirect",
+                                "fallback_chain": ["mode_d_redirect"],
                                 "iterations": 1, "tool_calls_run": 0,
                                 "tool_invocations": [],
-                                "mode": "C",
-                                "pending_fix_handed_off": enq.get("ok", False),
-                                "fix_task": _pending,
-                                "task_id": enq.get("task_id"),
-                                "project_id": enq.get("project_id"),
+                                "mode": "D",
                             }
                             await q.put({"type": "result", "result": result})
                             return
