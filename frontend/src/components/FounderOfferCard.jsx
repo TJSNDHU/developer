@@ -143,17 +143,21 @@ export default function FounderOfferCard({ projectId }) {
         setStage("error");
         return;
       }
-      setStage("running");
+      setStage("celebrate");
       // Iter 212m-44 — true claim landed (commit fired). Persist
       // the projectId locally so the banner stays hidden on this
       // project window across reloads, even before the next server
       // poll updates `claimed_repo_ids`.
       markRepoClaimed(projectId);
       toast(
-        "🛠️ Fix running — we'll commit the changes to your repo. " +
-        "You'll see a notification when it's done.",
+        "🎉 Free SEO fix queued — we'll commit the changes to your repo shortly.",
         "success",
       );
+      // Iter 212m-45 — auto-dismiss the celebration pill after 5 s so
+      // it doesn't linger; once `stage` is back to "idle" the `visible`
+      // check (claimed_repo_ids includes projectId) hides the banner
+      // entirely from this project window.
+      setTimeout(() => setStage("idle"), 5000);
     } catch (e) {
       setError(e?.response?.data?.detail || "Failed to confirm.");
       setStage("error");
@@ -294,13 +298,53 @@ export default function FounderOfferCard({ projectId }) {
         />
       )}
 
-      {stage === "running" && (
+      {stage === "celebrate" && (
         <div
-          data-testid="founder-offer-running"
-          style={{ fontSize: 12, color: "#fde68a" }}
+          data-testid="founder-offer-celebrate"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#86efac",
+            padding: "2px 0",
+            animation: "auremFounderCelebrate 600ms cubic-bezier(0.2, 0.9, 0.3, 1.4)",
+          }}
         >
-          Running the fix in your repo… we&apos;ll ping you when the
-          commit lands.
+          <span
+            aria-hidden="true"
+            style={{
+              fontSize: 16,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 22, height: 22,
+              borderRadius: "50%",
+              background: "rgba(34,197,94,0.18)",
+              border: "1px solid rgba(34,197,94,0.55)",
+              color: "#22c55e",
+              fontWeight: 800,
+            }}
+          >
+            ✓
+          </span>
+          <span>
+            <span style={{ color: "#fde68a" }}>🎉 Congratulations!</span>{" "}
+            <span style={{ color: "#86efac" }}>
+              Your free SEO fix is queued —
+            </span>{" "}
+            <span style={{ color: "#fde68a", opacity: 0.9 }}>
+              we&apos;ll commit the changes to your repo shortly.
+            </span>
+          </span>
+          <style>{`
+            @keyframes auremFounderCelebrate {
+              0%   { transform: translateY(-4px) scale(0.96); opacity: 0; }
+              60%  { transform: translateY(0)    scale(1.02); opacity: 1; }
+              100% { transform: translateY(0)    scale(1);     opacity: 1; }
+            }
+          `}</style>
         </div>
       )}
 
