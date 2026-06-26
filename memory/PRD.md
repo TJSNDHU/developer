@@ -13,6 +13,21 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-33 — Tolerant FILE-block parser + Projects pill (Feb 26 2026) ✅
+**P1 fix + P2 polish in one ship.**
+
+- **`services/llm_file_parser.py`** replaces the brittle 5-place
+  `FILE:\\s*…\\n\\`\\`\\`…\\n(.*?)\\`\\`\\`` regex with a tolerant scanner
+  (case-insensitive header, 3+/tilde fences, unterminated-block bail,
+  same byte-for-byte body output). All 5 call sites in
+  `routers/cto_projects.py` now route through it. Brittle regex deleted.
+- **`components/FounderOfferPill.jsx`** — slim live counter in the
+  `/projects` page header (`right={<FounderOfferPill />}` on
+  `<PageHeader>`). Links with `utm_source=projects_pill`.
+- **15 unit tests** + full 212m-27→33 regression — **102/102 pass**.
+- Live E2E confirmed on `/projects`: pill renders top-right, green
+  counter, correct UTM-tagged dashboard URL.
+
 ### Iter 212m-32 — Onboarding nudge emails (Feb 26 2026) ✅
 **Feature**: Founder-signed "connect a repo" email at 24 h + retry at 72 h.
 

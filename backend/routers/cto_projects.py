@@ -2330,8 +2330,11 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             )
             summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
             summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
-            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL):
-                edits[m.group(1).strip()] = m.group(2)
+            # Iter 212m-33 — tolerant FILE-block parser (was a rigid
+            # single-line regex that silently dropped edits whenever
+            # the model deviated by even one whitespace).
+            from services.llm_file_parser import parse_file_blocks
+            edits.update(parse_file_blocks(reply))
         else:
             # Parallel path produced edits — record token-equivalent + agent name
             await _set_status(
@@ -2401,9 +2404,9 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 what="AI codegen auto-retry", task_id=task_id,
             )
             edits = {}
-            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
-                                 reply2, re.DOTALL):
-                edits[m.group(1).strip()] = m.group(2)
+            # Iter 212m-33 — tolerant FILE-block parser (see above).
+            from services.llm_file_parser import parse_file_blocks
+            edits.update(parse_file_blocks(reply2))
             bad = await _truncation_reasons(edits)
 
         if bad:
@@ -2451,11 +2454,9 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                         ),
                         what="multi-file contract retry", task_id=task_id,
                     )
-                    for _m in re.finditer(
-                        r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
-                        fill, re.DOTALL,
-                    ):
-                        edits[_m.group(1).strip()] = _m.group(2)
+                    # Iter 212m-33 — tolerant FILE-block parser.
+                    from services.llm_file_parser import parse_file_blocks
+                    edits.update(parse_file_blocks(fill))
                 except Exception as _fe:
                     logger.warning("multi-file contract retry soft-failed: %r", _fe)
 
@@ -2566,9 +2567,9 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                 what="AI syntax-fix auto-retry", task_id=task_id,
             )
             new_edits: dict[str, str] = {}
-            for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```",
-                                 reply3, re.DOTALL):
-                new_edits[m.group(1).strip()] = m.group(2)
+            # Iter 212m-33 — tolerant FILE-block parser.
+            from services.llm_file_parser import parse_file_blocks
+            new_edits.update(parse_file_blocks(reply3))
             if new_edits:
                 # Merge — preserve any files the retry didn't include.
                 edits = {**edits, **new_edits}
@@ -3128,9 +3129,9 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         )
         summary_m = re.search(r"SUMMARY:\s*(.+)", reply)
         summary = (summary_m.group(1).strip() if summary_m else "AI changes")[:300]
-        edits = {}
-        for m in re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL):
-            edits[m.group(1).strip()] = m.group(2)
+        # Iter 212m-33 — tolerant FILE-block parser.
+        from services.llm_file_parser import parse_file_blocks
+        edits = parse_file_blocks(reply)
         if not edits:
             await _log(task_id, "⚠️ AI returned no file edits", "warning")
             await _set_status(task_id, status="done", result=summary,

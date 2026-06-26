@@ -19,6 +19,7 @@ import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import RobotGuide, { RobotGuideKeyframes, escapeHtml, oraPulseRingStyle } from "../components/RobotGuide";
 import AddProjectWizard from "../components/AddProjectWizard";
+import FounderOfferPill from "../components/FounderOfferPill";
 
 export default function Projects() {
   return (
@@ -27,6 +28,7 @@ export default function Projects() {
         eyebrow="multi-project"
         title="Client Projects"
         sub="Connect any client's existing GitHub repo. Submit tasks in plain English — AUREM CTO pulls, edits, commits, pushes."
+        right={<FounderOfferPill />}
       />
       <Body />
     </Shell>

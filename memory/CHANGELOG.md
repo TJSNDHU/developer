@@ -6,6 +6,71 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-33 — Tolerant FILE-block parser + Projects pill (Feb 26 2026) ✅
+
+Two ships in one cut, both small but high-leverage:
+
+### 1. `search_replace` fragility — P1 fix ✅
+
+**Problem**: the LLM-edit pipeline parsed file blocks with one rigid
+regex copied in 5 places:
+
+```python
+re.finditer(r"FILE:\s*(\S+)\s*\n```[^\n]*\n(.*?)```", reply, re.DOTALL)
+```
+
+That regex silently dropped real edits whenever the model returned
+even slightly off-canonical output. The user reported the Swift loop
+occasionally "applies no edits"; this is the root cause.
+
+**Fix**: new `services/llm_file_parser.py` exposing
+`parse_file_blocks(reply) -> {path: body}` with a small, deterministic
+two-pass scanner that tolerates:
+
+| Variation | Now handled |
+|---|---|
+| `file: x.py` or `FILE :  x.py  ` | ✅ case-insensitive, whitespace-tolerant header |
+| ` ``` ` / ` ```` ` / ` ``````` ` (3-or-more backticks) | ✅ CommonMark fence-count match |
+| `~~~` tilde fences | ✅ |
+| Missing language tag | ✅ |
+| Trailing whitespace on closing fence | ✅ |
+| Unterminated block | ✅ **bail** rather than swallow the rest |
+| Duplicate edits to the same path | ✅ last-wins (matches legacy semantics) |
+| Body byte-for-byte equality with legacy regex | ✅ trailing `\n` preserved |
+
+All 5 call sites in `routers/cto_projects.py` (primary codegen,
+multi-file-contract retry, syntax-error retry, and the legacy
+single-file path) now route through the helper. The brittle regex
+is **deleted** from the codebase — no more drift between call sites.
+
+### 2. Slim founder-offer pill on `/projects` ✅
+
+- New `components/FounderOfferPill.jsx` (~35 lines) — polls
+  `/founder-offer/status` every 60 s, renders a pill with the same
+  green/orange/red counter heuristic as the in-chat card.
+- Slotted into the existing `PageHeader` via the `right={…}` prop;
+  zero layout changes on Projects.
+- Links to `/dashboard?action=connect-repo&utm_source=projects_pill
+  &utm_campaign=onboarding` — same UTM convention as the nudge email
+  so attribution stays clean.
+- Auto-hides on sold-out (`remaining <= 0`) or when the offer is
+  inactive.
+
+### Tests
+- `tests/test_iter212m33_file_parser_and_pill.py` — **15 tests**:
+  12 parser fragility cases + 3 source pins (cto_projects uses the
+  helper, Projects renders the pill, pill polls the right endpoint).
+- Full 212m-27 → 33 regression: **102/102 pass**.
+
+### Live E2E proof
+| Scenario | Result |
+|---|---|
+| Visit `/projects` as a logged-in user | Pill renders top-right: `🎁 500 of 500 founder spots remaining` (green) |
+| Pill link | `/dashboard?action=connect-repo&utm_source=projects_pill&utm_campaign=onboarding` |
+| Parser sanity on every fragility case | All 12 round-trip correctly |
+
+---
+
 ## Iter 212m-32 — Onboarding nudge emails (Feb 26 2026) ✅
 
 **Founder personally nudges users who signed up but haven't connected
