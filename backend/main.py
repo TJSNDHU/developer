@@ -50,6 +50,7 @@ from routers.github_deploy import router as github_deploy_router   # iter 123
 from routers.thinking_hints import router as thinking_hints_router  # iter 158
 from routers.repo_indexing import router as repo_indexing_router    # Iter 212m-30 PR-2
 from routers.founder_offer import router as founder_offer_router    # Iter 212m-30 PR-2
+from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -227,6 +228,21 @@ async def lifespan(app: FastAPI):
 
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+    # Iter 212m-32 — hourly onboarding nudge cron. Sends the
+    # "connect a repo" email to users 24h after signup (and again at
+    # 72h if still no repo). Idempotent via the `onboarding_emails`
+    # audit log; safe to run every hour. Opt-in flag so dev pods
+    # without RESEND_API_KEY don't spam each other's inboxes.
+    if os.environ.get("ENABLE_ONBOARDING_NUDGE", "1").lower() in ("1", "true", "yes"):
+        try:
+            from services.onboarding_email import nudge_cron
+            app.state.nudge_task = _asyncio.create_task(nudge_cron(3600))
+            logger.info("📧 onboarding nudge cron enabled (hourly)")
+        except Exception as e:
+            app.state.nudge_task = None
+            logger.warning("nudge_cron not started: %r", e)
+    else:
+        app.state.nudge_task = None
     # Iter 153 — nightly MongoDB backup (03:00 UTC, keeps 7 days).
     # Guarded behind ENABLE_DB_BACKUP=1 so dev environments without
     # mongodump installed don't spam warnings.
@@ -362,6 +378,8 @@ async def lifespan(app: FastAPI):
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
+    if getattr(app.state, "nudge_task", None):
+        app.state.nudge_task.cancel()
     if getattr(app.state, "eval_task", None):
         app.state.eval_task.cancel()
     if getattr(app.state, "bootstrap_task", None):
@@ -927,6 +945,7 @@ app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
 app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
+app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

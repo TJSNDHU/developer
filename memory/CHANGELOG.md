@@ -6,6 +6,88 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-32 — Onboarding nudge emails (Feb 26 2026) ✅
+
+**Founder personally nudges users who signed up but haven't connected
+a repo.** Uses the existing Resend integration; cron is opt-in
+(`ENABLE_ONBOARDING_NUDGE=1`, default ON).
+
+### What shipped
+
+**`services/onboarding_email.py`** — the engine:
+- `render_text(user)` + `render_html(user)` — locked copy per the
+  user's signed-off spec, signed off as
+  `— Tejinder Sandhu, Founder, Aurem`.
+- `_created_at_dt(raw)` — single coercion helper for the four
+  historical `created_at` shapes (tz-aware datetime / naive datetime /
+  epoch seconds / epoch ms / ISO string) so eligibility can't drift.
+- `eligible_users(db, *, stage)` — filters dev_users by:
+  - `created_at` outside the stage cutoff (t24 = 24 h, t72 = 72 h),
+  - zero `cto_projects` rows,
+  - no prior `onboarding_emails` row at that stage.
+- `send_connect_repo_nudge` / `run_nudge_batch` — both `dry_run` paths
+  return previews without writing audit rows or hitting Resend.
+- `nudge_cron(interval_seconds=3600)` — hourly idempotent loop; the
+  `_has_been_sent` guard inside `eligible_users` makes re-firing
+  the cron safe.
+
+**`routers/onboarding.py`** — the routes:
+- `POST /api/aurem-dev/admin/onboarding/send-connect-nudge`
+  (admin/founder only). Per user spec, **no per-call cap** —
+  body `{dry_run, stages, user_ids}` supports preview + targeted
+  manual batches.
+- `GET /api/aurem-dev/onboarding/click?uid=…&c=connect_repo_nudge`
+  — public 302 redirector. Logs the click against the most recent
+  `onboarding_emails` row (idempotent first-`clicked_at` + monotonic
+  `click_count` + always-fresh `last_clicked_at`), then bounces to
+  `/dashboard?action=connect-repo&utm_source=email&utm_campaign=onboarding`.
+  Malformed/ghost UIDs still 302 cleanly — no error pages.
+
+**`main.py`** wiring:
+- Router mounted on `/api/aurem-dev`.
+- `nudge_task` started in `lifespan` (cancelled on shutdown).
+- Opt-out env: `ENABLE_ONBOARDING_NUDGE=0`.
+
+**`pages/Dashboard.jsx`**:
+- Reads `?action=connect-repo` via `useSearchParams`, opens the
+  wizard automatically, then strips the param (UTM params kept for
+  attribution).
+
+### Tests
+- `tests/test_iter212m32_onboarding_nudge.py` — **15 tests**:
+  copy locks (founder signoff, exact phrasing), CTA url shape,
+  `_created_at_dt` for every legacy shape, t24/t72 eligibility,
+  dry-run isolation, Resend mocked-send success + failure paths,
+  `user_ids` subset filter, click-endpoint logging behaviour
+  (including ghost UIDs), source pins for main/dashboard wiring.
+- Full 212m-27 → 32 regression: **87/87 pass**.
+
+### Live E2E proofs
+| Scenario | Result |
+|---|---|
+| Seed user, backdate `created_at` 30 h, dry-run admin call | recipients=[that user], stage=t24, count=1 |
+| `GET /api/aurem-dev/onboarding/click?uid=X&c=connect_repo_nudge` | 302 → `/dashboard?action=connect-repo&utm_source=email&utm_campaign=onboarding` |
+| Admin endpoint without `Bearer` | 401 |
+| Founder dry-run with empty cohort | `ok=true, count=0` |
+
+### Click-tracking schema (`onboarding_emails`)
+```
+{
+  user_id, email, campaign: "connect_repo_nudge",
+  stage: "t24" | "t72",
+  sent_at, sent_ok, error, dry_run,
+  clicked_at (first click, sticky),
+  last_clicked_at (refreshed on every click),
+  click_count
+}
+```
+
+> **Deployment note**: PREVIEW only. User must redeploy to push to
+> `auremcto.com`. Set `ENABLE_ONBOARDING_NUDGE=1` in the prod env
+> (default is ON; only set to `0` to silence the cron).
+
+---
+
 ## Iter 212m-31 — Empty-state Connect-Repo Banner (Feb 26 2026) ✅
 
 **One-CTA empty state for the founder offer funnel.**

@@ -10,7 +10,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, MessageCircle, Trash2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
 import TabBar, { useActiveProject, setActiveProjectId } from "../components/TabBar";
@@ -34,6 +34,7 @@ function DashboardBody() {
   const { sessionId, refreshSessions } = useChatSession();
   const project = useActiveProject();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showWizard, setShowWizard] = useState(false);
   // Iter 212m-31 — banner persistence. We track project count separately
   // from the wizard so the persistent <ConnectRepoBanner /> can keep
@@ -76,6 +77,20 @@ function DashboardBody() {
   const openWizardFromBanner = useCallback(() => {
     setShowWizard(true);
   }, []);
+
+  // Iter 212m-32 — open wizard automatically when the user lands on
+  // /dashboard?action=connect-repo (the onboarding nudge email's CTA).
+  // We strip the action param after the wizard opens so a casual
+  // refresh doesn't re-pop the overlay.
+  useEffect(() => {
+    if (searchParams.get("action") === "connect-repo") {
+      setShowWizard(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("action");
+      // Keep utm_* params so analytics still captures the attribution.
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Iter 212m-31 — refresh the project count whenever the wizard
   // closes (success OR cancel). If the user connected a repo, the

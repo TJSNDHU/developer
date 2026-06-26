@@ -13,6 +13,22 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-32 — Onboarding nudge emails (Feb 26 2026) ✅
+**Feature**: Founder-signed "connect a repo" email at 24 h + retry at 72 h.
+
+- New `services/onboarding_email.py` (render + cohort + sender, all
+  paths idempotent via `onboarding_emails` audit log).
+- New `routers/onboarding.py` exposing admin `POST /admin/onboarding/
+  send-connect-nudge` (dry-run + user_ids subset, no per-call cap)
+  and public `GET /onboarding/click` (302 redirect + click logging).
+- Hourly cron (`ENABLE_ONBOARDING_NUDGE=1`) started in `main.lifespan`.
+- Dashboard auto-opens wizard on `?action=connect-repo` (UTM params
+  preserved for attribution).
+- Copy signed off by user verbatim; signoff: `— Tejinder Sandhu, Founder, Aurem`.
+- **15 unit tests** + full 212m-27→32 regression — **87/87 pass**.
+- Live E2E proven: seeded 30h-old user appears in admin dry-run,
+  click endpoint returns the correct 302 with UTM-tagged dashboard URL.
+
 ### Iter 212m-31 — Empty-state Connect-Repo Banner (Feb 26 2026) ✅
 **Feature**: Persistent CTA on the empty dashboard state (no projects).
 
