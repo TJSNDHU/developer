@@ -51,6 +51,7 @@ from routers.thinking_hints import router as thinking_hints_router  # iter 158
 from routers.repo_indexing import router as repo_indexing_router    # Iter 212m-30 PR-2
 from routers.founder_offer import router as founder_offer_router    # Iter 212m-30 PR-2
 from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
+from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 

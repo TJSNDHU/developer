@@ -358,6 +358,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const lastF12PayloadRef = useRef(null);
   const endRef = useRef(null);
   const abortRef = useRef(null);
+  // Iter 212m-43 — stuck-thinking auto-recovery watchdog. If the SSE
+  // stream goes silent (no token / heartbeat / step / mode update)
+  // for IDLE_TIMEOUT_MS, we abort the stream and silently retry the
+  // turn once. If the retry also stalls, we surface a clean error
+  // bubble with a retry button instead of hanging "thinking…" forever.
+  const lastActivityRef = useRef(0);
+  const idleTimerRef = useRef(null);
+  const retryAttemptRef = useRef(0);
   const fileInputRef = useRef(null);
   const taRef = useRef(null);
   // Iter 146 — tracks whether the user has already sent a message in
@@ -822,6 +830,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       abortRef.current.abort();
       abortRef.current = null;
     }
+    // Iter 212m-43 — also kill any pending idle watchdog so it can't
+    // fire an auto-retry after the user explicitly clicked Stop.
+    if (idleTimerRef.current) {
+      clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    retryAttemptRef.current = 0;
     setBusy(false);
     // Iter 134 — clean up orphan "thinking…" bubbles when the user
     // clicks Stop. Previously this only cancelled the SSE network call;
@@ -1010,10 +1025,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     ]);
     setBusy(true);
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    let providerSeen = "";
-
     // Iter 42 — drain captured F12 errors at send time. The store self-clears
     // after flush() so we don't double-report old errors on subsequent sends.
     const f12Payload = (typeof window !== "undefined" && window.__auremF12)
@@ -1025,7 +1036,83 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // steps from the previous turn so the new turn starts at zero.
     setLiveStepCard({ steps: [], provider: null, tokens: 0, visible: true });
 
-    await streamChat({
+    // Iter 212m-43 — stuck-thinking auto-recovery. Wrap streamChat in
+    // a runner that (a) bumps `lastActivityRef` on every SSE callback,
+    // (b) ticks an idle watchdog every 5s, (c) aborts + silently
+    // retries the turn once if 90s of total silence elapse, and
+    // (d) surfaces a clean error bubble if the retry also stalls.
+    const IDLE_TIMEOUT_MS = 90_000;
+    const WATCHDOG_TICK_MS = 5_000;
+    const MAX_RETRIES = 1;
+    retryAttemptRef.current = 0;
+
+    const clearIdleWatchdog = () => {
+      if (idleTimerRef.current) {
+        clearInterval(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+    };
+    const bumpActivity = () => { lastActivityRef.current = Date.now(); };
+
+    const runTurn = async () => {
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      let providerSeen = "";
+      lastActivityRef.current = Date.now();
+      clearIdleWatchdog();
+      idleTimerRef.current = setInterval(() => {
+        const idleFor = Date.now() - lastActivityRef.current;
+        if (idleFor < IDLE_TIMEOUT_MS) return;
+        // Stream has gone silent — abort and recover.
+        clearIdleWatchdog();
+        try { ctrl.abort(); } catch { /* ignore */ }
+        abortRef.current = null;
+        if (retryAttemptRef.current < MAX_RETRIES) {
+          retryAttemptRef.current += 1;
+          // Reset the streaming bubble so the retry starts clean and
+          // the user sees a subtle "retrying…" hint instead of a
+          // dead bubble.
+          setMessages((msgs) => {
+            const copy = msgs.slice();
+            const last = copy[copy.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              copy[copy.length - 1] = {
+                ...last,
+                content: "",
+                activity: "Reconnecting… (auto-recovery)",
+                progressPct: 0,
+                seenActivities: [],
+                invocations: [],
+                steps: [],
+              };
+            }
+            return copy;
+          });
+          setLiveStepCard({ steps: [], provider: null, tokens: 0, visible: true });
+          // Fire the retry asynchronously so the current interval
+          // tick can unwind cleanly.
+          setTimeout(() => { runTurn().catch(() => {}); }, 50);
+        } else {
+          // Retry budget exhausted — fail the bubble gracefully.
+          setLiveStepCard(null);
+          setMessages((msgs) => {
+            const copy = msgs.slice();
+            const last = copy[copy.length - 1];
+            if (last && last.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                content: "⏳ ORA seemed to get stuck. The request was auto-cancelled after 90s of silence. Hit Send again to retry.",
+                error: true,
+                streaming: false,
+              };
+            }
+            return copy;
+          });
+          setBusy(false);
+        }
+      }, WATCHDOG_TICK_MS);
+
+      await streamChat({
       prompt: finalPrompt,
       projectId: activeProject?.project_id || null,
       sessionId,
@@ -1036,6 +1123,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
       onMode: (m) => {
+        bumpActivity();
         // Backend now sends a full payload: {type:"mode", mode, confidence,
         // scores, needs_confirm}. Older flows still pass a bare string.
         if (typeof m === "string") {
@@ -1067,12 +1155,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           return copy;
         });
       },
-      onOpsRedirect: (m) => setOpsRedirect(m),
+      onOpsRedirect: (m) => { bumpActivity(); setOpsRedirect(m); },
       // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
       // handoff) emits this BEFORE content streams. Pin the task_id on
       // the streaming assistant bubble so the ShipStatusCard renders
       // inline and polls live progress — user never has to leave chat.
       onTaskHandoff: (p) => {
+        bumpActivity();
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1097,6 +1186,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         } catch { /* ignore */ }
       },
       onMeta: (m) => {
+        bumpActivity();
         // Iter 141 — first real progress milestone. The meta frame
         // confirms the server accepted the request and routed it to
         // the orchestrator. Anchor the bar at 15% so the user gets
@@ -1133,6 +1223,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // to the floating-card state so the right-rail progress card
       // can render in parallel.
       onStep: (s) => {
+        bumpActivity();
         const stepObj = {
           text: s.text || "",
           done: !!s.done,
@@ -1158,6 +1249,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onThinking: (elapsed, activity, invocations) => {
+        bumpActivity();
         // Iter 167 — fan out file paths from tool invocations so the
         // KnowledgeGraph drawer can glow the nodes ORA is touching
         // right now. Read / search tools count as "live" too — they
@@ -1208,6 +1300,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onToken: (tok) => {
+        bumpActivity();
         // Iter 212m-19 — rough live token count for the floating card
         // footer ("glm-5.2 · 1.2k tokens"). Counts WORDS as a proxy
         // since the backend doesn't emit a token count per chunk —
@@ -1239,6 +1332,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onWatchdogPending: () => {
+        bumpActivity();
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1249,6 +1343,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onWatchdog: (wd) => {
+        bumpActivity();
         setMessages((msgs) => {
           const copy = msgs.slice();
           const last = copy[copy.length - 1];
@@ -1261,6 +1356,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onDone: (d) => {
+        clearIdleWatchdog();
         // Iter 212m-19 — mark the floating card done so it can
         // auto-close 3s later, and finalise its model+token footer.
         setLiveStepCard((cur) => {
@@ -1322,6 +1418,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         setTimeout(() => taRef.current?.focus(), 80);
       },
       onError: (err) => {
+        clearIdleWatchdog();
         // Iter 212m-19 — hide the floating card on error so it
         // doesn't sit there with an in-progress ⏳ forever.
         setLiveStepCard(null);
@@ -1339,6 +1436,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
       },
     });
+    };
+    await runTurn();
   }
 
   function regenerate() {

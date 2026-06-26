@@ -13,6 +13,21 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-42 / 212m-43 — Vanguard admin toggle wired + stuck-thinking auto-recovery (Feb 27 2026) ✅
+- **212m-42**: Fixed missing `admin_vanguard_router` import in
+  `main.py` (was crashing backend with `NameError`). Vanguard
+  config GET/POST endpoints verified via curl; `/admin/vanguard`
+  page now renders the `VanguardConfigPanel` (master toggle +
+  per-mode OFF/CRITICAL/HIGH for Swift/Pro/Maxx) verified via
+  screenshot.
+- **212m-43**: Added per-turn idle watchdog to `ChatPanel.jsx`
+  that bumps `lastActivityRef` on every SSE callback and, after
+  90 s of total silence, aborts the stream and silently retries
+  the turn once. After two consecutive stuck attempts a clean
+  "⏳ ORA seemed to get stuck" message is surfaced and the
+  composer is reactivated. `stop()` clears the watchdog so a
+  manual Stop click cannot trigger phantom retries.
+
 ### Iter 212m-35 / 212m-36 — Banner attached to composer top + composer border drop (Feb 26 2026) ✅
 **Visual fix** for the user's red-marked screenshot.
 

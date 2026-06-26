@@ -6,6 +6,64 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-42 / 212m-43 — Vanguard admin toggle wired + stuck-thinking auto-recovery (Feb 27 2026) ✅
+
+### 212m-42 — Vanguard admin router wired into main.py
+- Added missing import `from routers.admin_vanguard import router as
+  admin_vanguard_router` in `/app/backend/main.py` (the previous fork
+  forgot it on line 949, crashing the FastAPI boot with
+  `NameError: name 'admin_vanguard_router' is not defined`).
+- Backend now starts clean. Endpoints verified via curl:
+  - `GET  /api/aurem-dev/admin/vanguard/config` → returns
+    `{ok:true, config:{enabled, levels:{swift,pro,maxx}, updated_at, updated_by}}`
+  - `POST /api/aurem-dev/admin/vanguard/config` → upserts and stamps
+    `updated_by` to the calling admin's user_id.
+- `/admin/vanguard` page now renders the `VanguardConfigPanel`
+  (master Enabled toggle + per-mode OFF/CRITICAL/HIGH selectors +
+  Save/Discard bar) above the existing audit dashboard. Verified via
+  screenshot — panel + all three mode tiles render with current
+  CRITICAL state and the data-testids
+  `vanguard-config-panel`, `vanguard-master-toggle`,
+  `vanguard-mode-{swift,pro,maxx}`, `vanguard-{mode}-{off,critical,high}`,
+  `vanguard-save`, `vanguard-discard` are all wired.
+
+### 212m-43 — Stuck-thinking auto-recovery watchdog (ChatPanel.jsx)
+**Problem**: If the OpenRouter SSE stream stalls mid-turn (model
+hang / network blip), the frontend has no client-side idle timeout —
+the "thinking…" bubble sits forever and the composer stays locked.
+
+**Fix**: Per-turn idle watchdog wrapped around `streamChat`:
+- `lastActivityRef` is bumped on every SSE callback that signals
+  progress (`onMeta`, `onMode`, `onStep`, `onTaskHandoff`, `onToken`,
+  `onThinking`, `onWatchdog`, `onWatchdogPending`, `onOpsRedirect`).
+- A 5 s `setInterval` checks `Date.now() - lastActivity`.
+- If 90 s of total silence elapse:
+  - Abort the SSE stream (`abortRef.current.abort()`).
+  - **Attempt #1**: silently reset the streaming bubble
+    (`content=""`, `activity="Reconnecting… (auto-recovery)"`,
+    progress=0) and call the runner again with the same prompt.
+  - **Attempt #2 (retry also stuck)**: finalise the bubble with
+    `"⏳ ORA seemed to get stuck. The request was auto-cancelled
+    after 90s of silence. Hit Send again to retry."`, mark
+    `error:true, streaming:false`, and `setBusy(false)` so the
+    composer is reactivated.
+- `stop()` also clears the watchdog and resets the retry counter so
+  a user-initiated Stop click can't trigger a phantom auto-retry.
+- onDone / onError both call `clearIdleWatchdog()` so the interval
+  doesn't leak after a normal turn completes.
+
+**Why not a full page refresh?** Would lose chat state, scroll
+position, open editor tabs, draft input, mode selection — jarring
+UX. The watchdog is per-turn and surgical: only the specific stuck
+turn is recovered.
+
+**Tunables** (top of `send()`):
+- `IDLE_TIMEOUT_MS = 90_000`
+- `WATCHDOG_TICK_MS = 5_000`
+- `MAX_RETRIES = 1`
+
+---
+
 ## Iter 212m-35 / 212m-36 — Founder offer attached to composer top + composer border drop (Feb 26 2026) ✅
 
 Two micro-iters bundled — both pure layout fixes against the user's
