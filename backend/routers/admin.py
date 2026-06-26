@@ -3337,3 +3337,62 @@ async def admin_debug_repo_context_timings(
             d["ts"] = ts.isoformat()
         timings.append(d)
     return {"timings": timings, "count": len(timings)}
+
+
+# Iter 212m-29 — SEO core engine dry-run / commit endpoint (PR-1).
+# Admin-only entry point so we can spot-check the engine against a
+# real project from the preview without wiring the founder-offer UI
+# (PR-2) or the GSC integration (PR-3, deferred) yet.
+#
+# POST /api/aurem-dev/admin/seo/run
+#   body: {
+#       project_id: str (required),
+#       plan: "swift" | "pro" | "maxx" (default swift),
+#       site_url:    str,
+#       title:       str,
+#       description: str,
+#       og_image:    str,
+#       author:      str,
+#       dry_run:     bool (default True),
+#       commit_message: str (default "chore(seo): aurem auto-fix"),
+#   }
+#
+# Returns the SeoOptions result dict (patches summary + commit
+# metadata when dry_run=False).
+
+class _SeoRunPayload(BaseModel):
+    project_id:      str
+    plan:            str  = "swift"
+    site_url:        str  = ""
+    title:           str  = ""
+    description:     str  = ""
+    og_image:        str  = ""
+    author:          str  = ""
+    dry_run:         bool = True
+    commit_message:  str  = "chore(seo): aurem auto-fix"
+
+
+@router.post("/seo/run")
+async def admin_seo_run(
+    payload: _SeoRunPayload,
+    authorization: Optional[str] = Header(None),
+):
+    admin = await _require_admin(authorization)
+    from services.seo import run_seo_fixes, SeoOptions
+    result = await run_seo_fixes(
+        user_id=admin.get("user_id") or "",
+        project_id=payload.project_id,
+        options=SeoOptions(
+            plan=payload.plan,
+            site_url=payload.site_url,
+            title=payload.title,
+            description=payload.description,
+            og_image=payload.og_image,
+            author=payload.author,
+            commit_message=payload.commit_message,
+            dry_run=payload.dry_run,
+        ),
+    )
+    return result
+
+    return {"timings": timings, "count": len(timings)}

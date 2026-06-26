@@ -6,6 +6,71 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-29 — SEO Core Engine (PR-1) (Feb 25 2026) ✅
+
+**Real Python/Mongo conversion of the Aurem SEO spec.** Zero mocks,
+zero Node.js, fully integrated into the existing FastAPI/Mongo/GitHub-
+REST stack. Stack mismatches in the original spec (Node.js, Postgres,
+local `fs.readFileSync`, direct Anthropic SDK) all converted to the
+project's actual tech.
+
+### What shipped
+
+**`services/seo/` package** — 5 Category-A fixers + orchestrator:
+- `meta_tags.py` — inject missing `<title>`, `<meta description>`,
+  Open Graph tags (idempotent — skips when present)
+- `schema_markup.py` — page-type detection + JSON-LD injection
+  (Product/Article/FAQPage/ContactPage/WebPage)
+- `robots_txt.py` — render canonical robots.txt with sitemap
+  reference + sensible disallows; respects `public/` convention
+- `sitemap.py` — pure-function route extraction for Next.js
+  `pages/`, `app/`, and plain HTML; strips dynamic `[slug]`,
+  `api/`, `_app`, route-groups `(marketing)`
+- `image_alts.py` — `<img alt="">` filler that calls
+  `services/llm.py:call_llm()` (NOT direct vendor SDK — billing
+  + persona pipeline intact); deterministic fallback when LLM
+  fails or returns empty
+- `orchestrator.py` — single `run_seo_fixes(user_id, project_id,
+  options)` entry point. Verifies project ownership in
+  `cto_projects`, fetches tree + files via existing
+  `services/repo_context._fetch_tree/_fetch_file`, runs every
+  plan-enabled fixer, coalesces multi-fixer patches per file, then
+  commits via existing `services/github_api_writer.commit_files()`
+  in a single atomic commit (or skips commit when `dry_run=True`)
+
+**Admin endpoint** — `POST /api/aurem-dev/admin/seo/run`:
+- Admin-only via existing `_require_admin(authorization)` gate
+- Pydantic `_SeoRunPayload` validation
+- Supports `dry_run=True` (preview patches without committing) and
+  `dry_run=False` (real commit)
+- Returns the orchestrator's structured result dict verbatim
+
+### Tests
+- `tests/test_iter212m29_seo_core_engine.py` — **23 tests**
+  covering every fixer + plan matrix + orchestrator end-to-end
+  (with all GitHub IO mocked, no network)
+- **90/90 pass** across the full 212m-23 → 29 regression suite
+
+### Live E2E proofs
+| Scenario | Result |
+|---|---|
+| `POST /admin/seo/run` no token | `HTTP 401` |
+| `POST /admin/seo/run` admin + missing project | `{ok:false, errors:["project not found or not owned by caller"]}` (no GitHub call attempted) |
+| Orchestrator dry-run with mocked tree + files | All 5 fixers run, patches coalesced per path, `commit_files` NEVER called, errors=[] |
+
+### What's NEXT (PR-2 + PR-3, blocked on user evaluation)
+
+- **PR-2 — Founder offer counter + 3-day chat-bg tint** (500 spots,
+  MongoDB singleton, atomic decrement via `find_one_and_update +
+  $inc`, React `<FounderOfferCard />` in chat composer)
+- **PR-3 — Maxx-tier GSC indexing** (deferred per user; will need
+  `integration_playbook_expert_v2` for the Google Indexing API +
+  separate OAuth flow from login)
+
+> **Deployment note**: PREVIEW only. User must redeploy auremcto.com.
+
+---
+
 ## Iter 212m-28c — Admin debug endpoint for repo_context_timings (Feb 25 2026) ✅
 
 `GET /api/aurem-dev/admin/debug/repo_context_timings` — operator
