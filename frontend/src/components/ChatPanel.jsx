@@ -1419,6 +1419,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               webSources: Array.isArray(d.web_sources)
                 ? d.web_sources
                 : [],
+              // Iter 212m-49 — provenance of the LLM hop that actually
+              // served this turn. When `is_emergency` is true the
+              // chat header surfaces a "⚡ free mode" pill so the
+              // founder knows OpenRouter credits are exhausted and
+              // Groq is filling in.
+              llmProvenance: d.llm_provenance && typeof d.llm_provenance === "object"
+                ? d.llm_provenance
+                : null,
             };
           }
           return copy;
@@ -1497,6 +1505,54 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           backgroundColor: founderTint,
         }}
       >
+      {/* Iter 212m-49 — "⚡ free mode" pill. Surfaces when the most
+          recent assistant turn was served by the Groq emergency
+          fallback (i.e. OpenRouter paid AND every free-tier candidate
+          failed). Anchored top-left of the chat pane so it doesn't
+          collide with the live step floating card on top-right.
+          Auto-hides as soon as a non-emergency turn lands. */}
+      {(() => {
+        const lastAsst = [...messages].reverse().find((m) => m.role === "assistant");
+        const prov = lastAsst && lastAsst.llmProvenance;
+        if (!prov || !prov.is_emergency) return null;
+        return (
+          <div
+            data-testid="free-mode-pill"
+            title={`Served by Groq emergency fallback (model: ${prov.model || "llama-3.3-70b-versatile"}). Recharge OpenRouter credits to restore primary models.`}
+            style={{
+              position: "absolute",
+              top: 14,
+              left: 16,
+              zIndex: 30,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 10px 5px 8px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              color: "#fde68a",
+              background: "rgba(234,179,8,0.12)",
+              border: "1px solid rgba(234,179,8,0.45)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              cursor: "default",
+              userSelect: "none",
+              animation: "auremFreeModeFadeIn 220ms ease-out",
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1 }}>⚡</span>
+            <span>free mode</span>
+            <style>{`
+              @keyframes auremFreeModeFadeIn {
+                from { opacity: 0; transform: translateY(-4px); }
+                to   { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
+          </div>
+        );
+      })()}
       {/* Iter 212m-19 — Live step floating card. Pinned top-right of
           the chat panel while ORA is processing; auto-closes 3s after
           the orchestrator emits ✅ Done. Mirrors the same step events

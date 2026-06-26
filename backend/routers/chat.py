@@ -205,6 +205,17 @@ def is_fix_confirmation(message: str) -> bool:
     return bool(_FIX_CONFIRM.search(message or ""))
 
 
+# Iter 212m-49 — read LLM provenance for the most recent hop in this
+# request context. Wrapped so any import / future-shape error never
+# breaks the SSE `done` frame.
+def _safe_provenance() -> dict:
+    try:
+        from services.llm import get_last_provider
+        return get_last_provider()
+    except Exception:
+        return {"provider": "openrouter", "model": "", "is_emergency": False}
+
+
 # Iter 212m-48 — basic prompt-injection guard. We do NOT log the
 # matched content (per security spec) — only the fact that a hit
 # happened, with a short rule label. Patterns are case-insensitive
@@ -864,6 +875,14 @@ async def chat_stream(
     """SSE token-streaming chat. Iter 45: rate-limited to 30 req/min per IP.
     Iter 50.1: founders / unlimited accounts bypass the rate-limit."""
     user = await current_dev(authorization)
+    # Iter 212m-49 — clear stale LLM provenance from a previous turn
+    # in the same worker so the SSE `done` frame for THIS turn only
+    # reflects what we actually hit this request.
+    try:
+        from services.llm import reset_last_provider
+        reset_last_provider()
+    except Exception:
+        pass
     # Iter 212m-48 — prompt-injection guard. Block known jailbreak
     # markers before any LLM call. We log ONLY the rule label, never
     # the offending content (per security spec). Founders / admins
@@ -1914,6 +1933,13 @@ async def chat_stream(
             "session_id": body.session_id,
             "tokens_remaining": tokens_remaining,
             "council": bool(result.get("council")),
+            # Iter 212m-49 — provenance of the last LLM hop. The frontend
+            # surfaces a "⚡ free mode" pill in the chat header when this
+            # turn was served by the Groq emergency fallback (i.e. both
+            # the primary OpenRouter call AND every free-tier candidate
+            # failed). `is_emergency=False` means OpenRouter served it
+            # normally and the pill stays hidden.
+            "llm_provenance": _safe_provenance(),
             # Iter 85 — paths the model actually read this turn.
             # Frontend uses this to enforce ABSOLUTE NEGATIVE rule (d):
             # any path inside the ```aurem-handoff fence that is NOT in

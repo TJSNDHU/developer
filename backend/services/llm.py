@@ -72,6 +72,156 @@ _DEFAULT_FREE_MODELS = [
     "meta-llama/llama-3.2-3b-instruct:free",
 ]
 
+# ─── Iter 212m-49 — Groq as TRUE last-resort fallback ─────────────────
+# Vendor-independent safety net for when OpenRouter (paid AND free
+# tier) is unreachable / quota-exhausted / globally rate-limited.
+# Groq's own free tier has its own quota that's independent of
+# OpenRouter — so a credit-stuffing attack on OpenRouter, an
+# OpenRouter outage, or a "global free-tier 429 storm" still gets the
+# user a response. Active only when GROQ_API_KEY is set.
+#
+# Per founder's spec (2026-02-27): "Groq sirf emergency net hai,
+# primary nahi banana." → Groq is ONLY reached after BOTH the
+# primary OpenRouter call AND every entry in the OpenRouter `:free`
+# fallback chain has failed. Never called speculatively.
+_GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+# Iter 212m-50 — Groq-only house rules. The file is read once at
+# module load (cheap, ~1 KB) and silently absent → defaults apply.
+# These rules nudge Groq toward the same shape/voice that ORA uses
+# on GLM-5.2 / Claude so the fallback feels seamless to the user.
+_GROQ_HOUSE_RULES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "prompts",
+    "groq_house_rules.md",
+)
+
+
+def _load_groq_house_rules() -> str:
+    """Read the Groq-only house rules from disk. Silent-skip on any
+    error (file missing, permission, encoding) — Groq must still
+    work even if the rules file is removed. Cached after the first
+    successful read for the lifetime of the process."""
+    cached = getattr(_load_groq_house_rules, "_cached", None)
+    if cached is not None:
+        return cached
+    try:
+        with open(_GROQ_HOUSE_RULES_PATH, "r", encoding="utf-8") as fh:
+            text = fh.read().strip()
+        setattr(_load_groq_house_rules, "_cached", text)
+        return text
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError) as e:
+        logger.debug("groq_house_rules.md not loaded: %r — defaults apply", e)
+        setattr(_load_groq_house_rules, "_cached", "")
+        return ""
+
+
+def _groq_key() -> str:
+    return os.environ.get("GROQ_API_KEY", "")
+
+
+# Iter 212m-49 — provenance stash. The non-streaming `_call_deepseek`
+# returns a plain string so the existing SSE pipeline can't attach
+# "served by Groq" metadata to the response object directly. We park
+# the most-recent provider in a contextvar so the orchestrator + SSE
+# `done` frame can read it and surface a "⚡ free mode" pill on the
+# frontend. ContextVar (not module-global) so concurrent requests
+# never read each other's provenance.
+from contextvars import ContextVar
+
+
+# Iter 212m-49 — provenance stash. The non-streaming `_call_deepseek`
+# returns a plain string so the existing SSE pipeline can't attach
+# "served by Groq" metadata to the response object directly. We park
+# the most-recent provider in a MUTABLE dict referenced from a
+# ContextVar so concurrent requests never read each other's
+# provenance, AND child asyncio tasks (the chat_stream worker) can
+# WRITE to the same dict the parent task reads from. Plain
+# ContextVar.set() in a child task is invisible to the parent
+# because each task gets its own context copy — so we mutate the
+# dict in place instead.
+def _new_provenance_slot() -> dict:
+    return {"provider": "openrouter", "model": "", "is_emergency": False}
+
+
+_last_provider_ctx: ContextVar[dict] = ContextVar(
+    "aurem_last_llm_provider",
+    default=_new_provenance_slot(),
+)
+
+
+def _set_last_provider(provider: str, model: str) -> None:
+    slot = _last_provider_ctx.get()
+    slot["provider"]     = provider
+    slot["model"]        = model
+    slot["is_emergency"] = (provider == "groq")
+
+
+def get_last_provider() -> dict:
+    """Returns provenance for the last LLM call on THIS request context.
+    Shape: {"provider": "openrouter"|"groq", "model": "<slug>",
+    "is_emergency": True iff served by the Groq emergency fallback}.
+    Reset per-request via the contextvar so concurrent users never
+    cross-pollute."""
+    return dict(_last_provider_ctx.get())
+
+
+def reset_last_provider() -> None:
+    """Call at the START of a request to clear stale provenance from a
+    previous turn in the same worker. Installs a FRESH mutable dict
+    so child tasks spawned later inherit a clean slot AND mutations
+    they perform are visible to the parent (the dict reference is
+    shared, only the ContextVar copy semantics break parent-child
+    propagation of `ContextVar.set` calls)."""
+    _last_provider_ctx.set(_new_provenance_slot())
+
+
+async def _call_groq(
+    messages: list,
+    system: str = "",
+    max_tokens: int = 1500,
+    temperature: float = 0.7,
+) -> str:
+    """Async call to Groq Cloud — only reached when OpenRouter primary
+    AND every free-tier candidate have failed. Returns the completion
+    string. Raises on any error so callers can decide whether to log
+    or re-raise; this function never silently returns "" because Groq
+    is the LAST link — we want a loud failure to surface that the
+    whole chain is dead and the user should know to retry later.
+
+    Note: the official `groq` Python SDK exposes an `AsyncGroq` client
+    that mirrors OpenAI's `/v1/chat/completions` schema, so no payload
+    surgery is needed."""
+    key = _groq_key()
+    if not key:
+        raise RuntimeError("GROQ_API_KEY not set — emergency fallback unavailable")
+    # Imported lazily so deploys without groq installed don't crash at
+    # module import time.
+    from groq import AsyncGroq
+    client = AsyncGroq(api_key=key, timeout=float(os.getenv("GROQ_TIMEOUT_S", "30.0")))
+    # Iter 212m-50 — Groq-only house rules. Prepend the markdown rules
+    # to the caller-supplied system prompt so the fallback maintains
+    # ORA's voice, never breaks character, and refuses destructive ops
+    # without confirmation. Silent-skip if the rules file is missing.
+    house_rules = _load_groq_house_rules()
+    if house_rules:
+        effective_system = (
+            f"{house_rules}\n\n---\n\n{system}".strip()
+            if system else house_rules
+        )
+    else:
+        effective_system = system
+    msgs = ([{"role": "system", "content": effective_system}]
+            + messages) if effective_system else messages
+    completion = await client.chat.completions.create(
+        model=_GROQ_MODEL,
+        messages=msgs,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    content = (completion.choices[0].message.content or "").strip()
+    return content
+
 
 def _free_fallback_models() -> list[str]:
     raw = os.getenv("OPENROUTER_FREE_MODELS", "").strip()
@@ -267,7 +417,38 @@ async def _call_deepseek(messages: list, system: str = "",
             continue
 
     if data is None:
-        # All candidates exhausted.
+        # All OpenRouter candidates exhausted — try the Groq emergency
+        # net as the absolute final link. This is the vendor-
+        # independent safety hop (different infra, different account).
+        if _groq_key():
+            try:
+                logger.warning(
+                    "OpenRouter chain exhausted (%d candidates). "
+                    "Trying Groq emergency fallback (model=%s)…",
+                    len(candidates), _GROQ_MODEL,
+                )
+                content = await _call_groq(
+                    messages=msgs,
+                    system="",  # already prepended above
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                if content:
+                    logger.warning(
+                        "DeepSeek call served by Groq fallback model=%s",
+                        _GROQ_MODEL,
+                    )
+                    # Stash provenance on a module-global so the SSE
+                    # pipeline can surface a "⚡ free mode" pill to
+                    # the frontend on this turn.
+                    _set_last_provider("groq", _GROQ_MODEL)
+                    return content
+            except Exception as ge:
+                logger.error(
+                    "Groq emergency fallback ALSO failed: %r — chain is "
+                    "now fully exhausted",
+                    ge,
+                )
         logger.error(
             "OpenRouter exhausted all %d candidates. Last error: %r",
             len(candidates), last_exc,
@@ -280,6 +461,7 @@ async def _call_deepseek(messages: list, system: str = "",
     # the call contract — provenance is in the logs.
     if served_by:
         logger.info("DeepSeek call served by model=%s", served_by)
+        _set_last_provider("openrouter", served_by)
     try:
         msg = data["choices"][0]["message"]
         # If DeepSeek returned native tool_calls, serialize them back to
@@ -444,6 +626,9 @@ async def call_openrouter_model(
                     "call_openrouter_model: primary %r failed, served by free fallback %r",
                     model, candidate,
                 )
+                _set_last_provider("openrouter", candidate)
+            else:
+                _set_last_provider("openrouter", candidate)
             return content
         except Exception as e:
             last_exc = e
@@ -455,6 +640,35 @@ async def call_openrouter_model(
             logger.warning(
                 "call_openrouter_model(%s) fallback-worthy failure (%d/%d): %r",
                 candidate, i + 1, len(candidates), e,
+            )
+    # Iter 212m-49 — All OpenRouter candidates exhausted. Try the Groq
+    # emergency net before giving up. Vendor-independent infra so an
+    # OpenRouter-wide outage / global-free-tier 429 storm still gets
+    # the user a usable answer.
+    if _groq_key():
+        try:
+            logger.warning(
+                "call_openrouter_model: chain exhausted, trying Groq emergency "
+                "(model=%s) for primary=%r",
+                _GROQ_MODEL, model,
+            )
+            content = await _call_groq(
+                messages=[{"role": "user", "content": user}],
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if content:
+                logger.warning(
+                    "call_openrouter_model: served by Groq fallback model=%s",
+                    _GROQ_MODEL,
+                )
+                _set_last_provider("groq", _GROQ_MODEL)
+                return content
+        except Exception as ge:
+            logger.error(
+                "Groq emergency fallback ALSO failed inside call_openrouter_model: %r",
+                ge,
             )
     logger.error(
         "call_openrouter_model: all %d candidates exhausted (primary=%r). Last error: %r",

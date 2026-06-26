@@ -177,3 +177,4 @@ zipp==4.1.0
 pyotp==2.10.0
 qrcode==8.2
 pillow==12.2.0
+groq==1.5.0
