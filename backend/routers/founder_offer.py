@@ -141,6 +141,10 @@ async def offer_user_status(
 
     claims = await _user_claims(db, me["user_id"])
     repos_claimed = len(claims)
+    # Iter 212m-44 — surface the actual claimed repo_ids so the
+    # FounderOfferCard can hide itself in the project window where
+    # the user already applied the offer (per-project dismissal).
+    claimed_repo_ids = [c.get("repo_id") for c in claims if c.get("repo_id")]
 
     user = await db.dev_users.find_one(
         {"user_id": me["user_id"]},
@@ -150,6 +154,7 @@ async def offer_user_status(
 
     return {
         "repos_claimed":        repos_claimed,
+        "claimed_repo_ids":     claimed_repo_ids,
         "has_fully_claimed":    repos_claimed >= MAX_CLAIMS_PER_USER,
         "days_since_signup":    days,
         "max_claims_per_user":  MAX_CLAIMS_PER_USER,

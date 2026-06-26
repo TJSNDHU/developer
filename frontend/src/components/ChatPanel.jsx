@@ -809,6 +809,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             feedback: t.feedback,
             shipped_task_id: t.shipped_task_id,
           })));
+          // Iter 212m-44 — the user has prior turns in this session
+          // (reloaded mid-conversation), so the chrome (top tabs +
+          // sidebar) should be auto-hidden as if they had just sent
+          // a message. Without this, hitting refresh on an active
+          // chat brought the topbar back even though the session
+          // was clearly already in progress.
+          if (!sessionStartedRef.current) {
+            sessionStartedRef.current = true;
+            try {
+              window.dispatchEvent(new CustomEvent("aurem:chat-session-started", {
+                detail: { session_id: sessionId, restored: true },
+              }));
+            } catch { /* ignore */ }
+          }
         }
       })
       .catch(() => !cancelled && setMessages([WELCOME]))

@@ -20,11 +20,32 @@ const POLL_MS = 30_000;
 
 export default function FounderOfferCard({ projectId }) {
   const [status, setStatus] = useState(null);          // { remaining, total, is_active }
-  const [userStatus, setUserStatus] = useState(null);  // { has_fully_claimed, days_since_signup, repos_claimed }
+  const [userStatus, setUserStatus] = useState(null);  // { has_fully_claimed, days_since_signup, repos_claimed, claimed_repo_ids }
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("idle");          // idle | preview | running | done | error
   const [claim, setClaim] = useState(null);            // { claim_id, preview }
   const [error, setError] = useState(null);
+  // Iter 212m-44 — instant per-project dismissal. Once the user
+  // claims/confirms the offer on this project, push the projectId
+  // here so the banner hides immediately (without waiting for the
+  // next 30 s poll to refresh `claimed_repo_ids` from the server).
+  const [locallyClaimedRepos, setLocallyClaimedRepos] = useState(() => {
+    try {
+      const raw = localStorage.getItem("aurem_founder_offer_claimed_repos");
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const markRepoClaimed = useCallback((repoId) => {
+    if (!repoId) return;
+    setLocallyClaimedRepos((prev) => {
+      if (prev.includes(repoId)) return prev;
+      const next = [...prev, repoId];
+      try {
+        localStorage.setItem("aurem_founder_offer_claimed_repos", JSON.stringify(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // ── Polling ──────────────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -55,8 +76,18 @@ export default function FounderOfferCard({ projectId }) {
     if (userStatus.has_fully_claimed) return false;
     if (typeof userStatus.days_since_signup === "number" &&
         userStatus.days_since_signup > 3) return false;
+    // Iter 212m-44 — per-project dismissal. Hide the banner the
+    // moment the user has claimed the offer for THIS project. Reads
+    // from both the server-side `claimed_repo_ids` (authoritative)
+    // and a local cache (so the banner disappears instantly without
+    // waiting for the next 30 s poll).
+    const serverClaimed = Array.isArray(userStatus.claimed_repo_ids)
+      ? userStatus.claimed_repo_ids
+      : [];
+    if (serverClaimed.includes(projectId)) return false;
+    if (locallyClaimedRepos.includes(projectId)) return false;
     return true;
-  }, [projectId, status, userStatus]);
+  }, [projectId, status, userStatus, locallyClaimedRepos]);
 
   // ── Counter color ────────────────────────────────────────────
   const counterColor = useMemo(() => {
@@ -113,6 +144,11 @@ export default function FounderOfferCard({ projectId }) {
         return;
       }
       setStage("running");
+      // Iter 212m-44 — true claim landed (commit fired). Persist
+      // the projectId locally so the banner stays hidden on this
+      // project window across reloads, even before the next server
+      // poll updates `claimed_repo_ids`.
+      markRepoClaimed(projectId);
       toast(
         "🛠️ Fix running — we'll commit the changes to your repo. " +
         "You'll see a notification when it's done.",
@@ -124,7 +160,7 @@ export default function FounderOfferCard({ projectId }) {
     } finally {
       setLoading(false);
     }
-  }, [claim]);
+  }, [claim, projectId, markRepoClaimed]);
 
   const handleCancel = useCallback(async () => {
     if (!claim?.claim_id) return;
@@ -141,7 +177,13 @@ export default function FounderOfferCard({ projectId }) {
     }
   }, [claim, refresh]);
 
-  if (!visible) return null;
+  // Iter 212m-44 — `visible` hides the banner once the offer has
+  // been claimed on this project. But while the user is actively
+  // mid-flow (preview / running / error) we must keep the UI
+  // mounted so they can confirm or read the error — `isInteracting`
+  // is the escape hatch.
+  const isInteracting = stage !== "idle";
+  if (!visible && !isInteracting) return null;
 
   // ── Render ───────────────────────────────────────────────────
   // Banner attached to the TOP of the chat composer. Rounded top
