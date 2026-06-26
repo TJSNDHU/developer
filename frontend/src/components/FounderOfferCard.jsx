@@ -160,7 +160,7 @@ export default function FounderOfferCard({ projectId }) {
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        background: "linear-gradient(180deg, rgba(234,179,8,0.16) 0%, rgba(234,179,8,0.08) 100%)",
+        background: "linear-gradient(180deg, rgba(234,179,8,0.10) 0%, rgba(234,179,8,0.04) 100%)",
         borderTopLeftRadius: 12,
         borderTopRightRadius: 12,
         borderBottomLeftRadius: 0,

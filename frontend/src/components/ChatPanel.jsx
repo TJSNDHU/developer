@@ -1814,12 +1814,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           borderBottom: "1px solid rgba(234,179,8,0.45)",
           borderBottomLeftRadius: 12,
           borderBottomRightRadius: 12,
-          // Iter 212m-38 — composer background matches the founder
-          // banner's bottom gradient stop so the two surfaces fuse
-          // into a single amber-tinted block with NO dark seam
-          // between them. Uses !important via inline style to override
-          // the `.glass-composer` rule in index.css.
-          background: "rgba(234,179,8,0.08)",
+          // Iter 212m-39 — composer keeps its original dark-glass
+          // background so it stays visually distinct from the lighter
+          // amber-tinted offer banner above. The shared amber border
+          // is what unifies them as one container — the two interior
+          // surfaces are intentionally different colours.
+          background: "rgba(13, 16, 24, 0.32)",
         }}
       >
         {/* Iter 212m-36 — TokenBanner + composer-status-bar moved
