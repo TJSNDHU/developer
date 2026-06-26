@@ -13,6 +13,32 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-30 — Repo Indexing + Founder Offer (PR-2) (Feb 26 2026) ✅
+**Feature**: PR-2 of the SEO programme (PR-1 = Iter 212m-29 core engine).
+
+- **Repo Indexing**: `POST /api/aurem-dev/repos/{repo_id:path}/index`
+  builds a deterministic codebase map (dominant language, entry
+  points, service folders, dependency manifests, has_tests, file
+  count) from a single recursive GitHub-tree call (zero LLM, zero
+  filesystem). Renders + commits `CODEBASE.md` via existing
+  `github_api_writer.commit_files`. Persists to MongoDB `repo_index`.
+- **Founder Offer (500 spots, 3/user cap)**: `routers/founder_offer.py`
+  exposes `GET /status`, `GET /user-status`, `POST /claim`,
+  `POST /confirm`, `POST /cancel`. Atomic `find_one_and_update +
+  $inc + $expr` decrement on a singleton doc guarantees no
+  over-allocation under concurrent claims. Dry-run preview returned
+  before the user confirms; cancel restores the spot only while
+  status is "preview".
+- **Auth/created_at**: `/auth/signup` now persists tz-aware
+  `created_at`, returns it as ISO in the body, and surfaces it via
+  `/auth/me` for the SPA.
+- **Founder welcome tint (3-day, amber)**: `<FounderOfferCard />`
+  mounted above the chat composer; `getChatBgTint(createdAt)` paints
+  the chat-panel root `rgba(234,179,8,0.04|0.07|0.11)` for days
+  1/2/3, transparent thereafter.
+- **31/31 tests pass** (22 mock + 9 live HTTP). Full 212m-27→30
+  regression suite (90+ tests) still green.
+
 ### Iter 183 — Stripe `/g/pay/` → `/c/pay/` URL Rewrite (Feb 2026) ✅
 **Bug**: New `Landing.jsx` payment plans were "showing errors / not reaching Stripe checkout". Root cause: Stripe SDK was intermittently returning the new `/g/pay/` Guest/Link-optimized URL format for our live subscription account. The exact same `cs_live_…` session_id renders a generic *"Something went wrong … the link might be expired"* page on `/g/pay/` but a fully functional payment form on canonical `/c/pay/`.
 

@@ -6,6 +6,140 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-30 — Repo Indexing + Founder Offer (PR-2) (Feb 26 2026) ✅
+
+**The other two-thirds of the SEO programme.** PR-1 shipped the SEO
+core engine; PR-2 wires a deterministic codebase-map generator into
+every connected repo AND adds the 500-spot founder offer that gives
+new signups a free SEO fix straight from the chat.
+
+### What shipped
+
+**Backend — Repo indexing (`services/repo_indexing.py`)**:
+- One `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1` call,
+  zero LLM. Detects: dominant language (by file-ext counting),
+  entry points (main.py / App.tsx / pages/_app.tsx / …), top-level
+  service folders (api/routers/services/models/db/utils/…),
+  dependency manifests (requirements.txt / package.json / pyproject /
+  Cargo / go.mod / Gemfile / Dockerfile / …), has_tests, file_count.
+- Optional README.md fetch → extracts the first H1 + first paragraph
+  with simple markdown stripping (images / links / inline code) so
+  the persisted summary is plain-text readable.
+- `CODEBASE.md` is rendered with a stable layout so re-runs only
+  diff on the timestamp line + file counts.
+- Stored in MongoDB `repo_index` (upsert on `project_id`); committed
+  to repo root via the existing `services.github_api_writer
+  .commit_files()` single-atomic-commit path.
+- Route: `POST /api/aurem-dev/repos/{repo_id:path}/index?commit=true`.
+
+**Backend — Founder Offer (`routers/founder_offer.py`)**:
+- Singleton `founder_offer` doc: `{_id: "global", total_spots: 500,
+  spots_claimed: N, is_active: true}`. Idempotent boot via
+  `_ensure_singleton` (`$setOnInsert + upsert`).
+- `GET /status` (public): `{remaining, total, is_active}`.
+- `GET /user-status` (auth): `{repos_claimed, has_fully_claimed,
+  days_since_signup, max_claims_per_user}`. `_days_since` handles
+  tz-aware datetime, epoch seconds, epoch ms, AND ISO strings so the
+  endpoint stays sane across legacy rows.
+- `POST /claim` body `{repo_id, site_url}`:
+  atomic `find_one_and_update` decrement with
+  `$expr: {$lt: [$spots_claimed, $total_spots]}` (so two concurrent
+  claims can never over-allocate); inserts a `user_seo_claims` row
+  with `fix_status="preview"`; calls `services.seo.orchestrator
+  .run_seo_fixes(dry_run=True)` and returns the preview to the UI.
+  Per-user cap of 3 enforced — 4th claim returns `{success: false,
+  action: "upgrade"}` (no error, soft no). Sold out → `{success:
+  false, action: "sold_out"}` (also soft).
+- `POST /confirm` body `{claim_id}`: flips fix_status to "running",
+  kicks the real `run_seo_fixes(dry_run=False)` in an `asyncio
+  .create_task`, then writes `fix_status="completed" | "failed"` once
+  the runner returns.
+- `POST /cancel` body `{claim_id}`: only valid while
+  `fix_status=="preview"`. Restores one spot via guarded `$inc -1`
+  (`spots_claimed > 0`) and marks the claim "cancelled". After a
+  confirm or completed claim, cancel is a no-op (spot stays gone).
+- Idempotent re-claim: same `(user_id, repo_id)` returns the existing
+  claim row without consuming a new spot.
+
+**Backend — Auth wiring (`routers/auth.py`)**:
+- `/auth/signup` now persists tz-aware `created_at` AND returns it as
+  an ISO string in the response so the SPA can store it.
+- `/auth/me` coerces `datetime` → ISO before serialising; legacy
+  rows with epoch-float `created_at` pass through untouched (the
+  frontend's `getChatBgTint` handles both shapes).
+
+**Frontend — Founder card (`components/FounderOfferCard.jsx`)**:
+- Polls `/status` + `/user-status` on mount and every 30 s.
+- Visibility rules (the card stays unmounted otherwise):
+  • `has_fully_claimed === true` → hidden (already used all 3).
+  • `remaining === 0` → hidden (sold out).
+  • `days_since_signup > 3` → hidden (welcome window closed).
+  • No `projectId` → hidden (no repo to fix).
+- Copy locked to the founder-specified line: `"Free SEO fix — from
+  the founder"` + `"<X> spots remaining"` (not "claimed").
+- Counter color: green if >50, orange if >10, red if ≤10.
+- Three-stage interaction: `idle` → `preview` (shows issues_found +
+  files_affected list, with `Commit fixes` / `Cancel` buttons) →
+  `running` (background commit, toast notifies the user).
+- All buttons + states have `data-testid` so the testing harness can
+  drive every transition.
+
+**Frontend — Welcome tint (`utils/chatBgTint.js`)**:
+- `getChatBgTint(createdAt)` accepts `Date | number | string`;
+  auto-promotes legacy epoch-seconds to ms.
+- Day 1 → `rgba(234,179,8,0.04)`, day 2 → `0.07`, day 3 → `0.11`,
+  day 4+ → `"transparent"` (so the visual cost goes to zero on its
+  own — no DB flag, no cleanup cron).
+- Wired into ChatPanel's chat-panel root `style.backgroundColor` via
+  a `useMemo` of `getUser()?.created_at`. A 600 ms transition makes
+  the swap from amber → transparent smooth across the day boundary.
+
+### Tests
+- `tests/test_iter212m30_pr2_founder_indexing.py` — **22 tests**:
+  pure-function static analysis, end-to-end repo indexing with
+  GitHub IO patched, atomic decrement, per-user cap, sold-out path,
+  cancel-restores-spot, confirm-flips-status-and-kicks-runner,
+  user-status legacy epoch handling.
+- `tests/test_iter212m30_pr2_live_http.py` — **9 live HTTP tests**
+  (added by the testing agent) with teardown cleanup that resets
+  `founder_offer.spots_claimed` and deletes ephemeral test users +
+  claims.
+- **31/31 pass** + the full 212m-27 → 30 regression suite still green
+  (90+ tests).
+
+### Live E2E proofs
+| Scenario | Result |
+|---|---|
+| `GET /founder-offer/status` (no auth) | `{remaining: 500, total: 500, is_active: true}` |
+| `GET /founder-offer/user-status` for fresh signup | `days_since_signup ≈ 0`, `has_fully_claimed: false` |
+| `GET /founder-offer/user-status` for legacy user (~12 d) | `days_since_signup: 11.96` (card hides) |
+| Signup body | now includes `"created_at": "2026-06-26T03:35:54.310503+00:00"` |
+| `POST /repos/p_does_not_exist/index` | `HTTP 404 {"detail": "project not found or not owned by caller"}` |
+
+### Honest deviations from the literal user spec
+- **Atomic decrement on `/claim`** instead of `/confirm`: kept as
+  the spec requires, with a `/cancel` endpoint added to restore the
+  spot when the user closes the preview dialog. The testing-agent's
+  code review flagged that cancel's two writes aren't transactional —
+  noted as a low-risk improvement, not a blocker.
+- **Tree-only directory detection** would have missed service
+  folders in fixtures that only emit blob nodes; `_analyse_tree`
+  now also infers dirs from blob paths so unit tests with sparse
+  tree fixtures still work.
+
+### What's NEXT
+- PR-3 — Maxx-tier GSC indexing via the `integration_playbook_expert_v2`
+  Google Indexing API (deferred per user).
+- Cancel transactionality + auto-recover stuck "running" claims.
+- Search/replace exact-match fragility in the orchestrator Swift loop.
+
+> **Deployment note**: PREVIEW only. User must redeploy to push to
+> `auremcto.com` production. Both the offer counter and the welcome
+> tint reset to "fresh" on the prod DB the first time the new code
+> runs there.
+
+---
+
 ## Iter 212m-29 — SEO Core Engine (PR-1) (Feb 25 2026) ✅
 
 **Real Python/Mongo conversion of the Aurem SEO spec.** Zero mocks,
