@@ -46,10 +46,16 @@ ORCH_PY  = os.path.join(ROOT, "services", "orchestrator.py")
 def test_chat_send_checks_project_ownership_before_repo_ctx():
     """A user must own the project before we spend a Mongo + GitHub
     round-trip loading its context. 403 on mismatch — the only safe
-    response, since the path is hot and pid is user-controlled."""
+    response, since the path is hot and pid is user-controlled.
+
+    Iter 212m-28b fix — must read from `cto_projects` (the real
+    project collection), not the non-existent `projects` collection.
+    """
     src = open(CHAT_PY).read()
-    assert '_db.projects.find_one(' in src
+    assert '_db.cto_projects.find_one(' in src
     assert '{"project_id": pid, "user_id": user["user_id"]}' in src
+    # The buggy collection name must NOT be present.
+    assert '_db.projects.find_one(' not in src
     # 403 must be raised on the ownership miss.
     assert 'status_code=403, detail="Project access denied"' in src
 

@@ -494,11 +494,17 @@ async def chat_send(
         #     was hanging the request for the full 90 s LLM budget.
         #     Hard cap at 12 s — if it can't return by then, ship
         #     the turn without repo context (graceful degrade).
+        # Iter 212m-28b — fix: ownership check must read from
+        # `cto_projects` (the collection where projects actually live),
+        # not the non-existent `projects` collection. The bug was
+        # 403'ing every project-bound chat with a freshly-seeded
+        # project in preview. Caught by the live benchmark on
+        # tiangolo/fastapi.
         _db = get_db()
         _owned = None
         if _db is not None:
             try:
-                _owned = await _db.projects.find_one(
+                _owned = await _db.cto_projects.find_one(
                     {"project_id": pid, "user_id": user["user_id"]},
                     {"_id": 1},
                 )
