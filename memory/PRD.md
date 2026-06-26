@@ -13,6 +13,19 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-34 — Footer-strip card + homepage founder pill (Feb 26 2026) ✅
+**Visual fix** matching the user-shared Cursor/Cline footer-row reference.
+
+- `FounderOfferCard` redesigned as a slim **footer strip** (transparent
+  bg, 1 px amber top border, dim grey copy, amber mono counter, ghost
+  CTA button) — single-line by default; expands inline only on click.
+- ChatPanel mount moved from **above** `<form>` to **after** `</form>`,
+  verified via live bounding-box assertion (`CARD_TOP > FORM_BOTTOM`).
+- `FounderOfferPill` added to Landing hero (centred below "10 free
+  tasks" green pill) — homepage now shows live `X of 500 spots
+  remaining` counter above the fold.
+- **4 source-pin tests** + 212m-30→34 regression: **61/61 pass**.
+
 ### Iter 212m-33 — Tolerant FILE-block parser + Projects pill (Feb 26 2026) ✅
 **P1 fix + P2 polish in one ship.**
 

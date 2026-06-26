@@ -6,6 +6,55 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-34 — Footer-strip card + homepage founder pill (Feb 26 2026) ✅
+
+**Visual polish round** — user shared a Cursor/Cline reference where
+status/promo rows live BELOW the chat input as a slim footer. Our
+card was the opposite: a heavy amber-bordered banner above the input
+that dominated the screen. Fixed.
+
+### What changed
+
+**`components/FounderOfferCard.jsx`** — redesigned as a slim footer strip:
+- Single-line layout: `🎁  Free SEO fix from the founder · 500 spots remaining` (dim grey + amber mono counter) on the left, `Fix my site →` ghost button on the right.
+- Background `transparent` (was a gradient-filled card with full
+  amber border + drop shadow).
+- Visual separator is now just a 1 px top border (`rgba(234,179,8,0.18)`).
+- Font colors moved to `var(--text-dim)` / `#facc15` — no more
+  near-black text on amber that hurt in dark mode.
+- Preview / running / error states unchanged in behaviour; only
+  font sizes + colors toned down.
+
+**`components/ChatPanel.jsx`** — mount position moved:
+- Was: `<FounderOfferCard />` rendered **above** the `<form>` (pushed
+  the composer down).
+- Now: `<FounderOfferCard />` rendered **after** `</form>` (sits as a
+  footer underneath the composer — verified live with
+  `FORM_BOTTOM=1029.5, CARD_TOP=1035.5`).
+
+**`pages/Landing.jsx`** — homepage now shows the founder pill:
+- `<FounderOfferPill />` imported and dropped into the hero block,
+  centred directly below the "10 free tasks" green pill.
+- Renders only when offer is `is_active && remaining > 0` (existing
+  pill component logic), so it self-removes when the offer ends.
+- 14 px vertical breathing room from the surrounding hero rhythm —
+  no marquee / stats / button collisions.
+
+### Tests
+- `tests/test_iter212m34_card_footer_and_homepage_pill.py` —
+  **4 source pins** (card mounted after `</form>`, old card styling
+  gone, homepage pill imported + rendered, pill contract unchanged).
+- Full 212m-30 → 34 regression: **61/61 pass**.
+
+### Live E2E proofs
+| Scenario | Result |
+|---|---|
+| Homepage `/` | Pill renders centred in hero: `🎁 500 of 500 founder spots remaining` (green ≥50) |
+| Fresh user + connected project on `/dashboard` | Footer strip renders below composer, layout asserted via bounding boxes (`CARD_TOP > FORM_BOTTOM`) |
+| Headline / counter copy | `Free SEO fix from the founder` / `· 500 spots remaining` (unchanged from user-signed-off lock) |
+
+---
+
 ## Iter 212m-33 — Tolerant FILE-block parser + Projects pill (Feb 26 2026) ✅
 
 Two ships in one cut, both small but high-leverage:

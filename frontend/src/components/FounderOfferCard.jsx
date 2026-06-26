@@ -144,35 +144,59 @@ export default function FounderOfferCard({ projectId }) {
   if (!visible) return null;
 
   // ── Render ───────────────────────────────────────────────────
+  // Slim footer strip — sits BELOW the chat composer like a status
+  // bar. Single line by default; expands inline when the user clicks
+  // "Fix my site" so the composer never gets pushed off-screen.
   return (
     <div
       data-testid="founder-offer-card"
       style={{
-        margin: "0 16px 8px",
-        padding: "12px 14px",
-        background: "linear-gradient(135deg, rgba(234,179,8,0.10) 0%, rgba(234,179,8,0.04) 100%)",
-        border: "1px solid rgba(234,179,8,0.40)",
-        borderRadius: 8,
-        display: "flex", flexDirection: "column", gap: 10,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+        margin: "6px 16px 4px",
+        padding: "6px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        background: "transparent",
+        borderTop: "1px solid rgba(234,179,8,0.18)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between",
-                    alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span aria-hidden="true" style={{ fontSize: 13, opacity: 0.9 }}>🎁</span>
+          <span
             data-testid="founder-offer-headline"
-            style={{ fontWeight: 600, fontSize: 14, color: "var(--text-strong, #0b0b0b)" }}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--text-dim, #c9c9c9)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
           >
-            Free SEO fix — from the founder
-          </div>
-          <div
+            Free SEO fix from the founder
+          </span>
+          <span
             data-testid="founder-offer-counter"
-            style={{ fontSize: 11, color: counterColor, fontFamily: "'JetBrains Mono', monospace",
-                     letterSpacing: "0.04em" }}
+            style={{
+              fontSize: 11,
+              color: counterColor,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+              opacity: 0.85,
+              whiteSpace: "nowrap",
+            }}
           >
-            {status?.remaining ?? 0} spots remaining
-          </div>
+            · {status?.remaining ?? 0} spots remaining
+          </span>
         </div>
 
         {stage === "idle" && (
@@ -181,10 +205,27 @@ export default function FounderOfferCard({ projectId }) {
             data-testid="founder-offer-fix-btn"
             disabled={loading}
             onClick={handleClaim}
-            className="btn-primary"
-            style={{ padding: "6px 14px", fontSize: 12 }}
+            style={{
+              padding: "4px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#facc15",
+              background: "transparent",
+              border: "1px solid rgba(234,179,8,0.40)",
+              borderRadius: 6,
+              cursor: loading ? "wait" : "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+              transition: "background 120ms ease, color 120ms ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(234,179,8,0.10)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
           >
-            {loading ? "Reserving…" : "Fix my site"}
+            {loading ? "Reserving…" : "Fix my site →"}
           </button>
         )}
       </div>
@@ -201,17 +242,17 @@ export default function FounderOfferCard({ projectId }) {
       {stage === "running" && (
         <div
           data-testid="founder-offer-running"
-          style={{ fontSize: 12, color: "var(--text-dim, #555)" }}
+          style={{ fontSize: 11, color: "var(--text-dim, #888)" }}
         >
-          Running the fix in your repo… you can keep chatting; we&apos;ll
-          ping you when the commit lands.
+          Running the fix in your repo… we&apos;ll ping you when the
+          commit lands.
         </div>
       )}
 
       {stage === "error" && error && (
         <div
           data-testid="founder-offer-error"
-          style={{ fontSize: 12, color: "#b91c1c" }}
+          style={{ fontSize: 11, color: "#f87171" }}
         >
           {error}
         </div>

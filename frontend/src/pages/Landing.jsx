@@ -28,6 +28,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import FounderOfferPill from "../components/FounderOfferPill";
 import PricingCards from "../components/PricingCards";
 
 // ─── Decorative CSS (scoped to .ora-landing) ───
@@ -533,6 +534,13 @@ export default function Landing() {
             <div className="hero-pill" data-testid="hero-no-card-pill">
               <span className="live-dot"></span>
               <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
+            </div>
+            {/* Iter 212m-34 — Founder offer pill on the homepage. Lives
+                directly under the "10 free tasks" indicator so it's
+                visible above the fold without breaking the existing
+                hero rhythm. Auto-hides when the offer sells out. */}
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
+              <FounderOfferPill />
             </div>
             <div className="hero-stats">
               <div><div className="stat-num">$9</div><div className="stat-label">flat monthly</div></div>

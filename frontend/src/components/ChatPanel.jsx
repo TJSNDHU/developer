@@ -1754,11 +1754,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         </div>
       )}
 
-      {/* Iter 212m-30 PR-2 — Founder Offer (free SEO fix). Card auto-hides
-          when the user has fully claimed, the offer is sold out, or the
-          welcome window has expired (>3 days since signup). */}
-      <FounderOfferCard projectId={activeProject?.project_id} />
-
       <form
         data-testid="chat-form"
         onSubmit={send}
@@ -2077,6 +2072,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         </div>
         </div>
       </form>
+
+      {/* Iter 212m-34 — Founder Offer footer strip. Sits BELOW the
+          composer (matches the user-referenced Cursor/Cline layout
+          where status / promo rows live under the input, not above).
+          Auto-hides when has_fully_claimed, sold-out, or >3 days
+          since signup. */}
+      <FounderOfferCard projectId={activeProject?.project_id} />
 
       {/* Iter 148 — Connect-repo helper dialog. Surfaces only when the
           user explicitly opens it (no-repo pill or red GH status icon).
