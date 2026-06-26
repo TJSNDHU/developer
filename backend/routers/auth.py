@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import bcrypt
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel
 
 from cto_services.auth import (
@@ -20,9 +20,126 @@ from cto_services.auth import (
 from cto_services.db import get_db
 from services.usage import is_founder_email
 from services.mfa import verify_code, consume_backup_code
+from services.rate_limiter import check_rate_limit, client_ip_from_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+# Iter 212m-48 — brute-force protection on /auth/login.
+# All knobs are env-tunable so the lockout can be tightened/loosened
+# in prod without a code change.
+_LOGIN_RATE_PER_MIN  = int(os.getenv("LOGIN_RATE_PER_MIN", "10"))
+_LOGIN_FAIL_LIMIT    = int(os.getenv("LOGIN_FAIL_LIMIT", "5"))
+_LOGIN_LOCKOUT_MIN   = int(os.getenv("LOGIN_LOCKOUT_MIN", "15"))
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def _enforce_login_guard(db, client_ip: str) -> None:
+    """Iter 212m-48 — combined per-IP rate-limit + sliding-window
+    failed-attempts lockout for /auth/login. Called BEFORE the
+    email/password check so an attacker can't differentiate
+    "valid-but-locked" from "invalid creds" via timing.
+
+    Two layers:
+      (1) In-memory sliding window: LOGIN_RATE_PER_MIN (default 10) hits
+          per IP per minute → 429. Keeps cost cheap and survives a
+          process restart only as long as the bucket lives.
+      (2) Mongo-persisted lockout: LOGIN_FAIL_LIMIT (default 5) failed
+          attempts inside LOGIN_LOCKOUT_MIN (default 15) minutes → 429
+          for the remainder of the window. Survives restarts.
+    """
+    # Layer 1 — burst rate limit
+    if not check_rate_limit(f"login-ip:{client_ip}", _LOGIN_RATE_PER_MIN):
+        raise HTTPException(
+            429,
+            f"Too many login attempts from this IP. "
+            f"Slow down — limit is {_LOGIN_RATE_PER_MIN} per minute.",
+        )
+    # Layer 2 — persisted lockout window
+    if db is None:
+        return
+    row = await db.login_attempts.find_one({"_id": f"ip:{client_ip}"})
+    if not row:
+        return
+    fails: list = list(row.get("failed_at") or [])
+    cutoff = _now_utc()
+    # Mongo can hand back naive datetimes for legacy rows written before
+    # we standardised on tz-aware UTC. Normalise both sides of the
+    # subtraction so the lockout window comparison never raises.
+    def _as_aware(ts):
+        if isinstance(ts, datetime):
+            return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+        return None
+    # Drop entries older than the lockout window so the counter
+    # auto-resets after `_LOGIN_LOCKOUT_MIN` of quiet behaviour.
+    fresh = []
+    for ts in fails:
+        aware = _as_aware(ts)
+        if aware is None:
+            continue
+        if (cutoff - aware).total_seconds() <= _LOGIN_LOCKOUT_MIN * 60:
+            fresh.append(aware)
+    if len(fresh) >= _LOGIN_FAIL_LIMIT:
+        oldest = min(fresh)
+        retry_in = int(
+            (_LOGIN_LOCKOUT_MIN * 60) - (cutoff - oldest).total_seconds(),
+        )
+        retry_in = max(retry_in, 30)
+        raise HTTPException(
+            429,
+            f"Too many failed logins from this IP. "
+            f"Try again in ~{retry_in // 60 + 1} minute(s).",
+        )
+
+
+async def _record_login_failure(db, client_ip: str, email: str) -> None:
+    """Append a failed-attempt timestamp to both the IP-keyed lockout
+    row and (best-effort) the user row. We do NOT store the password
+    attempt — only timestamps + email — so this log is safe to expose
+    via admin tooling later."""
+    if db is None:
+        return
+    now = _now_utc()
+    try:
+        await db.login_attempts.update_one(
+            {"_id": f"ip:{client_ip}"},
+            {
+                "$push": {"failed_at": {"$each": [now], "$slice": -50}},
+                "$set":  {"last_email": email, "last_failed_at": now},
+            },
+            upsert=True,
+        )
+    except Exception as _e:
+        logger.warning("login_attempts IP update failed: %r", _e)
+    try:
+        await db.dev_users.update_one(
+            {"email": email},
+            {"$inc": {"failed_logins": 1}, "$set": {"last_failed_at": now}},
+        )
+    except Exception as _e:
+        logger.warning("dev_users failed_logins update failed: %r", _e)
+
+
+async def _clear_login_failures(db, client_ip: str, email: str) -> None:
+    """Reset the lockout counters on a successful login so the user
+    isn't penalised for stale failures from the same IP."""
+    if db is None:
+        return
+    try:
+        await db.login_attempts.delete_one({"_id": f"ip:{client_ip}"})
+    except Exception:
+        pass
+    try:
+        await db.dev_users.update_one(
+            {"email": email},
+            {"$set": {"failed_logins": 0}},
+        )
+    except Exception:
+        pass
 
 
 class SignupBody(BaseModel):
@@ -91,12 +208,17 @@ async def signup(body: SignupBody) -> dict:
 
 
 @router.post("/login")
-async def login(body: LoginBody) -> dict:
+async def login(body: LoginBody, request: Request) -> dict:
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
+    # Iter 212m-48 — brute-force protection. Enforce BEFORE the email
+    # lookup so an attacker can't probe for valid emails by timing.
+    client_ip = client_ip_from_request(request)
+    await _enforce_login_guard(db, client_ip)
     user = await db.dev_users.find_one({"email": body.email}, {"_id": 0})
     if not user:
+        await _record_login_failure(db, client_ip, body.email)
         raise HTTPException(401, "Invalid credentials")
     # OAuth-only accounts have no password — block password sign-in for
     # them with a clear message so they go through the GitHub button.
@@ -106,7 +228,11 @@ async def login(body: LoginBody) -> dict:
             "This account uses GitHub sign-in. Use 'Continue with GitHub'.",
         )
     if not bcrypt.checkpw(body.password.encode(), user["password"].encode()):
+        await _record_login_failure(db, client_ip, body.email)
         raise HTTPException(401, "Invalid credentials")
+    # Iter 212m-48 — password check passed. Clear the lockout state for
+    # this IP / user so a stale string of failures doesn't carry over.
+    await _clear_login_failures(db, client_ip, body.email)
     # Auto-promote whoever matches ADMIN_EMAIL or ADMIN_EMAILS env var
     # (cheap, idempotent). ADMIN_EMAIL kept for backward compat — single
     # address. Iter 181 — ADMIN_EMAILS added as a comma-separated list so
@@ -241,7 +367,16 @@ async def me(authorization: Optional[str] = Header(None)) -> dict:
         ts = user.get("created_at")
         if isinstance(ts, datetime):
             user["created_at"] = ts.isoformat()
-    return {"ok": True, "user": user or payload}
+    # Iter 212m-48 — auto-refresh the session token on every /auth/me
+    # call. The frontend already hits this on app boot and on focus,
+    # so active users glide indefinitely while idle / leaked tokens
+    # die within the new 7-day window.
+    fresh_token = create_token(
+        payload["user_id"],
+        payload.get("email", (user or {}).get("email", "")),
+        is_admin=bool((user or {}).get("is_admin") or payload.get("is_admin")),
+    )
+    return {"ok": True, "user": user or payload, "token": fresh_token}
 
 
 @router.get("/tokens")

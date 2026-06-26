@@ -47,12 +47,18 @@ async def current_dev(authorization: Optional[str] = None) -> dict:
 
 
 def create_token(user_id: str, email: str, is_admin: bool = False) -> str:
-    """Create a signed JWT for a developer user."""
+    """Create a signed JWT for a developer user.
+
+    Iter 212m-48 — TTL shortened from 30 days to 7 days. The blast
+    radius of a leaked token (XSS, stolen device, lost laptop) is now
+    capped at one week. Active users get fresh tokens automatically
+    via GET /auth/me, which re-signs on every call.
+    """
     payload = {
         "user_id": user_id,
         "email": email,
         "is_admin": is_admin,
-        "exp": int(time.time()) + 86400 * 30,  # 30 days
+        "exp": int(time.time()) + 86400 * 7,  # 7 days (was 30)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 

@@ -25,6 +25,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Iter 212m-48 — auto-pick-up refreshed JWTs.
+// The backend `/auth/me` endpoint now returns a freshly re-signed
+// token on every call (TTL is 7d, but active users glide
+// indefinitely while idle / leaked tokens die within the window).
+// Any other endpoint that returns `{ token: "..." }` in the body is
+// likewise treated as an authoritative re-issue.
+api.interceptors.response.use((response) => {
+  try {
+    const t = response?.data?.token;
+    if (typeof t === "string" && t.length > 20 && t.split(".").length === 3) {
+      const current = localStorage.getItem("aurem_token");
+      if (t !== current) localStorage.setItem("aurem_token", t);
+    }
+  } catch { /* never let interceptor errors break the call */ }
+  return response;
+});
+
 // Health check (no /aurem-dev prefix — it's on /api/health)
 export const healthApi = axios.create({
   baseURL: `${BACKEND}/api`,

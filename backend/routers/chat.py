@@ -205,6 +205,41 @@ def is_fix_confirmation(message: str) -> bool:
     return bool(_FIX_CONFIRM.search(message or ""))
 
 
+# Iter 212m-48 — basic prompt-injection guard. We do NOT log the
+# matched content (per security spec) — only the fact that a hit
+# happened, with a short rule label. Patterns are case-insensitive
+# and match anywhere in the message; this is a static deny-list,
+# not a heuristic, so it's safe to expand without false-positive
+# risk for normal user prose.
+_PROMPT_INJECTION_PATTERNS = [
+    ("ignore_previous_instructions",
+     _re_mode.compile(r"ignore\s+previous\s+instructions", _re_mode.IGNORECASE)),
+    ("ignore_all_previous",
+     _re_mode.compile(r"ignore\s+all\s+previous", _re_mode.IGNORECASE)),
+    ("im_start_marker",
+     _re_mode.compile(r"<\|im_start\|>", _re_mode.IGNORECASE)),
+    ("you_are_now",
+     _re_mode.compile(r"\byou\s+are\s+now\b", _re_mode.IGNORECASE)),
+    ("act_as_if_no_restrictions",
+     _re_mode.compile(
+         r"act\s+as\s+if\s+you\s+have\s+no\s+restrictions",
+         _re_mode.IGNORECASE,
+     )),
+]
+
+
+def detect_prompt_injection(message: str) -> str | None:
+    """Returns the rule label of the FIRST matched injection pattern,
+    or None when the message is clean. Caller is expected to refuse
+    the request with HTTP 400 on a hit — DO NOT log the content."""
+    if not message:
+        return None
+    for label, pat in _PROMPT_INJECTION_PATTERNS:
+        if pat.search(message):
+            return label
+    return None
+
+
 def _f12_has_real_signal(payload: dict) -> bool:
     """Iter 50 — guards against fishing-expedition Mode D triggers when the
     F12 buffer holds only noise (aborted/200 network entries, no stack
@@ -829,6 +864,17 @@ async def chat_stream(
     """SSE token-streaming chat. Iter 45: rate-limited to 30 req/min per IP.
     Iter 50.1: founders / unlimited accounts bypass the rate-limit."""
     user = await current_dev(authorization)
+    # Iter 212m-48 — prompt-injection guard. Block known jailbreak
+    # markers before any LLM call. We log ONLY the rule label, never
+    # the offending content (per security spec). Founders / admins
+    # are NOT exempted: the protection is for the model, not the user.
+    _pi_hit = detect_prompt_injection(body.prompt or "")
+    if _pi_hit:
+        logger.warning(
+            "prompt_injection_blocked user_id=%s rule=%s",
+            user.get("user_id", "?"), _pi_hit,
+        )
+        raise HTTPException(400, "This message cannot be processed")
     if not (bool(user.get("is_unlimited")) or user.get("tier") == "founder"):
         from services.rate_limiter import check_rate_limit, client_ip_from_request
         if not check_rate_limit(f"chat:{client_ip_from_request(request)}", 30):
