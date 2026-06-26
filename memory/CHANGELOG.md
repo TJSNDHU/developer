@@ -6,6 +6,65 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-31 — Empty-state Connect-Repo Banner (Feb 26 2026) ✅
+
+**One-CTA empty state for the founder offer funnel.**
+
+User-locked copy (signed off in chat):
+- Headline: `Connect a repo to unlock your free SEO fix`
+- Sub: `[X] of 500 founder spots remaining`
+- Button: `Connect repo →`
+- 3 inline steps:
+  1. Go to `github.com/settings/tokens` → **Fine-grained tokens**
+  2. **Permissions: Contents (Read & Write)**
+  3. Paste token below
+
+### What shipped
+
+**`components/ConnectRepoBanner.jsx`** (new):
+- Live spots counter polls `/founder-offer/status` every 60 s.
+- Counter color: green > 50, orange ≤ 50, red ≤ 10 (matches the
+  FounderOfferCard heuristic for visual continuity).
+- Collapsible (default expanded). Collapse state persisted to
+  `localStorage["aurem_connect_banner_collapsed"]` so a power user
+  who hides it stays hidden across reloads.
+- Hides itself when the founder offer is fully consumed (remaining
+  === 0) — at that point the SEO incentive is gone and dangling it
+  would just frustrate.
+- PAT deeplink targets fine-grained tokens (`?type=beta`) — *not*
+  classic — so the user lands on the secure-default flow.
+- Every interactive + critical element has `data-testid`.
+
+**`pages/Dashboard.jsx`** wiring:
+- New `projectCount` state — single source of truth used by BOTH
+  the wizard auto-popup AND the persistent banner.
+- Banner mounts above the chat panel ONLY when `projectCount === 0`.
+  Hidden the instant the first repo lands.
+- `openWizardFromBanner` callback bypasses the dismiss flag so the
+  user can reopen the wizard from the banner even after they've
+  closed the onboarding overlay once.
+- `onWizardComplete` re-fetches the project list and updates count
+  so the banner unmounts as soon as a connect succeeds.
+
+### Tests
+- `tests/test_iter212m31_connect_repo_banner.py` — **5 source pins**
+  covering the locked copy, 3-step PAT guide, polling endpoint,
+  Dashboard mount condition, and sold-out hide rule.
+- Full 212m-27 → 31 regression: **72/72 pass**.
+
+### Live E2E proof
+| Test | Result |
+|---|---|
+| Sign up fresh user, set `aurem_wizard_dismissed=1`, land on /dashboard | Banner renders with `headline="Connect a repo to unlock your free SEO fix"`, `counter="500 of 500 founder spots remaining"` |
+| Click "Connect repo →" | NewUserWizard overlay opens (even with dismiss flag set) |
+| `data-testid="connect-repo-banner-step-1..3"` | All three steps present with locked copy |
+| PAT deeplink | `https://github.com/settings/tokens?type=beta` |
+
+> **Deployment note**: PREVIEW only. User must redeploy to push to
+> `auremcto.com` production.
+
+---
+
 ## Iter 212m-30 — Repo Indexing + Founder Offer (PR-2) (Feb 26 2026) ✅
 
 **The other two-thirds of the SEO programme.** PR-1 shipped the SEO

@@ -13,6 +13,21 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-31 — Empty-state Connect-Repo Banner (Feb 26 2026) ✅
+**Feature**: Persistent CTA on the empty dashboard state (no projects).
+
+- New `components/ConnectRepoBanner.jsx` mounts above the chat panel
+  whenever `projectCount === 0`. Locked copy: headline "Connect a
+  repo to unlock your free SEO fix", sub "[X] of 500 founder spots
+  remaining" (live poll, 60 s), button "Connect repo →", plus 3 inline
+  PAT steps (Fine-grained tokens → Contents Read & Write → paste).
+- Collapsible (state persisted), hides on offer sold-out, deeplinks
+  to fine-grained PAT page (`?type=beta`).
+- Dashboard tracks `projectCount` separately from wizard, so banner
+  persists after the wizard is dismissed AND unmounts as soon as a
+  repo lands. Banner CTA reopens wizard even with the dismiss flag set.
+- **5 source-pin tests** + full 212m-27→31 regression (**72/72 pass**).
+
 ### Iter 212m-30 — Repo Indexing + Founder Offer (PR-2) (Feb 26 2026) ✅
 **Feature**: PR-2 of the SEO programme (PR-1 = Iter 212m-29 core engine).
 

@@ -15,6 +15,7 @@ import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
 import TabBar, { useActiveProject, setActiveProjectId } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
+import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import { toast } from "../components/Toast";
 import { api } from "../lib/api";
 
@@ -34,22 +35,56 @@ function DashboardBody() {
   const project = useActiveProject();
   const navigate = useNavigate();
   const [showWizard, setShowWizard] = useState(false);
+  // Iter 212m-31 — banner persistence. We track project count separately
+  // from the wizard so the persistent <ConnectRepoBanner /> can keep
+  // showing after the user dismisses the onboarding overlay. Re-checked
+  // whenever a TabBar refresh fires (project added / removed).
+  const [projectCount, setProjectCount] = useState(null);
   const [showPreview, setShowPreview] = useState(() => {
     try { return localStorage.getItem(PREVIEW_PREF_KEY) === "1"; }
     catch { return false; }
   });
 
+  // Iter 212m-31 — single source of truth for "do we have any projects?".
+  // Re-runs on `aurem:projects-refresh` (TabBar fires this after add /
+  // delete) so the banner hides immediately when the first repo lands.
   useEffect(() => {
     let cancelled = false;
-    if (isWizardDismissed()) return;
+    const refreshCount = () => {
+      api.get("/cto/projects/list")
+        .then((r) => {
+          if (cancelled) return;
+          const count = (r.data?.projects || []).length;
+          setProjectCount(count);
+          if (count === 0 && !isWizardDismissed()) {
+            setShowWizard(true);
+          }
+        })
+        .catch(() => { /* ignore */ });
+    };
+    refreshCount();
+    window.addEventListener("aurem:projects-refresh", refreshCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("aurem:projects-refresh", refreshCount);
+    };
+  }, []);
+
+  // Iter 212m-31 — re-opening the wizard from the persistent banner.
+  // Bypasses the dismiss flag because the user is now explicitly
+  // asking for the flow back.
+  const openWizardFromBanner = useCallback(() => {
+    setShowWizard(true);
+  }, []);
+
+  // Iter 212m-31 — refresh the project count whenever the wizard
+  // closes (success OR cancel). If the user connected a repo, the
+  // banner will see count > 0 and unmount itself.
+  const onWizardComplete = useCallback(() => {
+    setShowWizard(false);
     api.get("/cto/projects/list")
-      .then((r) => {
-        if (cancelled) return;
-        const count = (r.data?.projects || []).length;
-        if (count === 0) setShowWizard(true);
-      })
+      .then((r) => setProjectCount((r.data?.projects || []).length))
       .catch(() => { /* ignore */ });
-    return () => { cancelled = true; };
   }, []);
 
   // Milestone share-prompt on ship events (preview auto-open moved
@@ -305,10 +340,15 @@ function DashboardBody() {
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Iter 212m-31 — Persistent empty-state CTA. Sits above the
+            chat panel until the user connects at least one repo. */}
+        {projectCount === 0 && (
+          <ConnectRepoBanner onConnect={openWizardFromBanner} />
+        )}
         <div
           data-testid="chat-pane"
-          style={{ width: "100%", minWidth: 0, overflow: "hidden" }}
+          style={{ flex: 1, minHeight: 0, width: "100%", minWidth: 0, overflow: "hidden" }}
         >
           <ChatPanel
             sessionId={sessionId}
@@ -319,7 +359,7 @@ function DashboardBody() {
       </div>
 
       {showWizard && (
-        <NewUserWizard onComplete={() => setShowWizard(false)} />
+        <NewUserWizard onComplete={onWizardComplete} />
       )}
 
       {showDeleteModal && project && (
