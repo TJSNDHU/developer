@@ -6,6 +6,51 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-28c — Admin debug endpoint for repo_context_timings (Feb 25 2026) ✅
+
+`GET /api/aurem-dev/admin/debug/repo_context_timings` — operator
+spot-check for the new timing telemetry. Admin-only, returns the
+20 most recent samples sorted by `ts` desc.
+
+**Honest deviation from user's literal snippet** (paste would have
+crashed in 3 places, flagged transparently):
+
+| Issue in literal snippet | Fix |
+|---|---|
+| `Depends(require_admin)` | `require_admin` symbol doesn't exist; admin.py uses `_require_admin(authorization)` + `Header(None)` everywhere. Used the project-wide pattern. |
+| `return {"timings": docs}` | Raw Mongo docs carry `_id: ObjectId` which is NOT JSON-serializable → 500 crash. Per project rules ("Never return raw MongoDB documents"), we coerce `_id` → str, `ts` → ISO string. |
+| Endless DB scan | Already capped at 20 in spec; preserved. |
+
+**Response shape**:
+```json
+{
+  "timings": [
+    {
+      "_id": "6a3ddabc6b180b463192f87f",
+      "project_id": "demo",
+      "owner": "tiangolo", "repo": "fastapi", "branch": "master",
+      "cold_path": true,
+      "phases_ms": {"tree_fetch_ms": 514, "rescue_ms": 0, "inline_ms": 280},
+      "total_ms": 795,
+      "files_inlined": 2,
+      "ts": "2026-06-26T01:49:48.957000"
+    }
+  ],
+  "count": 1
+}
+```
+
+**E2E proof** (founder JWT):
+- `HTTP 401` without token (gate works)
+- `HTTP 200` with founder token, seeded sample returned with all
+  fields JSON-clean
+- Cleanup verified — no test pollution
+
+**Tests**: `tests/test_iter212m28c_admin_debug_timings.py` (6 pins).
+**28/28 pass** across 212m-27, 212m-28, 212m-28c.
+
+---
+
 ## Iter 212m-28 — repo_context Hot-Path Parallelisation (Feb 25 2026) ✅
 
 **Real cause** of the 5-15 s chat latency was found and fixed.

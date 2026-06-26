@@ -3298,3 +3298,42 @@ async def admin_house_rules_write(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"ok": True, "house_rules": doc}
+
+
+
+# Iter 212m-28c — Admin debug endpoint for the repo_context timings
+# collection (introduced in Iter 212m-28). Returns the most recent
+# 20 samples so operators can spot-check per-phase latencies after a
+# deploy without opening Atlas.
+#
+# NOTE: the router prefix is already "/admin" so this lands at
+#   GET /api/aurem-dev/admin/debug/repo_context_timings
+# matching the user's spec. ObjectId + datetime are coerced to JSON-
+# safe shapes here because raw Mongo docs are NOT JSON-serializable
+# (per project rule: no raw documents out of any endpoint).
+
+@router.get("/debug/repo_context_timings")
+async def admin_debug_repo_context_timings(
+    authorization: Optional[str] = Header(None),
+):
+    """Return the 20 most recent `repo_context_timings` samples.
+
+    Admin-only. JSON-safe: `_id` becomes a string, `ts` becomes an ISO
+    string. Surfaces the per-phase millisecond breakdown
+    (`tree_fetch_ms`, `rescue_ms`, `inline_ms`, `cache_hit_ms`,
+    `total_ms`) plus `files_inlined` and `cold_path` so operators can
+    see at a glance whether the parallel fetch fix is working.
+    """
+    await _require_admin(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    docs = await db.repo_context_timings.find().sort("ts", -1).limit(20).to_list(20)
+    timings: list[dict] = []
+    for d in docs:
+        d["_id"] = str(d.get("_id")) if d.get("_id") is not None else None
+        ts = d.get("ts")
+        if hasattr(ts, "isoformat"):
+            d["ts"] = ts.isoformat()
+        timings.append(d)
+    return {"timings": timings, "count": len(timings)}
