@@ -47,6 +47,52 @@ _BASE_DELAY_S = 0.4   # Iter 129 — was 0.8. Halves the worst-case
                       # delay window. With _MAX_RETRIES=1 this is the
                       # ONLY backoff that fires.
 
+# ─── Iter 212m-47 — Free-model fallback chain ─────────────────────────────
+# When OpenRouter rejects a paid-model call with one of these statuses
+# (most commonly 402 = insufficient credits, also 429 / 5xx / network),
+# we retry the SAME prompt against OpenRouter's `:free` models. These
+# don't consume credits and live on independent infra so a credit-
+# exhaustion or paid-model outage still gets the user a response.
+#
+# Order matters: best quality → smallest. Env override:
+#   OPENROUTER_FREE_MODELS=model1,model2,model3
+_FALLBACK_STATUSES = {402, 404, 408, 425, 429, 500, 502, 503, 504}
+# 404 → primary model slug isn't routable on OpenRouter (rare config
+# drift). Treat as "this candidate is broken — try the next" rather
+# than a hard fail; the legitimate "your prompt is broken" 4xx codes
+# (400, 422) still abort the chain.
+_DEFAULT_FREE_MODELS = [
+    # Verified-live slugs via GET /api/v1/models (Feb 2026). Order:
+    # best quality → smallest. The chain stops at the first model that
+    # produces non-empty content.
+    "openai/gpt-oss-120b:free",
+    "qwen/qwen3-coder:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+]
+
+
+def _free_fallback_models() -> list[str]:
+    raw = os.getenv("OPENROUTER_FREE_MODELS", "").strip()
+    if not raw:
+        return list(_DEFAULT_FREE_MODELS)
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+def _is_fallback_worthy(exc: Exception) -> bool:
+    """Return True when the exception means the PRIMARY model is the
+    problem (credit issue, rate limit, upstream 5xx, network blip) and
+    we should retry the same prompt against a free model. False when
+    the prompt itself is broken (4xx other than 402/429) — retrying
+    would just burn another model's quota for no win."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _FALLBACK_STATUSES
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError,
+                        httpx.ReadError, httpx.RemoteProtocolError)):
+        return True
+    return False
+
 
 def _retryable(exc: Exception) -> tuple[bool, int | None]:
     """Return (should_retry, http_status). Status is None for non-HTTP errors."""
@@ -145,47 +191,95 @@ async def _call_deepseek(messages: list, system: str = "",
         "X-No-Cache": "true",
     }
     msgs = ([{"role": "system", "content": system}] + messages) if system else messages
-    payload = {
-        "model": _deepseek_model(),
-        "messages": msgs,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "provider": {
-            "data_collection": "deny",
-            "order": _DEEPSEEK_HOSTS,
-            "allow_fallbacks": False,
-        },
-    }
-    # Iter 157 — was 60s. DeepSeek typically returns in 5-15s; a
-    # 60s budget gave OpenRouter cold-start queues room to gobble up
-    # most of the chat turn's wall-clock budget.
-    # Iter 160 — tightened further from 35s → 25s after founder
-    # reported still-100s+ stalls on production. With _MAX_RETRIES=1
-    # worst case is now 2 × 25s = 50s per LLM call. Override per-deploy
-    # via LLM_HTTP_TIMEOUT_S.
+
+    def _build_payload(model: str, with_provider_block: bool) -> dict:
+        p: dict = {
+            "model": model,
+            "messages": msgs,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if with_provider_block:
+            # The host-routing block is OpenRouter-paid-tier specific; the
+            # `:free` models live on different infra and 400-out on unknown
+            # provider hosts. Only attach it for the primary call.
+            p["provider"] = {
+                "data_collection": "deny",
+                "order": _DEEPSEEK_HOSTS,
+                "allow_fallbacks": False,
+            }
+        return p
+
     _LLM_TIMEOUT_S = float(os.getenv("LLM_HTTP_TIMEOUT_S", "25.0"))
-    async with httpx.AsyncClient(timeout=_LLM_TIMEOUT_S) as c:
-        for attempt in range(1, _MAX_RETRIES + 2):  # 1..4
-            try:
-                r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
-                r.raise_for_status()
-                data = r.json()
-                break
-            except Exception as e:
-                retryable, status = _retryable(e)
-                if not retryable or attempt > _MAX_RETRIES:
-                    logger.error(
-                        "OpenRouter call failed (attempt %d, status=%s, retryable=%s): %r",
-                        attempt, status, retryable, e,
-                    )
-                    raise
-                delay = _retry_delay(attempt)
+
+    # Iter 212m-47 — Try primary DeepSeek model first; if that fails on
+    # 402/429/5xx/network, walk the free-model chain. Returns content
+    # from whichever model succeeded.
+    candidates: list[tuple[str, bool]] = [(_deepseek_model(), True)]
+    for fm in _free_fallback_models():
+        candidates.append((fm, False))
+
+    last_exc: Exception | None = None
+    data: dict | None = None
+    served_by: str | None = None
+    for ci, (cand_model, with_provider) in enumerate(candidates):
+        payload = _build_payload(cand_model, with_provider)
+        try:
+            async with httpx.AsyncClient(timeout=_LLM_TIMEOUT_S) as c:
+                # Per-model: 1 retry on transient errors (unchanged
+                # legacy behaviour for the primary).
+                for attempt in range(1, _MAX_RETRIES + 2):
+                    try:
+                        r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
+                        r.raise_for_status()
+                        data = r.json()
+                        served_by = cand_model
+                        break
+                    except Exception as e:
+                        retryable, status = _retryable(e)
+                        if not retryable or attempt > _MAX_RETRIES:
+                            raise
+                        delay = _retry_delay(attempt)
+                        logger.warning(
+                            "OpenRouter transient failure on %s (status=%s, attempt %d/%d) — "
+                            "retrying in %.2fs: %r",
+                            cand_model, status, attempt, _MAX_RETRIES + 1, delay, e,
+                        )
+                        await asyncio.sleep(delay)
+            # Success — stop walking the fallback chain.
+            if ci > 0:
                 logger.warning(
-                    "OpenRouter transient failure (status=%s, attempt %d/%d) — "
-                    "retrying in %.2fs: %r",
-                    status, attempt, _MAX_RETRIES + 1, delay, e,
+                    "DeepSeek primary %r failed, served by free fallback %r",
+                    _deepseek_model(), cand_model,
                 )
-                await asyncio.sleep(delay)
+            break
+        except Exception as e:
+            last_exc = e
+            if not _is_fallback_worthy(e):
+                logger.error(
+                    "OpenRouter call (%s) failed non-retryably: %r", cand_model, e,
+                )
+                raise
+            logger.warning(
+                "OpenRouter %s failed (fallback-worthy, %d/%d): %r — walking free chain",
+                cand_model, ci + 1, len(candidates), e,
+            )
+            continue
+
+    if data is None:
+        # All candidates exhausted.
+        logger.error(
+            "OpenRouter exhausted all %d candidates. Last error: %r",
+            len(candidates), last_exc,
+        )
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("OpenRouter call failed: no candidate models returned")
+    # Stash the served-by model in a logger context line; the data dict
+    # itself is returned through legacy code paths so we don't change
+    # the call contract — provenance is in the logs.
+    if served_by:
+        logger.info("DeepSeek call served by model=%s", served_by)
     try:
         msg = data["choices"][0]["message"]
         # If DeepSeek returned native tool_calls, serialize them back to
@@ -303,6 +397,13 @@ async def call_openrouter_model(
     Emergent LLM key instead — this function is the unified
     OpenRouter-only path so smart_router can pick any provider.
 
+    Iter 212m-47 — Free-model fallback chain. If the requested paid
+    model returns 402 (insufficient credits) / 429 / 5xx / network
+    error, we transparently retry the same prompt against OpenRouter's
+    `:free` tier models. The caller never has to know — they still get
+    a usable completion string, with a log line marking which model
+    actually answered.
+
     Returns "" on any failure; the agents layer handles fallback so we
     keep this function thin and predictable.
     """
@@ -316,25 +417,50 @@ async def call_openrouter_model(
         "X-Title": "AUREM Dev",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-    }
+    base_messages = [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": user},
+    ]
     _timeout_s = float(os.getenv("LLM_HTTP_TIMEOUT_S", "25.0"))
-    try:
-        async with httpx.AsyncClient(timeout=_timeout_s) as c:
-            r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
-            r.raise_for_status()
-            data = r.json()
-        return (data["choices"][0]["message"].get("content") or "").strip()
-    except Exception as e:
-        logger.warning("call_openrouter_model(%s) failed: %r", model, e)
-        return ""
+
+    # Try the requested model first, then each free fallback in turn.
+    candidates = [model] + [m for m in _free_fallback_models() if m != model]
+    last_exc: Exception | None = None
+    for i, candidate in enumerate(candidates):
+        payload = {
+            "model": candidate,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": base_messages,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_timeout_s) as c:
+                r = await c.post(OPENROUTER_URL, headers=headers, json=payload)
+                r.raise_for_status()
+                data = r.json()
+            content = (data["choices"][0]["message"].get("content") or "").strip()
+            if i > 0:
+                logger.warning(
+                    "call_openrouter_model: primary %r failed, served by free fallback %r",
+                    model, candidate,
+                )
+            return content
+        except Exception as e:
+            last_exc = e
+            if not _is_fallback_worthy(e):
+                # Prompt-level bug (4xx other than 402/429). Don't burn
+                # extra free quota — surface the failure.
+                logger.warning("call_openrouter_model(%s) non-retryable: %r", candidate, e)
+                return ""
+            logger.warning(
+                "call_openrouter_model(%s) fallback-worthy failure (%d/%d): %r",
+                candidate, i + 1, len(candidates), e,
+            )
+    logger.error(
+        "call_openrouter_model: all %d candidates exhausted (primary=%r). Last error: %r",
+        len(candidates), model, last_exc,
+    )
+    return ""
 
 
 async def call_llm(messages: list, system: str = "",
