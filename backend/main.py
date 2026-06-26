@@ -48,6 +48,8 @@ from routers.wrapped import router as wrapped_router
 from routers.hosted_deploy import router as hosted_deploy_router
 from routers.github_deploy import router as github_deploy_router   # iter 123
 from routers.thinking_hints import router as thinking_hints_router  # iter 158
+from routers.repo_indexing import router as repo_indexing_router    # Iter 212m-30 PR-2
+from routers.founder_offer import router as founder_offer_router    # Iter 212m-30 PR-2
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -923,6 +925,8 @@ app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
+app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
+app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

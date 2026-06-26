@@ -17,7 +17,7 @@ import {
   Send, Loader2, Square, Paperclip, Github, Zap,
   Eye, EyeOff, Trash2, Network,
 } from "lucide-react";
-import { api, streamChat, API_BASE, getToken } from "../lib/api";
+import { api, streamChat, API_BASE, getToken, getUser } from "../lib/api";
 import { toast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
@@ -31,6 +31,8 @@ import { useF12Errors, detectMode, F12Badge, ModePill } from "./ChatPanelF12";
 import MessageBubble from "./MessageBubble";
 import PostTaskScan from "./PostTaskScan";
 import LiveStepFloatingCard from "./LiveStepFloatingCard";  // Iter 212m-19
+import FounderOfferCard from "./FounderOfferCard";          // Iter 212m-30 PR-2
+import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
 // calls, and SSE stream control so each concern can be unit-tested
@@ -236,6 +238,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   }, [chatMode]);
 
   const [clearingChat, setClearingChat] = useState(false);
+  // Iter 212m-30 PR-2 — Founder welcome chat-bg tint. The amber wash
+  // decays each day for the first 72 h after signup; after that the
+  // helper returns "transparent" so the visual hint stops naturally
+  // without us needing a DB flag.
+  const founderTint = useMemo(() => {
+    const u = (typeof getUser === "function" && getUser()) || null;
+    return getChatBgTint(u?.created_at);
+  }, []);
   // Iter 148 — controls the "connect a repo" helper dialog. Triggered
   // by the no-repo warning pill above the composer and by clicking the
   // red GH status indicator in the toolbar.
@@ -1367,8 +1377,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           height: "100%",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
-          transition: "flex 240ms cubic-bezier(0.4,0,0.2,1)",
+          transition: "flex 240ms cubic-bezier(0.4,0,0.2,1), background-color 600ms ease",
           position: "relative",   // Iter 212m-19 — anchor for floating card
+          // Iter 212m-30 PR-2 — Founder welcome tint (first 72 h after
+          // signup; "transparent" otherwise so no visual cost long-term).
+          backgroundColor: founderTint,
         }}
       >
       {/* Iter 212m-19 — Live step floating card. Pinned top-right of
@@ -1740,6 +1753,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           </button>
         </div>
       )}
+
+      {/* Iter 212m-30 PR-2 — Founder Offer (free SEO fix). Card auto-hides
+          when the user has fully claimed, the offer is sold out, or the
+          welcome window has expired (>3 days since signup). */}
+      <FounderOfferCard projectId={activeProject?.project_id} />
 
       <form
         data-testid="chat-form"

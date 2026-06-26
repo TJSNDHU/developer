@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 import os
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import bcrypt
@@ -59,6 +60,7 @@ async def signup(body: SignupBody) -> dict:
     is_founder = is_founder_email(body.email)
     tier = "founder" if is_founder else "free"
     starting_tokens = 10**9 if is_founder else 1000
+    created_at = datetime.now(timezone.utc)
     await db.dev_users.insert_one({
         "user_id": user_id,
         "email": body.email,
@@ -68,6 +70,10 @@ async def signup(body: SignupBody) -> dict:
         "tokens_remaining": starting_tokens,
         "is_admin": is_founder,
         "is_unlimited": is_founder,
+        # Iter 212m-30 — `created_at` powers the 3-day chat-bg tint and
+        # the founder-offer `days_since_signup` check. Stored as tz-aware
+        # datetime so Mongo's BSON serialiser keeps the timezone intact.
+        "created_at": created_at,
     })
     token = create_token(user_id, body.email, is_admin=is_founder)
     return {
@@ -80,6 +86,7 @@ async def signup(body: SignupBody) -> dict:
         "tokens_remaining": starting_tokens,
         "is_admin": is_founder,
         "is_unlimited": is_founder,
+        "created_at": created_at.isoformat(),
     }
 
 
@@ -225,6 +232,15 @@ async def me(authorization: Optional[str] = Header(None)) -> dict:
         user = await db.dev_users.find_one(
             {"user_id": payload["user_id"]}, {"_id": 0, "password": 0}
         )
+    # Iter 212m-30 — coerce datetime fields to ISO strings so the JSON
+    # serialiser doesn't reject the response. `created_at` is read by
+    # the frontend to compute the founder welcome tint. Some legacy
+    # rows have an epoch float instead of a datetime — we leave those
+    # numbers untouched; getChatBgTint() handles both shapes.
+    if user:
+        ts = user.get("created_at")
+        if isinstance(ts, datetime):
+            user["created_at"] = ts.isoformat()
     return {"ok": True, "user": user or payload}
 
 

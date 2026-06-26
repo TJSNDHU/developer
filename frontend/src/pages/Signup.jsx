@@ -52,6 +52,9 @@ export default function Signup() {
         name: r.data.name,
         tier: r.data.tier,
         tokens_remaining: r.data.tokens_remaining,
+        // Iter 212m-30 PR-2 — preserve signup timestamp so the chat
+        // panel can render the 3-day founder-welcome tint.
+        created_at: r.data.created_at,
       });
       // Iter 101 — if a referrer is in localStorage (set by App.jsx
       // when ?ref=… landed), attribute the new account now that we

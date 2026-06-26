@@ -1,0 +1,34 @@
+{
+  "summary": "PR-2 (Iter 212m-30) Repo Indexing + Founder Offer — Backend + Frontend verified end-to-end. 22 unit tests (mock-based) + 9 new live HTTP tests + 2 UI smoke tests all pass. Spec compliance confirmed: 500 spots, atomic decrement, 3-repo per-user cap, dry-run preview→confirm→running flow, cancel restores spot only at preview stage, signup persists tz-aware created_at and surfaces ISO string in /auth/me. UI: FounderOfferCard correctly hides for legacy (~12d) user AND for fresh user with no project (by-design). Chat panel amber tint: fresh user gets inline style.backgroundColor='rgba(234, 179, 8, 0.04)' (day-1 spec value); legacy user gets transparent (no amber). Test data cleaned up — spots_claimed reset to 0, TEST_ users + claims deleted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m30_pr2_founder_indexing.py",
+    "/app/backend/tests/test_iter212m30_pr2_live_http.py",
+    "/app/test_reports/pytest/iter212m30_pr2_results.xml",
+    "/app/test_reports/pytest/iter212m30_pr2_live_http.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "founder_offer.cancel restores the spot via update_one (no return_document) AFTER find_one_and_update flips status. The two writes are not in a transaction — a crash between them would leave a cancelled claim with no spot restored. Not blocking (low-probability and detectable by ops), but could be wrapped in a Motor session with_transaction for full safety.",
+    "routers/founder_offer.py _run_real_fix is fire-and-forget via asyncio.create_task — if the worker process restarts mid-fix, fix_status stays 'running' forever. A periodic janitor (or stricter status timeout) would let the UI recover gracefully.",
+    "GET /founder-offer/status has no caching headers and the FE polls every 30s — acceptable, but per-IP rate-limit would protect against abusive callers since the endpoint is unauthenticated."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m30_pr2_live_http.py (new — 9 live HTTP tests with teardown cleanup)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "100% (2/2 smoke checks)"},
+  "test_credentials": "Used test@aurem.dev / AuremTest2026! (legacy) + ephemeral TEST_pr2_*@aurem.dev fresh signups. All cleaned up post-run.",
+  "seed_data_creation": "Created (and deleted) 3 ephemeral TEST_pr2_* users (1 from HTTP test, 2 from UI smoke). 2 ephemeral claim rows from HTTP test (1 active, 1 cancelled) — both removed. founder_offer.spots_claimed reset to 0.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "PR-2 verified clean against the preview env. Live HTTP suite (test_iter212m30_pr2_live_http.py) is reusable — it auto-cleans created data via teardown_module so it's safe to re-run. The full claim→confirm→completed happy path was NOT exercised end-to-end because it requires a real connected GitHub project (and OAuth can't run headless per /app/memory/test_credentials.md). Confirm-on-known-claim was unit-tested via the 22-test mock suite. To E2E the confirm path, manually pre-seed dev_users.{uid}.github.access_token with a real PAT for a test project, then call /founder-offer/claim → /founder-offer/confirm and observe fix_status='running' transitioning to 'completed' once orchestrator finishes. UI flow for FRESH user with a connected project (the only configuration where the card actually renders) is untestable through automated harness for the same OAuth reason.",
+  "rca of the issue": "No issues found — all 22 mock tests + 9 live HTTP tests + 2 UI smokes pass. Card visibility rules and tint values match the PRD exactly (0.04 day-1 verified). PR-2 is ship-ready."
+}
