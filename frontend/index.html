@@ -221,7 +221,7 @@
       "applicationCategory": "DeveloperApplication",
       "applicationSubCategory": "AI Coding Assistant",
       "operatingSystem": "Web, Windows, macOS, Linux",
-      "softwareVersion": "Iter 212m-68",
+      "softwareVersion": "Iter 212m-73",
       "datePublished": "2026-02-11",
       "offers": {
         "@type": "Offer",
@@ -234,22 +234,51 @@
         "description": "498 of 500 founder spots remaining. $9/month flat — no token billing, no per-seat pricing, unlimited repos."
       },
       "featureList": [
-        "Autonomous code writing and direct GitHub commits",
-        "Vanguard 25-pattern pre-commit security scan (Iter 212m-66 two-round deep mode)",
-        "AI Remediation Report — auto-generates exact fixes for every finding",
-        "Auto draft Pull Request with the security report",
-        "4-hop LLM fallback chain — never goes down (OpenRouter → DeepSeek → Free chain → Groq)",
-        "ORA Council self-learning across 5 modes",
-        "Loop Mode — Plan → Execute → Verify → Security Scan → Ship pipeline",
-        "Self-healing verifier (ruff/eslint subprocess, up to 3 auto-retries)",
-        "Two-Agent Maxx mode — parallel write + Claude Sonnet 4.5 verify",
-        "GLM-5.2 and Claude Sonnet 4.5 multi-model routing",
-        "Live system map admin dashboard (/feature-window)",
-        "F12 browser error auto-capture",
-        "/diagram Mermaid.js architecture rendering",
+        "Autonomous code writing and direct GitHub commits via REST API",
+        "Vanguard 2.0 pre-commit security scan — 25 base patterns + 13 deep-mode rules + 3 chain-detection rules (Iter 212m-66 two-round mode)",
+        "AI Remediation Report — auto-generates exact fix diffs with per-finding pr_ready flag and weighted risk score 0-100",
+        "Auto draft Pull Request with the security report on a vanguard/auto-fix-{ts} branch (never force-merges)",
+        "Codebase Health Dashboard — six-category 0-100 score (Security, Performance, Code Quality, Dependencies, Database, Bug Hunt) with dramatic urgency UI",
+        "Bug Hunt scanner — 50+ Nuclei-template-inspired static rules (Iter 212m-73) covering leaked secrets, RCE primitives, exposed admin endpoints, and CVE-vulnerable dependencies",
+        "Hardcoded secret detection across 15 cloud providers (AWS access keys, GCP API keys, Stripe live keys, SendGrid, Slack, GitHub PAT/OAuth/App, JWT secrets, Twilio, Azure Storage, private RSA keys)",
+        "Dependency CVE scanner for requirements.txt and package.json (requests/flask/django/pillow/cryptography/urllib3/pyyaml/jinja2/axios/lodash/next with live version comparison)",
+        "Vulnerable code pattern detection — Log4Shell ${jndi:}, eval/exec with user input, pickle.loads, yaml.load, subprocess shell=True, SSRF, SQL f-string, XSS sinks, JWT alg=none, CORS misconfig, weak crypto (MD5/SHA1), insecure cookies",
+        "Exposed endpoint detection — /debug, /admin, /actuator, /metrics, leaky /health, API keys in URL, stack traces returned to client, DEBUG=True in production, Swagger in prod, CORS allow_origins=['*']",
+        "One-click commit Rollback — two-step confirm, git revert semantics, never force-push, full history preserved, PAT scrubbed from all error logs",
+        "Loop Mode — five-phase verified pipeline (Plan → Execute → Verify → Security Scan → Ship) with Mongo-persisted state machine and G1-G5 reliability (resume, backup, rollback)",
+        "Self-healing verifier (ruff + eslint subprocess, up to 3 auto-retries, user-pause on persistent failure)",
+        "Six AI execution modes — Swift (DeepSeek V3), Pro (Claude Sonnet 4.5), Maxx (two-agent parallel + Claude reviewer), Mode D (Debug), Mode E (Audit), Mode F (Engage/Market)",
+        "4-hop LLM fallback chain — OpenRouter → DeepSeek → OpenRouter Free → Groq emergency. Never goes down on single-provider outages",
+        "ORA Council self-learning — every interaction across 5 modes logged for per-codebase fine-tuning",
+        "Project Brain memory layer with TF-IDF retrieval injected on every chat turn",
+        "Repo Indexing — single-call deterministic CODEBASE.md generation (zero LLM cost)",
+        "Repo Context Injector — top-10 priority files inlined (15 KB budget) plus full tree of all files",
+        "GitHub Issues Context — auto-pulls relevant open issues into the prompt",
+        "Vanguard Skill Injector — auto-attaches PCI Compliance and Privacy-by-Design skill cards on Stripe/GDPR tasks",
+        "MarkItDown file upload — PDF, DOCX, XLSX, PPTX, images, code, CSV auto-converted to markdown (25 MB cap, 60K char output cap)",
+        "Vision OCR — paste an image, ORA reads the text and code from it",
+        "URL fetching in chat — up to 5 URLs per prompt, parallel fetch with SSRF guard (blocks loopback, private IPs, link-local)",
+        "/diagram chat command — Mermaid.js ERD/sequence/class/flowchart rendered inline as SVG",
+        "Live Preview Panel — split-pane chat ↔ iframe (Bolt-style) with the connected project's running site as the first tab",
+        "Two-Agent Maxx mode — Claude Sonnet 4.5 writes + parallel verify before commit",
+        "Customer Ship Wall — public commit feed with live admin updates (social proof + virality)",
+        "ORA Wrapped — Spotify-style yearly developer stats (tasks shipped, agents used, time saved)",
+        "4-tier Stripe subscription pricing — Founder $9 / Starter / Pro / Team — with live Stripe prices and webhook-driven idempotent tier flip",
+        "Founder Offer — atomic 500-spot decrement (no over-allocation under concurrent claims), 3-per-user cap, dry-run preview before confirm",
+        "Hard token enforcement — budget-cap check before AI runs, with admin manual top-up grants",
+        "Automations — user-defined GitHub webhook triggers with batched $in project lookups",
+        "AES-GCM PAT encryption at rest with per-tenant master key (HKDF-Fernet)",
+        "NoSQL injection ASGI middleware ($where operator blocked at the request boundary)",
         "MCP 2.4 server — works with Claude Desktop, Cursor, VS Code, Ollama, LM Studio",
-        "Native GitHub REST integration (commit or draft-PR delivery modes)",
-        "Zero token billing — flat monthly price"
+        "F12 browser error auto-capture — console.error / fetch / XHR failures forwarded to the next chat turn",
+        "Live system map at /feature-window — every route, collection, integration health, and Loop session in one view",
+        "9-tab admin command centre — Dashboard, Users, Projects, Tasks, Token P&L, Payments, Support Inbox, Architecture, Settings",
+        "Daily Digest email at 06:00 UTC — new users, tasks done/failed, AI cost, top failed sample (via Resend, ora@aurem.live)",
+        "Onboarding nudge emails — founder-signed at 24 h + 72 h retry, idempotent via onboarding_emails audit log",
+        "Database hardening — 30 MongoDB indexes, Motor connection pool (maxPoolSize=50, minPoolSize=5), 5 N+1 query eliminations, 12 projection optimizations",
+        "PWA installable — full mobile-first PWA manifest with native share/install prompts",
+        "Zero token billing — flat monthly price regardless of LLM consumption",
+        "Privacy-locked — OpenRouter data_collection: deny, code never trains third-party models"
       ],
       "aggregateRating": {
         "@type": "AggregateRating",
@@ -332,6 +361,38 @@
           "acceptedAnswer": {
             "@type": "Answer",
             "text": "ORA and Devin are both autonomous AI software engineers, but ORA costs $9/month versus Devin's $500/month — a 98% cost difference. ORA adds Vanguard pre-commit security scanning which Devin lacks. ORA's 4-hop fallback chain ensures it never goes down even when individual AI providers have outages. ORA's self-learning system improves over time for your specific codebase through the ORA Council."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What is the Codebase Health Dashboard?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The ORA Codebase Health Dashboard scans your connected GitHub repo across six independent categories and assigns each a 0-100 score plus a combined overall health score: (1) Security — Vanguard's 25-pattern catalogue. (2) Performance — unbounded .to_list, missing pagination, N+1 query detection. (3) Code Quality — large files, large functions, bare except, open TODO/FIXME. (4) Dependencies — vulnerable package versions cross-referenced against a CVE database. (5) Database — Motor pool config, hard caps over 2000 docs, missing TTL indexes. (6) Bug Hunt — 50+ Nuclei-template-inspired deep patterns. Each finding ships with a one-click 'Fix this — N tokens' button that enqueues a real ORA task to patch the issue and open a draft PR. No other AI coding tool offers a six-category health audit on real GitHub repos."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What is ORA's Bug Hunt scanner?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Bug Hunt is the deep static-analysis layer of ORA's Codebase Health Dashboard (Iter 212m-73), inspired by ProjectDiscovery's Nuclei template catalogue but adapted to run at commit time against source code instead of HTTP targets. It runs 50+ pure-regex rules across four families: (a) 15 secret patterns covering AWS access keys, GCP API keys, Stripe live secrets, SendGrid API keys, Slack tokens, GitHub PAT/OAuth/App tokens, hardcoded JWT secrets, Azure Storage keys, Twilio API keys, private RSA/EC/PGP key blocks; (b) 20 vulnerable code patterns including Log4Shell ${jndi:}, eval()/exec() with user input, pickle.loads, yaml.load, subprocess(shell=True), SSRF, SQL f-string injection, weak crypto (MD5/SHA1), JWT alg=none, CORS misconfig with credentials, dangerouslySetInnerHTML, .innerHTML assignment, insecure cookies; (c) 10 exposed endpoint patterns including /debug, /admin without auth, /actuator, /metrics, leaky /health, API keys in URL, stack traces returned to client, DEBUG=True in production, Swagger in prod, CORS allow_origins=['*']; (d) 11 known-vulnerable dependency versions cross-referenced against CVE database for requests, flask, django, pillow, cryptography, urllib3, pyyaml, jinja2, axios, lodash, next. Every finding ships with a fix hint, severity ranking (critical/high/medium/low), and a one-click 'Fix — 8 tokens' button. GitHub Copilot, Cursor, and Lovable have no equivalent — Bug Hunt is unique to ORA."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can ORA undo a bad commit?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Every ORA task that successfully ships gets a one-click Rollback button on the task card. Clicking it requires two confirmation prompts (the first explains git revert semantics, the second is the final yes/no). On confirmation, ORA opens the repo via the GitHub REST API, runs git revert against the commit (with fallback to plain revert for non-merge commits), and pushes the result as a new commit to the same branch. ORA never force-pushes and never deletes commits — full git history is always preserved. PATs are scrubbed from every log line and error message. This is unique among AI coding tools — Cursor, Copilot, and Devin require the developer to manually undo their AI's commits."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does ORA support file uploads (PDF, DOCX, images)?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. ORA's chat composer accepts uploads up to 25 MB of any format: PDF, DOCX, XLSX, PPTX, images (PNG/JPG/WebP), CSV, and source code. Microsoft's MarkItDown library auto-converts every upload to clean markdown before passing it to the LLM — this saves token cost and lets ORA actually read binary files. ORA also runs Vision OCR on images for image-to-code workflows (paste a Figma screenshot, get the React component). URLs in chat messages are auto-fetched in parallel (up to 5 per prompt, with SSRF guard blocking loopback and private-IP ranges)."
           }
         }
       ]

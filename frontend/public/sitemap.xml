@@ -3,13 +3,13 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://auremcto.com/</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://auremcto.com/og-image.png</image:loc>
       <image:title>ORA by Aurem CTO — The AI Engineer That Actually Commits</image:title>
-      <image:caption>ORA reads your GitHub repo, writes production code, runs Vanguard 25-pattern security scans, and commits directly. $9/month flat — 55% cheaper than Copilot.</image:caption>
+      <image:caption>ORA reads your GitHub repo, writes production code, runs Vanguard 25-pattern security scans + Bug Hunt 50+ Nuclei patterns, and commits directly. $9/month flat — 55% cheaper than Copilot.</image:caption>
     </image:image>
     <image:image>
       <image:loc>https://auremcto.com/ora-logo.png</image:loc>
@@ -18,49 +18,55 @@
   </url>
   <url>
     <loc>https://auremcto.com/pricing</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://auremcto.com/signup</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://auremcto.com/login</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>https://auremcto.com/codebase-health</loc>
+    <lastmod>2026-06-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
     <loc>https://auremcto.com/vs/devin</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
     <loc>https://auremcto.com/wall</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://auremcto.com/wrapped</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://auremcto.com/privacy</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://auremcto.com/terms</loc>
-    <lastmod>2026-02-27</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

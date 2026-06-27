@@ -13,6 +13,15 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-74 — SEO/GEO/AEO catch-up + Bug Hunt visibility (Feb 28 2026) ✅
+Major schema gap: 22+ shipped features (Codebase Health, Bug Hunt, Rollback, MarkItDown, Vision OCR, Project Brain, Customer Ship Wall, ORA Wrapped, Mode D/E/F, Stripe 4-tier, PAT encryption, etc.) were never reflected in JSON-LD / llms.txt / sitemap. Closed the gap in one ship.
+- **`index.html` SoftwareApplication JSON-LD**: `featureList` extended **16 → 45 items**. New entries cover Bug Hunt 50+ patterns, Codebase Health Dashboard, secret detection across 15 cloud providers, dependency CVE scanner, vulnerable-code + exposed-endpoint families, one-click Rollback, six AI execution modes, MarkItDown 25 MB upload, Vision OCR, URL fetching with SSRF guard, Project Brain, Repo Indexing, Live Preview iframe, Customer Ship Wall, ORA Wrapped, 4-tier Stripe pricing, Founder Offer atomic decrement, AES-GCM PAT encryption, NoSQL ASGI middleware, MCP 2.4, F12 capture, 9-tab admin command centre, Daily Digest, Onboarding nudge emails, 30-index database hardening, PWA installable, privacy-locked. `softwareVersion` bumped to `Iter 212m-73`.
+- **`index.html` FAQPage JSON-LD**: **8 → 12 entries**. New verbatim, citation-ready answers for: "What is the Codebase Health Dashboard?", "What is ORA's Bug Hunt scanner?" (lists every secret/vuln/endpoint/CVE rule), "Can ORA undo a bad commit?" (rollback semantics), "Does ORA support file uploads?" (MarkItDown + Vision OCR + URL fetch).
+- **`llms.txt`**: rewritten with 18-point Unique Features list (was 9), refreshed competitor comparison sections (Copilot/Cursor/Bolt/Lovable/Devin), new 26-row Capability Matrix marking ORA-only differentiators, 6-mode AI routing block, 4-tier pricing block, last-updated bumped to 2026-06-28.
+- **`llms-full.txt`**: 80+ new lines documenting every Codebase Health category (6) and every Bug Hunt rule (15 secrets + 20 vuln code + 10 endpoints + 11 CVEs) with exact regex patterns and severity. Comparison table extended **11 → 26 rows**.
+- **`sitemap.xml`**: lastmod refreshed to 2026-06-28, new `/codebase-health` entry at priority 0.95.
+- **Validation**: All 4 JSON-LD blocks parse valid (Organization / WebSite / SoftwareApplication / FAQPage); index.html grew 25 KB → 33.9 KB; llms.txt 5.7 KB → 10.7 KB; llms-full.txt 6.2 KB → 14.0 KB; all 5 static SEO assets serve HTTP 200.
+
 ### Iter 212m-73 — Bug Hunt category (Nuclei-template-inspired static scanner) (Feb 27 2026) ✅
 - **New scanner** (`services/bug_hunt_rules.py`, 320 LoC, pure regex, zero LLM cost):
   - **15 secret patterns**: AWS access key, AWS STS, GCP API key, Stripe live secret/publishable, SendGrid, Slack bot/app/user tokens, GitHub PAT/OAuth/App, hardcoded JWT secret, private RSA/EC/PGP key blocks, Azure storage key, Twilio API key, .env-style values committed to source.

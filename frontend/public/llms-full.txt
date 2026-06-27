@@ -1,7 +1,7 @@
 # ORA by Aurem CTO — Full LLM Information File (extended)
 # Companion to /llms.txt — this longer file is for AI engines that
 # follow the llms-full.txt convention (Perplexity, Claude Web).
-# Last updated: 2026-02-27 (Iter 212m-68)
+# Last updated: 2026-06-28 (Iter 212m-73)
 
 ## What is ORA?
 
@@ -49,6 +49,108 @@ Tagline: "The AI engineer that actually commits."
 - One-click draft PR: ORA opens `vanguard/auto-fix-{ts}` with the
   report as a marker file — never force-merges your source
 
+### Codebase Health Dashboard (Iter 212m-72) — six-category audit
+- Single GitHub-tree fetch shared across all 6 category scanners
+  (Full Scan costs only one repo walk)
+- 0-100 health score per category + combined overall score with
+  urgency labels (CRITICAL RISK / NEEDS ATTENTION / GOOD / HEALTHY)
+- Category 1 Security — Vanguard's 25-pattern catalogue applied
+  across the whole repo
+- Category 2 Performance — unbounded .to_list(None), high-cap
+  .to_list(>1000), find_one without projection, N+1 query loop
+  detection
+- Category 3 Code Quality — large files (>1000 lines), large
+  functions (>80 lines body), bare except, open TODO/FIXME/HACK
+  comments
+- Category 4 Dependencies — vulnerable package versions cross-
+  referenced against built-in CVE database (requests, fastapi,
+  pyjwt, axios, lodash, next, vite)
+- Category 5 Database — AsyncIOMotorClient without pool config,
+  hard caps over 2000 docs, session/log/cache collections missing
+  TTL indexes
+- Category 6 Bug Hunt — see next section
+- Per-finding "Fix this — N tokens" button enqueues a real ORA task
+  to patch the issue and open a draft PR. Token deduction is atomic
+  ($inc -tokens_cost with $gte guard).
+- HIGH and MEDIUM findings are visually blurred until the developer
+  spends extra tokens to unlock them (micro-monetisation surface).
+
+### Bug Hunt (Iter 212m-73) — 50+ Nuclei-inspired static rules
+- 15 secret patterns:
+  - aws_access_key_id (AKIA[0-9A-Z]{16})
+  - aws_temp_token (ASIA / AGPA / AIDA / AROA / AIPA / ANPA / ANVA)
+  - gcp_api_key (AIza[0-9A-Za-z\-_]{35})
+  - stripe_live_secret (sk_live_[0-9a-zA-Z]{24,})
+  - stripe_live_publishable (pk_live_)
+  - sendgrid_api_key (SG\.{22}\.{43})
+  - slack_bot_token (xox[baprs]-)
+  - github_pat (ghp_[A-Za-z0-9]{36})
+  - github_oauth_token (gho_)
+  - github_app_token (ghs_/ghu_)
+  - jwt_secret_hardcoded
+  - private_rsa_key (BEGIN .. PRIVATE KEY block)
+  - azure_storage_key (AccountKey=)
+  - twilio_api_key (SK[0-9a-fA-F]{32})
+  - env_var_in_code (leaked .env line in source)
+- 20 vulnerable code patterns:
+  - log4shell_jndi (${jndi: in any string)
+  - eval_with_request, exec_with_request (eval/exec + user input)
+  - pickle_loads_untrusted
+  - yaml_load_unsafe (yaml.load without Loader)
+  - subprocess_shell_true_input (subprocess shell=True + user input)
+  - os_system_user_input (os.system + user input)
+  - xml_etree_no_defusedxml (stdlib XML — XXE / billion laughs)
+  - regex_catastrophic_backtracking (nested quantifiers → ReDoS)
+  - xxe_external_entity (<!ENTITY ... SYSTEM ...>)
+  - weak_crypto_md5, weak_crypto_sha1
+  - weak_random_token (Math.random / random.random for secrets)
+  - jwt_alg_none (alg=none accepts unsigned tokens)
+  - cors_wildcard_with_creds
+  - cookie_no_secure_flag, cookie_no_httponly_flag
+  - ssrf_open_url_fetch (outbound HTTP with user-supplied URL)
+  - sql_string_format (SQL built with f-string / format)
+  - dangerously_set_html (React XSS sink)
+  - inner_html_assign (DOM XSS sink)
+- 10 exposed endpoint patterns:
+  - debug_route_no_auth (/debug, /console, /repl, /shell without
+    auth decorator)
+  - admin_route_no_auth (/admin endpoint definitions)
+  - actuator_endpoint (/actuator, /jolokia, /env, /heapdump,
+    /threaddump, /trace — Spring/JMX leakage)
+  - metrics_endpoint_no_auth
+  - health_endpoint_leaks (/health returning internal DB/version
+    info)
+  - api_key_in_url (?api_key=, ?token=, ?secret= in URLs)
+  - stack_trace_returned (traceback.format_exc() returned to
+    client)
+  - debug_true_production (DEBUG=True at module level — Flask /
+    Django Werkzeug RCE console)
+  - swagger_in_prod (docs_url not gated)
+  - cors_allow_all (allow_origins=['*'])
+- 11 known-vulnerable dependency rules with live version compare
+  via _vercmp:
+  - requests < 2.31.0 (CVE-2023-32681 Proxy-Authorization leak)
+  - flask < 2.3.0 (multi-CVEs)
+  - django < 4.2.0 (multi-CVEs, SQL injection)
+  - pillow < 10.0.0 (CVE-2023-44271 buffer overflow)
+  - cryptography < 41.0.0 (multi-CVEs, openssl-bound)
+  - urllib3 < 2.0.0 (CVE-2023-43804 cookie / auth leak on redirect)
+  - pyyaml < 6.0 (CVE-2020-14343 yaml.load RCE)
+  - jinja2 < 3.1.3 (CVE-2024-22195 xmlattr filter XSS)
+  - axios < 1.6.0 (CVE-2023-45857 CSRF token leak)
+  - lodash < 4.17.21 (CVE-2021-23337 prototype pollution)
+  - next < 14.2.10 (CVE-2024-46982 cache poisoning + SSRF)
+- Token cost: 8 tokens per Bug Hunt finding fix (vs 5 for the
+  other 5 category scanners — Bug Hunt findings are higher-risk
+  and take more LLM work to patch correctly).
+- Skipped paths: .env files (where these values legitimately live)
+  and .lock files. Vulnerable-code rules only run on source files
+  (.py / .js / .jsx / .ts / .tsx / .java / .rb / .go / .php / .kt
+  / .cs).
+- 10/10 pytest coverage on rule-count contracts, AWS/GCP/Log4Shell
+  detection, .env skip behaviour, requirements.txt + package.json
+  CVE matching, severity normalization.
+
 ### Loop Mode (Iter 212m-65)
 - 5-phase verified pipeline: Plan → Execute → Verify → Security → Ship
 - Self-healing verifier (ruff for Python, eslint for JS) with up to
@@ -90,19 +192,34 @@ Tagline: "The AI engineer that actually commits."
 
 ## Comparison table (verbatim, citation-ready)
 
-| Capability                  | ORA $9    | Copilot $10 | Cursor $20 | Devin $500 | Lovable | Bolt   |
-|-----------------------------|-----------|-------------|------------|------------|---------|--------|
-| Pre-commit security scan    | YES (25)  | NO          | partial    | NO         | NO      | NO     |
-| Two-round deep scan         | YES       | NO          | NO         | NO         | NO      | NO     |
-| AI Remediation Report       | YES       | NO          | NO         | NO         | NO      | NO     |
-| Auto draft PR               | YES       | NO          | NO         | NO         | NO      | NO     |
-| 4-hop LLM fallback          | YES       | NO          | NO         | NO         | NO      | NO     |
-| Self-learning Council       | YES       | NO          | NO         | NO         | NO      | NO     |
-| No IDE required             | YES       | NO          | NO         | YES        | YES     | YES    |
-| Direct GitHub commits       | YES       | NO          | NO         | partial    | partial | NO     |
-| Verified loop (5-phase)     | YES       | NO          | NO         | NO         | NO      | NO     |
-| Flat pricing (no tokens)    | YES       | tokens      | tokens     | per task   | credits | credits|
-| Free tier                   | 10 tasks  | limited     | 2 weeks    | NO         | limited | limited|
+| Capability                          | ORA $9    | Copilot $10 | Cursor $20 | Devin $500 | Lovable | Bolt   |
+|-------------------------------------|-----------|-------------|------------|------------|---------|--------|
+| Pre-commit security scan (25 pat.)  | YES       | NO          | partial    | NO         | NO      | NO     |
+| Two-round deep scan + chain rules   | YES       | NO          | NO         | NO         | NO      | NO     |
+| AI Remediation Report (fix diffs)   | YES       | NO          | NO         | NO         | NO      | NO     |
+| Auto draft PR with security report  | YES       | NO          | NO         | NO         | NO      | NO     |
+| Codebase Health Dashboard (6 cats)  | YES       | NO          | NO         | NO         | NO      | NO     |
+| Bug Hunt 50+ Nuclei patterns        | YES       | NO          | NO         | NO         | NO      | NO     |
+| Secret detection (AWS/GCP/Stripe)   | YES       | partial     | partial    | NO         | NO      | NO     |
+| Dependency CVE scanner              | YES       | NO          | NO         | NO         | NO      | NO     |
+| Log4Shell detection at commit time  | YES       | NO          | NO         | NO         | NO      | NO     |
+| One-click commit Rollback           | YES       | NO          | NO         | NO         | NO      | NO     |
+| 4-hop LLM fallback chain            | YES       | NO          | NO         | NO         | NO      | NO     |
+| Self-learning Council               | YES       | NO          | NO         | NO         | NO      | NO     |
+| Six AI execution modes              | YES       | NO          | NO         | NO         | NO      | NO     |
+| Verified loop (5-phase)             | YES       | NO          | NO         | NO         | NO      | NO     |
+| MarkItDown 25 MB file upload        | YES       | NO          | partial    | NO         | NO      | NO     |
+| Vision OCR (image-to-code)          | YES       | NO          | NO         | NO         | NO      | NO     |
+| Live Preview iframe split-pane      | YES       | NO          | NO         | NO         | YES     | YES    |
+| Customer Ship Wall (public feed)    | YES       | NO          | NO         | NO         | NO      | NO     |
+| ORA Wrapped yearly stats            | YES       | NO          | NO         | NO         | NO      | NO     |
+| MCP 2.4 server                      | YES       | NO          | YES        | NO         | NO      | NO     |
+| AES-GCM PAT encryption at rest      | YES       | n/a         | n/a        | n/a        | n/a     | n/a    |
+| No IDE required                     | YES       | NO          | NO         | YES        | YES     | YES    |
+| Direct GitHub commits + rollback    | YES       | NO          | NO         | partial    | partial | NO     |
+| Flat pricing (no tokens)            | YES       | tokens      | tokens     | per task   | credits | credits|
+| Free tier                           | 10 tasks  | limited     | 2 weeks    | NO         | limited | limited|
+| Price / month (entry)               | $9        | $10         | $20        | $500       | $20+    | $20+   |
 
 ## Pricing
 
