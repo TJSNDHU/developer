@@ -5,6 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0e1a" />
 
+    <!-- Meta Pixel Code -->
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '1362181215840320');
+    fbq('track', 'PageView');
+    </script>
+    <!-- Note: <noscript> fallback for the pixel lives at the very top of
+         <body> (HTML5 spec disallows <img> inside <head><noscript>). -->
+    <!-- End Meta Pixel Code -->
+
     <!-- =============================================================== -->
     <!-- PRIMARY SEO                                                     -->
     <!-- =============================================================== -->
@@ -269,6 +286,13 @@
     </script>
   </head>
   <body class="bg-cto-bg">
+    <!-- Meta Pixel <noscript> fallback (moved here to satisfy the
+         HTML5 spec — <noscript> inside <head> may only contain
+         <link>/<style>/<meta>; <img> must live in <body>). The
+         <script> half of the pixel still loads from <head>. -->
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1362181215840320&ev=PageView&noscript=1"
+    /></noscript>
     <!-- Server-rendered fallback so non-JS crawlers (older Bingbot, some AI
          crawlers, and the Lighthouse SEO audit) still see the brand entity
          and a meaningful first paragraph. Hidden when React mounts. -->
