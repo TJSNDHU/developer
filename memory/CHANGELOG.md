@@ -6,6 +6,71 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-66 — Vanguard 2.0: Two-round deep scan + AI remediation + draft PR (Feb 27 2026) ✅
+
+Upgrades Vanguard from a single-pass surface scanner to a full
+security-engineer co-pilot. Two files touched, one test file added.
+
+### Backend — `services/vanguard_scanner.py`
+- New `run_two_round_scan(file_blocks, *, round1_budget=10, round2_budget=20)`:
+  - `_scan_round1` — runs the legacy 25-pattern catalog over every file (≤ 10 s)
+  - `_scan_round2_file` — runs 13 deep-pattern rules over R1-flagged files only, attaches `context_lines` (±10 lines) and `context_range` to every hit (≤ 20 s)
+  - `_detect_chains` — 3 chain rules that synthesise `chain_*` CRITICAL findings when a single file triggers ≥ 2 contributing rules (e.g. `sql_string_format + requests_no_verify`)
+  - `_dedup_findings` — collapses `(file, line, rule)` duplicates, R1 wins on ties
+  - Returns `{round1_findings, round2_findings, chain_findings, combined, round2_skipped, files_round1, files_round2, elapsed_seconds}`
+  - Soft bail: 0-budget caller or pathological repo → `round2_skipped: True`, returns R1 only
+- 13 deep-rule definitions inlined (`_DEEP_PATTERN_DEFS`) — mirrors the rules in `routers/security_scan.py` re-anchored for line-by-line text scanning
+- Zero new dependencies, zero impact on the existing public surface
+
+### Backend — `routers/security_scan.py`
+- `POST /api/aurem-dev/security-scan/run` body now accepts:
+  - `two_round: bool` (default false) — opt into the deep pipeline
+  - `auto_pr: bool` (default false) — open a draft PR after scan
+- Response gains (only when opted in):
+  - `scan_mode: "single_round" | "two_round"`
+  - `two_round: { round1_count, round2_count, chain_count, round2_skipped, files_round1, files_round2, elapsed_seconds }`
+  - `remediation_report: { summary, risk_score, findings[…], pr_draft_title, pr_draft_body }`
+  - `report_status: "ok" | "failed" | "timeout"`
+  - `pr_url: <github url> | null`, `pr_error: <string>?`
+- New helpers (file-local, no cross-router imports):
+  - `_normalize_findings` — smooths Vanguard-format keys into the existing UI shape
+  - `_generate_remediation_report` — ORA Swift (GLM-5.2) via `call_llm_with_meta`, `review_mode="swift"`, 1200 max_tokens, 10 s `asyncio.wait_for` cap; soft fail returns the heuristic-stub report with `report_status="failed"`
+  - `_heuristic_risk_score` — weighted score (critical=20, high=8, medium=3, low=1) capped at 100
+  - `_fallback_pr_body` — markdown PR body builder used when the LLM is unavailable
+  - `_create_draft_pr` — inline GitHub Git Data API + `/pulls` flow. Creates `vanguard/auto-fix-{unix_ts}` branch with a `.vanguard/*.md` marker file containing the report (so the PR has at least one commit ahead). Never touches user source files, never force-merges. Falls back from draft to non-draft PR on legacy repos
+- Strict backward compatibility — omitting the new flags produces a response byte-identical to the legacy shape (the `summary` / `findings` / `truncated` / `scanned_files` keys are unchanged; only `scan_mode` is added but legacy callers don't read it)
+
+### Backend — `routers/feature_window.py`
+- `vanguard` block now ships: `two_round_scan`, `two_round_budget`, `chain_detection_rules`, `ai_remediation_report`, `ai_report_provider`, `ai_report_max_tokens`, `ai_report_timeout_s`, `auto_draft_pr`, `auto_pr_branch_prefix`
+
+### Frontend — `pages/FeatureWindow.jsx`
+- New `<VanguardBadge>` component
+- VanguardPanel now renders a 4th stat card ("chain rules") and a badge row with 5 Iter-212m-66 status indicators (green when "complete", info-toned for budget + LLM details)
+
+### Testing
+- New `backend/tests/test_iter212m66_vanguard_two_round.py` — 13 tests covering:
+  1. R1 = legacy `scan_file_blocks` (zero regression)
+  2. R2 only runs on flagged files, attaches `context_lines`
+  3. Chain detection escalates compound risks to CRITICAL
+  4. Dedup collapses equivalent findings
+  5. Budget exhausted → `round2_skipped: True`, no crash
+  6. `_normalize_findings` rule-id → vuln-class mapping
+  7. `_heuristic_risk_score` weighting + cap
+  8. Remediation report happy path (LLM returns valid JSON)
+  9. Remediation report LLM-failure soft fallback
+  10. Remediation report 10 s timeout soft fallback
+  11. `/run` backward-compat (no flags = no new keys in response)
+  12. `/run` with `two_round: true` adds `scan_mode` + `two_round` + `remediation_report`
+  13. `/run` with `auto_pr: true` returns a non-null `pr_url`
+- All 13 new tests + 6 legacy `test_iter212m55_security_scan.py` tests pass — zero regressions
+- Live transport verified: 400 (missing project_id), 401 (no auth), 404 (unknown project) all behave per spec
+
+### Docs
+- `README.md` "Security" section rewritten with the new endpoint contract, response shape, time budgets, badge taxonomy
+- `memory/PRD.md` updated with iteration summary
+
+---
+
 ## Iter 212m-64 / 212m-65 — Feature Window + Loop Mode Phase D wiring (Feb 27 2026) ✅
 
 Closes the founder's pre-launch polish phase.  Two deliverables:

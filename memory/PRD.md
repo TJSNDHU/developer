@@ -13,6 +13,23 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-66 — Vanguard 2.0: Two-round deep scan + AI remediation + draft PR (Feb 27 2026) ✅
+- **Two-round Vanguard pipeline** (`services/vanguard_scanner.py::run_two_round_scan`):
+  - R1 (≤ 10 s) — runs the existing 25-pattern catalog over every file
+  - R2 (≤ 20 s) — deep re-scan of R1-flagged files with 13 extra rules + ±10-line context capture
+  - Chain detector (3 rules) — escalates compound risks (e.g. `sql_string_format + requests_no_verify` in the same file) to a synthesised `chain_*` CRITICAL finding
+  - Dedup by `(file, line, rule)` — R1 wins on ties
+  - Soft fail: `round2_skipped: true` if combined budget exhausted, scan still returns R1 results
+- **AI remediation report** (`routers/security_scan.py::_generate_remediation_report`):
+  - Calls ORA Swift (GLM-5.2) with 1200 max_tokens, 10 s hard timeout
+  - Returns structured JSON: per-finding `fix` / `what_is_wrong` / `pr_ready`, weighted `risk_score` (0-100), Conventional-Commits `pr_draft_title` + markdown `pr_draft_body`
+  - Soft fail — `report_status: failed | timeout | ok`, scan result never blocked
+- **One-click draft PR** (`_create_draft_pr`) — opens a `vanguard/auto-fix-{ts}` branch with the report as a `.vanguard/*.md` marker file and opens a **draft** PR. Never force-merges. Falls back to non-draft PR on legacy repos that disallow drafts.
+- **Backward compat** — `two_round` / `auto_pr` are opt-in flags; omit them and the response shape is byte-identical to pre-212m-66 callers.
+- **Feature-window panel** updated with new stats: chain rules count + Iter 212m-66 status badges (`/feature-window` admin live system map).
+- **README** updated with the new endpoint contract, response schema, time budgets, and badge list.
+- E2E coverage: 13 new pytests in `test_iter212m66_vanguard_two_round.py` (unit + transport-level HTTP). All 6 legacy security_scan tests still pass — zero regressions.
+
 ### Iter 212m-64 / 212m-65 — Feature Window + Loop Mode Phase D wiring (Feb 27 2026) ✅
 - **`/feature-window` admin live system map**: founder-gated
   `GET /api/aurem-dev/feature-window/status` returns a fully

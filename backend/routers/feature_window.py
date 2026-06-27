@@ -222,6 +222,16 @@ async def feature_window_status(
             "dangerous_code_patterns": 10,
             "scanner_extra_rules":     13,
             "source_file":             "services/vanguard_scanner.py",
+            # Iter 212m-66 — deep two-round scanner.
+            "two_round_scan":          "complete",
+            "two_round_budget":        {"round1_s": 10, "round2_s": 20, "total_s": 30},
+            "chain_detection_rules":   3,
+            "ai_remediation_report":   "complete",
+            "ai_report_provider":      "ORA Swift (GLM-5.2)",
+            "ai_report_max_tokens":    1200,
+            "ai_report_timeout_s":     10,
+            "auto_draft_pr":           "complete",
+            "auto_pr_branch_prefix":   "vanguard/auto-fix-",
         },
         "loop_mode": {
             "phase_a":            "complete",

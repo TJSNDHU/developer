@@ -245,3 +245,323 @@ def _is_safe_demo_path(path: str) -> bool:
 
 def has_critical(findings: Iterable[dict]) -> bool:
     return any(f.get("severity") == "CRITICAL" for f in findings)
+
+
+# ─── Iter 212m-66 — Multi-round deep-scan engine ────────────────────────
+# Two-round scanner used by the /security-scan/run endpoint when the
+# caller opts in with `two_round: true`.  Round 1 runs the existing
+# 25-pattern catalog over every file (fast surface sweep).  Round 2
+# re-scans ONLY the files that surfaced critical/high findings in
+# Round 1 using a deeper rule set (13 extra rules + ±10-line context
+# capture + chained-vulnerability detection that escalates compound
+# risks like `sql_string_format + requests_no_verify` in the same
+# file to CRITICAL).
+#
+# Pure stdlib — no external deps, no LLM cost.  The two budgets are
+# enforced via `time.monotonic()` so a pathological repo can never
+# wedge the request loop:
+#     ROUND 1 ≤ 10 s   ROUND 2 ≤ 20 s   (combined cap policed at the
+#     caller in security_scan.py — 30 s total).
+import time as _time
+
+# Deep-scan rule set — mirrors the 13 rules defined in
+# routers/security_scan.py but re-anchored for line-by-line text
+# scanning (no GitHub-API specific filters).  Kept inline so this
+# module stays import-free of the router layer.
+_DEEP_PATTERN_DEFS: list[tuple[str, str, str, str]] = [
+    # (rule_id, regex, severity, description)
+    ("secret_aws_access_key_deep",
+     r"\bAKIA[0-9A-Z]{16}\b", "CRITICAL",
+     "Hardcoded AWS access key id"),
+    ("secret_openai_key_deep",
+     r"\bsk-[a-zA-Z0-9]{32,}\b", "CRITICAL",
+     "Hardcoded OpenAI / DeepSeek style API key"),
+    ("secret_github_pat_deep",
+     r"\bghp_[A-Za-z0-9]{30,}\b", "CRITICAL",
+     "Hardcoded GitHub Personal Access Token"),
+    ("secret_stripe_live_deep",
+     r"\bsk_live_[A-Za-z0-9]{20,}\b", "CRITICAL",
+     "Hardcoded Stripe LIVE secret key"),
+    ("ssti_jinja_user_render",
+     r"Template\(\s*request\.|Template\(\s*body\.|render_template_string\(",
+     "HIGH",
+     "Server-side template render of user-controlled input"),
+    ("sql_string_format_deep",
+     r"""(execute|executemany)\s*\(\s*[fF]?["'][^"']*\{[^}]+\}""",
+     "CRITICAL",
+     "f-string SQL query — use parameterised cursors"),
+    ("sql_percent_format_deep",
+     r"""(execute|executemany)\s*\(\s*["'][^"']*%s[^"']*["']\s*%\s*""",
+     "HIGH",
+     "%-format SQL query — use cursor.execute(query, params)"),
+    ("nosql_where_operator_deep",
+     r"""["']\$where["']\s*:""", "HIGH",
+     "MongoDB $where allows arbitrary JS execution"),
+    ("nosql_raw_body_query_deep",
+     r"""\.find\(\s*(request\.json|body\.dict|body\.\*\*|\*\*body|\*\*payload)""",
+     "MEDIUM",
+     "Mongo query built from raw request body"),
+    ("redos_nested_quantifier_deep",
+     r"""re\.(compile|match|search|sub)\s*\(\s*r?["'][^"']*\([^)]*[+*][^)]*\)[+*]""",
+     "HIGH",
+     "Nested quantifier — vulnerable to catastrophic backtracking"),
+    ("lpdos_no_body_limit_deep",
+     r"@(app|router)\.(post|put|patch)\(", "MEDIUM",
+     "FastAPI write endpoint — confirm body size middleware is mounted"),
+    ("clipboard_external_paste_deep",
+     r"navigator\.clipboard\.readText\s*\(", "LOW",
+     "Reads clipboard — sanitise before rendering as code"),
+    ("replay_jwt_no_jti_deep",
+     r"""jwt\.encode\(\s*\{[^}]*\}""", "MEDIUM",
+     "JWT signed without jti — add unique id + iat for replay defence"),
+]
+
+_DEEP_PATTERNS = [
+    (rid, re.compile(rx), sev, desc)
+    for rid, rx, sev, desc in _DEEP_PATTERN_DEFS
+]
+
+# Chain-vulnerability map — when ALL of `requires` fire in the same
+# file, we synthesise a single CRITICAL `chain` finding pointing at
+# the first contributing line.  The pairs encode real-world exploit
+# chains documented in the OWASP cheat sheets.
+_CHAIN_DEFS: list[dict] = [
+    {
+        "id":       "chain_sql_plus_insecure_http",
+        "requires": {"sql_string_format", "sql_string_format_deep",
+                     "requests_no_verify"},
+        "min_match": 2,        # at least 2 distinct rule_ids hit
+        "severity": "CRITICAL",
+        "desc":     "SQL injection sink + unverified outbound TLS — "
+                    "compound exfiltration risk",
+    },
+    {
+        "id":       "chain_eval_plus_secret",
+        "requires": {"eval_usage", "exec_usage",
+                     "generic_api_key", "secret_openai_key_deep",
+                     "secret_github_pat_deep"},
+        "min_match": 2,
+        "severity": "CRITICAL",
+        "desc":     "Dynamic code execution sink + nearby hardcoded "
+                    "secret — full credential exfiltration path",
+    },
+    {
+        "id":       "chain_dangerous_html_plus_eval",
+        "requires": {"dangerously_set_html", "innerHTML_assignment",
+                     "eval_usage"},
+        "min_match": 2,
+        "severity": "CRITICAL",
+        "desc":     "Unsafe HTML sink + eval — DOM XSS to RCE pivot "
+                    "if user input ever lands in either",
+    },
+]
+
+
+def _scan_round1(
+    file_blocks: dict[str, str],
+    *,
+    deadline: float,
+) -> tuple[list[dict], dict[str, str]]:
+    """Round 1 — fast surface sweep using the existing 25-pattern
+    catalog (`scan_text`).  Returns `(findings, file_text_index)`.
+
+    The file_text_index is reused by Round 2 so we don't re-fetch /
+    re-decode the same content.  Bails out and returns whatever it
+    has if the deadline is exceeded so a single huge file can't
+    starve Round 2."""
+    findings: list[dict] = []
+    file_index: dict[str, str] = {}
+    for path, content in (file_blocks or {}).items():
+        if _time.monotonic() >= deadline:
+            break
+        file_index[path] = content or ""
+        hits = scan_text(content or "", filepath=path)
+        if _is_safe_demo_path(path):
+            for f in hits:
+                if f.get("severity") in ("CRITICAL", "HIGH"):
+                    f["severity"]         = "INFO"
+                    f["downgraded"]       = True
+                    f["downgrade_reason"] = "demo/test/example file"
+        findings.extend(hits)
+    return findings, file_index
+
+
+def _scan_round2_file(
+    path: str,
+    text: str,
+    *,
+    deadline: float,
+) -> list[dict]:
+    """Run the deep-pattern catalog against one file and attach
+    ±10-line context to every hit."""
+    if _time.monotonic() >= deadline:
+        return []
+    lines = (text or "").split("\n")
+    out: list[dict] = []
+    for rid, pattern, severity, desc in _DEEP_PATTERNS:
+        for i, line in enumerate(lines, start=1):
+            if _time.monotonic() >= deadline:
+                return out
+            if "vanguard: ignore" in line or "security-scan: ignore" in line:
+                continue
+            if not pattern.search(line):
+                continue
+            ctx_start = max(0, i - 11)            # 1-indexed → 0-indexed slice
+            ctx_end   = min(len(lines), i + 10)
+            out.append({
+                "name":         rid,
+                "rule":         rid,
+                "severity":     severity,
+                "filepath":     path,
+                "file":         path,
+                "line":         i,
+                "snippet":      line.strip()[:200],
+                "desc":         desc,
+                "source":       "vanguard_deep",
+                "context_lines": lines[ctx_start:ctx_end],
+                "context_range": [ctx_start + 1, ctx_end],
+            })
+            break  # one hit per rule per file is enough for the report
+    return out
+
+
+def _detect_chains(findings_by_file: dict[str, list[dict]]) -> list[dict]:
+    """Build synthetic CRITICAL `chain` findings when a single file
+    triggers ≥ `min_match` distinct contributing rules."""
+    chain_findings: list[dict] = []
+    for path, hits in findings_by_file.items():
+        rule_ids = {f.get("name") or f.get("rule") or "" for f in hits}
+        for chain in _CHAIN_DEFS:
+            overlap = rule_ids & chain["requires"]
+            if len(overlap) >= chain["min_match"]:
+                first_line = min(
+                    (f.get("line", 1) for f in hits
+                     if (f.get("name") or f.get("rule")) in overlap),
+                    default=1,
+                )
+                chain_findings.append({
+                    "name":            chain["id"],
+                    "rule":            chain["id"],
+                    "severity":        chain["severity"],
+                    "filepath":        path,
+                    "file":            path,
+                    "line":            first_line,
+                    "snippet":         f"compound: {sorted(overlap)}",
+                    "desc":            chain["desc"],
+                    "source":          "vanguard_chain",
+                    "contributing":    sorted(overlap),
+                    "escalated":       True,
+                })
+    return chain_findings
+
+
+def _dedup_findings(findings: list[dict]) -> list[dict]:
+    """Deduplicate by `(file_path, line, pattern_name)` — preserves
+    insertion order so Round 1 hits win the slot when equivalent."""
+    seen: set[tuple[str, int, str]] = set()
+    out: list[dict] = []
+    for f in findings or []:
+        key = (
+            f.get("filepath") or f.get("file") or "",
+            int(f.get("line") or 0),
+            f.get("name") or f.get("rule") or "",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
+
+
+def run_two_round_scan(
+    file_blocks: dict[str, str],
+    *,
+    round1_budget: float = 10.0,
+    round2_budget: float = 20.0,
+) -> dict:
+    """Run the two-round Vanguard pipeline over a dict of
+    `{path: file_text}` blobs.
+
+    Returns a dict with:
+      • round1_findings: list (every Round-1 hit, severity unchanged)
+      • round2_findings: list (deep hits with context_lines attached)
+      • chain_findings:  list (synthesised CRITICAL chain alerts)
+      • combined:        list (R1 ∪ R2 ∪ chains, deduplicated and
+                         severity-sorted)
+      • round2_skipped:  True if Round 1 alone exceeded the combined
+                         budget — caller should fall back to R1.
+      • files_round1:    int   total files scanned in R1
+      • files_round2:    int   subset reprocessed in R2
+      • elapsed_seconds: float wall-clock duration
+    """
+    started = _time.monotonic()
+    # Allow `0.0` (or negative) to fully disable a round — callers
+    # use this to opt out of R2 entirely or to force the bail-out
+    # path during regression testing.
+    r1_deadline = started + max(0.0, float(round1_budget))
+    combined_deadline = started + max(0.0, float(round1_budget) + float(round2_budget))
+
+    r1_findings, file_index = _scan_round1(file_blocks, deadline=r1_deadline)
+
+    # Bail-out: if Round 1 alone burned > combined budget, skip R2
+    # entirely.  This guards against pathological repos.
+    if _time.monotonic() >= combined_deadline:
+        elapsed = _time.monotonic() - started
+        return {
+            "round1_findings": r1_findings,
+            "round2_findings": [],
+            "chain_findings":  [],
+            "combined":        _dedup_findings(r1_findings),
+            "round2_skipped":  True,
+            "files_round1":    len(file_index),
+            "files_round2":    0,
+            "elapsed_seconds": round(elapsed, 3),
+        }
+
+    # Round 2 — only files with at least one critical/high finding.
+    flagged_paths: list[str] = sorted({
+        f.get("filepath") or f.get("file") or ""
+        for f in r1_findings
+        if (f.get("severity") or "").upper() in ("CRITICAL", "HIGH")
+    } - {""})
+
+    r2_findings: list[dict] = []
+    for path in flagged_paths:
+        if _time.monotonic() >= combined_deadline:
+            break
+        text = file_index.get(path) or (file_blocks.get(path) or "")
+        r2_findings.extend(_scan_round2_file(
+            path, text, deadline=combined_deadline,
+        ))
+
+    # Chain detection runs over R1+R2 hits, indexed by file.
+    findings_by_file: dict[str, list[dict]] = {}
+    for f in (r1_findings + r2_findings):
+        p = f.get("filepath") or f.get("file") or ""
+        if not p:
+            continue
+        findings_by_file.setdefault(p, []).append(f)
+    chain_findings = _detect_chains(findings_by_file)
+
+    combined = _dedup_findings(r1_findings + r2_findings + chain_findings)
+    # Severity sort — CRITICAL → HIGH → MEDIUM → LOW → INFO.
+    _sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3,
+                 "INFO": 4, "WARNING": 2}
+    combined.sort(key=lambda x: (
+        _sev_rank.get((x.get("severity") or "").upper(), 9),
+        x.get("filepath") or x.get("file") or "",
+        int(x.get("line") or 0),
+    ))
+
+    elapsed = _time.monotonic() - started
+    return {
+        "round1_findings": r1_findings,
+        "round2_findings": r2_findings,
+        "chain_findings":  chain_findings,
+        "combined":        combined,
+        "round2_skipped":  False,
+        "files_round1":    len(file_index),
+        "files_round2":    len(flagged_paths),
+        "elapsed_seconds": round(elapsed, 3),
+    }
+

@@ -102,8 +102,11 @@ There is no IDE plug-in to install for the core flow. Code goes from chat to com
 - **Repo context** — auto-fetched relevant files per turn (`services/repo_context.py`)
 - **Save-to-GitHub dialog** for ad-hoc file commits (`SaveToGithubDialog.jsx`)
 
-### Security (Vanguard 007)
+### Security (Vanguard 007 + Iter 212m-66 deep scanner)
 - **Pre-commit secret scan** — 25+ regex patterns: AWS keys, GitHub tokens, Slack tokens, private keys, generic API tokens (`services/vanguard_scanner.py`)
+- **Two-round deep scan** (Iter 212m-66, `run_two_round_scan`) — surface sweep (10 s, 25 patterns) → deep re-scan of flagged files (20 s, 13 extra rules + ±10-line context capture) → chain-vulnerability detector that escalates compound exploits (e.g. `sql_string_format + requests_no_verify` in the same file) to a synthetic `chain_*` CRITICAL finding
+- **AI remediation report** — after every two-round scan, ORA (GLM-5.2 Swift, 10 s timeout, 1200 tokens) produces a structured JSON report with: per-finding fixes, severity, `pr_ready` flag, weighted risk score (0-100) and a Conventional-Commits PR draft title + markdown body. Failure is soft — `report_status: failed` and the raw findings still ship.
+- **One-click draft PR** — opt in with `auto_pr: true` and Vanguard opens a **draft** GitHub pull-request on a `vanguard/auto-fix-{ts}` branch containing the report as a marker file (`.vanguard/*.md`). The PR is never force-merged — your team reviews and clicks Merge.
 - **Verify agent** — second-pass LLM audit of generated code before commit (`services/vanguard_verify_agent.py`)
 - **Post-task scan** — regex security + import lint on every shipped file, fire-and-forget after commit (`services/post_task_scanner.py`, `PostTaskScan.jsx`)
 - **Repo audit mode** — full static scan exposed via `Mode E Auditor` (`services/mode_e_auditor.py`)
@@ -234,7 +237,7 @@ Founder accounts (`FOUNDER_EMAILS`) bypass token enforcement entirely.
 
 ---
 
-## Security (Vanguard 007)
+## Security (Vanguard 007 + Iter 212m-66 deep scanner)
 
 `services/vanguard_scanner.py` ships the Vanguard 007 catalog inline — pure stdlib regex, no LLM cost. **Critical** patterns block commits; **warning** patterns surface in the PostTaskScan widget.
 
@@ -246,6 +249,55 @@ Critical (commit-blocker) patterns:
 - `slack_token` (`xox*`)
 - `private_key` (RSA / DSA / EC / OPENSSH / PGP)
 - `password_assignment`, `token_assignment`
+
+### Two-round deep scan (Iter 212m-66)
+
+`POST /api/aurem-dev/security-scan/run` accepts two opt-in flags that turn the legacy single-pass scanner into a full security review engine:
+
+```jsonc
+{
+  "project_id": "p_xxxx",
+  "two_round":  true,    // run R1 surface + R2 deep + chain detector
+  "auto_pr":    true     // open a draft PR with the AI remediation report
+}
+```
+
+Response shape (only new keys, never removes existing):
+
+```jsonc
+{
+  "ok": true,
+  "scan_mode": "two_round",
+  "scanned_files": 412,
+  "summary": { … },
+  "findings": [ … ],
+  "two_round": {
+    "round1_count": 17, "round2_count": 8, "chain_count": 1,
+    "round2_skipped": false,
+    "files_round1": 412, "files_round2": 9,
+    "elapsed_seconds": 6.412
+  },
+  "remediation_report": {
+    "summary": "3 critical, 4 high, 10 warnings found",
+    "risk_score": 78,
+    "findings": [
+      {
+        "file": "src/db.py", "line": 42,
+        "pattern": "sql_string_format", "severity": "critical",
+        "what_is_wrong": "User input is concatenated into the SQL string.",
+        "fix": "cursor.execute(\"SELECT * FROM u WHERE id=%s\", (uid,))",
+        "pr_ready": true
+      }
+    ],
+    "pr_draft_title": "Security: fix 3 critical vulnerabilities found by Vanguard",
+    "pr_draft_body":  "## Fixes\n\n- src/db.py:42 — parameterise query …"
+  },
+  "report_status": "ok",
+  "pr_url": "https://github.com/owner/repo/pull/42"
+}
+```
+
+Time budgets: **R1 ≤ 10 s**, **R2 ≤ 20 s**, **LLM report ≤ 10 s**, **combined ≤ 30 s**. Any budget breach degrades softly — `round2_skipped: true` / `report_status: failed` / `pr_url: null` — the scan result itself is **never blocked**. Full backward compatibility: omit the flags and the response shape is byte-identical to pre-Iter-212m-66 callers.
 
 Plus runtime audits via:
 - **`vanguard_verify_agent`** — second-pass LLM diff review

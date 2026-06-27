@@ -300,7 +300,28 @@ function ToolsAccordion({ tools }) {
 }
 
 
+function VanguardBadge({ label, tone = "info" }) {
+  const palette = {
+    good: { bg: "rgba(34,197,94,0.12)",  br: "rgba(34,197,94,0.45)",  fg: "#86efac" },
+    warn: { bg: "rgba(245,158,11,0.12)", br: "rgba(245,158,11,0.45)", fg: "#fbbf24" },
+    info: { bg: "rgba(56,189,248,0.10)", br: "rgba(56,189,248,0.40)", fg: "#7dd3fc" },
+  }[tone] || { bg: "rgba(148,163,184,0.10)", br: "rgba(148,163,184,0.40)", fg: "#cbd5e1" };
+  return (
+    <span style={{
+      padding: "4px 10px", borderRadius: 999, fontSize: 11,
+      fontFamily: "'JetBrains Mono', monospace",
+      background: palette.bg, border: `1px solid ${palette.br}`,
+      color: palette.fg, whiteSpace: "nowrap",
+    }}>{label}</span>
+  );
+}
+
+
 function VanguardPanel({ v }) {
+  // Iter 212m-66 — render the new two-round + AI remediation badges
+  // when the backend exposes them. Existing 25-pattern stats stay
+  // exactly where they were so legacy UI users see no shift.
+  const t = v.two_round_budget || {};
   return (
     <div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
@@ -308,13 +329,14 @@ function VanguardPanel({ v }) {
           { n: v.total_patterns,          label: "patterns total" },
           { n: v.secret_patterns,         label: "secret patterns" },
           { n: v.dangerous_code_patterns, label: "dangerous code" },
+          { n: v.chain_detection_rules ?? "—", label: "chain rules" },
         ].map((b) => (
           <div key={b.label} style={{
             padding: "12px 16px", borderRadius: 10,
             background: "rgba(34,197,94,0.06)",
             border: "1px solid rgba(34,197,94,0.30)",
             minWidth: 160,
-          }}>
+          }} data-testid={`vanguard-stat-${b.label.replace(/\s+/g, "-")}`}>
             <div style={{ fontSize: 22, fontWeight: 700, color: "#86efac" }}>{b.n}</div>
             <div style={{ fontSize: 10.5, color: "#9aa3b2",
                           textTransform: "uppercase", letterSpacing: 0.4,
@@ -322,9 +344,26 @@ function VanguardPanel({ v }) {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "#cbd5e1" }}>
+      <div style={{ fontSize: 11, color: "#cbd5e1", marginBottom: 8 }}>
         + <strong>{v.scanner_extra_rules}</strong> rules in <code>{v.source_file}</code> +
         sibling <code>routers/security_scan.py</code>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+           data-testid="vanguard-iter212m66-badges">
+        <VanguardBadge label={`Two-round scan: ${v.two_round_scan || "—"}`}
+               tone={v.two_round_scan === "complete" ? "good" : "warn"} />
+        <VanguardBadge label={`AI report: ${v.ai_remediation_report || "—"}`}
+               tone={v.ai_remediation_report === "complete" ? "good" : "warn"} />
+        <VanguardBadge label={`Auto-PR: ${v.auto_draft_pr || "—"}`}
+               tone={v.auto_draft_pr === "complete" ? "good" : "warn"} />
+        {t.round1_s && (
+          <VanguardBadge label={`Budget: R1 ${t.round1_s}s · R2 ${t.round2_s}s · total ${t.total_s}s`}
+                 tone="info" />
+        )}
+        {v.ai_report_provider && (
+          <VanguardBadge label={`LLM: ${v.ai_report_provider} · max_tokens ${v.ai_report_max_tokens}`}
+                 tone="info" />
+        )}
       </div>
     </div>
   );
