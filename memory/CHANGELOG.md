@@ -6,6 +6,77 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-55 — 1-Click Security Scanner + NoSQL middleware fix (Feb 27 2026) ✅
+
+### Feature: 1-Click Static Vulnerability Scanner
+- New backend router `/app/backend/routers/security_scan.py` exposing
+  `POST /api/aurem-dev/security-scan/run`. Walks the active project's
+  connected GitHub repo (using the encrypted PAT) and runs a static
+  rule library against every scannable file.
+- 13 rules across 7 vuln classes: secret-key leaks (AWS, OpenAI/DeepSeek,
+  GitHub PAT, Stripe live, RSA/EC private blocks), SSTI, SQL injection
+  (f-string + %-format), NoSQL ($where + raw-body queries), ReDoS
+  (nested quantifiers), LPDoS (FastAPI write endpoints), clipboard,
+  and JWT replay (no jti).
+- Caps: 600 files / 256KB per file / 8 concurrent fetches, max 500
+  findings returned. Findings sorted critical→high→medium→low.
+- Honours `vanguard: ignore` / `security-scan: ignore` line directives.
+- New frontend component `SecurityScanDrawer.jsx` — right-side slide-in
+  drawer with severity tiles, grouped finding list, per-finding
+  file:line + code snippet + description. 5-minute in-memory cache
+  keyed by project_id; manual "Re-scan" button bypasses cache.
+- New Shield icon in `ChatPanel.jsx` composer toolbar
+  (`data-testid="chat-security-scan-btn"`), gated to projects with
+  a connected GitHub repo. No plan gating — all logged-in users with
+  a connected repo get it.
+- Pytest regression: `tests/test_iter212m55_security_scan.py` (6 tests
+  on the rule library) + e2e regression suite added by testing
+  agent (`tests/test_iter212m55_e2e_regression.py`, 8 tests). 14/14
+  green.
+
+### Bug fix: NoSQL middleware was breaking ALL POST JSON endpoints
+- The previous `@app.middleware("http")` `_nosql_op_guard`
+  (introduced earlier in iter 212m-55 planning) replaced
+  `request._receive` after reading the body. This corrupted
+  BaseHTTPMiddleware's downstream anyio memory-stream consumer chain
+  and every POST JSON endpoint returned HTTP 499 "client disconnected
+  or upstream error" (including `/auth/login`, `/chat/stream`, all
+  project ops). Reproduced on preview before the fix.
+- Replaced with `NoSQLOpASGIGuard` — a pure-ASGI middleware mounted
+  via `app.add_middleware(NoSQLOpASGIGuard)` that reads the raw ASGI
+  `receive()` stream, validates the body, then replays the same
+  bytes downstream. The decorator-style handler is now a no-op
+  pass-through (kept only for the comment context).
+- Verified: `POST /auth/login` (bad creds) now returns 401, not 499.
+  `$where` operator in any POST JSON body still returns 400
+  "Disallowed query operator in request body" — defence-in-depth
+  intact.
+
+### Files touched
+- `/app/backend/routers/security_scan.py` (rewrite — full
+  implementation; uses httpx + cto_projects.github_token decrypt
+  pipeline)
+- `/app/backend/main.py` — wired router; rewrote NoSQL guard as
+  pure-ASGI middleware
+- `/app/frontend/src/components/SecurityScanDrawer.jsx` (new)
+- `/app/frontend/src/components/ChatPanel.jsx` — Shield button +
+  drawer state + mount
+- `/app/backend/tests/test_iter212m55_security_scan.py` (new — 6
+  rule-library unit tests)
+
+### Known follow-ups (deferred — flagged by code-review)
+- `_gh_get` could map 403 → 'github_rate_limited' instead of letting
+  raise_for_status() bubble a generic 500. P2.
+- `_fetch_file` does one HTTP round per file via the contents API;
+  on a 600-file repo with concurrency=8 that's ~75 sequential RTTs.
+  Tarball download or git/blobs/{sha} would be faster. P2.
+- `lpdos_no_body_limit_fastapi` rule is heuristic — it fires once
+  per file (capped via `max_per_file`) but can be noisy on
+  FastAPI-heavy repos. Consider a "best-practice" tier flag. P3.
+
+---
+
+
 ## Iter 212m-42 / 212m-43 — Vanguard admin toggle wired + stuck-thinking auto-recovery (Feb 27 2026) ✅
 
 ### 212m-42 — Vanguard admin router wired into main.py

@@ -13,6 +13,29 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-55 — 1-Click Security Scanner + NoSQL middleware regression fix (Feb 27 2026) ✅
+- **Feature**: Shield icon button (`data-testid="chat-security-scan-btn"`)
+  in the ChatPanel composer toolbar opens a right-side
+  `SecurityScanDrawer` that hits `POST /api/aurem-dev/security-scan/run`.
+  Backend walks the active project's connected GitHub repo (via stored
+  encrypted PAT), runs 13 static rules across 7 vuln classes (secret
+  leaks, SSTI, SQL inj, NoSQL inj, ReDoS, LPDoS, JWT replay), and
+  returns findings grouped by severity. 5-min frontend cache + manual
+  "Re-scan" button. No plan gating — any logged-in user with a connected
+  repo gets it.
+- **Bug fix**: The previous NoSQL operator guard middleware was using
+  `@app.middleware("http")` + `request._receive` replacement which
+  silently broke EVERY POST JSON endpoint on the platform (login,
+  chat, project ops — all returning HTTP 499). Rewrote as a pure-ASGI
+  `NoSQLOpASGIGuard` class mounted via `app.add_middleware`.
+  Verified: login/auth/chat all return real status codes; `$where`
+  operator still blocked with 400.
+- 14/14 tests green (6 rule-library unit tests + 8 e2e regression
+  tests authored by the testing agent in `test_iter212m55_e2e_regression.py`).
+- See CHANGELOG.md for full implementation notes.
+
+
+
 ### Iter 212m-42 / 212m-43 — Vanguard admin toggle wired + stuck-thinking auto-recovery (Feb 27 2026) ✅
 - **212m-42**: Fixed missing `admin_vanguard_router` import in
   `main.py` (was crashing backend with `NameError`). Vanguard
