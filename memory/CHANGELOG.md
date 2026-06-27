@@ -6,6 +6,49 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-67 — P2-A + P2-B + Meta Pixel (Feb 27 2026) ✅
+
+Three small follow-ups bundled together. All three preview-verified.
+
+### Meta Pixel (`frontend/index.html`)
+- Added Meta Pixel `1362181215840320` `<script>` block to `<head>` (closest-to-top position, right after the meta tags) — pure pixel install, no helper/abstraction
+- `<noscript>` fallback img moved to `<body>` top because HTML5 spec disallows `<img>` inside `<head><noscript>` (Vite parse5 strict mode was rejecting the page); this is Facebook's own recommended placement in their updated install docs
+- Curl-verified: 2 pixel-ID hits, 2 `fbq()` calls, 1 noscript img, 0 parse5 errors
+
+### P2-A — `SecurityScanDrawer.jsx` Vanguard 2.0 UI
+Wires the Iter 212m-66 backend flags to a real user-facing UI.
+- Two new pill toggles in a dedicated options strip between the header and the body:
+  - **"Deep scan + AI report"** (blue, `Sparkles` icon) → sets `two_round: true`
+  - **"Auto open PR"** (purple, `GitPullRequest` icon) → sets `auto_pr: true`. Disabled until deep scan is enabled (matches backend semantics — auto_pr only runs after two-round)
+- Toggle prefs persisted to `localStorage` (`aurem_scan_two_round`, `aurem_scan_auto_pr`) so a user's preference survives reload
+- Cache key now includes mode: `{project}::deep+pr` / `::deep` / `::fast` — different modes no longer cross-contaminate the 5-min TTL slot
+- New **"DEEP"** badge next to the file count when running in two-round mode
+- New **two-round stats strip** below the meta line: `R1: N · R2: N (M files) · chains: N · 3.4s`
+- New **AI Remediation Report** collapsible card (auto-expanded when findings exist):
+  - Header shows `risk N/100` + status pill (`timeout` / `failed` if non-OK)
+  - Per-finding card: severity pill, `file:line` code, `PR-ready` green pill if mechanical, plain-English `what_is_wrong` + monospaced `fix` diff
+- New **draft PR success banner** (purple) with the live `pr_url` linking out to GitHub, opens in new tab
+- New **PR-error pill** (amber) if `pr_error` was returned by the backend
+- Loading copy adapts: "Deep two-round scan in progress… up to 30s" when deep mode is enabled
+- Footer now shows mode pills: "deep mode" / "auto-PR on"
+
+### P2-B — Landing page 6th Watch-it-ship tile (`pages/Landing.jsx`)
+The 6th slot now showcases the just-shipped Vanguard 2.0 feature as a Conversion tile.
+- New CSS-only animated terminal mockup (`.vanguard-thumb` / `.vanguard-shell`) — no video file needed, stays sharp at every viewport
+- 5-step loop showing the deep-scan flow: `R1 → R2 → CHAIN → FIX → PR`, each with a glowing dot, phase label, and live commentary; full cycle every 6 s
+- Tile links to `/pricing#security` for the visitor who wants to dive in
+- "NEW · Vanguard 2.0" featured badge in amber
+- Verified live: grid now renders 6 tiles, the new one visible at viewport 1920×1080
+
+### Files touched
+- `frontend/index.html` (Meta Pixel)
+- `frontend/src/components/SecurityScanDrawer.jsx` (P2-A toggles + report card + PR banner)
+- `frontend/src/pages/Landing.jsx` (P2-B: CSS + 6th tile JSX)
+
+No new files, no env vars, no backend churn — backend was already done in 212m-66.
+
+---
+
 ## Iter 212m-66 — Vanguard 2.0: Two-round deep scan + AI remediation + draft PR (Feb 27 2026) ✅
 
 Upgrades Vanguard from a single-pass surface scanner to a full

@@ -14,7 +14,10 @@
  * and asks ORA in chat to fix what matters.
  */
 import React, { useEffect, useState, useCallback } from "react";
-import { X, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileWarning } from "lucide-react";
+import {
+  X, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileWarning,
+  Sparkles, GitPullRequest, ChevronDown, ChevronRight, ExternalLink,
+} from "lucide-react";
 import { api } from "../lib/api";
 import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
 
@@ -28,16 +31,42 @@ const SEV_COLORS = {
   low:      { bg: "rgba(125,211,252,0.10)", fg: "#bae6fd", border: "rgba(125,211,252,0.42)" },
 };
 
+// Pill chip style used by the two-round stats strip (Iter 212m-66).
+const _chipStyle = (border, fg) => ({
+  padding: "2px 8px", borderRadius: 999,
+  background: "rgba(255,255,255,0.02)",
+  border: `1px solid ${border}`, color: fg,
+});
+
 export default function SecurityScanDrawer({ open, onClose, projectId, projectLabel }) {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
   const [data, setData]         = useState(null);
   const [cachedAt, setCachedAt] = useState(null);
+  // Iter 212m-66 — opt-in Vanguard 2.0 flags. Persisted per-browser
+  // so a user's preference survives reload. The cache key embeds
+  // the flags so a deep-mode result never overwrites a quick-mode
+  // result for the same project (and vice versa).
+  const [twoRound, setTwoRound] = useState(() => {
+    try { return localStorage.getItem("aurem_scan_two_round") === "1"; }
+    catch { return false; }
+  });
+  const [autoPr, setAutoPr] = useState(() => {
+    try { return localStorage.getItem("aurem_scan_auto_pr") === "1"; }
+    catch { return false; }
+  });
+  const [reportOpen, setReportOpen] = useState(false);
+
+  // Cache key: project + mode → so the two_round result has its own
+  // 5-minute TTL slot independent of the legacy single-round one.
+  const cacheKey = projectId
+    ? `${projectId}::${twoRound ? "deep" : "fast"}${autoPr ? "+pr" : ""}`
+    : null;
 
   const fetchScan = useCallback(async (force = false) => {
     if (!projectId) return;
     if (!force) {
-      const hit = getCachedScan(projectId);
+      const hit = getCachedScan(cacheKey);
       if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
         setData(hit.data);
         setCachedAt(hit.at);
@@ -48,18 +77,36 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
     setLoading(true);
     setError(null);
     try {
-      const res = await api.post("/security-scan/run", { project_id: projectId });
+      const body = { project_id: projectId };
+      if (twoRound) body.two_round = true;
+      if (autoPr)   body.auto_pr   = true;
+      const res = await api.post("/security-scan/run", body);
       const payload = res?.data || res;
-      setCachedScan(projectId, payload);
+      setCachedScan(cacheKey, payload);
       setData(payload);
       setCachedAt(Date.now());
+      // Auto-expand the report panel when a fresh deep scan returned
+      // an actionable AI report.
+      if (payload?.remediation_report?.findings?.length) {
+        setReportOpen(true);
+      }
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || "Scan failed";
       setError(typeof msg === "string" ? msg : "Scan failed");
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, twoRound, autoPr, cacheKey]);
+
+  // Persist flag prefs.
+  useEffect(() => {
+    try { localStorage.setItem("aurem_scan_two_round", twoRound ? "1" : "0"); }
+    catch { /* ignore quota errors */ }
+  }, [twoRound]);
+  useEffect(() => {
+    try { localStorage.setItem("aurem_scan_auto_pr", autoPr ? "1" : "0"); }
+    catch { /* ignore quota errors */ }
+  }, [autoPr]);
 
   // Auto-fetch on open.
   useEffect(() => {
@@ -167,6 +214,72 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
           </button>
         </header>
 
+        {/* Iter 212m-66 — Vanguard 2.0 opt-in toggles. Two-round
+            deep scan and Auto-PR are off by default to preserve the
+            legacy fast path; a single click upgrades the scan to the
+            full security-engineer co-pilot. Disabled while a scan
+            is in flight so a user can't change the contract mid-run. */}
+        <div
+          data-testid="security-scan-options"
+          style={{
+            display: "flex", gap: 8, padding: "8px 16px",
+            borderBottom: "1px solid var(--border, rgba(255,255,255,0.04))",
+            background: "rgba(255,255,255,0.015)",
+            fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          <label
+            data-testid="security-scan-toggle-two-round"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 10px", borderRadius: 999,
+              cursor: loading ? "not-allowed" : "pointer",
+              border: `1px solid ${twoRound ? "rgba(56,189,248,0.55)" : "rgba(255,255,255,0.12)"}`,
+              background: twoRound ? "rgba(56,189,248,0.10)" : "transparent",
+              color: twoRound ? "#7dd3fc" : "var(--text-dim, #9aa3b2)",
+              opacity: loading ? 0.5 : 1,
+              transition: "all 120ms",
+            }}
+            title="Two-round Vanguard: surface sweep + deep re-scan + chain detection + AI remediation report"
+          >
+            <input
+              type="checkbox"
+              checked={twoRound}
+              disabled={loading}
+              onChange={(e) => setTwoRound(e.target.checked)}
+              style={{ accentColor: "#38bdf8", margin: 0 }}
+            />
+            <Sparkles size={11} />
+            Deep scan + AI report
+          </label>
+          <label
+            data-testid="security-scan-toggle-auto-pr"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 10px", borderRadius: 999,
+              cursor: (loading || !twoRound) ? "not-allowed" : "pointer",
+              border: `1px solid ${autoPr ? "rgba(168,85,247,0.55)" : "rgba(255,255,255,0.12)"}`,
+              background: autoPr ? "rgba(168,85,247,0.10)" : "transparent",
+              color: autoPr ? "#d8b4fe" : "var(--text-dim, #9aa3b2)",
+              opacity: (loading || !twoRound) ? 0.5 : 1,
+              transition: "all 120ms",
+            }}
+            title={twoRound
+              ? "Open a DRAFT GitHub PR with the remediation report (never force-merged)"
+              : "Enable Deep scan first to open an auto-PR"}
+          >
+            <input
+              type="checkbox"
+              checked={autoPr}
+              disabled={loading || !twoRound}
+              onChange={(e) => setAutoPr(e.target.checked)}
+              style={{ accentColor: "#a855f7", margin: 0 }}
+            />
+            <GitPullRequest size={11} />
+            Auto open PR
+          </label>
+        </div>
+
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
           {loading && !data && (
@@ -179,7 +292,9 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
               }}
             >
               <Loader2 size={28} className="anim-spin" />
-              Scanning repository… this can take 10–20s
+              {twoRound
+                ? "Deep two-round scan in progress… up to 30s"
+                : "Scanning repository… this can take 10–20s"}
             </div>
           )}
 
@@ -241,8 +356,18 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                 display: "flex", justifyContent: "space-between",
                 fontSize: 11, color: "var(--text-dim, #9aa3b2)",
                 marginBottom: 12, fontFamily: "'JetBrains Mono', monospace",
+                flexWrap: "wrap", gap: 6,
               }}>
-                <span>{data.scanned_files} files scanned</span>
+                <span>
+                  {data.scanned_files} files scanned
+                  {data.scan_mode === "two_round" && (
+                    <span style={{
+                      marginLeft: 6, padding: "1px 6px",
+                      borderRadius: 4, background: "rgba(56,189,248,0.16)",
+                      color: "#7dd3fc", fontSize: 10,
+                    }}>DEEP</span>
+                  )}
+                </span>
                 {cachedAt && (
                   <span title="Cached result">
                     cached • {Math.round((Date.now() - cachedAt) / 1000)}s ago
@@ -252,6 +377,201 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                   <span style={{ color: "#fdba74" }}>showing top 500 findings</span>
                 )}
               </div>
+
+              {/* Iter 212m-66 — Two-round stats strip (R1 + R2 + chain). */}
+              {data.two_round && (
+                <div
+                  data-testid="security-scan-two-round-stats"
+                  style={{
+                    display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap",
+                    fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  <span style={_chipStyle("rgba(56,189,248,0.42)", "#7dd3fc")}>
+                    R1: {data.two_round.round1_count}
+                  </span>
+                  <span style={_chipStyle("rgba(56,189,248,0.42)", "#7dd3fc")}>
+                    R2: {data.two_round.round2_count} ({data.two_round.files_round2} files)
+                  </span>
+                  {data.two_round.chain_count > 0 && (
+                    <span style={_chipStyle("rgba(239,68,68,0.55)", "#fca5a5")}>
+                      chains: {data.two_round.chain_count}
+                    </span>
+                  )}
+                  {data.two_round.round2_skipped && (
+                    <span style={_chipStyle("rgba(245,158,11,0.55)", "#fbbf24")}>
+                      R2 skipped (budget)
+                    </span>
+                  )}
+                  <span style={{ color: "var(--text-dim, #9aa3b2)" }}>
+                    {data.two_round.elapsed_seconds}s
+                  </span>
+                </div>
+              )}
+
+              {/* Iter 212m-66 — Draft PR success banner. */}
+              {data.pr_url && (
+                <a
+                  data-testid="security-scan-pr-banner"
+                  href={data.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "10px 12px", marginBottom: 12, borderRadius: 8,
+                    background: "rgba(168,85,247,0.10)",
+                    border: "1px solid rgba(168,85,247,0.45)",
+                    color: "#d8b4fe", textDecoration: "none",
+                    fontSize: 12, lineHeight: 1.4,
+                  }}
+                >
+                  <GitPullRequest size={16} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>Draft PR opened</div>
+                    <div style={{
+                      fontSize: 10.5, color: "#c4b5fd", opacity: 0.85,
+                      overflow: "hidden", textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}>
+                      {data.pr_url}
+                    </div>
+                  </div>
+                  <ExternalLink size={13} />
+                </a>
+              )}
+              {data.pr_error && (
+                <div
+                  data-testid="security-scan-pr-error"
+                  style={{
+                    padding: "8px 12px", marginBottom: 12, borderRadius: 8,
+                    background: "rgba(245,158,11,0.08)",
+                    border: "1px solid rgba(245,158,11,0.40)",
+                    color: "#fbbf24", fontSize: 11, lineHeight: 1.4,
+                  }}
+                >
+                  <strong>PR not opened:</strong> {data.pr_error}
+                </div>
+              )}
+
+              {/* Iter 212m-66 — AI remediation report (collapsible). */}
+              {data.remediation_report && (
+                <div
+                  data-testid="security-scan-ai-report"
+                  style={{
+                    marginBottom: 16, borderRadius: 10,
+                    background: "rgba(56,189,248,0.06)",
+                    border: "1px solid rgba(56,189,248,0.32)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    type="button"
+                    data-testid="security-scan-ai-report-toggle"
+                    onClick={() => setReportOpen((o) => !o)}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center",
+                      gap: 8, padding: "10px 12px", background: "transparent",
+                      border: "none", cursor: "pointer", textAlign: "left",
+                      color: "#7dd3fc", fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    {reportOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <Sparkles size={13} />
+                    AI Remediation Report
+                    <span style={{
+                      marginLeft: "auto", fontSize: 10.5,
+                      color: "var(--text-dim, #9aa3b2)",
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}>
+                      risk {data.remediation_report.risk_score}/100
+                      {data.report_status && data.report_status !== "ok" && (
+                        <span style={{ marginLeft: 6, color: "#fbbf24" }}>
+                          · {data.report_status}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  {reportOpen && (
+                    <div style={{ padding: "0 14px 14px 14px" }}>
+                      <div style={{
+                        fontSize: 11.5, color: "var(--text, #e8ecf3)",
+                        marginBottom: 10, lineHeight: 1.5,
+                      }}>
+                        {data.remediation_report.summary}
+                      </div>
+                      {(data.remediation_report.findings || []).map((rf, i) => (
+                        <div
+                          key={`rf-${i}`}
+                          data-testid="security-scan-ai-fix"
+                          style={{
+                            padding: 10, marginBottom: 8, borderRadius: 7,
+                            background: "rgba(0,0,0,0.28)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            fontSize: 11, marginBottom: 4,
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }}>
+                            <span style={{
+                              padding: "1px 6px", borderRadius: 4,
+                              background: SEV_COLORS[(rf.severity || "low")
+                                .toLowerCase()]?.bg || "rgba(125,211,252,0.10)",
+                              color: SEV_COLORS[(rf.severity || "low")
+                                .toLowerCase()]?.fg || "#bae6fd",
+                              fontSize: 9.5, textTransform: "uppercase",
+                              letterSpacing: 0.4,
+                            }}>{rf.severity}</span>
+                            <code style={{
+                              color: "#cbd5e1", fontSize: 10.5,
+                              wordBreak: "break-all",
+                            }}>{rf.file}:{rf.line}</code>
+                            {rf.pr_ready && (
+                              <span title="Mechanical fix — safe to merge"
+                                    style={{
+                                      marginLeft: "auto", fontSize: 9.5,
+                                      color: "#86efac", padding: "1px 6px",
+                                      borderRadius: 4,
+                                      background: "rgba(34,197,94,0.10)",
+                                      border: "1px solid rgba(34,197,94,0.40)",
+                                    }}>
+                                PR-ready
+                              </span>
+                            )}
+                          </div>
+                          <div style={{
+                            fontSize: 11.5, color: "var(--text, #e8ecf3)",
+                            marginBottom: 6, lineHeight: 1.5,
+                          }}>
+                            {rf.what_is_wrong}
+                          </div>
+                          {rf.fix && (
+                            <pre style={{
+                              margin: 0, padding: "6px 8px",
+                              background: "rgba(0,0,0,0.42)",
+                              borderRadius: 5, fontSize: 10.5,
+                              fontFamily: "'JetBrains Mono', monospace",
+                              color: "#86efac", overflowX: "auto",
+                              whiteSpace: "pre-wrap", wordBreak: "break-all",
+                            }}>
+                              {rf.fix}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                      {!(data.remediation_report.findings || []).length && (
+                        <div style={{
+                          padding: "8px 4px", fontSize: 11,
+                          color: "var(--text-dim, #9aa3b2)",
+                        }}>
+                          AI report unavailable — see raw findings below.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {summary.total === 0 ? (
                 <div
@@ -355,7 +675,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
           fontFamily: "'JetBrains Mono', monospace",
           textAlign: "center",
         }}>
-          Static scan • findings only • no auto-fixes
+          Static scan • findings only • no auto-fixes{twoRound && " · deep mode"}{autoPr && " · auto-PR on"}
         </footer>
       </aside>
     </>

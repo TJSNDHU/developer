@@ -224,6 +224,53 @@ const LANDING_CSS = `
 .ora-landing .video-title { color: var(--text); font-weight: 600; margin-bottom: 4px; font-size: 15px; }
 .ora-landing .video-desc { color: var(--muted-2); font-size: 13px; line-height: 1.5; }
 
+/* Iter 212m-66 — Vanguard 2.0 animated showcase tile.
+   No video file required — pure CSS terminal mockup that depicts
+   the two-round scan flow, lighting up R1 → R2 → CHAIN → PR as it
+   loops every 6s.  Used as the 6th card in the Watch-it-ship grid
+   to highlight the just-shipped deep-scan + auto-PR feature. */
+.ora-landing .vanguard-thumb {
+  aspect-ratio: 16/9; position: relative; overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 15% 10%, rgba(56,189,248,0.18), transparent 55%),
+    radial-gradient(120% 90% at 90% 90%, rgba(168,85,247,0.18), transparent 55%),
+    linear-gradient(135deg, #0b1220, #050810);
+  border-bottom: 1px solid var(--line-2);
+}
+.ora-landing .vanguard-thumb::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.45) 100%);
+}
+.ora-landing .vanguard-shell {
+  position: absolute; left: 14px; right: 14px; top: 14px; bottom: 14px;
+  background: rgba(2,6,14,0.78);
+  border: 1px solid rgba(56,189,248,0.22);
+  border-radius: 8px; padding: 12px 14px;
+  font-family: var(--font-mono); font-size: 11px; color: #cbd5e1;
+  display: flex; flex-direction: column; gap: 6px;
+  backdrop-filter: blur(6px);
+}
+.ora-landing .vanguard-line { display: flex; align-items: center; gap: 8px;
+  opacity: 0; animation: vguard-step 6s infinite; }
+.ora-landing .vanguard-line .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ora-landing .vanguard-line .ph  { color: #94a3b8; font-size: 10px; letter-spacing: 0.05em; min-width: 64px; }
+.ora-landing .vanguard-line .msg { color: #e2e8f0; }
+.ora-landing .vanguard-line.l1 { animation-delay: 0.0s; }
+.ora-landing .vanguard-line.l2 { animation-delay: 1.2s; }
+.ora-landing .vanguard-line.l3 { animation-delay: 2.4s; }
+.ora-landing .vanguard-line.l4 { animation-delay: 3.6s; }
+.ora-landing .vanguard-line.l5 { animation-delay: 4.6s; }
+.ora-landing .vanguard-line.l1 .dot { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+.ora-landing .vanguard-line.l2 .dot { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+.ora-landing .vanguard-line.l3 .dot { background: #f87171; box-shadow: 0 0 10px #f87171; }
+.ora-landing .vanguard-line.l4 .dot { background: #a855f7; box-shadow: 0 0 10px #a855f7; }
+.ora-landing .vanguard-line.l5 .dot { background: #86efac; box-shadow: 0 0 10px #86efac; }
+@keyframes vguard-step {
+  0%, 6%   { opacity: 0; transform: translateY(4px); }
+  10%, 90% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; transform: translateY(0); }
+}
+
 /* Steps */
 .ora-landing .steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .ora-landing .step { padding: 28px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); background: rgba(15,23,42,0.4); }
@@ -655,6 +702,52 @@ export default function Landing() {
                 </div>
               </div>
             ))}
+            {/* Iter 212m-66 — Vanguard 2.0 showcase tile. Sixth slot in
+                the Watch-it-ship grid. Uses a pure-CSS terminal mockup
+                instead of a video file so it stays sharp at every
+                viewport and animates the deep-scan flow for any
+                visitor with motion enabled. Clicking lands on /pricing
+                where the security pillar is detailed in full. */}
+            <a
+              className="video-card"
+              key="vanguard-2"
+              href="/pricing#security"
+              data-testid="landing-video-vanguard-2"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div className="vanguard-thumb">
+                <span className="video-badge featured">New · Vanguard 2.0</span>
+                <div className="vanguard-shell" aria-hidden="true">
+                  <div className="vanguard-line l1">
+                    <span className="dot" /><span className="ph">R1</span>
+                    <span className="msg">surface sweep · 412 files · 25 patterns</span>
+                  </div>
+                  <div className="vanguard-line l2">
+                    <span className="dot" /><span className="ph">R2</span>
+                    <span className="msg">deep re-scan · 9 flagged · context ±10</span>
+                  </div>
+                  <div className="vanguard-line l3">
+                    <span className="dot" /><span className="ph">CHAIN</span>
+                    <span className="msg">sql_format + insecure_http → CRITICAL</span>
+                  </div>
+                  <div className="vanguard-line l4">
+                    <span className="dot" /><span className="ph">FIX</span>
+                    <span className="msg">ORA wrote 3 patches · risk 78 → 12</span>
+                  </div>
+                  <div className="vanguard-line l5">
+                    <span className="dot" /><span className="ph">PR</span>
+                    <span className="msg">draft opened · vanguard/auto-fix ✓</span>
+                  </div>
+                </div>
+              </div>
+              <div className="video-info">
+                <div className="video-title">Vanguard 2.0 — two-round deep scan + auto PR</div>
+                <div className="video-desc">
+                  Scan finds the bugs. ORA writes the fixes. PR lands in your
+                  repo — draft, never force-merged. New in Feb 2026.
+                </div>
+              </div>
+            </a>
           </div>
         </section>
 

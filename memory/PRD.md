@@ -13,6 +13,11 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-67 — P2-A + P2-B + Meta Pixel (Feb 27 2026) ✅
+- **Meta Pixel** `1362181215840320` installed in `frontend/index.html` head + body noscript fallback (Facebook install snippet, HTML5-spec-compliant placement so Vite parse5 doesn't reject the page).
+- **P2-A** — `SecurityScanDrawer.jsx` now exposes Vanguard 2.0: two pill toggles ("Deep scan + AI report", "Auto open PR"), persisted to localStorage, cache key per-mode, DEEP badge, two-round stats strip, collapsible AI remediation report card with per-finding severity/PR-ready pills + monospaced fix diff, draft-PR success banner with live `pr_url`, PR-error fallback pill. Loading copy adapts to deep-mode timing.
+- **P2-B** — Landing page Watch-it-ship grid now has 6 tiles. The 6th tile is a CSS-only animated terminal mockup of the Vanguard 2.0 flow (R1 → R2 → CHAIN → FIX → PR), no video file needed, links to `/pricing#security`. New "NEW · Vanguard 2.0" featured badge.
+
 ### Iter 212m-66 — Vanguard 2.0: Two-round deep scan + AI remediation + draft PR (Feb 27 2026) ✅
 - **Two-round Vanguard pipeline** (`services/vanguard_scanner.py::run_two_round_scan`):
   - R1 (≤ 10 s) — runs the existing 25-pattern catalog over every file
