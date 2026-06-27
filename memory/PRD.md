@@ -13,6 +13,14 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-68 — SEO + GEO + AEO overhaul (Feb 27 2026) ✅
+Full discovery-layer overhaul so ORA shows up correctly on Google, ChatGPT Search, Perplexity, Gemini and Claude Web.
+- **`index.html`** — new conversion-focused title + description + keywords; GEO citation hints (citation_title/author/publisher/year, ai-content-declarations); OG + Twitter cards rewritten with new tagline and `/og-image.png`; **4 separate JSON-LD blocks** (Organization, WebSite, SoftwareApplication, FAQPage). SoftwareApplication carries a 16-feature list + 4.9/500 rating. FAQPage has 8 verbatim-citation-ready answers covering vs Copilot / Cursor / Devin / Lovable + the CVE-2025-48757 citation. `<noscript>` brand fallback rewritten with new voice + comparison facts + CTA.
+- **`llms.txt`** + **`llms-full.txt`** — rewritten with current Iter 212m-66/67/68 features. llms-full.txt includes a markdown comparison MATRIX (ORA $9 vs Copilot $10 vs Cursor $20 vs Devin $500 vs Lovable vs Bolt) marking YES / NO / partial for every capability row, plus a "CVE / Security incidents at competitors" section.
+- **`sitemap.xml`** — lastmod refreshed to 2026-02-27; root entry now has 2 `<image:image>` children (og-image.png + ora-icon.png); added /signup entry.
+- **`og-image.png`** — generated 1200×630 PNG via PIL with ORA brand colours, wordmark, tagline, 3 pill badges (Vanguard Security · $9/month flat · No IDE required), URL footer. 18 KB optimised. Replaces the legacy 80 KB JPG.
+- **Validation**: All 4 JSON-LD blocks parse valid, Meta Pixel still firing, 0 parse5 errors, all 5 static SEO assets serve HTTP 200 with correct content-types.
+
 ### Iter 212m-67 — P2-A + P2-B + Meta Pixel (Feb 27 2026) ✅
 - **Meta Pixel** `1362181215840320` installed in `frontend/index.html` head + body noscript fallback (Facebook install snippet, HTML5-spec-compliant placement so Vite parse5 doesn't reject the page).
 - **P2-A** — `SecurityScanDrawer.jsx` now exposes Vanguard 2.0: two pill toggles ("Deep scan + AI report", "Auto open PR"), persisted to localStorage, cache key per-mode, DEEP badge, two-round stats strip, collapsible AI remediation report card with per-finding severity/PR-ready pills + monospaced fix diff, draft-PR success banner with live `pr_url`, PR-error fallback pill. Loading copy adapts to deep-mode timing.

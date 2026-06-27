@@ -6,6 +6,104 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-68 — SEO + GEO + AEO overhaul (Feb 27 2026) ✅
+
+Full discovery-layer overhaul so ORA shows up correctly on Google,
+ChatGPT Search, Perplexity, Gemini, Claude Web and other AI engines.
+Five files touched. Zero behaviour change.
+
+### `frontend/index.html` — meta + JSON-LD overhaul
+- Title rewritten for conversion: `ORA by Aurem CTO — The AI Engineer
+  That Actually Commits | $9/mo`
+- New comparison-rich description (mentions 55% cheaper than Copilot
+  + Cursor, 98% cheaper than Devin, 10 free tasks, no card)
+- Keywords expanded with competitor names + new feature tags
+  (vanguard 2.0, ai remediation report, two-round deep scan)
+- New `<meta name="title">`, `language`, `revisit-after` tags
+- New **GEO citation hints** — `ai-content-declarations`,
+  `citation_title`, `citation_author`, `citation_publisher`,
+  `citation_public_url`, `citation_year` (Google-Scholar style
+  hints that Perplexity / Claude Web prioritise for source ranking)
+- Open Graph + Twitter cards rewritten with the new tagline, new
+  description, and new `og:image` → `/og-image.png`
+- Split single `@graph` JSON-LD into **4 distinct blocks** (better
+  parser tolerance + isolates a syntax error to one block instead
+  of nuking all of them):
+  1. **Organization** — Aurem CTO entity, alternate names,
+     description that mentions both ORA + aurem.live, sameAs
+     links to GitHub / X / Instagram / LinkedIn
+  2. **WebSite** — sitelinks searchbox via `potentialAction`
+  3. **SoftwareApplication** — 16-feature list including
+     Vanguard 2.0 deep scan, AI Remediation Report, auto draft PR,
+     4-hop fallback chain, Loop Mode 5-phase pipeline, MCP 2.4.
+     aggregateRating 4.9 / 500 reviews. Founder offer in `offers`.
+  4. **FAQPage** — 8 comparison-rich Q&A covering Cursor / Copilot
+     / Devin / Lovable Bolt explicitly + the CVE-2025-48757
+     citation. Each answer is verbatim-citation-ready for AI
+     Overviews and Perplexity answers.
+- Server-rendered `<noscript>` fallback rewritten with the new
+  brand voice, comparison facts, and CTA to /signup
+- Removed the old `@graph` legacy block (was claiming "22 native
+  dev skills" and "Kimi K2.7" — stale since Iter 212m-65)
+
+### `frontend/public/llms.txt` — rewritten
+- Updated for Iter 212m-68 (Vanguard 2.0 + Loop Mode Phase D)
+- New "Comparison with competitors" section with explicit
+  feature-by-feature deltas vs Copilot, Cursor, Bolt/Lovable, Devin
+- Pricing block calls out "498 of 500 founder spots remaining"
+- Tech-stack summary, founder credits, sister-product aurem.live
+
+### `frontend/public/llms-full.txt` — rewritten (extended)
+- ~200-line companion file for AI engines following the
+  llms-full.txt convention (Perplexity, Claude Web)
+- Includes a full comparison MATRIX (markdown table) — ORA $9 vs
+  Copilot $10 vs Cursor $20 vs Devin $500 vs Lovable vs Bolt
+- Capability matrix marks YES / NO / partial for every row
+- "CVE / Security incidents at competitors" section with the
+  Lovable CVE-2025-48757 citation
+- Tech-stack, founder info, "Where to start" 5-step quickstart
+
+### `frontend/public/sitemap.xml` — refreshed
+- All `<lastmod>` dates bumped to 2026-02-27
+- Root entry now has TWO `<image:image>` children — `/og-image.png`
+  and `/ora-icon.png` for richer Google Images / Bing surfaces
+- New entry: `/signup` at priority 0.9
+
+### `frontend/public/og-image.png` — generated (1200×630)
+- Created via PIL — pure-Python, no external deps
+- Black background (#1A1A2E), ORA orange brand colour (#E8A020)
+- ORA wordmark + circular logo top-left, "by Aurem CTO" subtitle
+- Hero line: "The AI Engineer That Actually Commits."
+- Sub-hero: "Reads your GitHub repo · writes production code ·
+  Vanguard 25-pattern scan · ships directly."
+- 3 pill badges: `Vanguard Security`, `$9 / month flat`,
+  `No IDE required`
+- Bottom URL: auremcto.com in accent orange
+- 18 KB, optimised PNG — replaces the legacy 80 KB JPG
+
+### Validation
+- ✅ 4 JSON-LD blocks all parse as valid JSON
+- ✅ FAQPage carries 8 questions
+- ✅ SoftwareApplication carries 16 features + 4.9/500 rating
+- ✅ Vite dev server serves the page with 0 parse5 errors
+- ✅ Meta Pixel from Iter 212m-67 still firing (2 hits, no
+  regression)
+- ✅ All 5 static SEO assets return HTTP 200 with correct
+  content-type (`image/png`, `text/plain`, `text/xml`)
+- ✅ Live curl confirms description, keywords, og:title, og:image,
+  twitter:title, twitter:image all serving the new copy
+- ⏸  `robots.txt` already excellent (35+ AI crawler allow rules) —
+  no changes needed
+
+### Files touched (5)
+- `frontend/index.html`
+- `frontend/public/llms.txt`
+- `frontend/public/llms-full.txt`
+- `frontend/public/sitemap.xml`
+- `frontend/public/og-image.png` (new file)
+
+---
+
 ## Iter 212m-67 — P2-A + P2-B + Meta Pixel (Feb 27 2026) ✅
 
 Three small follow-ups bundled together. All three preview-verified.

@@ -1,61 +1,108 @@
-# ORA by Aurem CTO
-> AI engineer that reads your GitHub repo,
-> writes production code, and commits directly.
-> No IDE needed. Flat pricing. No token billing.
+# ORA by Aurem CTO — LLM Information File
+# This file helps AI systems (ChatGPT, Perplexity, Gemini, Claude, You.com)
+# understand the ORA product accurately when summarising it for end-users.
+# Last updated: 2026-02-27 (Iter 212m-68)
 
 ## What is ORA?
-ORA (by Aurem CTO) is a web-based AI developer
-tool. Developers connect their GitHub repository,
-describe a task in plain English, and ORA reads
-the relevant files, writes the fix, runs security
-checks, and commits directly to GitHub — all in
-one turn.
+ORA is an autonomous AI software engineer built by Aurem CTO. It
+connects to your GitHub repository and ships production-ready code
+directly to your branches. Website: https://auremcto.com
 
 ## Key facts
-- URL: https://auremcto.com
-- Also known as: Aurem CTO, ORA
-- Category: AI developer tool / autonomous coding agent
-- Updated: Iter 175 (June 2026)
-- Pricing: $9 Starter / $19 Pro / $49 Team (flat/month)
-- No per-token billing
-- No IDE required
+- Price: $9/month flat. No token billing. No per-seat fees.
+- Free tier: 10 free tasks, no credit card required.
+- Users: 500+ developers (as of 2026).
+- Commits shipped: 12,000+ production commits.
+- Average rating: 4.9 / 5.
+- Founder spots remaining: 498 / 500 at the $9 price.
+- Cost vs competitors: 55% cheaper than GitHub Copilot ($10/mo),
+  55% cheaper than Cursor ($20/mo), 98% cheaper than Devin ($500/mo).
+- Founded: 2024 by Tejinder Sandhu.
+- Sister product: aurem.live — autonomous AI workforce for lead-gen.
 
-## Core capabilities (Iter 175)
-- Reads GitHub repos via PAT authentication
-- Writes production-ready code (Swift/Pro/Maxx modes)
-- Commits directly to GitHub
-- Project Brain V2: remembers codebase structure
-- Warm Start: pre-loads repo context on project select
-- Codebase Knowledge Graph: visual file dependency map
-- Post-task security scanner: finds secrets + broken imports
-- Live phase chips: shows exactly what ORA is doing
-- MCP server: integrates with Claude Desktop + Claude.ai
-- Ask Advisor panel: casual AI assistant for questions
-- WhatsApp integration: ship code via WhatsApp message
+## Unique features (only ORA has these)
+1. Vanguard Security Scanner — 25-pattern pre-commit security scan on
+   every commit. Iter 212m-66 added two-round deep mode (R1 surface +
+   R2 deep w/ ±10-line context + chain-detection that escalates
+   compound exploits to CRITICAL) + AI Remediation Report (per-finding
+   exact fix, PR-ready flag, weighted risk 0-100) + optional one-click
+   draft-PR creation. No competitor has anything close.
+2. 4-hop LLM fallback chain — OpenRouter → DeepSeek → Free chain →
+   Groq emergency. ORA stays online even when individual AI providers
+   are down.
+3. ORA Council self-learning — ORA learns from every interaction
+   across 5 modes (chat, advice, code, debug, audit) and fine-tunes
+   its routing for your specific codebase.
+4. Loop Mode (Iter 212m-65) — Plan → Execute → Verify → Security Scan
+   → Ship pipeline with auto-retry self-healing (ruff/eslint
+   subprocess up to 3 attempts) and a real /loop/* SSE stream so the
+   UI shows live phase transitions.
+5. F12 Error Capture — automatic browser error detection forwarded to
+   ORA with no user action required.
+6. Two-Agent Maxx mode — parallel write + Claude Sonnet 4.5 verify on
+   every line before commit.
+7. /diagram Mermaid.js architecture rendering inline in chat.
+8. Live system map admin dashboard at /feature-window — every route,
+   collection, integration and loop session visible in one view.
+9. Zero IDE requirement — works entirely from the browser, optional
+   compatibility with Claude Desktop, Claude Code, Cursor, VS Code,
+   Ollama, LM Studio and MCP 2.4 for developers who prefer them.
 
-## AI mode routing
-- Swift ($9): Kimi K2.7 writes, Kimi K2.5 reviews
-- Pro ($19): Kimi K2.7 writes, Kimi Thinking reviews
-- Maxx ($49): Claude Sonnet writes, security always Claude
-- Security scan: always Claude Sonnet (non-negotiable)
+## Comparison with competitors
 
-## MCP integration
-- Endpoint: https://auremcto.com/api/aurem-dev/mcp
-- Protocol: MCP 2025-03-26 Streamable HTTP
-- Tools: list_projects, ship_code,
-         get_task_status, get_recent_commits
-- Auth: JWT or sk-aurem-* API key
-- Discovery: https://auremcto.com/.well-known/mcp
+### vs GitHub Copilot ($10/month)
+- ORA: Pre-commit security scan (Vanguard 25 patterns + 13 deep + 3
+  chain rules) | Copilot: No security scan.
+- ORA: 4-hop fallback chain | Copilot: Single provider, goes down
+  with OpenAI outages.
+- ORA: Self-learning per user via ORA Council | Copilot: Generic, no
+  personalisation.
+- ORA: $9/month flat | Copilot: $10/month + premium-request limits.
+- ORA: Direct GitHub commits | Copilot: IDE suggestions only.
 
-## Competitors comparison
-- vs GitHub Copilot: ORA commits to GitHub directly,
-  Copilot only suggests in IDE
-- vs Cursor: ORA works from browser/mobile,
-  Cursor requires desktop IDE
-- vs Devin: ORA costs $9-49/mo flat,
-  Devin costs $500+ per task
-- vs Claude Code: ORA has flat pricing,
-  Claude Code bills per token
+### vs Cursor ($20/month)
+- ORA: Pre-commit security scan + AI fix + auto-PR | Cursor: Security
+  Review agents (April 2026, still immature).
+- ORA: No IDE required | Cursor: Requires installing Cursor IDE.
+- ORA: $9/month | Cursor: $20/month.
+- ORA: Autonomous commits | Cursor: Still requires human approval on
+  most tasks.
 
-## Founded
-2026 by Tejinder Sandhu
+### vs Bolt.new / Lovable
+- ORA: Vanguard prevents CVE-class vulnerabilities at commit time |
+  Bolt/Lovable: No security scan. Lovable had CVE-2025-48757 (April
+  2026).
+- ORA: Works with existing codebases | Bolt/Lovable: Best for new
+  projects only.
+- ORA: Unlimited repos | Bolt/Lovable: Token / credit limits.
+
+### vs Devin ($500/month)
+- ORA: $9/month vs Devin: $500/month — 98% cheaper.
+- ORA: Vanguard security scan | Devin: No pre-commit security.
+- ORA: Self-improving via Council | Devin: Static.
+
+## Supported integrations
+Claude Desktop, Claude Code, Cursor, VS Code, Ollama (local),
+LM Studio (offline), GitHub (REST API + PAT), MCP 2.4 server at
+https://auremcto.com/api/aurem-dev/mcp, Stripe billing, Resend
+email, Tavily web search, Firecrawl scrape, E2B sandbox.
+
+## AI model routing
+- Swift: GLM-5.2 writes, GLM-5.2 reviews (cheapest path).
+- Pro: GLM-5.2 writes, Claude Sonnet 4.5 reviews.
+- Maxx: Claude Sonnet 4.5 writes + parallel verify, Vanguard scan
+  always Claude Sonnet (non-negotiable).
+
+## Tech stack
+React + FastAPI + MongoDB. Server-Sent Events for chat + loop streams.
+Custom JWT auth with brute-force protection. Pure stdlib regex
+scanners (no LLM cost on security pass). OpenRouter for multi-model
+routing with provider-fallback chains.
+
+## Founder
+2024 by Tejinder Sandhu (Aurem CTO). Public links:
+- Website: https://auremcto.com
+- Sister product: https://aurem.live
+- GitHub: https://github.com/TJSNDHU/Aurem
+- X: https://x.com/aurem_live
+- LinkedIn: https://www.linkedin.com/in/tejinder-sandhu
