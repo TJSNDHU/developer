@@ -33,7 +33,14 @@ import PostTaskScan from "./PostTaskScan";
 import LiveStepFloatingCard from "./LiveStepFloatingCard";  // Iter 212m-19
 import FounderOfferCard from "./FounderOfferCard";          // Iter 212m-30 PR-2
 import SecurityScanDrawer from "./SecurityScanDrawer";      // Iter 212m-55 1-click scan
-import { getScanSeverityCounts, onScanUpdated } from "../lib/securityScanCache";  // Iter 212m-56
+import { getScanSeverityCounts, onScanUpdated, setCachedScan } from "../lib/securityScanCache";  // Iter 212m-56
+// Iter 212m-58 — Prompt / Loop execution-mode switcher + ancillary
+// step bar and plan-approval card.
+import LoopModeToggle, {
+  EXEC_MODES, loadExecMode, saveExecMode,
+} from "./LoopModeToggle";
+import LoopStepBar from "./LoopStepBar";
+import PlanApprovalCard from "./PlanApprovalCard";
 import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
@@ -418,6 +425,30 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [streamHealth, setStreamHealth] = useState({
     phase: "idle", silentFor: 0, retryEtaSec: null,
   });
+  // ──────────────────────────────────────────────────────────────
+  // Iter 212m-58 — Prompt / Loop execution mode.
+  // ──────────────────────────────────────────────────────────────
+  // `execMode` is persisted via the LoopModeToggle helpers and
+  // controls a lot of downstream UX:
+  //   • Send button text (Send vs Run loop)
+  //   • Composer placeholder
+  //   • Swift model availability (hidden in loop)
+  //   • Shield badge label ("Auto" in loop)
+  //   • Render of LoopStepBar + PlanApprovalCard
+  //   • execution_mode body field on /chat/stream
+  const [execMode, setExecMode] = useState(loadExecMode);
+  // Loop pipeline state. `phase` drives the LoopStepBar and decides
+  // whether to render the PlanApprovalCard. `retryCount` is reserved
+  // for future verify-loop auto-retry UX (max 3).
+  const [loopPhase, setLoopPhase] = useState("idle");
+  const [loopRetryCount, setLoopRetryCount] = useState(0);
+  // The pending plan message id — once the user approves, we continue
+  // the same session with a `LOOP_PHASE:execute` follow-up.
+  const pendingPlanRef = useRef(null);
+  // Iter 212m-58 — chatMode hard-pinned to Pro when loop is active
+  // (Swift disabled per spec). We persist that nudge on toggle so a
+  // user flipping back to Prompt mode keeps their last model pick.
+  const lastPromptChatModeRef = useRef(null);
   // Iter 212m-56 — severity counts for Shield badge. Reads the shared
   // securityScanCache and re-renders on every drawer scan completion.
   const [scanCounts, setScanCounts] = useState(() =>
@@ -1008,9 +1039,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }
   }
 
-  async function send(e) {
+  async function send(e, opts = {}) {
     e?.preventDefault();
-    const text = input.trim();
+    // Iter 212m-58 — optional loop-phase override. Called with
+    // `{ loopPhase: "execute", promptOverride: "..." }` from the
+    // PlanApprovalCard approve handler so we can continue the same
+    // session with the execute phase.
+    const loopPhaseHint = opts.loopPhase || null;
+    const promptOverride = opts.promptOverride || null;
+    const text = promptOverride != null ? promptOverride : input.trim();
     // Pull ready attachments (uploading ones get skipped silently —
     // user can re-send if they were too slow). Also keep errored ones
     // (their stub markdown tells the LLM something was attempted).
@@ -1020,7 +1057,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // Allow send when EITHER text OR attachments exist — previous gate
     // demanded text, which is why an image-only chat silently refused.
     if ((!text && !readyAttachments.length) || busy || !sessionId) return;
-    setInput("");
+    if (promptOverride == null) setInput("");
     // Iter 146 — once the user fires off the first message of this
     // session, broadcast `aurem:chat-session-started` so Shell.jsx
     // can hide the sidebar for the rest of the session. The peek hot
@@ -1052,10 +1089,34 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (attachmentBlock) bodyParts.push(attachmentBlock);
     bodyParts.push(userBody);
     const finalText = bodyParts.join("\n\n");
+    // Iter 212m-58 — Loop-mode phase prefix. The backend reads this
+    // hint to decide whether the model should respond plan-only or
+    // proceed with execution. First-turn loop sends get `:plan`; the
+    // PlanApprovalCard approval path passes `loopPhase: "execute"`.
+    const inLoop = execMode === EXEC_MODES.LOOP;
+    const resolvedPhase = inLoop
+      ? (loopPhaseHint || "plan")
+      : null;
+    const phasePrefix = resolvedPhase ? `LOOP_PHASE:${resolvedPhase}\n\n` : "";
     // Auto-augment prompt with active project context so the LLM stays scoped.
     const finalPrompt = activeProject
-      ? `[Working on project: ${activeProject.name} — repo ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}]\n\n${finalText}`
-      : finalText;
+      ? `${phasePrefix}[Working on project: ${activeProject.name} — repo ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}]\n\n${finalText}`
+      : `${phasePrefix}${finalText}`;
+    // Iter 212m-58 — drive the LoopStepBar from here. On a fresh loop
+    // turn we set `plan_pending` (waits for the model to emit the
+    // [PLAN_READY] marker, then the SSE onToken below flips it to
+    // plan_approved/pending the user's button click); on the execute
+    // continuation we jump straight to `executing`.
+    if (inLoop) {
+      if (resolvedPhase === "execute") {
+        setLoopPhase("executing");
+      } else {
+        setLoopPhase("plan_pending");
+      }
+      setLoopRetryCount(0);
+    } else {
+      setLoopPhase("idle");
+    }
     // Show what the user actually typed PLUS a small attachment summary
     // so the bubble doesn't dump 60KB of markdown on screen.
     const displayContent = readyAttachments.length
@@ -1191,6 +1252,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       maxxMode,
       agent,                       // iter 38: selector value
       mode: chatMode,              // Iter 153: swift / pro / maxx review
+      executionMode: execMode,     // Iter 212m-58: prompt / loop
       f12Payload,                  // iter 42: console/network/stack errors
       signal: ctrl.signal,
       onMode: (m) => {

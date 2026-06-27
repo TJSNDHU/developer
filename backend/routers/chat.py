@@ -165,6 +165,16 @@ class ChatBody(BaseModel):
     # Iter 153 — review mode requested by the user (swift/pro/maxx).
     # Server clamps to whatever their tier allows; never trusted as-is.
     mode: Optional[str] = Field("swift", max_length=16)
+    # Iter 212m-58 — execution_mode is ORTHOGONAL to `mode` (the model
+    # selector). "prompt" = single-pass one-shot reply (default).
+    # "loop" = 5-phase pipeline (Plan → Execute → Verify → Security →
+    # Ship). The backend doesn't drive the loop itself — the frontend
+    # orchestrates phase transitions via successive /chat/stream calls.
+    # Our job here is to inject a system-prompt suffix telling the
+    # model to (a) respond plan-only on the first turn and (b) emit
+    # explicit `[STEP X/5: name]` markers at every phase boundary so
+    # the LoopStepBar can light up.
+    execution_mode: Optional[str] = Field("prompt", max_length=16)
     # Iter 159 — true when the request originates from the ASK ORA
     # side panel. Triggers the casual ASK-ORA tone override in the
     # system prompt for this turn only; the main coding chat never
@@ -898,6 +908,37 @@ async def chat_stream(
         from services.rate_limiter import check_rate_limit, client_ip_from_request
         if not check_rate_limit(f"chat:{client_ip_from_request(request)}", 30):
             raise HTTPException(429, "Rate limit exceeded: 30 chats/min/IP")
+
+    # Iter 212m-58 — Loop-mode prompt enrichment. When the frontend
+    # opts in to Loop mode it sends `execution_mode="loop"` plus one
+    # of two `loop_phase` hints prefixed to the prompt itself. The
+    # backend doesn't drive the loop — the frontend orchestrates the
+    # 5 phases across successive /chat/stream calls. Our only job
+    # here is to wrap the prompt with a system-style instruction so
+    # the model knows to (a) respond plan-only on phase 1 and (b)
+    # emit `[STEP X/5: NAME]` markers at every phase boundary.
+    if (body.execution_mode or "").lower() == "loop":
+        _loop_suffix = (
+            "\n\n[LOOP MODE — 5-phase pipeline]\n"
+            "Your reply must follow this contract:\n"
+            "• If the user message begins with `LOOP_PHASE:plan`, respond "
+            "with a NUMBERED PLAN ONLY (3-7 concrete bullets describing "
+            "what files you will touch and in what order). Start the "
+            "reply with the literal marker `[STEP 1/5: PLAN]` on its own "
+            "line. Do NOT write any code, do NOT call any tools, and end "
+            "with `[PLAN_READY]` on its own line so the UI knows to show "
+            "the Approve button.\n"
+            "• If the user message begins with `LOOP_PHASE:execute`, "
+            "proceed with the plan you proposed earlier. Emit "
+            "`[STEP 2/5: EXECUTE]` before file writes, "
+            "`[STEP 3/5: VERIFY]` before linting/tests, "
+            "`[STEP 4/5: SECURITY]` before the Vanguard scan, and "
+            "`[STEP 5/5: SHIP]` before the final commit. If verification "
+            "fails up to 3 times, stop and explain the error.\n"
+            "• Otherwise (no loop phase hint), behave as normal."
+        )
+        body.prompt = (body.prompt or "") + _loop_suffix
+
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 

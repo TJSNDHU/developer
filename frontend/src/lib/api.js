@@ -125,6 +125,7 @@ export function newSessionId() {
 export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     maxxMode = false, projectId = null,
                                     agent = "auto", mode = "swift",
+                                    executionMode = "prompt",  // Iter 212m-58
                                     f12Payload = null,
                                     onMeta, onMode, onToken, onWatchdog, onWatchdogPending,
                                     onOpsRedirect,
@@ -145,6 +146,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
       maxx_mode: maxxMode,
       agent,
       mode,
+      execution_mode: executionMode,  // Iter 212m-58
       project_id: projectId,
       f12_payload: f12Payload,
     }),
