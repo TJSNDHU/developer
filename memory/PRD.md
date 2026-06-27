@@ -13,6 +13,22 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-57 — SSE AbortError silence + Reconnect pill + /dashboard/* redirect (Feb 27 2026) ✅
+- **Bug 1**: SSE `reader.read()` AbortError now caught silently in
+  `lib/api.js` so the watchdog cancel no longer surfaces as
+  "BodyStreamBuffer was aborted" in the console. New
+  `StreamHealthPill` (data-testid `chat-stream-health-pill`) above
+  the composer shows amber "slow response" at 30s silence + red
+  "reconnecting…" when the auto-retry fires, so the user gets clear
+  feedback instead of a 90s frozen UI.
+- **Bug 2**: `<Route path="/dashboard/*" element={<Navigate
+  to="/dashboard" replace/>}/>` added in `App.jsx` BEFORE the
+  wildcard catch-all. `/dashboard/new` (and any other deep-linked
+  subroute) now redirects to `/dashboard` preserving the
+  localStorage token instead of falling through to `/` (Landing)
+  which read as "session killed".
+- Playwright e2e on preview verified both fixes.
+
 ### Iter 212m-56 — Shield critical-count badge (Feb 27 2026) ✅
 - Red badge (`data-testid="chat-security-scan-badge"`) on the Shield
   icon in the chat composer toolbar shows `critical + high` finding

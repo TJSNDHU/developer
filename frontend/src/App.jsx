@@ -163,6 +163,13 @@ export default function App() {
               keep the URL alive (incoming backlinks) by redirecting to /vs/devin
               until a dedicated VsCursor page lands. */}
           <Route path="/vs/cursor" element={<Navigate to="/vs/devin" replace />} />
+          {/* Iter 212m-57 — Any /dashboard/<anything> subroute (e.g. the
+              "/dashboard/new" URL some new-project deep-links generated)
+              must redirect to /dashboard rather than getting swept up by
+              the catch-all below — which sent users to "/" and read as
+              "session was killed". The auth token lives in localStorage,
+              not the URL, so this redirect preserves the session. */}
+          <Route path="/dashboard/*" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

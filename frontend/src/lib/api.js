@@ -158,31 +158,56 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const frames = buf.split("\n\n");
-    buf = frames.pop() || "";
-    for (const frame of frames) {
-      const line = frame.split("\n").find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      try {
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.meta) onMeta?.(payload);
-        else if (payload.type === "mode") onMode?.(payload);
-        else if (payload.type === "step") onStep?.(payload);   // Iter 212m-19
-        else if (payload.type === "ops_redirect") onOpsRedirect?.(payload);
-        else if (payload.type === "task_handoff") onTaskHandoff?.(payload);
-        else if (payload.token) onToken?.(payload.token);
-        else if (payload.thinking) onThinking?.(payload.elapsed_s || 0, payload.activity, payload.invocations || []);
-        else if (payload.watchdog_pending) onWatchdogPending?.();
-        else if (payload.watchdog) onWatchdog?.(payload.watchdog);
-        else if (payload.done) onDone?.(payload);
-        else if (payload.error) onError?.(payload.error);
-      } catch {
-        /* swallow malformed frame */
+  // Iter 212m-57 — wrap the read loop in a try/catch so an AbortError
+  // (raised when the caller cancels the AbortController, e.g. via the
+  // stuck-thinking watchdog or the user clicking Stop) is handled
+  // silently instead of bubbling as an unhandled rejection labelled
+  // "BodyStreamBuffer was aborted" in the console.
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const frames = buf.split("\n\n");
+      buf = frames.pop() || "";
+      for (const frame of frames) {
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        try {
+          const payload = JSON.parse(line.slice(5).trim());
+          if (payload.meta) onMeta?.(payload);
+          else if (payload.type === "mode") onMode?.(payload);
+          else if (payload.type === "step") onStep?.(payload);   // Iter 212m-19
+          else if (payload.type === "ops_redirect") onOpsRedirect?.(payload);
+          else if (payload.type === "task_handoff") onTaskHandoff?.(payload);
+          else if (payload.token) onToken?.(payload.token);
+          else if (payload.thinking) onThinking?.(payload.elapsed_s || 0, payload.activity, payload.invocations || []);
+          else if (payload.watchdog_pending) onWatchdogPending?.();
+          else if (payload.watchdog) onWatchdog?.(payload.watchdog);
+          else if (payload.done) onDone?.(payload);
+          else if (payload.error) onError?.(payload.error);
+        } catch {
+          /* swallow malformed frame */
+        }
       }
     }
+  } catch (e) {
+    // AbortError (signal.abort) and the related TypeError that some
+    // browsers surface when the body stream is force-closed are not
+    // real failures — they're the user / watchdog cancelling. Any
+    // other error is a true network / parse failure → onError.
+    const name = e?.name || "";
+    const msg  = (e?.message || "").toLowerCase();
+    const isAbort =
+      name === "AbortError" ||
+      msg.includes("aborted") ||
+      msg.includes("body stream") ||
+      msg.includes("bodystreambuffer");
+    if (!isAbort) {
+      onError?.(`Stream read failed: ${e?.message || e}`);
+    }
+    // Try to release the reader cleanly so the browser doesn't log
+    // "ReadableStreamDefaultReader is still being read" warnings.
+    try { reader.cancel(); } catch { /* ignore */ }
   }
 }

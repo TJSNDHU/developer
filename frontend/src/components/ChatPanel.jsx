@@ -407,6 +407,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [graphOpen, setGraphOpen] = useState(false);
   // Iter 212m-55 — security scanner drawer state.
   const [scanOpen, setScanOpen] = useState(false);
+  // Iter 212m-57 — visible status of the active SSE stream so we can
+  // surface a "Slow response… / Reconnecting…" pill above the composer
+  // when the stuck-thinking watchdog is approaching its 90s budget or
+  // has already fired an auto-retry. Shape:
+  //   { phase: 'idle' | 'slow' | 'reconnecting',
+  //     silentFor: number,        // seconds of stream silence
+  //     retryEtaSec: number|null  // seconds until the auto-retry fires
+  //   }
+  const [streamHealth, setStreamHealth] = useState({
+    phase: "idle", silentFor: 0, retryEtaSec: null,
+  });
   // Iter 212m-56 — severity counts for Shield badge. Reads the shared
   // securityScanCache and re-renders on every drawer scan completion.
   const [scanCounts, setScanCounts] = useState(() =>
@@ -870,6 +881,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }
     retryAttemptRef.current = 0;
     setBusy(false);
+    // Iter 212m-57 — clear the slow/reconnecting pill on Stop.
+    setStreamHealth({ phase: "idle", silentFor: 0, retryEtaSec: null });
     // Iter 134 — clean up orphan "thinking…" bubbles when the user
     // clicks Stop. Previously this only cancelled the SSE network call;
     // any assistant placeholders with streaming:true stayed in
@@ -1084,7 +1097,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         idleTimerRef.current = null;
       }
     };
-    const bumpActivity = () => { lastActivityRef.current = Date.now(); };
+    const bumpActivity = () => {
+      lastActivityRef.current = Date.now();
+      // Iter 212m-57 — any stream activity = back to healthy. Only
+      // touch state if we were showing a "slow"/"reconnecting" pill,
+      // to avoid pointless re-renders on every token.
+      setStreamHealth((cur) =>
+        cur.phase === "idle"
+          ? cur
+          : { phase: "idle", silentFor: 0, retryEtaSec: null }
+      );
+    };
 
     const runTurn = async () => {
       const ctrl = new AbortController();
@@ -1094,6 +1117,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       clearIdleWatchdog();
       idleTimerRef.current = setInterval(() => {
         const idleFor = Date.now() - lastActivityRef.current;
+        // Iter 212m-57 — proactive UX: show a "Network slow" pill as
+        // soon as we cross 30s of silence so the user knows we're
+        // still trying. Pill auto-clears on next bumpActivity().
+        if (idleFor >= 30_000 && idleFor < IDLE_TIMEOUT_MS) {
+          setStreamHealth({
+            phase: "slow",
+            silentFor: Math.floor(idleFor / 1000),
+            retryEtaSec: Math.max(0, Math.ceil((IDLE_TIMEOUT_MS - idleFor) / 1000)),
+          });
+        }
         if (idleFor < IDLE_TIMEOUT_MS) return;
         // Stream has gone silent — abort and recover.
         clearIdleWatchdog();
@@ -1101,6 +1134,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
         if (retryAttemptRef.current < MAX_RETRIES) {
           retryAttemptRef.current += 1;
+          // Iter 212m-57 — surface a "Reconnecting…" pill with a short
+          // countdown so the wait between abort and retry is explained.
+          setStreamHealth({
+            phase: "reconnecting", silentFor: Math.floor(idleFor / 1000),
+            retryEtaSec: 3,
+          });
           // Reset the streaming bubble so the retry starts clean and
           // the user sees a subtle "retrying…" hint instead of a
           // dead bubble.
@@ -1451,6 +1490,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
         setBusy(false);
         abortRef.current = null;
+        // Iter 212m-57 — clear any lingering "slow/reconnecting" pill.
+        setStreamHealth({ phase: "idle", silentFor: 0, retryEtaSec: null });
         onTurnSaved?.();
         setTimeout(() => onTurnSaved?.(), 2800);
         refreshUsage();
@@ -1474,6 +1515,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
         setBusy(false);
         abortRef.current = null;
+        // Iter 212m-57 — clear pill on terminal error too.
+        setStreamHealth({ phase: "idle", silentFor: 0, retryEtaSec: null });
       },
     });
     };
@@ -1973,6 +2016,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           has_fully_claimed, sold-out, or >3 days since signup. */}
       <FounderOfferCard projectId={activeProject?.project_id} />
 
+      {/* Iter 212m-57 — Stream health pill (slow / reconnecting). Sits
+          directly above the composer so the user has clear feedback
+          when the SSE stream stalls — previously the chat just looked
+          frozen for up to 90s before silently auto-recovering. */}
+      <StreamHealthPill state={streamHealth} />
+
       <form
         data-testid="chat-form"
         onSubmit={send}
@@ -2445,6 +2494,66 @@ function ToolButton({ testid, title, onClick, Icon, active, className, wide }) {
     >
       <Icon size={wide ? 15 : 14} />
     </button>
+  );
+}
+
+/**
+ * StreamHealthPill — Iter 212m-57.
+ * Tiny inline status pill that sits above the composer when the SSE
+ * chat stream is stalling. Driven by `streamHealth` state in
+ * ChatPanel:
+ *   • phase === 'slow'         → amber dot + "Slow response… {n}s of
+ *                                 silence — will auto-retry in {m}s"
+ *   • phase === 'reconnecting' → red dot + "Reconnecting…"
+ *   • phase === 'idle'         → renders nothing (null)
+ * No close button — auto-clears on next token / done / error / Stop.
+ */
+function StreamHealthPill({ state }) {
+  if (!state || state.phase === "idle") return null;
+  const isReconnect = state.phase === "reconnecting";
+  const color = isReconnect ? "#ef4444" : "#f59e0b";
+  const label = isReconnect
+    ? `Reconnecting after ${state.silentFor}s of silence…`
+    : `Slow response — ${state.silentFor}s silent` +
+      (state.retryEtaSec != null ? `, auto-retry in ${state.retryEtaSec}s` : "");
+  return (
+    <div
+      data-testid="chat-stream-health-pill"
+      data-stream-phase={state.phase}
+      role="status"
+      aria-live="polite"
+      style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "6px 12px",
+        margin: "6px 12px 0",
+        borderRadius: 999,
+        background: isReconnect
+          ? "rgba(239,68,68,0.10)"
+          : "rgba(245,158,11,0.10)",
+        border: `1px solid ${isReconnect
+          ? "rgba(239,68,68,0.45)"
+          : "rgba(245,158,11,0.45)"}`,
+        color, fontSize: 11.5,
+        fontFamily: "'JetBrains Mono', monospace",
+        animation: isReconnect ? "pillPulse 1.2s ease-in-out infinite" : "none",
+      }}
+    >
+      <span
+        style={{
+          width: 8, height: 8, borderRadius: "50%",
+          background: color,
+          boxShadow: `0 0 6px ${color}`,
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
+      <style>{`
+        @keyframes pillPulse {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.55; }
+        }
+      `}</style>
+    </div>
   );
 }
 

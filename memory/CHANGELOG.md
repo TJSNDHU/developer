@@ -6,7 +6,67 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-56 — Shield critical-count badge (Feb 27 2026) ✅
+## Iter 212m-57 — SSE AbortError silence + Reconnect pill + /dashboard/* redirect (Feb 27 2026) ✅
+
+### Bug 1 — BodyStreamBuffer AbortError + invisible 90s stall
+- **Root cause**: When the stuck-thinking watchdog called
+  `ctrl.abort()` after 90s of SSE silence, the `reader.read()` loop
+  in `/app/frontend/src/lib/api.js` threw an unhandled
+  `AbortError` ("BodyStreamBuffer was aborted") that bubbled up as
+  an unhandled promise rejection. UX-wise the user saw a chat that
+  appeared frozen for the full 90s with zero feedback before the
+  silent auto-recovery kicked in.
+- **Fixes**:
+  - `lib/api.js` — wrapped the read loop in try/catch. `AbortError`
+    (and the related "body stream" TypeError some browsers surface)
+    are swallowed silently. Any other read failure routes to
+    `onError`. Reader is explicitly `cancel()`-ed in the catch to
+    avoid "ReadableStreamDefaultReader is still being read"
+    warnings.
+  - `ChatPanel.jsx` — new `streamHealth` state with three phases:
+    `idle | slow | reconnecting`. Watchdog now sets `slow` at 30s
+    silence (amber pill with countdown to auto-retry), `reconnecting`
+    when the abort actually fires (pulsing red pill). State clears
+    on next token / done / error / Stop.
+  - New `StreamHealthPill` component (data-testid
+    `chat-stream-health-pill`, `data-stream-phase` attr) — small
+    inline pill that lives directly above the composer, in the same
+    spot as the Founder Offer card. Honours light/dark theme via
+    CSS variables. ARIA `role="status"` + `aria-live="polite"`.
+
+### Bug 2 — `/dashboard/new` killed the session
+- **Root cause**: `App.jsx` ended with
+  `<Route path="*" element={<Navigate to="/" replace />} />` which
+  swept up every unknown subroute (including the deep-linked
+  `/dashboard/new` URL surfaced in the "create project" flow) and
+  redirected to `/`. The token in localStorage was technically
+  intact, but Landing's guest hero made it read as "session was
+  killed".
+- **Fix**: Added a specific
+  `<Route path="/dashboard/*" element={<Navigate to="/dashboard"
+  replace />} />` BEFORE the wildcard catch-all. Verified on
+  preview — direct visit to `/dashboard/new` now lands on
+  `/dashboard` with `localStorage.aurem_token` intact and the chat
+  composer visible.
+
+### Tests
+- Playwright e2e on preview:
+  - `/dashboard/new` → final URL `/dashboard`, token preserved,
+    `form[data-testid="chat-form"]` rendered.
+  - StreamHealthPill correctly absent in idle phase
+    (`data-testid="chat-stream-health-pill"` not in DOM).
+- ESLint clean on all three touched files (`api.js`, `App.jsx`,
+  `ChatPanel.jsx` — only pre-existing warnings remain).
+
+### Files touched
+- `/app/frontend/src/App.jsx` (added /dashboard/* redirect)
+- `/app/frontend/src/lib/api.js` (try/catch around reader.read)
+- `/app/frontend/src/components/ChatPanel.jsx` (streamHealth state
+  + StreamHealthPill component + watchdog wiring)
+
+---
+
+
 
 Follow-up to 212m-55. Adds a red dot badge with the
 `critical + high` finding count on the Shield icon in the chat
