@@ -400,12 +400,20 @@ const TOOLS = [
   "Ollama (offline)", "LM Studio (offline)", "GitHub", "MCP 2.4",
 ];
 const TAGLINES = [
-  "Production-ready code, committed direct",
-  "All MCP — Claude · Cursor · VS Code",
-  "Run local on your PC, no internet",
+  "Claude Desktop",
+  "Claude Code",
+  "Cursor",
+  "VS Code",
+  "Ollama (offline)",
+  "LM Studio (offline)",
+  "GitHub",
+  "MCP 2.4",
+  "Vanguard Security",
+  "Loop Mode",
+  "Health Scanner",
+  "ORA Council",
+  "4-hop fallback",
   "Flat $9/mo · no token meter",
-  "Multi-file reasoning · audit-grade",
-  "Security scan on every commit",
 ];
 const MODES = [
   {
@@ -465,12 +473,24 @@ const MODES = [
   },
 ];
 const TEAMS = [
-  { icon: "▸", tag: "direct commit", title: "Real PRs, not snippets", desc: "ORA opens a PR on YOUR repo with a working diff — lint-clean, tests included, ready to merge." },
-  { icon: "⌬", tag: "project brain", title: "Remembers your repo", desc: "Per-repo memory of decisions, conventions and past commits — so it ships in your style." },
-  { icon: "⌥", tag: "f12 debug", title: "Pasted a stack trace? Done.", desc: "Catches F12 console errors and routes them straight to the right file, with a proposed fix." },
-  { icon: "▤", tag: "live tape", title: "Watch it work", desc: "Terminal-style worker tape streams every step — reading, thinking, writing, committing." },
-  { icon: "⫶", tag: "parallel agents", title: "Split big jobs", desc: "Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side." },
-  { icon: "{ }", tag: "vs code", title: "Editor extension", desc: "Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page." },
+  { icon: "🛡️", tag: "UNIQUE — no competitor",
+    title: "Security-First by Default",
+    desc: "25-pattern Vanguard scan runs before every commit. Secrets, injection, JWT replay, XSS — all caught before they reach your repo. The only AI engineer with mandatory pre-commit security." },
+  { icon: "🔄", tag: "NEW · verified loop",
+    title: "Loop Mode — Never Breaks",
+    desc: "Plan → Execute → Verify → Scan → Ship. ORA shows its plan, waits for your approval, runs ruff/eslint after every file, and only commits when everything passes. Self-heals on errors automatically." },
+  { icon: "🏥", tag: "NEW · token-based",
+    title: "Codebase Health Scanner",
+    desc: "5-category audit: Security, Performance, Code Quality, Dependencies, Database. Health score 0-100. Individual fix buttons. Find 44 issues in minutes, fix them with one click." },
+  { icon: "⚡", tag: "UNIQUE · 4-hop chain",
+    title: "Never Goes Down",
+    desc: "OpenRouter → DeepSeek → OR free chain → Groq emergency. When Cursor and Copilot go down with their providers, ORA keeps shipping. Silent failover, zero downtime for you." },
+  { icon: "🧠", tag: "UNIQUE · self-learning",
+    title: "ORA Learns Your Codebase",
+    desc: "ORA Council tracks every interaction across 5 modes (chat, advice, code, debug, audit) and fine-tunes ORA on your specific patterns. The more you use ORA, the better it gets at your codebase." },
+  { icon: "💎", tag: "founder price · 498/500 left",
+    title: "$9/Month. No Surprises.",
+    desc: "No IDE to install. No token meters to watch. No per-seat pricing. One flat price, unlimited repos, unlimited tasks. 55% cheaper than Copilot. 98% cheaper than Devin." },
 ];
 const REVIEWS = [
   { stars: 5, text: "I shipped a Stripe integration in a Slack thread while waiting for a flight. ORA read the repo, wrote the code, ran the tests, committed. Mind blown.", name: "James R.", role: "Founder, Devstream", initials: "JR" },
@@ -570,9 +590,9 @@ export default function Landing() {
               <span>No IDE, no token meters.</span>
             </h1>
             <p className="hero-sub" data-testid="hero-subhead">
-              ORA plugs into your GitHub repo and MCP terminal to ship
-              production-ready code directly to your branches.
-              Run it anywhere — even 100% offline on your own machine.
+              ORA reads your GitHub repo, runs Vanguard security scans,
+              and ships production-ready code — with Loop Mode that
+              verifies every step before committing.
             </p>
           </div>
           <div className="hero-actions">
@@ -621,7 +641,7 @@ export default function Landing() {
             <div><div className="proof-num">500+</div><div className="proof-label">developers using ORA</div></div>
             <div><div className="proof-num">12k+</div><div className="proof-label">production commits shipped</div></div>
             <div><div className="proof-num">4.9★</div><div className="proof-label">avg rating</div></div>
-            <div><div className="proof-num">55%</div><div className="proof-label">cheaper than 1 Copilot</div></div>
+            <div><div className="proof-num">55%</div><div className="proof-label">cheaper than Copilot</div></div>
           </div>
         </div>
       </section>
@@ -876,7 +896,7 @@ export default function Landing() {
         <section className="section" id="why-switch">
           <div className="section-label">Why teams switch</div>
           <h2 className="section-title">Built like a teammate, not a chat bot</h2>
-          <p className="section-sub">Six things ORA does that the autocompletes don&apos;t.</p>
+          <p className="section-sub">Six things ORA does that the autocompletes don&apos;t. <b>All shipped, all in production.</b></p>
           <div className="teams-grid">
             {TEAMS.map((t, i) => (
               <div className="team-card" key={i}>

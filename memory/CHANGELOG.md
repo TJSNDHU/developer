@@ -6,6 +6,67 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-71 — Admin analytics cache + docs sync (Feb 27 2026) ✅
+
+Phase 1 of the user's bundled request: aggregation caching + full
+docs/copy refresh.  Phase 2 (CodebaseHealthDashboard UI overhaul with
+all 5 real backend endpoints) reserved for the next turn.
+
+### 🅰️ Mongo aggregation cache
+New `services/admin_analytics_cache.py` — 110-line in-memory TTL
+cache with single-flight locks per key.
+- `cached_agg(key, ttl, builder)` — returns cached value if fresh,
+  else awaits builder; concurrent callers serialise on the per-key
+  asyncio.Lock so only one heavy aggregation runs on a cold-miss
+  stampede.
+- `invalidate(key=None)` / `stats()` — admin introspection.
+- Wired into `routers/admin.py::activation_funnel` (the biggest
+  offender — 4 parallel Mongo scans per call).  60-second TTL.  Body
+  refactored into `_compute_activation_funnel()` so the cache wrapper
+  is a one-line `return await cached_agg(...)`.
+- New admin routes `/admin/cache/analytics-stats` (GET) and
+  `/admin/cache/analytics-invalidate` (POST) for founders to flush
+  the cache after a data fix without waiting 60 s.  Routes renamed
+  with `analytics-` prefix to avoid collision with the pre-existing
+  generic-cache routes at `/cache/stats` / `/cache/purge`.
+
+### 🅲 Docs + copy refresh
+- **`README.md`** — full rewrite per founder-supplied content:
+  badge row, 8 feature blocks (Vanguard / Loop Mode / Health Scanner
+  / 4-hop fallback / ORA Council / JWT hardening / UI polish /
+  Meta-Pixel-and-SEO), pricing block, comparison table, quick-start,
+  aurem.live cross-reference.
+- **`Landing.jsx` hero subhead**: rewritten to mention Vanguard and
+  Loop Mode explicitly.
+- **`Landing.jsx` social-proof grid**: "1 Copilot" typo → "Copilot".
+- **`Landing.jsx` marquee TAGLINES**: replaced with the 14-item
+  integration + feature ticker per spec (Claude Desktop / Claude
+  Code / Cursor / VS Code / Ollama / LM Studio / GitHub / MCP 2.4 /
+  Vanguard / Loop Mode / Health Scanner / ORA Council / 4-hop / $9).
+- **`Landing.jsx` TEAMS feature cards** ("Why teams switch" section):
+  6 cards rewritten verbatim from the founder's spec — Security-First
+  by Default, Loop Mode Never Breaks, Codebase Health Scanner,
+  Never Goes Down, ORA Learns Your Codebase, $9/Month No Surprises.
+  Each card now carries an emoji icon + a coloured "UNIQUE" /
+  "NEW" / "FOUNDER PRICE" tag.
+
+### Verification
+- ✅ Ruff clean on the new cache service (pre-existing F821s in
+  admin.py unchanged — not introduced by this iter).
+- ✅ ESLint clean on `Landing.jsx`.
+- ✅ Backend boot log: `init_prod_collections done — created=0,
+  indexed=30, errors=0` (no regression from Iter 212m-70).
+- ✅ Screenshot confirms all 6 new feature cards render perfectly
+  with tags + bodies + marquee + updated subheadline.
+
+### Files touched (4)
+- `backend/services/admin_analytics_cache.py` (new — 110 LoC)
+- `backend/routers/admin.py` (cache wrapper + 2 admin endpoints)
+- `frontend/src/pages/Landing.jsx` (subhead + marquee + 6 cards)
+- `README.md` (full rewrite)
+
+---
+
 ## Iter 212m-70 — Database performance audit (Feb 27 2026) ✅
 
 Full DB audit + fixes across all 5 anti-patterns the user requested.

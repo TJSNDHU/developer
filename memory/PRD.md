@@ -13,6 +13,12 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-71 — Admin analytics cache + docs/copy sync (Feb 27 2026) ✅
+- **Mongo aggregation cache** (`services/admin_analytics_cache.py`): 110-line in-memory TTL cache with per-key single-flight `asyncio.Lock`. Wired into `/admin/insights/activation-funnel` (60 s TTL); cold-miss runs the original 4-aggregation body, warm hit returns the cached dict. Founder flush endpoints at `/admin/cache/analytics-stats` + `/admin/cache/analytics-invalidate`.
+- **README.md**: full rewrite per founder spec — badge row, 8 feature blocks, pricing, comparison table, quick-start.
+- **Landing.jsx**: hero subhead updated to mention Vanguard + Loop Mode; "1 Copilot" typo fixed; marquee TAGLINES replaced with the 14-item integration+feature ticker; **6 feature cards** rewritten verbatim with emoji icons + UNIQUE / NEW / FOUNDER PRICE tags.
+- **Phase 2 reserved**: full CodebaseHealthDashboard UI overhaul with 5 real backend endpoints (Performance, Code Quality, Dependencies, Database) — deferred to next turn per scope agreement.
+
 ### Iter 212m-70 — Database performance audit (Feb 27 2026) ✅
 Full audit + fix sweep across all 5 anti-patterns (N+1 queries, missing pagination, missing indexes, SELECT *, connection pooling).
 - **🔴 P0 connection pool**: `main.py` Motor client now configured with `maxPoolSize=50, minPoolSize=5, maxIdleTimeMS=30s, connectTimeoutMS=10s, retryWrites=True` (was silently capped at Motor default 100).

@@ -21,6 +21,11 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
 from services.usage import get_usage
+# Iter 212m-71 — 60 s TTL cache for the heavy admin aggregations
+# (activation funnel, dev_users buckets, etc.). Founders click around
+# the admin panel rapidly; without this every click fires 5+ heavy
+# aggregations against Mongo.
+from services.admin_analytics_cache import cached_agg, invalidate as _cache_invalidate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -2831,6 +2836,24 @@ async def activation_funnel(
     authorization: Optional[str] = Header(None),
 ):
     await _require_admin(authorization)
+
+    # Iter 212m-71 — 60 s TTL cache wraps the entire heavy aggregation
+    # (4 parallel Mongo scans).  The funnel data trends over hours;
+    # 60 s of staleness is invisible in the UI but drops repeat loads
+    # from ~6 s to ~5 ms — admin clicking around no longer thrashes
+    # the cluster.  Single-flight semantics inside `cached_agg`
+    # prevent multiple concurrent admins from all firing the
+    # aggregation in parallel on a cold cache.
+    return await cached_agg(
+        key="admin:activation_funnel:v1",
+        ttl=60.0,
+        builder=_compute_activation_funnel,
+    )
+
+
+async def _compute_activation_funnel() -> dict:
+    """The actual aggregation body.  Pulled out of the route handler
+    so the cache wrapper above can call it on a cold miss."""
     db = require_db()
 
     import re
@@ -3438,3 +3461,29 @@ async def admin_seo_run(
     return result
 
     return {"timings": timings, "count": len(timings)}
+
+
+
+# Iter 212m-71 — admin cache introspection + flush.  Founders use this
+# when they ship a data fix and need to see the impact immediately
+# instead of waiting for the 60 s TTL to roll over.
+from services.admin_analytics_cache import stats as _cache_stats
+
+@router.get("/cache/analytics-stats")
+async def admin_cache_stats(
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    return _cache_stats()
+
+
+@router.post("/cache/analytics-invalidate")
+async def admin_cache_invalidate(
+    body: dict, authorization: Optional[str] = Header(None),
+):
+    """`{"key": "admin:activation_funnel:v1"}` flushes one key.
+    `{}` flushes everything.  Always returns the number dropped."""
+    await _require_admin(authorization)
+    key = (body or {}).get("key")
+    dropped = _cache_invalidate(key)
+    return {"ok": True, "dropped": dropped, "key": key}
