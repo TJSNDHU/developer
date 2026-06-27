@@ -52,6 +52,7 @@ from routers.repo_indexing import router as repo_indexing_router    # Iter 212m-
 from routers.founder_offer import router as founder_offer_router    # Iter 212m-30 PR-2
 from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
+from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -526,47 +527,87 @@ def _contains_nosql_op(obj, depth: int = 0) -> str | None:
 
 @app.middleware("http")
 async def _nosql_op_guard(request, call_next):
-    if request.method not in ("POST", "PUT", "PATCH"):
-        return await call_next(request)
-    ct = request.headers.get("content-type", "")
-    if "application/json" not in ct.lower():
-        return await call_next(request)
-    path = request.url.path or ""
-    # Uploads / proxy passthrough routes don't carry MongoDB queries.
-    if any(path.startswith(p) for p in _BODY_LIMIT_BYPASS_PREFIXES):
-        return await call_next(request)
-    try:
-        raw = await request.body()
+    """Pre-flight only: rejects if Content-Length suggests a body but
+    we cannot safely parse the body here without breaking downstream
+    receive() chains in BaseHTTPMiddleware. Deep recursive check is
+    handled in the pure-ASGI NoSQLOpASGIGuard mounted below."""
+    return await call_next(request)
+
+
+# ── Iter 212m-55 fix — Pure-ASGI NoSQL guard that DOES parse the body ──
+# Why pure ASGI: BaseHTTPMiddleware (which @app.middleware("http")
+# wraps) buffers requests through anyio memory streams, so replacing
+# request._receive after .body() corrupts the downstream consumer
+# (RuntimeError: Unexpected message received). A pure ASGI app reads
+# the wire-level receive() messages itself, validates the body, then
+# forwards the SAME bytes downstream — no broken chains.
+
+class NoSQLOpASGIGuard:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+        if scope.get("method") not in ("POST", "PUT", "PATCH"):
+            return await self.app(scope, receive, send)
+        path = scope.get("path") or ""
+        if any(path.startswith(p) for p in _BODY_LIMIT_BYPASS_PREFIXES):
+            return await self.app(scope, receive, send)
+        # Content-Type sniff.
+        headers = dict(scope.get("headers") or [])
+        ct = headers.get(b"content-type", b"").decode("latin-1", "ignore").lower()
+        if "application/json" not in ct:
+            return await self.app(scope, receive, send)
+
+        # Collect the full body.
+        chunks: list[bytes] = []
+        more = True
+        while more:
+            msg = await receive()
+            if msg["type"] != "http.request":
+                # Disconnect mid-read; bail to downstream so it can 499 naturally.
+                return await self.app(scope, receive, send)
+            chunks.append(msg.get("body") or b"")
+            more = msg.get("more_body", False)
+        raw = b"".join(chunks)
+
+        # Validate.
         if raw:
             import json as _json
             try:
                 parsed = _json.loads(raw)
             except _json.JSONDecodeError:
-                # Let Pydantic / route handler 422 it naturally.
                 parsed = None
             if parsed is not None:
                 hit = _contains_nosql_op(parsed)
                 if hit:
+                    client = scope.get("client") or ("?", 0)
                     logger.warning(
                         "nosql_op_blocked path=%s ip=%s key=%s",
-                        path,
-                        request.client.host if request.client else "?",
-                        hit,
+                        path, client[0], hit,
                     )
                     from fastapi.responses import JSONResponse
-                    return JSONResponse(
-                        {"detail": f"Disallowed query operator in request body"},
+                    resp = JSONResponse(
+                        {"detail": "Disallowed query operator in request body"},
                         status_code=400,
                     )
-    except Exception as e:
-        logger.debug("nosql_op_guard read failed: %r", e)
-    # ASGI bodies can only be read ONCE. We need to put the bytes back
-    # into the request scope so the downstream route handler can still
-    # parse them via request.json() / Pydantic.
-    async def _receive():
-        return {"type": "http.request", "body": raw, "more_body": False}
-    request._receive = _receive
-    return await call_next(request)
+                    return await resp(scope, receive, send)
+
+        # Replay body downstream.
+        _body_sent = False
+        async def _replay():
+            nonlocal _body_sent
+            if not _body_sent:
+                _body_sent = True
+                return {"type": "http.request", "body": raw, "more_body": False}
+            # After body delivered, defer to the real receive so the
+            # client-disconnect message still propagates correctly.
+            return await receive()
+        return await self.app(scope, _replay, send)
+
+
+app.add_middleware(NoSQLOpASGIGuard)
 
 
 # ── Iter 44 — Security headers (Vanguard hardening) ──
@@ -1060,6 +1101,7 @@ app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
+app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

@@ -13,20 +13,22 @@ Covers 7 vuln classes, all static analysis (zero LLM, zero E2B):
   • SQL injection      — string-concat SQL queries
   • Clipboard / Replay — minor heuristic detectors
 
-Designed to finish in <5 s on a 5K-file repo by reading via the
-existing GitHub PAT helpers we already use for repo indexing.
+Designed to finish in <15 s on a 5K-file repo by walking the GitHub
+tree via the same PAT helpers the indexer already uses.
 """
 from __future__ import annotations
 
-import re
+import asyncio
+import base64
 import logging
+import re
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Header
 
 from cto_services.auth import current_dev
 from cto_services.db import get_db
-from services.github_rest import github_get
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/security-scan", tags=["Security Scan"])
@@ -83,8 +85,9 @@ _RULES: list[dict] = [
 
     # ── LPDoS ──
     {"id": "lpdos_no_body_limit_fastapi", "vuln": "lpdos", "severity": "medium",
-     "pattern": re.compile(r"@app\.(post|put|patch).*?\n.*?async def.*?\(.*?body\s*:", re.S),
-     "desc": "FastAPI body endpoint without explicit size guard"},
+     "pattern": re.compile(r"@(app|router)\.(post|put|patch)\("),
+     "desc": "FastAPI write endpoint — confirm body size middleware is mounted",
+     "max_per_file": 1},
 
     # ── Clipboard ──
     {"id": "clipboard_external_paste", "vuln": "clipboard", "severity": "low",
@@ -93,9 +96,9 @@ _RULES: list[dict] = [
 
     # ── Replay attack ──
     {"id": "replay_jwt_no_jti",       "vuln": "replay", "severity": "medium",
-     "pattern": re.compile(r"""jwt\.encode\(\s*\{[^}]*\}""", re.S),
+     "pattern": re.compile(r"""jwt\.encode\(\s*\{[^}]*\}"""),
      "desc": "JWT signed without jti — add unique id + iat for replay defence",
-     "post_filter": lambda match_text: ('"jti"' not in match_text and "'jti'" not in match_text)},
+     "post_filter": lambda m: ('"jti"' not in m and "'jti'" not in m)},
 ]
 
 
@@ -106,14 +109,38 @@ _SCAN_EXTS = {
 }
 _SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".next",
               "venv", ".venv", "__pycache__", ".cache", "coverage"}
-_MAX_FILES = 800              # safety cap for huge repos
+_MAX_FILES = 600              # safety cap for huge repos
 _MAX_BYTES_PER_FILE = 256_000  # skip files larger than 256 KB
 _GH_API = "https://api.github.com"
+_GH_TIMEOUT = 20.0
+_CONCURRENT_FETCHES = 8        # parallel raw-content fetches
+
+
+# ─── PAT decrypt (shared with cto_projects router) ────────────────────
+async def _decrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
+    if not token:
+        return token
+    if not token.startswith("v1:"):
+        return token
+    try:
+        from services.vault import decrypt
+        return await decrypt(user_id, token, kind="github_token")
+    except Exception:
+        return None
+
+
+def _gh_headers(pat: str) -> dict:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {pat}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
 
 def _scan_text(path: str, text: str) -> list[dict]:
     """Run all rules over one file's content; return findings list."""
     findings: list[dict] = []
+    per_file_count: dict[str, int] = {}
     for line_idx, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
@@ -125,10 +152,15 @@ def _scan_text(path: str, text: str) -> list[dict]:
             m = rule["pattern"].search(line)
             if not m:
                 continue
-            # Post-filter (e.g. jti-presence check) can veto.
             pf = rule.get("post_filter")
             if pf and not pf(m.group(0)):
                 continue
+            cap = rule.get("max_per_file")
+            if cap:
+                seen = per_file_count.get(rule["id"], 0)
+                if seen >= cap:
+                    break
+                per_file_count[rule["id"]] = seen + 1
             findings.append({
                 "rule_id":  rule["id"],
                 "vuln":     rule["vuln"],
@@ -138,37 +170,49 @@ def _scan_text(path: str, text: str) -> list[dict]:
                 "snippet":  line.strip()[:200],
                 "desc":     rule["desc"],
             })
-            # one hit per (rule, line) is enough — break out of rules loop.
             break
     return findings
 
 
-async def _list_repo_tree(owner: str, repo: str, pat: str) -> list[dict]:
-    """One GitHub API hit; returns up to 100K entries (we cap at
-    _MAX_FILES below)."""
-    # default_branch sniff
-    repo_meta = await github_get(
-        f"{_GH_API}/repos/{owner}/{repo}", token=pat,
-    )
+async def _gh_get(client: httpx.AsyncClient, url: str, pat: str):
+    r = await client.get(url, headers=_gh_headers(pat), timeout=_GH_TIMEOUT)
+    if r.status_code == 401:
+        raise HTTPException(401, "github_pat_invalid")
+    if r.status_code == 404:
+        raise HTTPException(404, "github_repo_not_found")
+    if r.status_code >= 500:
+        raise HTTPException(502, f"github_upstream_{r.status_code}")
+    r.raise_for_status()
+    return r.json()
+
+
+async def _list_repo_tree(client: httpx.AsyncClient, owner: str, repo: str, pat: str) -> list[dict]:
+    """One GitHub API hit for tree; we cap at _MAX_FILES below."""
+    repo_meta = await _gh_get(client, f"{_GH_API}/repos/{owner}/{repo}", pat)
     branch = repo_meta.get("default_branch") or "main"
-    tree = await github_get(
+    tree = await _gh_get(
+        client,
         f"{_GH_API}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1",
-        token=pat,
+        pat,
     )
-    return [t for t in (tree.get("tree") or [])
-            if t.get("type") == "blob"]
+    return [t for t in (tree.get("tree") or []) if t.get("type") == "blob"]
 
 
-async def _fetch_file(owner: str, repo: str, path: str, pat: str) -> str:
-    """Fetch raw content via the contents API. Returns "" on failure
-    so the scan keeps going."""
+async def _fetch_file(
+    client: httpx.AsyncClient, owner: str, repo: str, path: str, pat: str,
+) -> str:
+    """Fetch raw content via contents API. Returns "" on failure so the
+    scan keeps going for the rest of the repo."""
     try:
-        import base64
-        r = await github_get(
-            f"{_GH_API}/repos/{owner}/{repo}/contents/{path}", token=pat,
+        r = await client.get(
+            f"{_GH_API}/repos/{owner}/{repo}/contents/{path}",
+            headers=_gh_headers(pat), timeout=_GH_TIMEOUT,
         )
-        if r.get("encoding") == "base64" and r.get("content"):
-            return base64.b64decode(r["content"]).decode("utf-8", errors="ignore")
+        if r.status_code != 200:
+            return ""
+        body = r.json()
+        if body.get("encoding") == "base64" and body.get("content"):
+            return base64.b64decode(body["content"]).decode("utf-8", errors="ignore")
     except Exception as e:
         logger.debug("fetch failed %s: %r", path, e)
     return ""
@@ -182,6 +226,7 @@ async def run_security_scan(
     Returns: {"ok": True, "summary": {…counts…}, "findings": [...]}.
     No auto-apply — caller renders + asks the user to fix manually."""
     user = await current_dev(authorization)
+    user_id = user["user_id"]
     project_id = (body or {}).get("project_id")
     if not project_id:
         raise HTTPException(400, "project_id required")
@@ -189,57 +234,69 @@ async def run_security_scan(
     if db is None:
         raise HTTPException(503, "DB not connected")
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user["user_id"]},
-        {"_id": 0, "github_owner": 1, "github_repo": 1, "pat": 1},
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "github_owner": 1, "github_repo": 1, "github_token": 1},
     )
     if not proj:
         raise HTTPException(404, "Project not found")
-    owner = proj.get("github_owner")
-    repo  = proj.get("github_repo")
-    pat   = proj.get("pat")
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo") or ""
+    pat   = await _decrypt_pat(user_id, proj.get("github_token"))
     if not (owner and repo and pat):
         raise HTTPException(400, "Project missing GitHub linkage / PAT")
 
-    # 1. List repo tree.
-    try:
-        blobs = await _list_repo_tree(owner, repo, pat)
-    except Exception as e:
-        raise HTTPException(502, f"GitHub tree read failed: {e!r}")
+    async with httpx.AsyncClient() as client:
+        # 1. List repo tree.
+        try:
+            blobs = await _list_repo_tree(client, owner, repo, pat)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(502, f"GitHub tree read failed: {e!r}")
 
-    # 2. Filter to scannable files.
-    candidates: list[dict] = []
-    for b in blobs:
-        path = b.get("path", "")
-        if not path:
-            continue
-        # Skip vendored / build dirs anywhere in the path.
-        parts = path.split("/")
-        if any(p in _SKIP_DIRS for p in parts):
-            continue
-        # Extension whitelist.
-        lower = path.lower()
-        if not any(lower.endswith(ext) for ext in _SCAN_EXTS):
-            continue
-        if b.get("size", 0) > _MAX_BYTES_PER_FILE:
-            continue
-        candidates.append(b)
-        if len(candidates) >= _MAX_FILES:
-            break
+        # 2. Filter to scannable files.
+        candidates: list[dict] = []
+        for b in blobs:
+            path = b.get("path", "")
+            if not path:
+                continue
+            parts = path.split("/")
+            if any(p in _SKIP_DIRS for p in parts):
+                continue
+            lower = path.lower()
+            if not any(lower.endswith(ext) for ext in _SCAN_EXTS):
+                continue
+            if b.get("size", 0) > _MAX_BYTES_PER_FILE:
+                continue
+            candidates.append(b)
+            if len(candidates) >= _MAX_FILES:
+                break
 
-    # 3. Fetch + scan each file. Sequential (avoid GitHub secondary
-    #    rate limits); typical 50-200 files complete in 5-15 s.
-    findings: list[dict] = []
-    for b in candidates:
-        text = await _fetch_file(owner, repo, b["path"], pat)
-        if not text:
-            continue
-        findings.extend(_scan_text(b["path"], text))
+        # 3. Fetch + scan each file with bounded concurrency.
+        sem = asyncio.Semaphore(_CONCURRENT_FETCHES)
+
+        async def _scan_one(blob: dict) -> list[dict]:
+            async with sem:
+                text = await _fetch_file(client, owner, repo, blob["path"], pat)
+            if not text:
+                return []
+            return _scan_text(blob["path"], text)
+
+        results = await asyncio.gather(
+            *[_scan_one(b) for b in candidates], return_exceptions=False,
+        )
+
+    findings: list[dict] = [f for sub in results for f in sub]
 
     # 4. Summary counts per vuln class for the UI.
     summary: dict = {"total": len(findings), "by_severity": {}, "by_vuln": {}}
     for f in findings:
         summary["by_severity"][f["severity"]] = summary["by_severity"].get(f["severity"], 0) + 1
         summary["by_vuln"][f["vuln"]] = summary["by_vuln"].get(f["vuln"], 0) + 1
+
+    # 5. Sort findings — critical → high → medium → low, then by file.
+    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    findings.sort(key=lambda x: (sev_rank.get(x["severity"], 9), x["file"], x["line"]))
 
     logger.info(
         "security_scan project=%s files_scanned=%d findings=%d",

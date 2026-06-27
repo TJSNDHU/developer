@@ -1,0 +1,53 @@
+{
+  "summary": "Iter 212m-55 — Verified (a) the NoSQLOpASGIGuard middleware rewrite did NOT regress POST JSON endpoints — login/signup/auth all return real status codes (no 499) and the $where guard still blocks correctly; (b) the new POST /api/aurem-dev/security-scan/run endpoint is wired with correct 401/400/404 contracts; (c) frontend Shield button (data-testid='chat-security-scan-btn') is correctly HIDDEN on the only available project (no GitHub repo connected), matching spec. All 14 backend tests pass (8 new e2e + 6 existing rule unit tests).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_backend": [
+    "POST /api/aurem-dev/auth/login (bad creds) → 401, NOT 499 (middleware regression PASS)",
+    "POST /api/aurem-dev/auth/login (good creds: test@aurem.dev) → 200 + token",
+    "POST /api/aurem-dev/auth/signup (random new email) → 200/201/4xx, NOT 499",
+    "POST /api/aurem-dev/auth/login with {password: {$where:'1'}} → 400 'Disallowed query operator' (NoSQL guard still active)",
+    "POST /api/aurem-dev/security-scan/run (no Authorization) → 401",
+    "POST /api/aurem-dev/security-scan/run (auth, no project_id) → 400 'project_id required'",
+    "POST /api/aurem-dev/security-scan/run (auth, bogus project_id) → 404 'Project not found'",
+    "Route is wired (no 499 anywhere, returns proper structured 4xx)"
+  ],
+  "verified_frontend": [
+    "Login flow works end-to-end on preview env with seeded test@aurem.dev / AuremTest2026! → JWT stored in localStorage (aurem_token)",
+    "Dashboard loads, [data-testid='chat-input'] is visible (chat composer renders)",
+    "[data-testid='chat-security-scan-btn'] is correctly HIDDEN — test user's only project (p_norepotest) has empty github_owner/github_repo. Confirms the conditional render at ChatPanel.jsx:2169-2171 (activeProject?.github_owner && activeProject?.github_repo) is working as designed.",
+    "SecurityScanDrawer.jsx has ALL required data-testids per spec: security-scan-drawer, -rescan, -close, -loading, -error, -summary, -tile-{sev}, -section-{sev}, -finding-{sev}, -empty"
+  ],
+  "skipped_tests_and_why": [
+    "Positive-path Shield button visibility + drawer open + scan execution: No project in the seeded preview DB has github_owner/github_repo populated (verified via GET /cto/projects/list — only project is p_norepotest with empty repo fields and a stored PAT). The review-request explicitly states this is acceptable: 'just verify the button is correctly HIDDEN on the default home project and the rest of the chat flow still works.' Both confirmed."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m55_e2e_regression.py",
+    "/app/backend/tests/test_iter212m55_security_scan.py",
+    "/app/test_reports/pytest/iter212m55_e2e_results.xml"
+  ],
+  "action_items": [
+    "(Optional, for full coverage) Seed at least one cto_projects row for the test user with valid github_owner/github_repo/github_token so future test agents can exercise the positive Shield-button-visible + drawer-open path on preview. Today's preview seed only has the empty-repo project."
+  ],
+  "critical_code_review_comments": [
+    "routers/security_scan.py:177-186 — _gh_get re-raises 401 as 'github_pat_invalid' but ALSO calls r.raise_for_status() right after, which would re-raise on 4xx that didn't hit the explicit branches (e.g. 403 rate-limit). Consider mapping 403 explicitly to a friendlier 'github_rate_limited' so the UI can show a useful message rather than a generic 500.",
+    "routers/security_scan.py:209 — _fetch_file uses the contents API for every file (one HTTP call per file, up to _MAX_FILES=600). With concurrency cap 8 this is ~75 sequential round-trips on a max-size repo, easily 30-60s. Consider switching to the tree blob SHA + git/blobs/{sha} endpoint, or downloading a tarball once. Today's stated <15s target on a 5K-file repo is unrealistic with the current design.",
+    "routers/security_scan.py:42-101 — _RULES list is module-global; that's fine. However the lpdos_no_body_limit_fastapi rule will fire on ANY FastAPI app's source (including AUREM CTO's own backend if it ever scans itself), generating dozens of noise findings. Consider adding a default-off flag or moving it to a 'best-practice' tier separate from real vulns.",
+    "FRONTEND ChatPanel.jsx:2169-2171 — Shield rendering guards on activeProject?.github_owner && activeProject?.github_repo. Spec says NO plan gating, but the conditional silently hides the button when no repo is connected without any hint to the user. Consider adding a disabled+tooltip variant ('Connect a GitHub repo to enable security scanning') for discoverability.",
+    "Backend caching mentioned in PRD ('cache result for 5 minutes per project') is NOT implemented in /app/backend/routers/security_scan.py — every POST /run does a full repo walk. The Re-scan button in the drawer has no effect today since there is no cache to bypass. The PRD claim is currently inaccurate; either add the 5-min cache (e.g. via cto_projects.security_scan_cache field with ts) or update the PRD."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m55_e2e_regression.py (NEW — 8 e2e regression+contract tests)"
+  ],
+  "success_rate": { "backend": "100% (14/14 — 8 new + 6 existing)", "frontend": "100% on the testable surface (login + chat load + Shield correctly hidden + all required data-testids present in code)" },
+  "test_credentials": "test@aurem.dev / AuremTest2026! (preview env, from /app/memory/test_credentials.md §1)",
+  "seed_data_creation": "None. The signup regression test creates ephemeral TEST_reg_<uuid>@aurem.dev rows but does not clean them up (low impact, not 'TEST_'-prefixed in a way that's easy to bulk-delete on Mongo, but signup is idempotent so re-runs are safe).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "If you can seed a cto_projects row with real github_owner/github_repo for test@aurem.dev, the positive Shield-visible drawer-open path becomes testable. The drawer has full data-testid coverage so a one-shot Playwright run is trivial once a real-repo project exists. The 5-minute cache mentioned in the PRD is NOT implemented in security_scan.py — flag if asked. The middleware rewrite to NoSQLOpASGIGuard is confirmed working end-to-end on preview.",
+  "rca of the issue": "N/A — no regressions found. The previously broken @app.middleware('http') _nosql_op_guard (which replaced request._receive and corrupted BaseHTTPMiddleware's downstream consumer chain, causing universal 499s on POST JSON) has been correctly replaced by a pure-ASGI NoSQLOpASGIGuard mounted via app.add_middleware. End-to-end POST JSON now returns proper status codes, and the $where guard still triggers a 400 'Disallowed query operator in request body' as expected."
+}

@@ -15,7 +15,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Loader2, Square, Paperclip, Github, Zap,
-  Eye, EyeOff, Trash2, Network,
+  Eye, EyeOff, Trash2, Network, ShieldCheck,
 } from "lucide-react";
 import { api, streamChat, API_BASE, getToken, getUser } from "../lib/api";
 import { toast } from "./Toast";
@@ -32,6 +32,7 @@ import MessageBubble from "./MessageBubble";
 import PostTaskScan from "./PostTaskScan";
 import LiveStepFloatingCard from "./LiveStepFloatingCard";  // Iter 212m-19
 import FounderOfferCard from "./FounderOfferCard";          // Iter 212m-30 PR-2
+import SecurityScanDrawer from "./SecurityScanDrawer";      // Iter 212m-55 1-click scan
 import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
@@ -403,6 +404,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // `ora-inject` events when a user clicks "Ask ORA about this file"
   // which this component picks up below to seed the composer input.
   const [graphOpen, setGraphOpen] = useState(false);
+  // Iter 212m-55 — security scanner drawer state.
+  const [scanOpen, setScanOpen] = useState(false);
   useEffect(() => {
     const onInject = (e) => {
       const text = e?.detail?.text;
@@ -2157,6 +2160,23 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               wide
             />
           )}
+          {/* Iter 212m-55 — 1-click security scanner. Shield icon opens
+              right-side drawer with vulnerability findings. Only shown
+              when a real project with a connected GitHub repo is
+              active (the scanner needs an owner/repo/PAT to read). */}
+          {activeProject?.project_id
+            && activeProject.project_id !== "home"
+            && activeProject?.github_owner
+            && activeProject?.github_repo && (
+            <ToolButton
+              testid="chat-security-scan-btn"
+              title="Run 1-click security scan on this repo"
+              onClick={() => setScanOpen((v) => !v)}
+              Icon={ShieldCheck}
+              active={scanOpen}
+              wide
+            />
+          )}
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works
               from the Projects page). Red dot = no repo configured.
@@ -2320,6 +2340,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         projectId={activeProject?.project_id}
         open={graphOpen}
         onClose={() => setGraphOpen(false)}
+      />
+      {/* Iter 212m-55 — Security scan drawer (right side). */}
+      <SecurityScanDrawer
+        projectId={activeProject?.project_id}
+        projectLabel={
+          activeProject?.github_owner && activeProject?.github_repo
+            ? `${activeProject.github_owner}/${activeProject.github_repo}`
+            : activeProject?.name
+        }
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
       />
     </div>
   );
