@@ -13,6 +13,22 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-56 — Shield critical-count badge (Feb 27 2026) ✅
+- Red badge (`data-testid="chat-security-scan-badge"`) on the Shield
+  icon in the chat composer toolbar shows `critical + high` finding
+  count from the latest cached scan. Same UX pattern as the GitHub
+  status dot already on the toolbar. Red = any criticals, orange =
+  highs-only, 99+ cap, monospace 9.5px, pointer-events none.
+- New `/app/frontend/src/lib/securityScanCache.js` shared store
+  (`getCachedScan`, `setCachedScan`, `onScanUpdated`,
+  `getScanSeverityCounts`). 5-min TTL, EventTarget-based pub/sub so
+  multiple components can subscribe.
+- `SecurityScanDrawer` delegates to the shared cache (dropped local
+  private Map). `ChatPanel` subscribes + re-renders on every scan
+  completion.
+- 8/8 unit tests on the cache module pass. Playwright e2e verified
+  end-to-end: scan → close drawer → red "5" badge renders on Shield.
+
 ### Iter 212m-55 — 1-Click Security Scanner + NoSQL middleware regression fix (Feb 27 2026) ✅
 - **Feature**: Shield icon button (`data-testid="chat-security-scan-btn"`)
   in the ChatPanel composer toolbar opens a right-side

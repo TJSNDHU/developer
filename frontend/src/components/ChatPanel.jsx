@@ -33,6 +33,7 @@ import PostTaskScan from "./PostTaskScan";
 import LiveStepFloatingCard from "./LiveStepFloatingCard";  // Iter 212m-19
 import FounderOfferCard from "./FounderOfferCard";          // Iter 212m-30 PR-2
 import SecurityScanDrawer from "./SecurityScanDrawer";      // Iter 212m-55 1-click scan
+import { getScanSeverityCounts, onScanUpdated } from "../lib/securityScanCache";  // Iter 212m-56
 import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
@@ -406,6 +407,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [graphOpen, setGraphOpen] = useState(false);
   // Iter 212m-55 — security scanner drawer state.
   const [scanOpen, setScanOpen] = useState(false);
+  // Iter 212m-56 — severity counts for Shield badge. Reads the shared
+  // securityScanCache and re-renders on every drawer scan completion.
+  const [scanCounts, setScanCounts] = useState(() =>
+    getScanSeverityCounts(activeProject?.project_id),
+  );
+  useEffect(() => {
+    setScanCounts(getScanSeverityCounts(activeProject?.project_id));
+    const unsub = onScanUpdated((pid) => {
+      if (pid === activeProject?.project_id) {
+        setScanCounts(getScanSeverityCounts(pid));
+      }
+    });
+    return unsub;
+  }, [activeProject?.project_id]);
   useEffect(() => {
     const onInject = (e) => {
       const text = e?.detail?.text;
@@ -2163,19 +2178,56 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           {/* Iter 212m-55 — 1-click security scanner. Shield icon opens
               right-side drawer with vulnerability findings. Only shown
               when a real project with a connected GitHub repo is
-              active (the scanner needs an owner/repo/PAT to read). */}
+              active (the scanner needs an owner/repo/PAT to read).
+              Iter 212m-56 — red dot badge with critical+high count
+              when the latest cached scan found findings. Same pattern
+              as the GitHub status dot above. */}
           {activeProject?.project_id
             && activeProject.project_id !== "home"
             && activeProject?.github_owner
             && activeProject?.github_repo && (
-            <ToolButton
-              testid="chat-security-scan-btn"
-              title="Run 1-click security scan on this repo"
-              onClick={() => setScanOpen((v) => !v)}
-              Icon={ShieldCheck}
-              active={scanOpen}
-              wide
-            />
+            <span style={{ position: "relative", display: "inline-flex" }}>
+              <ToolButton
+                testid="chat-security-scan-btn"
+                title={
+                  scanCounts && (scanCounts.critical + scanCounts.high) > 0
+                    ? `${scanCounts.critical} critical • ${scanCounts.high} high vulnerabilities — click to view`
+                    : "Run 1-click security scan on this repo"
+                }
+                onClick={() => setScanOpen((v) => !v)}
+                Icon={ShieldCheck}
+                active={scanOpen}
+                wide
+              />
+              {scanCounts && (scanCounts.critical + scanCounts.high) > 0 && (
+                <span
+                  data-testid="chat-security-scan-badge"
+                  aria-label={`${scanCounts.critical + scanCounts.high} high-severity findings`}
+                  style={{
+                    position: "absolute",
+                    top: -4, right: -4,
+                    minWidth: 16, height: 16,
+                    padding: "0 4px",
+                    borderRadius: 999,
+                    background: scanCounts.critical > 0 ? "#ef4444" : "#f97316",
+                    color: "#0a0a0a",
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    display: "inline-flex",
+                    alignItems: "center", justifyContent: "center",
+                    boxShadow: scanCounts.critical > 0
+                      ? "0 0 6px rgba(239,68,68,0.7)"
+                      : "0 0 6px rgba(249,115,22,0.7)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {scanCounts.critical + scanCounts.high > 99
+                    ? "99+"
+                    : scanCounts.critical + scanCounts.high}
+                </span>
+              )}
+            </span>
           )}
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works

@@ -6,7 +6,60 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-55 — 1-Click Security Scanner + NoSQL middleware fix (Feb 27 2026) ✅
+## Iter 212m-56 — Shield critical-count badge (Feb 27 2026) ✅
+
+Follow-up to 212m-55. Adds a red dot badge with the
+`critical + high` finding count on the Shield icon in the chat
+composer toolbar, mirroring the GitHub status dot pattern already
+used next to it. Users now see at a glance if their connected repo
+has high-severity issues without opening the drawer.
+
+### Implementation
+- New shared module `/app/frontend/src/lib/securityScanCache.js`:
+  - `getCachedScan(projectId)`, `setCachedScan(projectId, data)`,
+    `onScanUpdated(fn)`, `getScanSeverityCounts(projectId)`
+  - In-memory `Map` keyed by `project_id`, 5-min TTL, emits
+    `updated` events on an `EventTarget` for live subscriber
+    refresh.
+  - Not persisted across reloads — badge is "live", not historic.
+- `SecurityScanDrawer.jsx` rewritten to delegate cache reads/writes
+  to the shared module (drops the local private `_cache`).
+- `ChatPanel.jsx` subscribes to `onScanUpdated`, derives
+  `scanCounts` via `getScanSeverityCounts`, and wraps the Shield
+  `ToolButton` in a relative span. Absolute-positioned
+  `<span data-testid="chat-security-scan-badge">` renders when
+  `critical + high > 0`:
+  - **Red** (#ef4444) with glow when any criticals exist.
+  - **Orange** (#f97316) when only highs exist.
+  - Shows count, "99+" cap, monospace 9.5px, pointer-events: none
+    so it doesn't intercept Shield clicks.
+- Tooltip on Shield updates dynamically: `"{n} critical • {m} high
+  vulnerabilities — click to view"` when there are findings.
+
+### Tests
+- 8/8 unit tests on `securityScanCache` (Node ESM runner — no Jest
+  setup in this repo, kept as a one-shot smoke since the module is
+  tiny and pure):
+  - unknown project → null
+  - set then get
+  - severity counts derivation
+  - subscriber fires + unsubscribe
+  - 5-min TTL expiry
+  - malformed summary → zero counts
+- Playwright e2e on preview verified the full flow:
+  Shield visible (when repo connected) → drawer opens → mocked scan
+  response (3 critical + 2 high) → close drawer → red "5" badge
+  renders on Shield, matching the GitHub-status-dot UX pattern.
+
+### Files touched
+- `/app/frontend/src/lib/securityScanCache.js` (new)
+- `/app/frontend/src/components/SecurityScanDrawer.jsx` (cache
+  delegation)
+- `/app/frontend/src/components/ChatPanel.jsx` (badge + subscribe)
+
+---
+
+
 
 ### Feature: 1-Click Static Vulnerability Scanner
 - New backend router `/app/backend/routers/security_scan.py` exposing

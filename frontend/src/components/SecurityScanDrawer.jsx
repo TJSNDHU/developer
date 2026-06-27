@@ -16,9 +16,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { X, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileWarning } from "lucide-react";
 import { api } from "../lib/api";
+import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const _cache = new Map();   // project_id → { at, data }
 
 const SEV_ORDER = ["critical", "high", "medium", "low"];
 const SEV_COLORS = {
@@ -37,7 +37,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
   const fetchScan = useCallback(async (force = false) => {
     if (!projectId) return;
     if (!force) {
-      const hit = _cache.get(projectId);
+      const hit = getCachedScan(projectId);
       if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
         setData(hit.data);
         setCachedAt(hit.at);
@@ -50,7 +50,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
     try {
       const res = await api.post("/security-scan/run", { project_id: projectId });
       const payload = res?.data || res;
-      _cache.set(projectId, { at: Date.now(), data: payload });
+      setCachedScan(projectId, payload);
       setData(payload);
       setCachedAt(Date.now());
     } catch (e) {
