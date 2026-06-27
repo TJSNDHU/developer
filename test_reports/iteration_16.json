@@ -1,0 +1,75 @@
+{
+  "summary": "Iter 212m-53 / 212m-54 visual fixes + Ask Advisor admin slot verified end-to-end via Playwright against the preview env. All 4 founder-reported visual bugs are FIXED and the new admin Ask Advisor section is fully interactive with backend persistence. Founder credentials (teji.ss1986@gmail.com) used (no rate-limit triggered).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_fixes": [
+    {
+      "area": "Admin → House Rules → Ask Advisor section (Iter 212m-53)",
+      "result": "PASS",
+      "details": [
+        "data-testid='advisor-only-section' renders below the combined block",
+        "data-testid='advisor-prompt-input' editable (typed 'TEST_advisor: respond in 3 lines max.' — readback length 37 ✓)",
+        "data-testid='toggle-advisor-prompt-enabled' flips on click: border-color rgba(60,40,15,0.1) → rgb(109,212,161) (var(--ok) green) ✓",
+        "data-testid='advisor-llm-select' contains all 5 required options: ['glm-5.2','claude-sonnet-4.5','deepseek-chat','deepseek-direct','groq-llama-3.3-70b'] ✓",
+        "Save → reload → re-open tab: advisor_prompt='TEST_advisor: respond in 3 lines max.', advisor_llm='claude-sonnet-4.5', toggle border still rgb(109,212,161). All 3 fields PERSISTED ✓",
+        "Cleanup: prompt cleared, toggle off, llm reset to glm-5.2, saved. Doc returned to defaults."
+      ]
+    },
+    {
+      "area": "Maxx-mode composer visibility (red-marked bug)",
+      "result": "PASS",
+      "details": [
+        "Switched to data-testid='mode-pill-maxx'. data-testid='chat-input' visible (bounding box {x:29, y:946, w:1862, h:56}), placeholder readable ('Ask AUREM CTO to plan, build, debug…').",
+        "composer-card backgroundColor = rgba(255, 197, 96, 0.04) — the Maxx amber tint inherited from parent ChatPanel, NOT the previous hardcoded dark wash rgba(13,16,24,0.32). Dark wash GONE ✓",
+        "Inner form.glass-composer backgroundColor = rgba(0,0,0,0) (transparent) — confirms the CSS rule at /app/frontend/src/index.css:382 was applied."
+      ]
+    },
+    {
+      "area": "Action button colored outers (yellow-marked bug)",
+      "result": "PASS",
+      "details": [
+        "Existing assistant message (idx=1) action row hovered to reveal.",
+        "data-testid='copy-1' border-color = rgba(234, 179, 8, 0.55) → YELLOW ✓",
+        "data-testid='thumbs-up-1' border-color = rgba(109, 212, 161, 0.55) → GREEN ✓",
+        "data-testid='thumbs-down-1' border-color = rgba(255, 107, 107, 0.55) → RED ✓",
+        "Matches founder spec exactly: 'green red and yellow outers'. Borders permanently colored (no longer gray)."
+      ]
+    },
+    {
+      "area": "Composer–chat seam blends in every mode (green-marked bug)",
+      "result": "PASS",
+      "details": [
+        "DOM walk from .composer-card upward: composer-card bg = rgba(255,197,96,0.04) (Maxx tint, matches parent); form.glass-composer bg = rgba(0,0,0,0); .glass-pane bg = rgba(255,255,255,0.72). No hard dark wash anywhere in the composer chain — the inner form is transparent so the parent ChatPanel's mode-tinted backdrop bleeds through and the seam disappears."
+      ]
+    },
+    {
+      "area": "Topbar auto-hide collapses height to 0 (blue-marked bug)",
+      "result": "PASS",
+      "details": [
+        "After dispatching 'aurem:chat-session-started' + typing in chat-input: data-testid='dashboard-topbar' has data-typing-hidden='true' AND getBoundingClientRect().height === 0. The row is fully collapsed (not just translated), so no residual white/light strip remains at the top edge.",
+        "data-testid='topbar-hotzone' renders (count=1, visible=true) at top of viewport ready to bring the topbar back on hover."
+      ]
+    }
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "Minor docs nit (not a bug): the review request references data-testid='chat-send-btn' but the actual testid in /app/frontend/src/components/ChatPanel.jsx:2255 is 'chat-send'. Send button itself is visible & functional in Maxx mode (confirmed via screenshot). Consider updating either the testid or the spec for consistency."
+  ],
+  "critical_code_review_comments": [
+    "MessageBubble.jsx line 207-235: ActionBtn applies tint via onMouseEnter/onMouseLeave inline handlers that mutate currentTarget.style directly. This is fine for current use but bypasses React state — if a future refactor wraps these in framer-motion or memoizes, the inline mutations could be overwritten. A :hover CSS pseudo-class on the styled border-color would be more idiomatic.",
+    "Dashboard.jsx line 269-287: collapsing the topbar uses height:auto → 0 transition. Animating from 'auto' is not natively supported by CSS — the height collapse will appear instant (skip the 200ms transition). Acceptable for the founder's stated goal (no residual strip) but if smooth collapse is desired, use max-height transition or measure scrollHeight first.",
+    "ChatPanel.jsx line 1991 + index.css line 382 both set the composer background. The CSS rule on .glass-composer is the source of truth now; the inline style{background:'transparent'} at line 1991 is redundant — could be removed to avoid drift if the CSS class is changed later."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only run)", "frontend": "100% (5/5 visual+functional checks)" },
+  "test_credentials": "Founder: teji.ss1986@gmail.com / FounderOwn123! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Temporarily set advisor_prompt='TEST_advisor: respond in 3 lines max.', advisor_llm='claude-sonnet-4.5', advisor_prompt_enabled=true. Reverted to defaults (empty prompt, glm-5.2, enabled=false) at end of run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 founder visual bugs (Iter 212m-54) + the Iter 212m-53 Ask Advisor admin slot pass clean against preview env. Reusable Playwright flow: login as founder → /admin → admin-nav-house_rules → scroll into view → exercise advisor-* testids. For chat tests: dismiss 'Skip for now' on the ORA guide modal first, then select mode-pill-maxx. Action-button colored outers are visible on hover of any assistant bubble (msg-actions-{idx}). The send button testid is 'chat-send' (NOT 'chat-send-btn' as the spec said).",
+  "rca of the issue": "All bugs were CSS / inline-style scoping issues: (1) composer-card had a hardcoded dark rgba(13,16,24,0.32) wash that wiped out the Maxx amber tint inherited from ChatPanel — fixed by setting both the inline style and .glass-composer CSS rule to 'transparent'. (2) ActionBtn outer borders defaulted to gray var(--text-faint) and only colored on hover — fixed by passing an explicit color prop (yellow/green/red) used as the permanent border. (3) Topbar auto-hide only translated the row out of viewport but left its layout height intact, leaving a visible gap — fixed by adding height:0 + overflow:hidden when topHidden=true. (4) Same seam issue as (1)."
+}

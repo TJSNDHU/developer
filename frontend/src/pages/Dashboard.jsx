@@ -275,7 +275,15 @@ function DashboardBody() {
           transform: (topHidden && !isMobile) ? "translateY(-105%)" : "translateY(0)",
           opacity: (topHidden && !isMobile) ? 0 : 1,
           pointerEvents: (topHidden && !isMobile) ? "none" : "auto",
-          transition: "transform 260ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+          // Iter 212m-54 — collapse the row's height when hidden so no
+          // residual white/light strip remains visible at the top edge
+          // of the chat surface. Founder reported: "after hiding the
+          // blue-line area, a white header was still showing all top".
+          // Cause: the row kept its layout space even after translating
+          // out, leaving the parent flexbox a visible gap.
+          height: (topHidden && !isMobile) ? 0 : "auto",
+          overflow: "hidden",
+          transition: "transform 260ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease, height 200ms ease",
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>

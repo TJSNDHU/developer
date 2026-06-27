@@ -374,7 +374,12 @@ body.aurem-glass #root {
    Iter 212m-38 — `!important` removed from `background` so inline
    styles (e.g. the founder-offer amber tint) can override it. */
 .glass-composer {
-  background: rgba(13, 16, 24, 0.32);
+  /* Iter 212m-54 — was rgba(13,16,24,0.32). That hardcoded dark
+     wash made the composer invisible against Maxx-mode's amber-tint
+     chat background. `transparent` lets the parent ChatPanel's
+     mode-specific tint show through, so the composer reads as
+     part of the same surface across Swift / Pro / Maxx / founder. */
+  background: transparent;
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   /* Iter 212m-15 — composer must always sit on its own stacking

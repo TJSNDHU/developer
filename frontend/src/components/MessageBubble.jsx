@@ -205,25 +205,30 @@ function extractHandoffBrief(content, verifiedPaths) {
 // ---- Sub-components --------------------------------------------------------
 
 function ActionBtn({ testid, title, onClick, Icon, active, color }) {
+  // Iter 212m-54 — feedback icons always carry their semantic color
+  // on the outer border (red=dislike, green=like, yellow=copy) so
+  // the affordance is obvious without hovering. Founder spec:
+  // "change them in green red and yellow outers".
+  const tint = color || "rgba(234,179,8,0.55)";   // default yellow for Copy
   return (
     <button
       type="button" data-testid={testid} title={title} onClick={onClick}
       style={{
-        background: "none",
-        border: "1px solid var(--border)",
-        color: active ? (color || "var(--accent-2)") : "var(--text-faint)",
+        background: active ? tint.replace("0.55", "0.12") : "transparent",
+        border: `1px solid ${tint}`,
+        color: active ? tint : "var(--text-faint)",
         cursor: "pointer", padding: "4px 6px",
         borderRadius: 4, display: "inline-flex",
-        transition: "color 120ms, border-color 120ms",
+        transition: "color 120ms, border-color 120ms, background 120ms",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.color = color || "var(--accent-2)";
-        e.currentTarget.style.borderColor = "var(--border-strong)";
+        e.currentTarget.style.color = tint;
+        e.currentTarget.style.background = tint.replace("0.55", "0.10");
       }}
       onMouseLeave={(e) => {
         if (!active) {
           e.currentTarget.style.color = "var(--text-faint)";
-          e.currentTarget.style.borderColor = "var(--border)";
+          e.currentTarget.style.background = "transparent";
         }
       }}
     >
@@ -900,9 +905,9 @@ export default function MessageBubble({
             transition: "opacity 0.15s ease",
             pointerEvents: hover ? "auto" : "none",
           }}>
-            <ActionBtn testid={`copy-${idx}`} title={copied ? "Copied!" : "Copy"} onClick={copyText} Icon={CopyIcon} active={copied} />
-            <ActionBtn testid={`thumbs-up-${idx}`} title="Good reply" onClick={() => sendVote("up")} Icon={ThumbsUp} active={vote === "up"} color="var(--ok)" />
-            <ActionBtn testid={`thumbs-down-${idx}`} title="Bad reply — we'll refine" onClick={() => sendVote("down")} Icon={ThumbsDown} active={vote === "down"} color="var(--danger)" />
+            <ActionBtn testid={`copy-${idx}`} title={copied ? "Copied!" : "Copy"} onClick={copyText} Icon={CopyIcon} active={copied} color="rgba(234,179,8,0.55)" />
+            <ActionBtn testid={`thumbs-up-${idx}`} title="Good reply" onClick={() => sendVote("up")} Icon={ThumbsUp} active={vote === "up"} color="rgba(109,212,161,0.55)" />
+            <ActionBtn testid={`thumbs-down-${idx}`} title="Bad reply — we'll refine" onClick={() => sendVote("down")} Icon={ThumbsDown} active={vote === "down"} color="rgba(255,107,107,0.55)" />
           </div>
         )}
 
