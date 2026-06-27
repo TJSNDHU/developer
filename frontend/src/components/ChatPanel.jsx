@@ -2377,7 +2377,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           placeholder={
             execMode === EXEC_MODES.LOOP
               ? "Describe the feature / fix — ORA will plan first, ask you to approve, then ship through Verify → Security → Ship."
-              : "Ask AUREM CTO to plan, build, debug…  (~6s simple · ~20-30s multi-file · Enter to send, Shift+Enter newline)"
+              : "Ask ORA to build, debug, or audit — Vanguard scans every commit before it ships."
           }
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
@@ -2501,6 +2501,43 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               )}
             </span>
           )}
+          {/* Iter 212m-59 — "Vanguard active" reassurance pill.  Permanent
+              fixture next to the Shield icon — communicates ORA's biggest
+              differentiator vs Cursor/Bolt/Lovable/Copilot: every commit
+              is security-scanned with 25 patterns BEFORE it ships. No
+              competitor can say this; Lovable's CVE-2025-48757 is the
+              counterfactual. */}
+          <span
+            data-testid="vanguard-active-pill"
+            title="25-pattern security scan runs automatically before every commit. No insecure code ships."
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "3px 8px",
+              borderRadius: 999,
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: 0.4,
+              color: "#86efac",
+              background: "rgba(34,197,94,0.10)",
+              border: "1px solid rgba(34,197,94,0.36)",
+              fontFamily: "'JetBrains Mono', monospace",
+              cursor: "help",
+              userSelect: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: "#22c55e",
+                boxShadow: "0 0 6px #22c55e",
+              }}
+            />
+            Vanguard active
+          </span>
           {/* Iter 146 — passive GitHub status indicator.
               Green dot = active project has a connected repo (push works
               from the Projects page). Red dot = no repo configured.

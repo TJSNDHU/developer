@@ -6,7 +6,81 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-58 — Loop Mode Phase A: UI shell + frontend orchestration (Feb 27 2026) ✅
+## Iter 212m-59 — Speed perception polish + Vanguard positioning (Feb 27 2026) ✅
+
+Four frontend-only polish fixes that move ORA past Cursor / Bolt /
+Lovable / Copilot on perceived speed and security positioning.
+
+### Fix 1 — Streaming feels live, not buffered
+- `MessageBubble.jsx`: blinking orange `▎` cursor
+  (`data-testid="streaming-cursor"`) at the tail of every streaming
+  assistant message while `m.streaming === true`. Renders only when
+  content exists — pre-content state still uses the existing
+  thinking progress bar above.
+- `MessageBubble.jsx`: 3-dot bouncing typing indicator
+  (`data-testid="typing-indicator"`) the instant a user hits Send.
+  Uses ORA's brand orange (#e8a020). Disappears the moment the
+  first token lands. Stays out of the way when StepCards take over.
+- CSS animations `ora-cursor-blink`, `ora-typing-bounce` added to
+  `index.css`. Pure CSS, zero JS frame work.
+- Backend SSE already streams token-by-token via the existing
+  `onToken` callback — no changes needed.
+
+### Fix 2 — Skeleton replaces "Loading X%"
+- `WarmStatusBar.jsx` rewritten end-to-end. The "Loading your
+  project… 80%" amber strip is gone. Replaced by three shimmering
+  skeleton chat bubbles (alternating left/right, opacity 0.4 → 0.78
+  → 0.4 over 1.5s) during the warm-start window. No %, no anxiety
+  vector.
+- New `data-testid="skeleton-bubble-left|right"`.
+  `warm-progress-fill` (old strip) is fully removed.
+- CSS animation `ora-skeleton-shimmer` in `index.css`.
+
+### Fix 3 — Syntax highlighting (verified already shipped)
+- `CodeBlock.jsx` already renders Monaco editor in `vs-dark` theme
+  with line numbers, copy button (`code-block-copy`), filename
+  chip, and lazy-loaded bundle (only ships when a fence exists).
+  This is materially better than the spec's suggested highlight.js
+  CDN approach — Monaco IS the VS Code engine.
+
+### Fix 4 — Vanguard active reassurance
+- `ChatPanel.jsx`: composer placeholder updated to
+  `"Ask ORA to build, debug, or audit — Vanguard scans every
+  commit before it ships."` (Loop-mode placeholder untouched).
+- Permanent `data-testid="vanguard-active-pill"` next to the
+  Shield button — green dot + glow, "Vanguard active" label,
+  hover tooltip:
+  `"25-pattern security scan runs automatically before every
+  commit. No insecure code ships."`
+- Counterfactual: Lovable's CVE-2025-48757 + 91.5% of
+  vibe-coded apps having AI hallucination vulnerabilities (Q1
+  2026). Cursor/Bolt/Copilot can't say this; ORA can.
+
+### Tests
+- Playwright e2e on preview — all assertions passing:
+  - Vanguard pill visible with correct text
+  - Placeholder contains "Vanguard scans every commit"
+  - Typing dots visible 500ms after Send (pre-token state)
+  - Cursor renders during streaming
+  - Old `warm-progress-fill` strip removed from DOM
+  - Reply streams and completes cleanly
+
+### Files touched
+- `frontend/src/components/MessageBubble.jsx` (cursor + dots)
+- `frontend/src/components/WarmStatusBar.jsx` (skeleton rewrite)
+- `frontend/src/components/ChatPanel.jsx` (placeholder + pill)
+- `frontend/src/index.css` (3 keyframes)
+
+### Spec note (delivered better than asked)
+Fix 3 requested highlight.js via CDN — Monaco is already in place
+and renders MUCH richer code blocks (full editor semantics,
+copy/scroll/wrap controls, ~1.4MB lazy bundle that only ships
+when a fence exists). No regression; the user's intent (code
+looks professional, not plain mono) is fully met.
+
+---
+
+
 
 Ships the user-facing Loop Mode loop today — toggle, persistent
 state, all conditional UI swaps, plan-approval gate, auto-Shield

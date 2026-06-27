@@ -636,6 +636,25 @@ export default function MessageBubble({
           ) : (
             m.content
           )}
+          {/* Iter 212m-59 — Blinking cursor at the tail of a streaming
+              assistant message.  Makes the perceived speed match
+              Cursor: the moment a single token lands the user sees a
+              live `▎` that pulses, so even a 30-second reply feels
+              alive.  Only renders while streaming AND there's content
+              to anchor to (pre-content state already shows the
+              thinking progress bar above). */}
+          {m.role === "assistant" && m.streaming && m.content && (
+            <span
+              data-testid="streaming-cursor"
+              aria-hidden="true"
+              style={{
+                display: "inline-block",
+                width: 7, marginLeft: 1,
+                color: "var(--accent-2, #e8a020)",
+                animation: "ora-cursor-blink 1.05s steps(1) infinite",
+              }}
+            >▎</span>
+          )}
           {/* Multi-file checklist parsed from ORA's message + DB-backed plan (pairs with Gap 3 + structural multi-file contract). */}
           {m.role === "assistant" && (hasChecklist(m.content) || m.shipped_task_id) && (
             <TaskManagementPanel text={m.content} taskId={m.shipped_task_id} />
@@ -681,6 +700,34 @@ export default function MessageBubble({
               display: "inline-flex", flexDirection: "column",
               gap: 6, minWidth: 220,
             }}>
+              {/* Iter 212m-59 — 3-dot typing indicator, the first
+                  thing the user sees the instant they hit Send.
+                  Renders only while step cards haven't taken over.
+                  Uses ORA's brand orange (#e8a020) so it reads as
+                  "ORA is thinking" without a single token of copy. */}
+              {(!Array.isArray(m.steps) || m.steps.length === 0) && (
+                <div
+                  data-testid="typing-indicator"
+                  aria-label="ORA is thinking"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 2px",
+                  }}
+                >
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      style={{
+                        width: 6, height: 6, borderRadius: "50%",
+                        background: "#e8a020",
+                        animation: `ora-typing-bounce 1.05s ease-in-out ${i * 0.16}s infinite`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
               {/* Iter 212m-19 — Live step cards.
                   When the orchestrator (Iter 212m-18) is firing SSE
                   step events, `m.steps` is populated. Render the

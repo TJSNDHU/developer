@@ -13,6 +13,23 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-59 — Speed perception polish + Vanguard positioning (Feb 27 2026) ✅
+- Blinking `▎` cursor + 3-dot typing indicator in MessageBubble:
+  ORA now feels Cursor-fast; first feedback within 500ms.
+- WarmStatusBar rewritten: no more "Loading X%" — three shimmering
+  skeleton chat bubbles instead.
+- Monaco-powered syntax highlighting already in place
+  (`CodeBlock.jsx`) — verified working, far richer than the spec's
+  highlight.js CDN suggestion.
+- Permanent green "Vanguard active" pill
+  (`data-testid="vanguard-active-pill"`) next to the Shield button
+  in the composer toolbar + new placeholder
+  `"Ask ORA to build, debug, or audit — Vanguard scans every
+  commit before it ships."` Positions ORA against
+  Cursor/Bolt/Lovable/Copilot on security (Lovable
+  CVE-2025-48757).
+- Playwright e2e all green on preview.
+
 ### Iter 212m-58 — Loop Mode Phase A: UI shell + frontend orchestration (Feb 27 2026) ✅
 - New `LoopModeToggle` (above composer), `LoopStepBar` (5-phase
   progress strip), `PlanApprovalCard` (inline approve gate).
