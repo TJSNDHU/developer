@@ -47,6 +47,7 @@ from routers.security_scan import (
     _CONCURRENT_FETCHES,
 )
 from services.vanguard_scanner import scan_text
+from services.bug_hunt_rules import scan_bug_hunt
 
 router = APIRouter(prefix="/codebase-health", tags=["Codebase Health"])
 logger = logging.getLogger(__name__)
@@ -385,6 +386,7 @@ SCANNERS = {
     "code_quality": _scan_code_quality,
     "dependencies": _scan_dependencies,
     "database":     _scan_database,
+    "bug_hunt":     scan_bug_hunt,
 }
 
 

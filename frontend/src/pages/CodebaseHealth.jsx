@@ -22,21 +22,23 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Shield, Zap, Code2, Package, Database, RefreshCw, Loader2,
-  ChevronDown, ChevronRight, Sparkles, ExternalLink,
+  ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug,
 } from "lucide-react";
 import { api } from "../lib/api";
 
 const CATS = [
-  { key: "security",     label: "Security",      icon: Shield,    tone: "#ef4444",
+  { key: "security",     label: "Security",      icon: Shield,    tone: "#ef4444", cost: 5,
     blurb: "These can expose your users' data and get you hacked" },
-  { key: "performance",  label: "Performance",   icon: Zap,       tone: "#f59e0b",
+  { key: "performance",  label: "Performance",   icon: Zap,       tone: "#f59e0b", cost: 5,
     blurb: "These are making your app slow and will get worse as you grow" },
-  { key: "code_quality", label: "Code Quality",  icon: Code2,     tone: "#38bdf8",
+  { key: "code_quality", label: "Code Quality",  icon: Code2,     tone: "#38bdf8", cost: 5,
     blurb: "These will slow down your team and make ORA less effective" },
-  { key: "dependencies", label: "Dependencies",  icon: Package,   tone: "#a855f7",
+  { key: "dependencies", label: "Dependencies",  icon: Package,   tone: "#a855f7", cost: 5,
     blurb: "These are known attack vectors hackers actively exploit" },
-  { key: "database",     label: "Database",      icon: Database,  tone: "#10b981",
+  { key: "database",     label: "Database",      icon: Database,  tone: "#10b981", cost: 5,
     blurb: "These will cause outages when your user count grows" },
+  { key: "bug_hunt",     label: "Bug Hunt",      icon: Bug,       tone: "#f472b6", cost: 8,
+    blurb: "Nuclei-template-inspired deep scan: 50+ patterns for leaked secrets, RCE primitives, exposed admin endpoints, and CVE-vulnerable dependencies" },
 ];
 
 const SEV_META = {
@@ -409,22 +411,32 @@ export default function CodebaseHealth() {
                           gap: 12, marginBottom: 18 }}>
               {CATS.map((c) => {
                 const Icon = c.icon;
+                const isNew = c.key === "bug_hunt";
                 return (
                   <button
                     key={c.key}
                     data-testid={`scan-${c.key}`}
                     onClick={() => runScan([c.key])}
                     style={{
+                      position: "relative",
                       padding: 16, borderRadius: 10, cursor: "pointer",
                       background: `${c.tone}11`, border: `1px solid ${c.tone}55`,
                       color: "#e8ecf3", textAlign: "left",
                     }}
                   >
+                    {isNew && (
+                      <span style={{
+                        position: "absolute", top: 8, right: 8, fontSize: 9.5, fontWeight: 800,
+                        padding: "2px 6px", borderRadius: 4, letterSpacing: 0.6,
+                        background: "#f472b6", color: "#0a0a0a",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>NEW</span>
+                    )}
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <Icon size={16} color={c.tone} />
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{c.label}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace" }}>5 💎</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace" }}>{c.cost} 💎</span>
                   </button>
                 );
               })}
@@ -439,7 +451,7 @@ export default function CodebaseHealth() {
                 color: "#0a0a0a", border: "none",
               }}
             >
-              🚀 Full Scan — all 5 categories · 15 💎
+              🚀 Full Scan — all {CATS.length} categories · {CATS.reduce((s,c)=>s+c.cost,0)} 💎
             </button>
           </div>
         )}
@@ -475,7 +487,7 @@ export default function CodebaseHealth() {
                   color: "#7dd3fc", cursor: "pointer", fontSize: 12.5, fontWeight: 600,
                   display: "inline-flex", alignItems: "center", gap: 6,
                 }}>
-                <RefreshCw size={13} /> Rescan all · 15 💎
+                <RefreshCw size={13} /> Rescan all · {CATS.reduce((s,c)=>s+c.cost,0)} 💎
               </button>
               <span style={{ color: "#64748b", fontSize: 11.5,
                              fontFamily: "'JetBrains Mono', monospace" }}>

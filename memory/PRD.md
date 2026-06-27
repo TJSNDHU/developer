@@ -13,11 +13,27 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-73 — Bug Hunt category (Nuclei-template-inspired static scanner) (Feb 27 2026) ✅
+- **New scanner** (`services/bug_hunt_rules.py`, 320 LoC, pure regex, zero LLM cost):
+  - **15 secret patterns**: AWS access key, AWS STS, GCP API key, Stripe live secret/publishable, SendGrid, Slack bot/app/user tokens, GitHub PAT/OAuth/App, hardcoded JWT secret, private RSA/EC/PGP key blocks, Azure storage key, Twilio API key, .env-style values committed to source.
+  - **20 vulnerable code patterns**: Log4Shell `${jndi:`, eval/exec with user input, pickle.loads, yaml.load (unsafe), subprocess(shell=True)+input, os.system+input, stdlib XML (XXE), catastrophic-backtracking regex, XXE entity, MD5/SHA1, non-crypto PRNG for tokens, JWT alg=none, CORS wildcard with credentials, cookies missing Secure/HttpOnly, SSRF (user URL → outbound HTTP), SQL f-string, dangerouslySetInnerHTML, .innerHTML=.
+  - **10 exposed endpoint patterns**: /debug, /admin, /actuator, /metrics, /health (leaky), api_key=… in URL, stack trace in response, DEBUG=True module-level, Swagger in prod, FastAPI CORS allow_origins=['*'].
+  - **11 dependency CVEs** (5 spec + 6 bonus): requests/flask/django/pillow/cryptography (spec) + urllib3/pyyaml/jinja2/axios/lodash/next. Live version comparison via `_vercmp` against requirements.txt + package.json (incl. devDependencies).
+- **`fix_tokens=8` per finding** (vs 5 for other categories) — Bug Hunt findings are higher-risk + take more LLM work to patch correctly.
+- **Wired into 6th SCANNERS slot** in `routers/codebase_health.py` — same /scan endpoint, identical Finding shape, reuses the shared GitHub-text cache so a Full Scan still costs only one repo fetch.
+- **Frontend** (`pages/CodebaseHealth.jsx`): new pink "Bug Hunt" category card with `Bug` icon + animated **NEW** badge, per-category `cost` field surfaced in tile copy, Full Scan / Rescan button now dynamic ("all 6 categories · 33 💎").
+- **Tests**: 10/10 in `tests/test_iter212m73_bug_hunt.py` (rule-count contract, AWS/GCP/Log4Shell/CVE detection on requirements.txt + package.json, .env skip, safe_yaml ok, _vercmp, severity normalization). Lint clean, backend boots clean, route guards verified via curl, UI smoke screenshot confirms NEW badge + 33 💎 total.
+
+### Iter 212m-72 — Codebase Health Dashboard Phase 2 (Feb 27 2026) ✅
+- **New router** `routers/codebase_health.py` (582 LoC) — 5 deterministic static-analyser categories (Security/Performance/Code Quality/Dependencies/Database) that share a single GitHub repo fetch via `_build_text_cache`. Zero LLM cost on the scan path.
+- **`/codebase-health/scan`** returns `{score, label, tone, breakdown: {<cat>: {score, counts, total, findings}}}`. Severity rank: critical(25), high(8), medium(3), low(1). 100→0 health score.
+- **`/codebase-health/fix`** charges atomic token deduction (`$inc -tokens_cost` with `$gte` guard) then enqueues a real `cto_task` with the fix prompt. Returns new_balance for UI animation.
+- **`pages/CodebaseHealth.jsx`** (508 LoC): pulsing CRITICAL health badge (`health-pulse` keyframe), per-finding HIGH/MEDIUM blur until `Unlock` clicked (micro-monetisation), per-finding "Fix this — N 💎" button, token deduction `-N` float-up animation, low-token/no-token warnings with Buy more link, empty state with 5 category tiles + Full Scan CTA.
+
 ### Iter 212m-71 — Admin analytics cache + docs/copy sync (Feb 27 2026) ✅
 - **Mongo aggregation cache** (`services/admin_analytics_cache.py`): 110-line in-memory TTL cache with per-key single-flight `asyncio.Lock`. Wired into `/admin/insights/activation-funnel` (60 s TTL); cold-miss runs the original 4-aggregation body, warm hit returns the cached dict. Founder flush endpoints at `/admin/cache/analytics-stats` + `/admin/cache/analytics-invalidate`.
 - **README.md**: full rewrite per founder spec — badge row, 8 feature blocks, pricing, comparison table, quick-start.
 - **Landing.jsx**: hero subhead updated to mention Vanguard + Loop Mode; "1 Copilot" typo fixed; marquee TAGLINES replaced with the 14-item integration+feature ticker; **6 feature cards** rewritten verbatim with emoji icons + UNIQUE / NEW / FOUNDER PRICE tags.
-- **Phase 2 reserved**: full CodebaseHealthDashboard UI overhaul with 5 real backend endpoints (Performance, Code Quality, Dependencies, Database) — deferred to next turn per scope agreement.
 
 ### Iter 212m-70 — Database performance audit (Feb 27 2026) ✅
 Full audit + fix sweep across all 5 anti-patterns (N+1 queries, missing pagination, missing indexes, SELECT *, connection pooling).
