@@ -41,6 +41,12 @@ import LoopModeToggle, {
 } from "./LoopModeToggle";
 import LoopStepBar from "./LoopStepBar";
 import PlanApprovalCard from "./PlanApprovalCard";
+// Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
+// User Action card (powered by the real /loop/* SSE stream).
+import { SelfHealIndicator, UserActionCard } from "./LoopActionCards";
+import {
+  startLoop, confirmLoop, pauseResponse, cancelLoop, streamLoopEvents,
+} from "../lib/loopApi";
 import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
 // the hooks below ring-fence message-list mutations, session network
@@ -445,6 +451,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // The pending plan message id — once the user approves, we continue
   // the same session with a `LOOP_PHASE:execute` follow-up.
   const pendingPlanRef = useRef(null);
+  // ──────────────────────────────────────────────────────────────
+  // Iter 212m-65 — Phase D: real LoopEngine wiring via /loop/* SSE.
+  // ──────────────────────────────────────────────────────────────
+  // `loopId` — the engine session id returned by /loop/start. Drives
+  //            confirm/pause-response/cancel calls and the SSE stream.
+  // `loopPlan` — the structured plan dict returned by /loop/start;
+  //            rendered inside the PlanApprovalCard.
+  // `selfHeal` — { visible, attempt, max, errorPreview } for the
+  //            inline SelfHealIndicator strip.
+  // `userAction` — { phase, message, errors } for the UserActionCard
+  //            when the engine pauses with requires_user_action:true.
+  // `loopAbortRef` — AbortController for the active SSE stream.
+  const [loopId, setLoopId] = useState(null);
+  const [loopPlan, setLoopPlan] = useState(null);
+  const [selfHeal, setSelfHeal] = useState({ visible: false, attempt: 1, max: 3, errorPreview: "" });
+  const [userAction, setUserAction] = useState(null);
+  const [userActionBusy, setUserActionBusy] = useState(false);
+  const loopAbortRef = useRef(null);
   // Iter 212m-58 — chatMode hard-pinned to Pro when loop is active
   // (Swift disabled per spec). We persist that nudge on toggle so a
   // user flipping back to Prompt mode keeps their last model pick.
@@ -904,6 +928,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       abortRef.current.abort();
       abortRef.current = null;
     }
+    // Iter 212m-65 — also abort any active Loop Mode SSE stream so a
+    // user Stop click reliably cancels mid-pipeline.
+    if (loopAbortRef.current) {
+      try { loopAbortRef.current.abort(); } catch { /* swallow */ }
+      loopAbortRef.current = null;
+    }
     // Iter 212m-43 — also kill any pending idle watchdog so it can't
     // fire an auto-retry after the user explicitly clicked Stop.
     if (idleTimerRef.current) {
@@ -1125,6 +1155,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       } finally {
         setBusy(false);
       }
+      return;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Iter 212m-65 — Loop Mode fresh-turn fork.
+    // In Loop mode, the FIRST user turn no longer streams through
+    // `/chat/stream` with a `LOOP_PHASE:plan` suffix; it kicks off
+    // the real backend LoopEngine via `POST /loop/start` and renders
+    // the structured plan. Approval then triggers SSE-streamed
+    // EXECUTE → VERIFY → SCAN → SHIP via runLoopAfterConfirm().
+    // The legacy `LOOP_PHASE:execute` continuation through send() is
+    // gone — handleApprovePlan calls confirmLoop directly.
+    // ──────────────────────────────────────────────────────────────
+    if (execMode === EXEC_MODES.LOOP && !opts.loopPhase) {
+      await runLoopPlan(text, readyAttachments, opts);
       return;
     }
     // Iter 146 — once the user fires off the first message of this
@@ -1723,23 +1768,297 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Iter 212m-58 — Loop-mode user actions.
+  // Iter 212m-65 — Loop-mode user actions (Phase D wiring).
   // ──────────────────────────────────────────────────────────────
-  // Approve: continue the same chat session by sending an Execute
-  // follow-up. We use the existing send() with promptOverride +
-  // skipUserBubble so the chat doesn't show a synthetic
-  // "Approved, proceed" bubble from the user.
-  function handleApprovePlan() {
-    if (busy) return;
-    setLoopPhase("executing");
-    send(null, {
-      loopPhase: "execute",
-      promptOverride: "Approved — proceed with the plan above. Execute now.",
-      skipUserBubble: true,
+  // runLoopPlan: kick off /loop/start, render plan inside an
+  // assistant bubble. The user must then approve via PlanApprovalCard
+  // before any code execution begins.
+  async function runLoopPlan(userText, readyAttachments, opts) {
+    if (busy || !sessionId) return;
+    // Cancel any prior loop session (defensive — should be a no-op).
+    if (loopAbortRef.current) {
+      try { loopAbortRef.current.abort(); } catch { /* swallow */ }
+      loopAbortRef.current = null;
+    }
+    setLoopId(null);
+    setLoopPlan(null);
+    setSelfHeal({ visible: false, attempt: 1, max: 3, errorPreview: "" });
+    setUserAction(null);
+    setLoopRetryCount(0);
+    setLoopPhase("plan_pending");
+
+    // Compose the user message (text + any attachment markdown).
+    const attachmentBlock = (readyAttachments || [])
+      .map((a) => a.markdown)
+      .filter(Boolean)
+      .join("\n\n");
+    const userBody = userText || "(see attached files)";
+    const composed = attachmentBlock
+      ? `${attachmentBlock}\n\n${userBody}`
+      : userBody;
+    const displayContent = (readyAttachments || []).length
+      ? `${userText || ""}${userText ? "\n\n" : ""}_📎 ${readyAttachments.length} attachment${
+          readyAttachments.length > 1 ? "s" : ""}: ${
+          readyAttachments.map((a) => a.name).join(", ")}_`
+      : userText;
+
+    setMessages((m) => [
+      ...m,
+      ...(opts?.skipUserBubble ? [] : [{ role: "user", content: displayContent }]),
+      { role: "assistant", content: "", streaming: true, loopPending: true },
+    ]);
+    setBusy(true);
+    try {
+      const resp = await startLoop({
+        projectId: activeProject?.project_id || null,
+        userMessage: composed,
+      });
+      const plan = resp?.plan || {};
+      const lid  = resp?.loop_id;
+      setLoopId(lid);
+      setLoopPlan(plan);
+      // Replace the pending assistant bubble with a rendered plan.
+      const planMd = formatPlanMarkdown(plan);
+      setMessages((m) => {
+        const out = m.slice();
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].role === "assistant" && out[i].loopPending) {
+            out[i] = {
+              role: "assistant",
+              streaming: false,
+              content: planMd,
+              loopPlan: true,
+              loop_id: lid,
+            };
+            break;
+          }
+        }
+        return out;
+      });
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "Loop start failed";
+      setMessages((m) => {
+        const out = m.slice();
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].role === "assistant" && out[i].loopPending) {
+            out[i] = {
+              role: "assistant",
+              streaming: false,
+              content: `**Loop failed to start**\n\n${msg}`,
+              error: true,
+            };
+            break;
+          }
+        }
+        return out;
+      });
+      setLoopPhase("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Pretty-print the plan dict into a markdown bullet list.
+  function formatPlanMarkdown(plan) {
+    if (!plan || typeof plan !== "object") return "_(no plan returned)_";
+    const title = plan.title || "Plan";
+    const eta   = plan.estimated_time ? ` — _${plan.estimated_time}_` : "";
+    const bullets = Array.isArray(plan.bullets) ? plan.bullets : [];
+    const files = Array.isArray(plan.files_to_change) ? plan.files_to_change : [];
+    let out = `### ${title}${eta}\n\n`;
+    if (bullets.length) {
+      bullets.forEach((b, i) => { out += `${i + 1}. ${b}\n`; });
+      out += "\n";
+    }
+    if (files.length) {
+      out += `**Files to change:**\n`;
+      files.forEach((f) => { out += `- \`${f}\`\n`; });
+    }
+    return out.trim() || "_Empty plan_";
+  }
+
+  // Map a single SSE event from the engine into UI state updates.
+  function handleLoopEvent(ev) {
+    if (!ev) return;
+    const state = ev.state || "";
+    const phase = ev.phase || "";
+    const requiresAction = !!ev.requires_user_action;
+    const data = ev.data || {};
+
+    // Drive the existing LoopStepBar phase enum.
+    if (state === "executing")     setLoopPhase("executing");
+    else if (state === "verifying") setLoopPhase("verifying");
+    else if (state === "scanning")  setLoopPhase("security");
+    else if (state === "shipping")  setLoopPhase("shipping");
+    else if (state === "completed") setLoopPhase("done");
+    else if (state === "failed")    setLoopPhase("error");
+    else if (state === "aborted")   setLoopPhase("idle");
+
+    // Self-heal indicator visibility.
+    if (state === "self_healing") {
+      const preview = Array.isArray(data.errors_preview)
+        ? (data.errors_preview[0] || "")
+        : "";
+      const m = /attempt\s+(\d+)\b/i.exec(ev.message || "");
+      const attempt = m ? parseInt(m[1], 10) : 1;
+      setSelfHeal({ visible: true, attempt, max: 3, errorPreview: preview });
+      setLoopRetryCount(attempt);
+    } else if (selfHeal.visible && state !== "self_healing") {
+      setSelfHeal((s) => ({ ...s, visible: false }));
+    }
+
+    // User Action Card (paused-for-user).
+    if (state === "paused_for_user" && requiresAction) {
+      const errors = Array.isArray(data.errors)
+        ? data.errors.map((e) => typeof e === "string" ? e : JSON.stringify(e))
+        : (Array.isArray(data.findings)
+            ? data.findings.map((f) => `${f.severity}: ${f.path || ""} — ${f.title || f.message || ""}`)
+            : []);
+      setUserAction({
+        phase,
+        message: ev.message || "Loop paused — your input needed.",
+        errors,
+      });
+    } else if (!requiresAction && state !== "paused_for_user") {
+      // Clear any prior action card the moment the engine moves on.
+      if (state === "executing" || state === "verifying" || state === "scanning"
+          || state === "shipping" || state === "completed") {
+        setUserAction(null);
+      }
+    }
+
+    // Append meaningful progress as a single growing assistant bubble.
+    appendLoopBubble(ev);
+  }
+
+  // Maintain a single trailing assistant bubble that grows with the
+  // engine's live commentary. Each phase header becomes a new section.
+  function appendLoopBubble(ev) {
+    setMessages((m) => {
+      const out = m.slice();
+      let idx = -1;
+      for (let i = out.length - 1; i >= 0; i--) {
+        if (out[i].role === "assistant" && out[i].loopLive) { idx = i; break; }
+        // Stop scanning before any plan/user bubble.
+        if (out[i].role === "user") break;
+      }
+      const line = renderEventLine(ev);
+      if (!line) return out;
+      const terminal = ev.state === "completed" || ev.state === "failed" || ev.state === "aborted";
+      if (idx === -1) {
+        out.push({
+          role: "assistant",
+          streaming: !terminal,
+          content: line,
+          loopLive: true,
+        });
+      } else {
+        out[idx] = {
+          ...out[idx],
+          content: out[idx].content + "\n" + line,
+          streaming: !terminal,
+        };
+      }
+      return out;
     });
   }
-  function handleCancelPlan() {
+
+  function renderEventLine(ev) {
+    const ph = (ev.phase || "").toUpperCase();
+    const st = ev.state || "";
+    const ms = ev.message || "";
+    if (st === "completed") return `**Step 5 / 5 — Ship**  ${ms}`;
+    if (st === "failed")    return `**Failed**  ${ms}`;
+    if (st === "aborted")   return `**Aborted**  ${ms}`;
+    if (ph === "EXECUTE")   return `**Step 2 / 5 — Execute**  ${ms}`;
+    if (ph === "VERIFY")    return `**Step 3 / 5 — Verify**  ${ms}`;
+    if (ph === "SCAN")      return `**Step 4 / 5 — Security**  ${ms}`;
+    if (ph === "SHIP")      return `**Step 5 / 5 — Ship**  ${ms}`;
+    if (ph === "SELF_HEAL") return `_↻ ${ms}_`;
+    return ms ? `· ${ms}` : "";
+  }
+
+  function openLoopStream(lid) {
+    if (loopAbortRef.current) {
+      try { loopAbortRef.current.abort(); } catch { /* swallow */ }
+    }
+    loopAbortRef.current = streamLoopEvents(lid, {
+      onEvent: handleLoopEvent,
+      onTerminal: () => {
+        loopAbortRef.current = null;
+        setBusy(false);
+        setSelfHeal((s) => ({ ...s, visible: false }));
+      },
+      onError: (err) => {
+        // Surface a soft notice; engine state still persisted in Mongo.
+        const msg = err?.message || "Loop stream interrupted";
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].loopLive) {
+              out[i] = {
+                ...out[i],
+                content: out[i].content + `\n\n_⚠ ${msg}_`,
+                streaming: false,
+              };
+              break;
+            }
+          }
+          return out;
+        });
+        setBusy(false);
+      },
+    });
+  }
+
+  async function handlePauseAction(action, feedback) {
+    if (!loopId) return;
+    setUserActionBusy(true);
+    try {
+      await pauseResponse(loopId, action, feedback || "");
+      if (action === "abort") {
+        // Stream will emit `aborted`; clear the card now.
+        setUserAction(null);
+      } else {
+        // Engine resumes; clear the card and let SSE drive new events.
+        setUserAction(null);
+        setBusy(true);
+      }
+    } catch (e) {
+      toast(e?.response?.data?.detail || e?.message || "Pause-response failed");
+    } finally {
+      setUserActionBusy(false);
+    }
+  }
+
+  // Approve: Phase D (Iter 212m-65) — call /loop/{id}/confirm with
+  // approved:true and open the SSE stream. The engine drives the
+  // pipeline; we just react to events.
+  async function handleApprovePlan() {
+    if (busy || !loopId) return;
+    setLoopPhase("executing");
+    setBusy(true);
+    try {
+      await confirmLoop(loopId, true, "");
+      openLoopStream(loopId);
+    } catch (e) {
+      toast(e?.response?.data?.detail || e?.message || "Loop confirm failed");
+      setLoopPhase("error");
+      setBusy(false);
+    }
+  }
+  async function handleCancelPlan() {
+    if (loopId) {
+      try { await confirmLoop(loopId, false, "User cancelled before execute"); }
+      catch { /* engine already cleaned up */ }
+    }
+    if (loopAbortRef.current) {
+      try { loopAbortRef.current.abort(); } catch { /* swallow */ }
+      loopAbortRef.current = null;
+    }
     setLoopPhase("idle");
+    setLoopId(null);
+    setLoopPlan(null);
     pendingPlanRef.current = null;
   }
   // Toggle handler — switch exec mode and, when entering loop, force
@@ -1756,21 +2075,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     setExecMode(m);
   }
 
-  // Phase A: render the PlanApprovalCard only after a plan-turn has
-  // fully completed AND the assistant message clearly contains a
-  // plan (we use the [PLAN_READY] marker or, as a softer fallback,
-  // any phase === plan_pending + non-streaming last bubble).
-  const lastAsstMsg = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") return messages[i];
-    }
-    return null;
-  })();
+  // Phase D (Iter 212m-65): plan card renders the structured plan the
+  // backend LoopEngine returned. We no longer rely on the model's
+  // [PLAN_READY] marker — the engine itself owns the plan phase.
   const showPlanCard =
     execMode === EXEC_MODES.LOOP &&
     loopPhase === "plan_pending" &&
-    lastAsstMsg &&
-    !lastAsstMsg.streaming &&
+    !!loopPlan &&
+    !!loopId &&
     !busy;
 
   return (
@@ -2268,6 +2580,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         <PlanApprovalCard
           onApprove={handleApprovePlan}
           onCancel={handleCancelPlan}
+        />
+      )}
+
+      {/* Iter 212m-65 — Phase D wiring: live self-heal strip + paused
+          user-action card driven by the /loop/{id}/stream SSE feed. */}
+      <SelfHealIndicator
+        visible={selfHeal.visible}
+        attempt={selfHeal.attempt}
+        max={selfHeal.max}
+        errorPreview={selfHeal.errorPreview}
+      />
+      {userAction && (
+        <UserActionCard
+          phase={userAction.phase}
+          message={userAction.message}
+          errors={userAction.errors}
+          busy={userActionBusy}
+          onAction={handlePauseAction}
         />
       )}
 

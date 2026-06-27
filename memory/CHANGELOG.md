@@ -6,6 +6,70 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-64 / 212m-65 — Feature Window + Loop Mode Phase D wiring (Feb 27 2026) ✅
+
+Closes the founder's pre-launch polish phase.  Two deliverables:
+
+### 212m-64 — `/feature-window` live system map
+- New `GET /api/aurem-dev/feature-window/status` route
+  (`routers/feature_window.py`) — founder-gated, returns a flat JSON
+  payload composed entirely from real Mongo + filesystem reads
+  (subprocess greps for `@router.*` counts, `ls *.jsx`, env-var
+  introspection, `db.list_collection_names()`).  No hard-coded
+  numbers — failed Mongo counts surface as the literal string
+  `"UNSURE"` per founder spec.
+- New `pages/FeatureWindow.jsx` renderer wired on `/feature-window`.
+  Sections: header stats pills, integration status pills (auto-link
+  to integrations table), Modes grid, Tools accordion, Vanguard
+  panel, Loop timeline (a→d phases with state colour + frontend
+  warning strip), Integrations table, Issues list (sorted by
+  severity), DB live counts.  Refresh button calls the same endpoint.
+- 403 redirects non-founders to `/dashboard`.
+
+### 212m-65 — Loop Mode Phase D wiring
+Replaces the Phase A prompt-suffix hack with the real
+`POST /api/aurem-dev/loop/*` SSE pipeline introduced in Phase B/C.
+
+- New `frontend/src/lib/loopApi.js` — `startLoop`, `confirmLoop`,
+  `pauseResponse`, `cancelLoop`, `streamLoopEvents` (SSE consumer
+  using `fetch` + `ReadableStream`).  Returns an `AbortController`
+  so the caller can cancel the stream cleanly.
+- `ChatPanel.jsx` fork: when `execMode === LOOP` and the user fires
+  a fresh turn, we now bypass `/chat/stream` entirely and call
+  `runLoopPlan()` → `POST /loop/start` → render the engine's
+  structured plan as markdown in an assistant bubble → show the
+  existing `PlanApprovalCard`.
+- `handleApprovePlan` now calls `confirmLoop(id, true)` and opens
+  `streamLoopEvents(id, …)` instead of forwarding to `send()` with
+  `LOOP_PHASE:execute`.  Every SSE event is mapped to the existing
+  `loopPhase` state machine + a single growing "loop-live"
+  assistant bubble that narrates each phase boundary.
+- New `SelfHealIndicator` (spinning wrench + attempt N/3) and
+  `UserActionCard` (rose-tinted pause card with retry / skip /
+  abort buttons + feedback textarea) — both wired to the engine's
+  `state === self_healing` and `requires_user_action: true` events.
+  Buttons call `pauseResponse(id, action, feedback)`.
+- `stop()` now also aborts the active loop SSE stream.
+- Feature-window backend status updated:
+  `loop_mode.phase_d = "complete"`, `frontend_migration = "complete"`.
+
+### E2E verification (preview)
+- `POST /loop/start` returns a real LLM-generated plan in ~3s.
+- `POST /loop/{id}/confirm {approved:true}` flips state to
+  `awaiting_confirmation` → engine runs in background → final state
+  `completed` with commit_message `feat(ora): … [loop-verified]`.
+- Browser smoke test: Loop toggle → type message → PlanApprovalCard
+  renders with backend-rendered bullets + files_to_change list.
+
+### Files touched
+- `backend/routers/feature_window.py` (loop_mode status flip)
+- `frontend/src/lib/loopApi.js` (new — 90 LoC SSE client)
+- `frontend/src/components/ChatPanel.jsx` (Phase D fork + SSE event
+  mapper + SelfHealIndicator/UserActionCard rendering + stop()
+  abort hook)
+
+---
+
 ## Iter 212m-61/62/63 — Diagrams + Loop Phase C + Phase D-lite (Feb 27 2026) ✅
 
 Triple-feature ship.  Three independent deliverables, all production-grade, all verified end-to-end.

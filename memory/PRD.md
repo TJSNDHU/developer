@@ -13,6 +13,29 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-64 / 212m-65 — Feature Window + Loop Mode Phase D wiring (Feb 27 2026) ✅
+- **`/feature-window` admin live system map**: founder-gated
+  `GET /api/aurem-dev/feature-window/status` returns a fully
+  composed JSON payload from real Mongo + filesystem reads. New
+  `pages/FeatureWindow.jsx` renders stats pills, integration
+  status, Modes grid, Tools accordion, Vanguard panel, Loop
+  timeline, Integrations table, Issues list and DB counts.
+- **Loop Mode Phase D wiring**: replaces the Phase A prompt-suffix
+  shortcut with the real `/api/aurem-dev/loop/*` SSE pipeline.
+  New `lib/loopApi.js` (startLoop / confirmLoop / pauseResponse /
+  cancelLoop / streamLoopEvents).  `ChatPanel` now forks to
+  `runLoopPlan()` on every LOOP-mode send → renders the engine's
+  structured plan → on Approve calls `confirmLoop` and opens an
+  SSE stream → maps every event to the `loopPhase` state +
+  appends a growing "live" assistant bubble.  `SelfHealIndicator`
+  and `UserActionCard` (retry/skip/abort) wired to the engine's
+  `self_healing` and `paused_for_user` states.  Phase A onDone
+  scan-auto path is now dead code (kept defensively but never
+  fires).
+- E2E verified on preview: Loop toggle → plan rendered → Approve
+  → engine pipeline runs to COMPLETED with commit message
+  `feat(ora): … [loop-verified]`.
+
 ### Iter 212m-61/62/63 — Diagrams + Loop Phase C + Phase D-lite (Feb 27 2026) ✅
 - **/diagram chat command**: `POST /api/aurem-dev/diagram/generate`
   + `MermaidBlock.jsx` renders Mermaid SVG inline in chat with
