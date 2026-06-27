@@ -41,6 +41,52 @@
   --info: #7da4ff;
 }
 
+/* Iter 212m-52 — Day-mode tokens. Toggled by <html data-theme="light">
+   via the ThemeProvider (services/theme.js + components/ThemeToggle).
+   Auto mode reads prefers-color-scheme; explicit Day/Night picks
+   override. Mapping was chosen so warm-amber accents read identically
+   in both themes — only neutrals (bg / surface / text) flip. */
+html[data-theme="light"] {
+  --bg:           #faf8f2;            /* warm off-white, not stark */
+  --bg-elev:      #ffffff;
+  --panel:        #ffffff;
+  --panel-2:      #f3efe5;
+  --border:       rgba(60, 40, 15, 0.10);
+  --border-strong:rgba(60, 40, 15, 0.22);
+  --text:         #1a1410;            /* warm near-black */
+  --text-dim:     #5b5448;
+  --text-faint:   #7a7468;
+  /* Amber accents stay the same in both modes (intentional brand
+     constant — buttons, pills, focus rings read identically). */
+  --accent-soft:  rgba(255, 138, 42, 0.14);
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(900px 700px at 80% -10%, rgba(255, 138, 42, 0.07), transparent 60%),
+    radial-gradient(700px 600px at -10% 60%, rgba(255, 197, 96, 0.04), transparent 60%),
+    var(--bg);
+}
+
+html[data-theme="light"] ::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+html[data-theme="light"] .btn-primary { color: #ffffff; }
+
+/* Iter 212m-52 — Glass surfaces lose their dark transparency in light
+   mode (would look like a smudge on white). Re-skin the most common
+   .glass-pane shape. Specific component-level glass elements that
+   need finer tuning can opt-in via `data-light-glass`. */
+html[data-theme="light"] .glass-pane,
+html[data-theme="light"] [data-light-glass="auto"] {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-color: var(--border) !important;
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root {

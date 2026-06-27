@@ -28,6 +28,13 @@ import Toaster from "./components/Toast";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import { initTheme } from "./services/theme";
+
+// Iter 212m-52 — apply theme as early as possible (BEFORE React
+// renders) so the first paint already shows the right palette.
+// Avoids the "dark flash before light mode resolves" foot-gun that
+// every theme system hits if it waits for useEffect.
+initTheme();
 
 // Lazy — every other route is fetched on-demand. The browser cache
 // memoises the chunks so the SECOND visit to /admin is instant.

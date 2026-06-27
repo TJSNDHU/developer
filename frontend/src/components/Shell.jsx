@@ -21,6 +21,7 @@ import TokenBell from "./TokenBell";
 import PWAInstallPrompt from "./PWAInstallPrompt";
 import FloatingORAButton from "./FloatingORAButton";
 import ClearCacheButton from "./ClearCacheButton";
+import ThemeToggle from "./ThemeToggle";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -788,6 +789,22 @@ export default function Shell({ children, requireAuth }) {
           <div style={{ marginTop: "auto", display: "grid", gap: 10, paddingTop: 12 }}>
             {token && (
               <TokenBell tokens={tokensRemaining} unlimited={tokensUnlimited} collapsed={collapsed} />
+            )}
+
+            {/* Iter 212m-52 — theme toggle. Visible to every logged-in
+                user in both expanded and collapsed sidebar states.
+                Compact variant (icons only) shown when sidebar is
+                collapsed so it doesn't overflow. */}
+            {token && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  paddingBottom: 2,
+                }}
+              >
+                <ThemeToggle compact={collapsed} />
+              </div>
             )}
 
             {token && user && !collapsed && (
