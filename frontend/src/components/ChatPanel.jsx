@@ -1126,7 +1126,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       : text;
     setMessages((m) => [
       ...m,
-      { role: "user", content: displayContent },
+      ...(opts.skipUserBubble
+        ? []
+        : [{ role: "user", content: displayContent }]),
       { role: "assistant", content: "", streaming: true, maxxMode },
     ]);
     setBusy(true);
@@ -1554,6 +1556,51 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
         // Iter 212m-57 — clear any lingering "slow/reconnecting" pill.
         setStreamHealth({ phase: "idle", silentFor: 0, retryEtaSec: null });
+        // Iter 212m-58 — Loop-mode phase transition on chat completion.
+        //   • Plan turn done   → freeze on plan_pending; PlanApprovalCard
+        //     is rendered until the user approves or cancels.
+        //   • Execute turn done → auto-advance through verify (visual
+        //     only in Phase A) → security (live scan via /security-scan)
+        //     → ship/done.
+        if (execMode === EXEC_MODES.LOOP) {
+          const justSentPhase = resolvedPhase || "plan";
+          if (justSentPhase === "plan") {
+            // Detect the [PLAN_READY] marker in the last assistant
+            // message; if present, we know ORA honoured the loop
+            // contract and the card should render.
+            const finalContent = (d?.content || "") + "";
+            const ready =
+              finalContent.includes("[PLAN_READY]") ||
+              finalContent.includes("PLAN_READY");
+            setLoopPhase(ready ? "plan_pending" : "plan_pending");
+          } else if (justSentPhase === "execute") {
+            // Brief verify flash (Phase B will swap this for real
+            // ruff/eslint), then auto-trigger the security scan.
+            setLoopPhase("verifying");
+            setTimeout(() => setLoopPhase("security"), 500);
+            const pid = activeProject?.project_id;
+            if (pid) {
+              api.post("/security-scan/run", { project_id: pid })
+                .then((r) => {
+                  const payload = r?.data || r;
+                  setCachedScan(pid, payload);
+                  // Auto-pause on critical findings per spec.
+                  const crit = payload?.summary?.by_severity?.critical || 0;
+                  if (crit > 0) {
+                    setLoopPhase("error");
+                  } else {
+                    setLoopPhase("shipping");
+                    setTimeout(() => setLoopPhase("done"), 600);
+                    setTimeout(() => setLoopPhase("idle"), 4500);
+                  }
+                })
+                .catch(() => { setLoopPhase("error"); });
+            } else {
+              setLoopPhase("done");
+              setTimeout(() => setLoopPhase("idle"), 3000);
+            }
+          }
+        }
         onTurnSaved?.();
         setTimeout(() => onTurnSaved?.(), 2800);
         refreshUsage();
@@ -1579,6 +1626,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         abortRef.current = null;
         // Iter 212m-57 — clear pill on terminal error too.
         setStreamHealth({ phase: "idle", silentFor: 0, retryEtaSec: null });
+        // Iter 212m-58 — surface loop bar in error state if we were in
+        // a loop run. errorStep maps current phase → which segment to
+        // mark red.
+        if (execMode === EXEC_MODES.LOOP && loopPhase !== "idle") {
+          setLoopPhase("error");
+        }
       },
     });
     };
@@ -1599,6 +1652,57 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       send();
     }
   }
+
+  // ──────────────────────────────────────────────────────────────
+  // Iter 212m-58 — Loop-mode user actions.
+  // ──────────────────────────────────────────────────────────────
+  // Approve: continue the same chat session by sending an Execute
+  // follow-up. We use the existing send() with promptOverride +
+  // skipUserBubble so the chat doesn't show a synthetic
+  // "Approved, proceed" bubble from the user.
+  function handleApprovePlan() {
+    if (busy) return;
+    setLoopPhase("executing");
+    send(null, {
+      loopPhase: "execute",
+      promptOverride: "Approved — proceed with the plan above. Execute now.",
+      skipUserBubble: true,
+    });
+  }
+  function handleCancelPlan() {
+    setLoopPhase("idle");
+    pendingPlanRef.current = null;
+  }
+  // Toggle handler — switch exec mode and, when entering loop, force
+  // chatMode away from "swift" (loop disables swift per spec).
+  function handleExecModeChange(m) {
+    if (m === EXEC_MODES.LOOP && chatMode === "swift") {
+      lastPromptChatModeRef.current = chatMode;
+      setChatMode("pro");
+    } else if (m === EXEC_MODES.PROMPT && lastPromptChatModeRef.current) {
+      // Restore previous selection (only if user had swift before).
+      setChatMode(lastPromptChatModeRef.current);
+      lastPromptChatModeRef.current = null;
+    }
+    setExecMode(m);
+  }
+
+  // Phase A: render the PlanApprovalCard only after a plan-turn has
+  // fully completed AND the assistant message clearly contains a
+  // plan (we use the [PLAN_READY] marker or, as a softer fallback,
+  // any phase === plan_pending + non-streaming last bubble).
+  const lastAsstMsg = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return messages[i];
+    }
+    return null;
+  })();
+  const showPlanCard =
+    execMode === EXEC_MODES.LOOP &&
+    loopPhase === "plan_pending" &&
+    lastAsstMsg &&
+    !lastAsstMsg.streaming &&
+    !busy;
 
   return (
     <div
@@ -2072,6 +2176,32 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       </div>
 
+      {/* Iter 212m-58 — Prompt / Loop mode toggle.  Sits ABOVE the
+          founder offer card so it's the first thing the user sees
+          when composing. localStorage-backed via LoopModeToggle's
+          helpers; switching modes also flips the model selector
+          away from Swift if needed (Swift is disabled in Loop). */}
+      <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
+
+      {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
+          loop pipeline is active.  Wires into `loopPhase` set by
+          send() and onDone above. */}
+      <LoopStepBar
+        phase={execMode === EXEC_MODES.LOOP ? loopPhase : "idle"}
+        retryCount={loopRetryCount}
+        errorStep={loopPhase === "error" ? 2 : 0}
+      />
+
+      {/* Iter 212m-58 — Plan approval card.  Renders the moment the
+          plan-turn ends; user must click Approve before any code
+          execution starts.  Cancel resets the loop. */}
+      {showPlanCard && (
+        <PlanApprovalCard
+          onApprove={handleApprovePlan}
+          onCancel={handleCancelPlan}
+        />
+      )}
+
       {/* Iter 212m-35 — Founder Offer attached to the TOP of the
           composer. Rounded top corners flow visually into the form
           below (which has a flat top edge here). Auto-hides when
@@ -2244,7 +2374,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               handleFiles(files);
             }
           }}
-          placeholder="Ask AUREM CTO to plan, build, debug…  (~6s simple · ~20-30s multi-file · Enter to send, Shift+Enter newline)"
+          placeholder={
+            execMode === EXEC_MODES.LOOP
+              ? "Describe the feature / fix — ORA will plan first, ask you to approve, then ship through Verify → Security → Ship."
+              : "Ask AUREM CTO to plan, build, debug…  (~6s simple · ~20-30s multi-file · Enter to send, Shift+Enter newline)"
+          }
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}
@@ -2301,15 +2435,42 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               <ToolButton
                 testid="chat-security-scan-btn"
                 title={
-                  scanCounts && (scanCounts.critical + scanCounts.high) > 0
-                    ? `${scanCounts.critical} critical • ${scanCounts.high} high vulnerabilities — click to view`
-                    : "Run 1-click security scan on this repo"
+                  execMode === EXEC_MODES.LOOP
+                    ? "Auto — Shield runs automatically at Step 4 of every loop. Click to view findings."
+                    : scanCounts && (scanCounts.critical + scanCounts.high) > 0
+                      ? `${scanCounts.critical} critical • ${scanCounts.high} high vulnerabilities — click to view`
+                      : "Run 1-click security scan on this repo"
                 }
                 onClick={() => setScanOpen((v) => !v)}
                 Icon={ShieldCheck}
                 active={scanOpen}
                 wide
               />
+              {/* Iter 212m-58 — In loop mode show an AUTO badge on the
+                  shield so the user understands the scanner will fire
+                  automatically.  Critical/high finding count badge
+                  still wins if any exist. */}
+              {execMode === EXEC_MODES.LOOP && !(scanCounts && (scanCounts.critical + scanCounts.high) > 0) && (
+                <span
+                  data-testid="chat-security-scan-auto-badge"
+                  style={{
+                    position: "absolute",
+                    bottom: -4, right: -4,
+                    padding: "0 5px", height: 12,
+                    borderRadius: 999,
+                    background: "linear-gradient(90deg, #a855f7, #6366f1)",
+                    color: "#fff",
+                    fontSize: 8.5, fontWeight: 800, letterSpacing: 0.4,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    display: "inline-flex",
+                    alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 0 6px rgba(168,85,247,0.7)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  AUTO
+                </span>
+              )}
               {scanCounts && (scanCounts.critical + scanCounts.high) > 0 && (
                 <span
                   data-testid="chat-security-scan-badge"
@@ -2398,7 +2559,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               selected via the ModeSelector pill on the right; the
               standalone toggle was redundant and confused users. */}
           <span style={{ flex: 1 }} />
-          <ModeSelector value={chatMode} onChange={setChatMode} />
+          <ModeSelector
+            value={chatMode}
+            onChange={setChatMode}
+            excludeKeys={execMode === EXEC_MODES.LOOP ? ["swift"] : []}
+          />
           {/* Iter 145 — agent selector hidden. AUREM is default for
               everyone; ORA runs as a silent shadow-learner in the
               backend (see services/ora_learning.py). */}
@@ -2440,7 +2605,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               disabled={!input.trim() || !sessionId || exhausted}
               title={exhausted ? "Tokens exhausted — upgrade your plan" : undefined}
             >
-              <Send size={14} /> Send
+              <Send size={14} /> {execMode === EXEC_MODES.LOOP ? "Run loop" : "Send"}
             </button>
           )}
         </div>

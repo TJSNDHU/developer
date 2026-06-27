@@ -15,7 +15,7 @@ import { api } from "../lib/api";
 
 const ICONS = { swift: Zap, pro: Search, maxx: Rocket };
 
-export default function ModeSelector({ value, onChange }) {
+export default function ModeSelector({ value, onChange, excludeKeys = [] }) {
   const [modes, setModes] = useState(null);
   const [popup, setPopup] = useState(null);
 
@@ -29,13 +29,19 @@ export default function ModeSelector({ value, onChange }) {
 
   if (!modes) return null;
 
+  // Iter 212m-58 — Loop mode disables Swift per spec, so we accept an
+  // optional `excludeKeys` list to skip rendering those pills.
+  const visibleKeys = ["swift", "pro", "maxx"].filter(
+    (k) => !excludeKeys.includes(k),
+  );
+
   return (
     <>
       <div
         data-testid="mode-selector"
         style={{ display: "flex", gap: 4, alignItems: "center" }}
       >
-        {["swift", "pro", "maxx"].map((key) => {
+        {visibleKeys.map((key) => {
           const m = modes[key];
           const Icon = ICONS[key];
           const active = value === key;

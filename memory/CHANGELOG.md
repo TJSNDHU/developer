@@ -6,7 +6,105 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-57 — SSE AbortError silence + Reconnect pill + /dashboard/* redirect (Feb 27 2026) ✅
+## Iter 212m-58 — Loop Mode Phase A: UI shell + frontend orchestration (Feb 27 2026) ✅
+
+Ships the user-facing Loop Mode loop today — toggle, persistent
+state, all conditional UI swaps, plan-approval gate, auto-Shield
+after execute. Phase B (production state machine in MongoDB) is
+queued for the next session; Phase C (real ruff/eslint verify
+with self-heal) and Phase D (E2B/Docker pytest + intent
+classifier) follow.
+
+### New components
+- `LoopModeToggle.jsx` — two-segment switcher (`exec-mode-toggle`,
+  `exec-mode-prompt`, `exec-mode-loop`). Persists via
+  `localStorage.ora_execution_mode`, exposes `EXEC_MODES`,
+  `loadExecMode`, `saveExecMode` helpers.
+- `LoopStepBar.jsx` — 5-segment progress strip
+  (`loop-step-bar`, `loop-step-{plan|execute|verify|security|ship}`,
+  `loop-retry-pill`). Phase-driven (`plan_pending | executing |
+  verifying | security | shipping | done | error`), with
+  retry counter.
+- `PlanApprovalCard.jsx` — inline approval gate
+  (`plan-approval-card`, `plan-approve-btn`, `plan-cancel-btn`).
+  Renders directly above the composer the moment a plan turn
+  finishes.
+
+### Wiring
+- `ChatPanel.jsx`:
+  - `execMode` state (loop persistence helpers) +
+    `loopPhase`/`loopRetryCount` state.
+  - `send()` extended to accept `{ loopPhase, promptOverride,
+    skipUserBubble }` so the PlanApprovalCard's approve click can
+    continue the same session with `LOOP_PHASE:execute` without
+    showing a synthetic user bubble.
+  - `LOOP_PHASE:<plan|execute>` prefix prepended to the prompt in
+    Loop mode; phase set to `plan_pending` on plan turns,
+    `executing` on execute turns.
+  - `onDone` auto-advances Loop pipeline through `verifying` (500ms
+    visual flash for Phase A) → `security` → triggers
+    `/security-scan/run`, sets cached scan, pauses to `error` if
+    critical findings exist, otherwise → `shipping` → `done` →
+    `idle` (4.5s).
+  - `onError` flips bar to error state when in a live loop.
+  - `handleExecModeChange` swaps model when entering loop if user
+    had Swift selected (forces Pro), and restores on switch back.
+  - Toggle/StepBar/PlanCard rendered above the founder offer card
+    (`StreamHealthPill` still sits between, untouched).
+  - Send button text: `Send` ↔ `Run loop`.
+  - Composer placeholder: tailored copy in Loop mode.
+  - Shield button: `AUTO` purple-gradient badge
+    (`chat-security-scan-auto-badge`) in loop when no
+    critical/high findings; auto-fires after execute regardless.
+- `ModeSelector.jsx` — accepts new `excludeKeys` prop; Swift pill
+  is hidden in Loop mode.
+- `lib/api.js` — `streamChat` accepts `executionMode` and forwards
+  it as `execution_mode` in the body.
+
+### Backend
+- `routers/chat.py`:
+  - New `execution_mode: Optional[str]` field on `ChatBody`,
+    orthogonal to `mode` (model selector).
+  - When `execution_mode == "loop"`, a suffix is appended to the
+    user prompt that instructs the model to (a) respond plan-only
+    when the prompt begins with `LOOP_PHASE:plan` (ending with
+    `[PLAN_READY]`), (b) emit `[STEP X/5: NAME]` markers at every
+    phase boundary when `LOOP_PHASE:execute`.
+
+### Tests
+- Playwright e2e on preview — 11 assertions, all passing:
+  default mode = prompt, toggle flips state, localStorage
+  persists across reload, Send button text swap, Swift hides in
+  Loop, placeholder swaps, switching back restores Swift.
+
+### Files touched
+- `frontend/src/components/LoopModeToggle.jsx` (new)
+- `frontend/src/components/LoopStepBar.jsx` (new)
+- `frontend/src/components/PlanApprovalCard.jsx` (new)
+- `frontend/src/components/ChatPanel.jsx` (state + UI wiring)
+- `frontend/src/components/ModeSelector.jsx` (excludeKeys prop)
+- `frontend/src/lib/api.js` (executionMode plumbing)
+- `backend/routers/chat.py` (execution_mode field + prompt
+  suffix)
+
+### Phase B/C/D backlog (next sessions)
+- **B**: `services/loop_engine.py` with LoopState enum, MongoDB
+  `loop_sessions`+`loop_plans`+`loop_errors` collections, six
+  endpoints (`/loop/start`, `/{id}/confirm`,
+  `/{id}/pause-response`, `/{id}/status`, `/{id}/stream`), full
+  SSE event schema, G1+G2+G3+G5 reliability guarantees,
+  resume-after-crash, file backup + rollback (G4).
+- **C**: real ruff + eslint runs against just-written files,
+  self-heal (max 2 attempts) → user-pause card with options
+  [retry/skip/abort], 12+ pytest unit tests.
+- **D**: E2B sandbox integration for pytest (via
+  integration_playbook_expert_v2), Self-Heal indicator UI, User
+  Action Required card, 6+ frontend tests. Intent classifier
+  deferred per founder.
+
+---
+
+
 
 ### Bug 1 — BodyStreamBuffer AbortError + invisible 90s stall
 - **Root cause**: When the stuck-thinking watchdog called

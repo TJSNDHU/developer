@@ -13,6 +13,29 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-58 — Loop Mode Phase A: UI shell + frontend orchestration (Feb 27 2026) ✅
+- New `LoopModeToggle` (above composer), `LoopStepBar` (5-phase
+  progress strip), `PlanApprovalCard` (inline approve gate).
+  Persists mode via `localStorage.ora_execution_mode`.
+- Send button text swaps to **Run loop**, placeholder swaps,
+  Swift hides in Loop, Shield gets purple **AUTO** badge.
+- `send()` accepts `loopPhase` so PlanApprovalCard's Approve
+  continues the same session with `LOOP_PHASE:execute` while
+  skipping the synthetic user bubble.
+- `onDone` auto-advances the bar through Verify (visual) →
+  Security (real `/security-scan/run`) → Ship → Done. Critical
+  findings → error pause.
+- Backend `execution_mode` field on `ChatBody`, plus prompt
+  suffix that teaches the model the Loop contract (plan-only on
+  Step 1 ending with `[PLAN_READY]`, step markers thereafter).
+- 11/11 Playwright e2e assertions passing on preview: toggle
+  flips, localStorage persists across reload, Send text /
+  placeholder / Swift pill / Shield AUTO badge all swap
+  correctly.
+- **Phases B/C/D backlogged**: production state machine in
+  Mongo (G1–G5 reliability guarantees, resume, backup/rollback),
+  real ruff+eslint verify with self-heal, E2B pytest sandbox.
+
 ### Iter 212m-57 — SSE AbortError silence + Reconnect pill + /dashboard/* redirect (Feb 27 2026) ✅
 - **Bug 1**: SSE `reader.read()` AbortError now caught silently in
   `lib/api.js` so the watchdog cancel no longer surfaces as
