@@ -80,6 +80,11 @@ export default function AdminHouseRules() {
     enabled_swift: false,
     enabled_pro: false,
     enabled_maxx: false,
+    // Iter 212m-53 — Ask Advisor dedicated slot.
+    advisor_prompt: "",
+    advisor_prompt_enabled: false,
+    advisor_llm: "glm-5.2",
+    advisor_llm_choices: [],
     updated_at: null,
     updated_by: null,
   });
@@ -112,6 +117,10 @@ export default function AdminHouseRules() {
         enabled_swift:   !!doc.enabled_swift,
         enabled_pro:     !!doc.enabled_pro,
         enabled_maxx:    !!doc.enabled_maxx,
+        // Iter 212m-53 — Ask Advisor dedicated slot fields.
+        advisor_prompt:         (doc.advisor_prompt || "").slice(0, MAX_LEN),
+        advisor_prompt_enabled: !!doc.advisor_prompt_enabled,
+        advisor_llm:            doc.advisor_llm || "glm-5.2",
       };
       const r = await api.put("/admin/house-rules", payload);
       if (r.data?.house_rules) setDoc((d) => ({ ...d, ...r.data.house_rules }));
@@ -306,6 +315,121 @@ export default function AdminHouseRules() {
           </span>
         </div>
       )}
+
+      {/* Iter 212m-53 — Ask Advisor dedicated slot. Distinct from the
+          combined block above: this prompt is injected ONLY into
+          Ask Advisor turns (agent=ora), and the LLM selector below
+          picks WHICH model serves those turns. */}
+      <div
+        data-testid="advisor-only-section"
+        style={{
+          marginTop: 8, marginBottom: 24,
+          padding: 18,
+          borderRadius: 8,
+          border: "1px solid var(--border-strong)",
+          background: "var(--panel-2)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10,
+                       marginBottom: 6 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0,
+                        color: "var(--text)" }}>
+            Ask Advisor — dedicated rules + LLM
+          </h2>
+          <span style={{
+            padding: "2px 8px", borderRadius: 999, fontSize: 9,
+            fontWeight: 700, letterSpacing: "0.06em",
+            textTransform: "uppercase", color: "var(--accent-2)",
+            background: "var(--accent-soft)",
+            border: "1px solid var(--border-strong)",
+          }}>only ask advisor</span>
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-faint)",
+                     margin: "0 0 14px", lineHeight: 1.55 }}>
+          Separate from the combined block above. Use this when you
+          want Ask Advisor to follow a different persona / set of
+          rules than ORA Chat, and to optionally route it to a
+          different model.
+        </p>
+
+        {/* Dedicated advisor prompt textarea */}
+        <label style={{ display: "block", fontSize: 10, fontWeight: 600,
+                         color: "var(--text-dim)", marginBottom: 6,
+                         letterSpacing: "0.05em", textTransform: "uppercase" }}>
+          Advisor-only prompt
+        </label>
+        <textarea
+          data-testid="advisor-prompt-input"
+          value={doc.advisor_prompt || ""}
+          onChange={(e) => up({ advisor_prompt: e.target.value })}
+          placeholder={
+            "e.g.\n• Answer in 3 lines or less unless the user explicitly asks for detail.\n"
+            + "• Always cite the exact file path when referencing code.\n"
+            + "• Refuse to discuss billing — redirect to /admin/financials."
+          }
+          rows={6}
+          maxLength={MAX_LEN}
+          style={{
+            width: "100%", padding: 12,
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border)", borderRadius: 6,
+            color: "var(--text)", fontSize: 12, lineHeight: 1.55,
+            fontFamily: "'JetBrains Mono', monospace", resize: "vertical",
+            outline: "none", minHeight: 110,
+          }}
+        />
+        <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-faint)" }}>
+          {(doc.advisor_prompt || "").length} / {MAX_LEN} chars
+        </div>
+
+        {/* Enable toggle for advisor-only prompt */}
+        <div style={{ marginTop: 14, marginBottom: 14 }}>
+          <Toggle
+            testid="toggle-advisor-prompt-enabled"
+            checked={!!doc.advisor_prompt_enabled}
+            onChange={(v) => up({ advisor_prompt_enabled: v })}
+            label="Inject advisor-only prompt"
+            hint="When ON, the prompt above is prepended to every Ask Advisor turn (agent=ora). Independent of the combined block toggles."
+          />
+        </div>
+
+        {/* LLM selector */}
+        <label style={{ display: "block", fontSize: 10, fontWeight: 600,
+                         color: "var(--text-dim)", marginTop: 6,
+                         marginBottom: 6, letterSpacing: "0.05em",
+                         textTransform: "uppercase" }}>
+          LLM for Ask Advisor
+        </label>
+        <select
+          data-testid="advisor-llm-select"
+          value={doc.advisor_llm || "glm-5.2"}
+          onChange={(e) => up({ advisor_llm: e.target.value })}
+          style={{
+            width: "100%", padding: "10px 12px",
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border)", borderRadius: 6,
+            color: "var(--text)", fontSize: 12,
+            fontFamily: "'Jost', system-ui, sans-serif",
+            outline: "none", cursor: "pointer",
+          }}
+        >
+          {(doc.advisor_llm_choices && doc.advisor_llm_choices.length > 0
+            ? doc.advisor_llm_choices
+            : [{ id: "glm-5.2", label: "GLM-5.2 (default)" }]
+          ).map((c) => (
+            <option key={c.id} value={c.id} data-testid={`advisor-llm-opt-${c.id}`}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <div style={{ marginTop: 6, fontSize: 10,
+                       color: "var(--text-faint)", lineHeight: 1.5 }}>
+          Picks the model that serves every Ask Advisor turn.
+          If the selected LLM errors mid-call, the system automatically
+          falls back to the AUREM/orchestrator chain so users never
+          see a blank reply.
+        </div>
+      </div>
 
       {error && (
         <div style={{

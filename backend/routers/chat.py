@@ -1475,43 +1475,86 @@ async def chat_stream(
                 # there's a single source of truth for the primary LLM
                 # and we don't pay for the aurem.live indirection.
                 if (body.agent or "auto").lower() == "ora":
-                    from services.llm import _call_glm, _GLM_MODEL
-                    activity["label"] = "asking GLM-5.2…"
+                    from services.llm import (
+                        _call_glm, _call_claude, _call_deepseek,
+                        _call_deepseek_direct, _call_groq, _GLM_MODEL,
+                    )
+                    # Iter 212m-53 — Ask Advisor dedicated config (admin-set).
+                    # Read the dedicated prompt + LLM choice; fall back to
+                    # the legacy ORA_PANEL_TONE + GLM-5.2 when unset.
+                    try:
+                        from services.house_rules import (
+                            get_active_advisor_prompt,
+                            get_active_advisor_llm,
+                            format_house_rules_block,
+                        )
+                        _adv_prompt = await get_active_advisor_prompt()
+                        _adv_llm    = await get_active_advisor_llm()
+                    except Exception as _hr_e:
+                        logger.debug("advisor house_rules read failed: %r", _hr_e)
+                        _adv_prompt, _adv_llm = "", "glm-5.2"
+                    activity["label"] = f"asking {_adv_llm}…"
                     # Ask Advisor voice / verification rules go on top
-                    # of the project context (`extra_sys`) so GLM has
-                    # the same persona discipline the upstream had
-                    # plus full repo/brain awareness.
+                    # of the project context (`extra_sys`) so the model
+                    # has the same persona discipline the upstream had
+                    # plus full repo/brain awareness. When the admin
+                    # has set a dedicated advisor prompt, inject it as
+                    # the FIRST block (highest priority).
+                    _adv_header = (
+                        format_house_rules_block(_adv_prompt) + "\n\n"
+                        if _adv_prompt else ""
+                    )
                     ora_system = (
-                        (extra_sys + "\n\n" if extra_sys else "")
+                        _adv_header
+                        + (extra_sys + "\n\n" if extra_sys else "")
                         + ORA_PANEL_TONE
                     ).strip()
                     try:
-                        # Iter 212m-18 step_hook contract — fire a
-                        # phase frame so the floating progress card +
-                        # in-bubble step cards (Iter 212m-19) light up
-                        # exactly like a normal chat turn.
                         _step("🤔 Thinking…")
-                        glm_text = await _call_glm(
+                        # Iter 212m-53 — dispatch on admin-selected LLM.
+                        # Each branch produces `glm_text` (legacy name) +
+                        # a provider tag for the SSE meta frame.
+                        _adv_call_kwargs = dict(
                             system=ora_system,
                             user=body.prompt,
-                            # Iter 212m-22 — bumped 1500→2500. The
-                            # previous 1500 cap combined with the old
-                            # 150-word system-prompt ceiling truncated
-                            # Ask Advisor mid-thought and shipped
-                            # one-line answers. 2500 lets GLM finish
-                            # the Problem→Cause→Fix block or a real
-                            # clarifying question without ever
-                            # hitting the hard cap.
                             max_tokens=2500,
                             temperature=0.2,
                         )
+                        if _adv_llm == "claude-sonnet-4.5":
+                            glm_text = await _call_claude(**_adv_call_kwargs)
+                            _adv_model_tag = "claude-sonnet-4.5"
+                        elif _adv_llm == "deepseek-chat":
+                            glm_text = await _call_deepseek(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=2500, temperature=0.2,
+                            )
+                            _adv_model_tag = "deepseek-chat"
+                        elif _adv_llm == "deepseek-direct":
+                            glm_text = await _call_deepseek_direct(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=2500, temperature=0.2,
+                            )
+                            _adv_model_tag = "deepseek-direct"
+                        elif _adv_llm == "groq-llama-3.3-70b":
+                            glm_text = await _call_groq(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=2500, temperature=0.2,
+                            )
+                            _adv_model_tag = "groq-llama-3.3-70b"
+                        else:
+                            # "glm-5.2" (default) or any unrecognised value.
+                            glm_text = await _call_glm(**_adv_call_kwargs)
+                            _adv_model_tag = "glm-5.2"
                         _step("✅ Done", True)
                         result = {
                             "ok":              bool((glm_text or "").strip()),
                             "content":         glm_text or "",
-                            "provider":        "glm-5.2",
-                            "model":           _GLM_MODEL,
-                            "fallback_chain":  ["glm-5.2"],
+                            "provider":        _adv_model_tag,
+                            "model":           _adv_model_tag,
+                            "fallback_chain":  [_adv_model_tag],
                             "iterations":      1,
                             "tool_calls_run":  0,
                             "tool_invocations": [],
@@ -1520,15 +1563,17 @@ async def chat_stream(
                         await q.put({"type": "result", "result": result})
                         return
                     except Exception as glm_err:
-                        # If GLM errors, fall through to the orchestrator
-                        # path below — that path uses the full
+                        # If the selected LLM errors, fall through to the
+                        # orchestrator path below — that path uses the full
                         # call_llm_with_meta(review_mode=swift) routing
                         # so the user never sees a blank reply.
                         logger.info(
-                            "ora→GLM unavailable (%r) — falling back to "
-                            "orchestrator", glm_err,
+                            "ora→%s unavailable (%r) — falling back to "
+                            "orchestrator", _adv_llm, glm_err,
                         )
-                        activity["label"] = "GLM unavailable — switching to AUREM CTO…"
+                        activity["label"] = (
+                            f"{_adv_llm} unavailable — switching to AUREM CTO…"
+                        )
                         # Fall through to the AUREM/orchestrator path below.
 
                 activity["label"] = "thinking…"

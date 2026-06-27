@@ -69,10 +69,49 @@ def _off_stub(reason: str = "default") -> dict:
         "enabled_swift":    False,
         "enabled_pro":      False,
         "enabled_maxx":     False,
+        # Iter 212m-53 — Ask-Advisor dedicated slot. Separate prompt
+        # text + LLM selector so admin can give Ask Advisor its own
+        # voice/rules independent of the main chat house rules.
+        # `advisor_prompt_enabled` is the kill-switch for THIS slot;
+        # the legacy `enabled_advisor` toggle still controls whether
+        # the combined `prompt` field above applies to Ask Advisor
+        # (kept for backward compat). When both are on, both blocks
+        # are injected (advisor-only first, then combined).
+        "advisor_prompt":          "",
+        "advisor_prompt_enabled":  False,
+        "advisor_llm":             "glm-5.2",
         "updated_at":       None,
         "updated_by":       None,
         "_source":          reason,
     }
+
+
+# Iter 212m-53 — LLM choices for the Ask Advisor selector. Mirrors
+# the actual call helpers in services/llm.py so admin can route the
+# advisor to any model we already integrate. Keys are stable; labels
+# / vendor / cost-tag drive the admin UI dropdown.
+ADVISOR_LLM_CHOICES: list[dict] = [
+    {"id": "glm-5.2",
+     "label": "GLM-5.2 (OpenRouter primary — default)",
+     "vendor": "openrouter", "cost": "paid"},
+    {"id": "claude-sonnet-4.5",
+     "label": "Claude Sonnet 4.5 (OpenRouter)",
+     "vendor": "openrouter", "cost": "paid"},
+    {"id": "deepseek-chat",
+     "label": "DeepSeek Chat (OpenRouter)",
+     "vendor": "openrouter", "cost": "paid"},
+    {"id": "deepseek-direct",
+     "label": "DeepSeek direct (api.deepseek.com)",
+     "vendor": "deepseek", "cost": "paid"},
+    {"id": "groq-llama-3.3-70b",
+     "label": "Groq Llama-3.3-70B (free emergency)",
+     "vendor": "groq", "cost": "free"},
+]
+
+
+def _valid_advisor_llm(value: str) -> str:
+    valid_ids = {c["id"] for c in ADVISOR_LLM_CHOICES}
+    return value if value in valid_ids else "glm-5.2"
 
 
 def _invalidate_cache() -> None:
@@ -116,6 +155,13 @@ async def set_house_rules_doc(payload: dict, by_user_id: str) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     if len(prompt) > _MAX_PROMPT_LEN:
         prompt = prompt[:_MAX_PROMPT_LEN]
+    # Iter 212m-53 — Ask Advisor dedicated fields.
+    advisor_prompt = (payload.get("advisor_prompt") or "").strip()
+    if len(advisor_prompt) > _MAX_PROMPT_LEN:
+        advisor_prompt = advisor_prompt[:_MAX_PROMPT_LEN]
+    advisor_llm = _valid_advisor_llm(
+        (payload.get("advisor_llm") or "glm-5.2").strip().lower()
+    )
     doc = {
         "_id":              _SINGLETON_ID,
         "prompt":           prompt,
@@ -124,6 +170,9 @@ async def set_house_rules_doc(payload: dict, by_user_id: str) -> dict:
         "enabled_swift":    bool(payload.get("enabled_swift",    False)),
         "enabled_pro":      bool(payload.get("enabled_pro",      False)),
         "enabled_maxx":     bool(payload.get("enabled_maxx",     False)),
+        "advisor_prompt":           advisor_prompt,
+        "advisor_prompt_enabled":   bool(payload.get("advisor_prompt_enabled", False)),
+        "advisor_llm":              advisor_llm,
         "updated_at":       datetime.now(timezone.utc),
         "updated_by":       by_user_id or "unknown",
     }
@@ -185,3 +234,27 @@ def format_house_rules_block(prompt: str) -> str:
         f"{prompt.strip()}\n"
         "=== END ADMIN HOUSE RULES ===\n"
     )
+
+
+
+# Iter 212m-53 — Ask Advisor dedicated helpers.
+
+async def get_active_advisor_prompt() -> str:
+    """Return the Ask-Advisor-only prompt when its kill-switch is on,
+    else empty string. INDEPENDENT of the legacy combined `prompt`
+    field — this is the dedicated slot the admin can use to give
+    Ask Advisor its own voice without polluting the main chat
+    house rules."""
+    doc = await get_house_rules_doc()
+    if not doc.get("advisor_prompt_enabled"):
+        return ""
+    text = (doc.get("advisor_prompt") or "").strip()
+    return text
+
+
+async def get_active_advisor_llm() -> str:
+    """Return the LLM slug the admin selected for Ask Advisor.
+    Defaults to `glm-5.2` (current production behaviour) so an
+    un-configured advisor keeps shipping identical responses."""
+    doc = await get_house_rules_doc()
+    return _valid_advisor_llm(doc.get("advisor_llm") or "glm-5.2")

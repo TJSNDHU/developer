@@ -3263,20 +3263,29 @@ class HouseRulesPayload(BaseModel):
     enabled_swift:    bool = False
     enabled_pro:      bool = False
     enabled_maxx:     bool = False
+    # Iter 212m-53 — Ask Advisor dedicated slot (separate prompt +
+    # LLM selector). See services/house_rules.py::ADVISOR_LLM_CHOICES
+    # for the valid llm ids; out-of-range values get clamped to
+    # `glm-5.2` server-side so the admin UI can't poison the field.
+    advisor_prompt:          str = ""
+    advisor_prompt_enabled:  bool = False
+    advisor_llm:             str = "glm-5.2"
 
 
 @router.get("/house-rules")
 async def admin_house_rules_read(authorization: Optional[str] = Header(None)):
-    """Return the current house-rules doc. Admin-only."""
+    """Return the current house-rules doc + LLM choice list. Admin-only."""
     await _require_admin(authorization)
-    from services.house_rules import get_house_rules_doc
+    from services.house_rules import get_house_rules_doc, ADVISOR_LLM_CHOICES
     doc = await get_house_rules_doc()
     # Mongo's _id is fine to return as the literal "singleton" string.
     # datetime → iso for JSON.
     ua = doc.get("updated_at")
     if hasattr(ua, "isoformat"):
         doc = {**doc, "updated_at": ua.isoformat()}
-    return doc
+    # Iter 212m-53 — bundle the LLM choices so the admin UI doesn't
+    # have to hard-code them. Single source of truth = house_rules.py.
+    return {**doc, "advisor_llm_choices": ADVISOR_LLM_CHOICES}
 
 
 @router.put("/house-rules")
