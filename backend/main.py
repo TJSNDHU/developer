@@ -53,6 +53,7 @@ from routers.founder_offer import router as founder_offer_router    # Iter 212m-
 from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
 from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
+from routers.loop          import router as loop_router             # Iter 212m-60 Loop Mode engine
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -230,6 +231,21 @@ async def lifespan(app: FastAPI):
 
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+
+    # Iter 212m-60 — Loop Mode G3 resume.  Sweep any session stuck in
+    # an executing phase from a prior worker crash and flip it to
+    # PAUSED_FOR_USER with a clear reason so the frontend can prompt.
+    async def _resume_stale_loops():
+        try:
+            if app.state.db is None:
+                return
+            from services.loop_engine import resume_stale
+            n = await resume_stale(app.state.db)
+            if n:
+                logger.info("loop_engine: rescued %d stale session(s)", n)
+        except Exception as e:                          # noqa: BLE001
+            logger.warning("loop_engine resume_stale failed: %r", e)
+    _asyncio.create_task(_resume_stale_loops())
     # Iter 212m-32 — hourly onboarding nudge cron. Sends the
     # "connect a repo" email to users 24h after signup (and again at
     # 72h if still no repo). Idempotent via the `onboarding_emails`
@@ -1102,6 +1118,7 @@ app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
+app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

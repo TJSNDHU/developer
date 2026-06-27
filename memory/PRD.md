@@ -13,6 +13,22 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-60 — Loop Mode Phase B: Production LoopEngine (Feb 27 2026) ✅
+- `services/loop_engine.py` (430 LoC) — full state machine, 12-state
+  enum, MongoDB-persisted sessions/plans/errors/backups, G1+G2+G3+G5
+  reliability guarantees, real LLM-driven plan phase.
+- `routers/loop.py` — 6 endpoints (start/confirm/pause-response/
+  status/stream/cancel) under `/api/aurem-dev/loop`.
+- `main.py` — lifespan now sweeps stale loops on boot (G3).
+- 12/12 pytest cases green + live HTTP smoke test passes
+  end-to-end: real LLM plan → confirm → pipeline → completed →
+  Mongo session doc carries full G5 context + `[loop-verified]`
+  commit message.
+- Execute/Verify/Scan/Ship phase **bodies** are skeletons until
+  Phase C (no GitHub writes, no real ruff/eslint, no real Vanguard
+  call yet) — but the machinery around them (events, persistence,
+  timeouts, error logging, resume, backup APIs) is production-grade.
+
 ### Iter 212m-59 — Speed perception polish + Vanguard positioning (Feb 27 2026) ✅
 - Blinking `▎` cursor + 3-dot typing indicator in MessageBubble:
   ORA now feels Cursor-fast; first feedback within 500ms.

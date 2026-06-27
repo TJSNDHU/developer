@@ -6,7 +6,104 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-59 — Speed perception polish + Vanguard positioning (Feb 27 2026) ✅
+## Iter 212m-60 — Loop Mode Phase B: Production LoopEngine (Feb 27 2026) ✅
+
+Replaces the prompt-suffix hack from Phase A with a real backend
+state machine that owns the 5-phase pipeline, persists to MongoDB,
+recovers after server crashes, and never silently fails.
+
+### New backend modules
+- `services/loop_engine.py` — `LoopEngine` class + `LoopState` enum
+  + persistence helpers + registry.  ~430 LoC.
+  - States: IDLE / PLANNING / AWAITING_CONFIRMATION / EXECUTING /
+    VERIFYING / SCANNING / SHIPPING / SELF_HEALING /
+    PAUSED_FOR_USER / COMPLETED / FAILED / ABORTED.
+  - Phase budgets (G2): plan 60s, execute 120s, verify 90s, scan
+    120s, ship 60s, self_heal 120s.  Exceed → `_fail()` →
+    `requires_user_action: true`.
+  - SSE event factory `_new_event()` emits the founder's exact
+    schema (loop_id, state, phase, step, total_steps, message,
+    data, timestamp, requires_user_action).
+  - G5 `LoopContext` (`original_request`, `plan`, `files_changed`,
+    `errors_encountered`, `self_heals_performed`,
+    `verification_results`, `scan_results`, `commit`) carried
+    across phases and dumped to Mongo on every transition.
+  - G3 `resume_stale()` scans `loop_sessions` on app boot for
+    EXECUTING/VERIFYING/SCANNING/SHIPPING/SELF_HEALING sessions
+    whose `updated_at` is >120s old, flips them to
+    PAUSED_FOR_USER, logs reason `"server_restart_mid_loop"`.
+  - G1 `_log_error()` writes every exception to the
+    `loop_errors` collection with full G5 context attached.  The
+    logger itself is try/except so observability never crashes
+    the loop.
+  - G4 `record_backup()` + `rollback()` helpers ready for
+    Phase C's actual file-write path.
+  - `_generate_plan()` calls the real LLM (`call_llm_with_meta`
+    in `services/llm.py`) with a strict-JSON system prompt;
+    tolerates ```json fences; falls back to a structured stub
+    if the model returns non-JSON.
+- `routers/loop.py` — six endpoints under `/api/aurem-dev/loop`:
+  - `POST /start`                    → run plan-phase, return
+                                       `{loop_id, state, plan}`.
+  - `POST /{loop_id}/confirm`        → `{approved, feedback}` →
+                                       fires pipeline as bg task.
+  - `POST /{loop_id}/pause-response` → `{action: retry|skip|abort}`.
+  - `GET  /{loop_id}/status`         → full Mongo snapshot.
+  - `GET  /{loop_id}/stream`         → SSE drain with 30s keep-
+                                       alive ping; closes on
+                                       terminal state.
+  - `POST /{loop_id}/cancel`         → graceful abort.
+- `main.py` — router wired under `/api/aurem-dev` prefix; lifespan
+  now spawns `_resume_stale_loops()` background task on boot (G3).
+
+### Tests
+- `tests/test_iter212m60_loop_engine.py` — 12 pytest cases, all
+  green:
+  1. Plan emits AWAITING_CONFIRMATION
+  2. Confirm yes → pipeline → COMPLETED
+  3. Confirm no → ABORTED
+  4. Plan-phase timeout → FAILED
+  5. resume_stale() flips orphan EXECUTING → PAUSED_FOR_USER
+  6. cancel() → ABORTED
+  7. Registry register/lookup/deregister round-trips
+  8. Backup + rollback captures all files
+  9. Every SSE event has the full schema (no missing keys)
+  10. Errors get logged to `loop_errors`
+  11. Commit message includes `[loop-verified]` tag
+  12. Scan failure logged (G1), pipeline still completes
+
+### Live smoke test
+- `POST /api/aurem-dev/loop/start` → real LLM returned a structured
+  3-file plan in ~3s.
+- `POST /api/aurem-dev/loop/{id}/confirm` → pipeline ran through
+  Execute → Verify → Scan → Ship, final state `completed`,
+  commit message `feat(ora): add /healthz [loop-verified]`.
+- Mongo `loop_sessions` doc carries full G5 context.
+
+### Skeleton boundaries (transparent to user)
+Phase B is deliberately a state-machine + event-stream skeleton.
+Two phase implementations are stubs until Phase C wires the real
+work:
+- `_do_execute()` emits per-file events but doesn't yet write to
+  GitHub.  Phase C wires `services/github_api_write.py`.
+- `_do_scan()` reuses the existing `security_scan` data shape but
+  short-circuits to an empty summary; Phase C adds a service-
+  level helper that bypasses the FastAPI Authorization gate.
+- `_do_verify()` is a pass-through; Phase C runs ruff + eslint.
+- `_do_ship()` records the commit message but doesn't push; Phase
+  C wires the GitHub commit + push.
+The state machine, event schema, persistence, timeouts, error
+logging, resume, and backup APIs are all production-grade.
+
+### Files touched
+- `backend/services/loop_engine.py` (new)
+- `backend/routers/loop.py` (new)
+- `backend/main.py` (router + startup G3 task)
+- `backend/tests/test_iter212m60_loop_engine.py` (new, 12 tests)
+
+---
+
+
 
 Four frontend-only polish fixes that move ORA past Cursor / Bolt /
 Lovable / Copilot on perceived speed and security positioning.
