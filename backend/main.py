@@ -457,6 +457,118 @@ from starlette.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=5)
 
 
+# ── Iter 212m-55 — LPDoS protection (request body size cap) ──
+# Reject any request whose Content-Length advertises > 2 MB BEFORE
+# Starlette buffers it into memory. Chat prompts are typically <8 KB;
+# repo-context payloads from F12 capture stay under 200 KB; only
+# pathological actors send 100+ MB JSON to memory-exhaust the worker.
+# Configurable via MAX_REQUEST_BYTES; the /api/aurem-dev/uploads/*
+# routes opt-out by tagging request.state.bypass_body_limit = True.
+_DEFAULT_MAX_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(2 * 1024 * 1024)))
+_BODY_LIMIT_BYPASS_PREFIXES = (
+    "/api/aurem-dev/uploads",
+    "/api/aurem-dev/cto-projects/repo/upload",
+)
+
+
+@app.middleware("http")
+async def _body_size_guard(request, call_next):
+    if request.method in ("POST", "PUT", "PATCH"):
+        # Allow uploads route through (chunked file uploads).
+        path = request.url.path or ""
+        if not any(path.startswith(p) for p in _BODY_LIMIT_BYPASS_PREFIXES):
+            cl = request.headers.get("content-length")
+            if cl and cl.isdigit() and int(cl) > _DEFAULT_MAX_BYTES:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    {"detail": f"Request body too large (max {_DEFAULT_MAX_BYTES} bytes)"},
+                    status_code=413,
+                )
+    return await call_next(request)
+
+
+# ── Iter 212m-55 — NoSQL operator injection guard ──
+# Strict deny-list for MongoDB query operators that should NEVER
+# appear in a user-supplied JSON body. `$where` allows arbitrary JS
+# execution server-side; `$expr` with $function lets attackers craft
+# data-driven RCE chains. We reject at the API boundary so individual
+# routes don't need per-field validation logic.
+#
+# This is DEFENCE IN DEPTH — all our existing routes already use
+# strict Pydantic schemas, but a future loose-schema route would
+# silently inherit this protection.
+_NOSQL_DENY_KEYS = {
+    "$where", "$expr", "$function", "$accumulator",
+    "$lookup",  # rare but lets attacker traverse to other collections
+}
+
+
+def _contains_nosql_op(obj, depth: int = 0) -> str | None:
+    """Recursively walk dict/list and return the first banned key
+    found, or None when clean. Capped at depth=12 so a deeply-nested
+    payload can't pin the CPU."""
+    if depth > 12:
+        return None
+    if isinstance(obj, dict):
+        for k in obj.keys():
+            if isinstance(k, str) and k in _NOSQL_DENY_KEYS:
+                return k
+            hit = _contains_nosql_op(obj[k], depth + 1)
+            if hit:
+                return hit
+    elif isinstance(obj, list):
+        for item in obj:
+            hit = _contains_nosql_op(item, depth + 1)
+            if hit:
+                return hit
+    return None
+
+
+@app.middleware("http")
+async def _nosql_op_guard(request, call_next):
+    if request.method not in ("POST", "PUT", "PATCH"):
+        return await call_next(request)
+    ct = request.headers.get("content-type", "")
+    if "application/json" not in ct.lower():
+        return await call_next(request)
+    path = request.url.path or ""
+    # Uploads / proxy passthrough routes don't carry MongoDB queries.
+    if any(path.startswith(p) for p in _BODY_LIMIT_BYPASS_PREFIXES):
+        return await call_next(request)
+    try:
+        raw = await request.body()
+        if raw:
+            import json as _json
+            try:
+                parsed = _json.loads(raw)
+            except _json.JSONDecodeError:
+                # Let Pydantic / route handler 422 it naturally.
+                parsed = None
+            if parsed is not None:
+                hit = _contains_nosql_op(parsed)
+                if hit:
+                    logger.warning(
+                        "nosql_op_blocked path=%s ip=%s key=%s",
+                        path,
+                        request.client.host if request.client else "?",
+                        hit,
+                    )
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        {"detail": f"Disallowed query operator in request body"},
+                        status_code=400,
+                    )
+    except Exception as e:
+        logger.debug("nosql_op_guard read failed: %r", e)
+    # ASGI bodies can only be read ONCE. We need to put the bytes back
+    # into the request scope so the downstream route handler can still
+    # parse them via request.json() / Pydantic.
+    async def _receive():
+        return {"type": "http.request", "body": raw, "more_body": False}
+    request._receive = _receive
+    return await call_next(request)
+
+
 # ── Iter 44 — Security headers (Vanguard hardening) ──
 # Drop these on every response. Cheap, zero functional impact.
 @app.middleware("http")

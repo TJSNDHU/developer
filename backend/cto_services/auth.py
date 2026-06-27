@@ -53,12 +53,24 @@ def create_token(user_id: str, email: str, is_admin: bool = False) -> str:
     radius of a leaked token (XSS, stolen device, lost laptop) is now
     capped at one week. Active users get fresh tokens automatically
     via GET /auth/me, which re-signs on every call.
+
+    Iter 212m-55 — `jti` (random 128-bit hex) + `iat` (issued-at)
+    added. `jti` lets the server-side revocation list invalidate a
+    specific leaked token without re-keying everyone. `iat` lets
+    sensitive endpoints reject tokens older than a configurable
+    replay window (e.g. admin actions). Backward-compatible: tokens
+    without these claims still decode fine; only NEW tokens carry
+    them.
     """
+    import uuid
+    now = int(time.time())
     payload = {
         "user_id": user_id,
         "email": email,
         "is_admin": is_admin,
-        "exp": int(time.time()) + 86400 * 7,  # 7 days (was 30)
+        "iat": now,                            # issued-at (replay window)
+        "jti": uuid.uuid4().hex,               # unique token id (revocation)
+        "exp": now + 86400 * 7,                # 7 days
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
