@@ -55,6 +55,10 @@ class PauseResponseBody(BaseModel):
     feedback: Optional[str]      = Field(None, max_length=2000)
 
 
+class SubmitFilesBody(BaseModel):
+    files: list[dict] = Field(..., max_length=200)
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/start")
@@ -122,6 +126,25 @@ async def pause_response(loop_id: str, body: PauseResponseBody,
         "loop_id": loop_id,
         "state":   engine.state.value,
         "phase":   engine.phase,
+    }
+
+
+@router.post("/{loop_id}/submit-files")
+async def submit_files(loop_id: str, body: SubmitFilesBody,
+                       authorization: Optional[str] = Header(None)) -> dict:
+    """Register files (path+content) that the engine's VERIFY phase
+    should lint + self-heal.  Called by the chat orchestrator or the
+    front-end after Step 2 finishes writing."""
+    user = await current_dev(authorization)
+    engine = eng.lookup(loop_id)
+    if engine is None:
+        raise HTTPException(404, "Loop not found")
+    if engine.user_id != user["user_id"]:
+        raise HTTPException(403, "Not your loop")
+    await engine.submit_files(body.files)
+    return {
+        "loop_id":   loop_id,
+        "file_count": len(engine.context.get("submitted_files") or []),
     }
 
 

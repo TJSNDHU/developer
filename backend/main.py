@@ -54,6 +54,7 @@ from routers.onboarding import router as onboarding_router          # Iter 212m-
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
 from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
 from routers.loop          import router as loop_router             # Iter 212m-60 Loop Mode engine
+from routers.diagram       import router as diagram_router          # Iter 212m-61 /diagram
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
 
@@ -1119,6 +1120,7 @@ app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
+app.include_router(diagram_router,        prefix="/api/aurem-dev")  # Iter 212m-61 /diagram
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so

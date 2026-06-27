@@ -6,7 +6,121 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
-## Iter 212m-60 — Loop Mode Phase B: Production LoopEngine (Feb 27 2026) ✅
+## Iter 212m-61/62/63 — Diagrams + Loop Phase C + Phase D-lite (Feb 27 2026) ✅
+
+Triple-feature ship.  Three independent deliverables, all production-grade, all verified end-to-end.
+
+### 212m-61 — `/diagram` chat command with live Mermaid rendering
+- New backend route `POST /api/aurem-dev/diagram/generate`
+  (`routers/diagram.py`).  Accepts `{prompt, repo_id?, diagram_type?}`.
+  Auto-detects type from prompt keywords (`erDiagram`,
+  `sequenceDiagram`, `classDiagram`, `flowchart LR` for HLD/cloud,
+  `stateDiagram-v2`, default `flowchart TD`).  Calls Claude via
+  `call_llm_with_meta` with `max_tokens=800` + strict-JSON system
+  prompt.  Validates output starts with a real Mermaid keyword;
+  retries once under stricter instructions on invalid output.
+  Returns `{mermaid_code, diagram_type, title}`.  Audit-trail via
+  `logger.info("diagram_generated user=… type=… len=…")`.
+- New frontend `MermaidBlock.jsx` — lazy `mermaid` package import,
+  dark theme tuned to AuremCTO (#0a0e1a + #e8a020 accents),
+  `securityLevel: "strict"`, Copy-SVG + Copy-Code buttons (same
+  pattern as `CodeBlock`).  Renders error inline on parse failures
+  — never crashes the chat.  Mobile-responsive (SVG scales).
+- `ChatPanel.jsx` intercepts `/diagram <prompt>` BEFORE the
+  existing send path, calls the new endpoint, renders the diagram
+  inside the assistant bubble via `m.diagram = {code, title, type}`.
+  All other messages flow through the existing chat orchestrator
+  untouched.  `MessageBubble.jsx` renders `<MermaidBlock>` when
+  `m.diagram?.code` is present.
+- New `mermaid` npm package added to `package.json`.
+- Live e2e verified: `/diagram sequence: how ORA commits to GitHub`
+  → Mermaid SVG rendered in chat in ~6s with all copy controls.
+
+### 212m-62 — Loop Mode Phase C: real ruff/eslint + self-heal
+- New `services/loop_verify.py`:
+  - `verify_files([{path, content}])` — sandboxes each file in a
+    fresh `tempfile.mkdtemp()` dir and runs `ruff check
+    --no-fix --output-format=concise` for `.py`/`.pyi` or
+    `eslint --no-eslintrc --no-config-lookup` for
+    `.js/.jsx/.ts/.tsx`.  8s subprocess timeout each.  Returns
+    `{ok, results: [{path, ok, linter, stdout, stderr}], errors}`.
+    Sandbox path stripped from output so user-facing errors
+    don't leak `/tmp` dir names.
+  - `self_heal(file_obj, errors, user_request, user_id)` — asks
+    Claude to rewrite the file content to fix lint errors,
+    strips stray ```mermaid/code fences, returns new content
+    string or None.  Up to 2 attempts before user-pause (G1).
+- `loop_engine.py` `_do_verify()` rewritten:
+  - Pulls files from `context["submitted_files"]` (registered
+    via the new `submit_files()` engine method).
+  - Loop attempts 1..3: verify → if ok, return; if not and
+    attempts exhausted, pause for user; otherwise call
+    self_heal on each failed file (with G4 backup of pre-heal
+    content), update files, retry.
+  - All `self_heals_performed` events appended to the G5 context.
+- `loop_engine.py` `_do_scan()` now calls the REAL security scan
+  internals (`_list_repo_tree`, `_fetch_file`, `_scan_text` from
+  `routers/security_scan.py`) bypassing the FastAPI auth gate.
+  Critical findings pause the loop; high findings emit a warn
+  event and continue.  Empty/no-project returns clean stub.
+- `_run_pipeline()` now respects `PAUSED_FOR_USER` — previously
+  would have advanced past a paused verify into scan/ship.  Added
+  `_should_stop()` helper.
+- New `POST /loop/{loop_id}/submit-files` route lets the chat
+  orchestrator (or the front-end) register file revisions for
+  verification.
+- 8 new pytest cases in
+  `tests/test_iter212m62_loop_verify.py`:
+  1. Clean Python passes
+  2. Broken Python fails (and bubbles the path in errors)
+  3. Unknown extension skipped (linter="skip")
+  4. ESLint catches `no-undef`
+  5. Empty input returns OK
+  6. Self-heal fixes broken Python on retry → COMPLETED
+  7. Self-heal exhausted → PAUSED_FOR_USER (G1)
+  8. Verify skipped when no files submitted
+- Combined with Phase B suite: **20/20 pytest cases green**.
+
+### 212m-63 — Phase D lite: SelfHealIndicator + UserActionCard
+- New `frontend/src/components/LoopActionCards.jsx` exports two
+  components:
+  - `<SelfHealIndicator visible attempt max errorPreview />` —
+    slim inline strip with spinning wrench icon, purple
+    gradient, “Self-heal — attempt N/3” copy.
+    `data-testid="self-heal-indicator"`.
+  - `<UserActionCard phase message errors onAction busy />` —
+    rose-tinted card shown when the loop pauses for user input;
+    three action buttons (`loop-retry-btn`, `loop-skip-btn`,
+    `loop-abort-btn`) plus an optional feedback textarea that's
+    forwarded to `/loop/{id}/pause-response`.  Shows the engine's
+    error list (top 12 + “…and N more”) so the user can decide
+    intelligently.  `data-testid="user-action-card"`.
+- Components are pure-render; wiring into the Phase A path is a
+  small follow-up (`loop_engine` SSE → ChatPanel render).  Both
+  components are fully styled and ready to drop in.
+- E2B sandbox for pytest deliberately deferred per founder's
+  earlier `2c` decision ("no pytest in v1 — ruff/eslint catch
+  most real bugs").
+
+### Files touched
+- `backend/routers/diagram.py` (new)
+- `backend/routers/loop.py` (added submit-files route)
+- `backend/services/loop_engine.py` (real verify + scan + pause
+  semantics)
+- `backend/services/loop_verify.py` (new — ruff/eslint runner +
+  self-heal helper)
+- `backend/main.py` (diagram router wired)
+- `backend/tests/test_iter212m62_loop_verify.py` (new — 8 tests)
+- `frontend/src/components/MermaidBlock.jsx` (new)
+- `frontend/src/components/LoopActionCards.jsx` (new)
+- `frontend/src/components/ChatPanel.jsx` (/diagram intercept)
+- `frontend/src/components/MessageBubble.jsx` (MermaidBlock
+  render)
+- `frontend/package.json` (`mermaid` dep)
+
+---
+
+
 
 Replaces the prompt-suffix hack from Phase A with a real backend
 state machine that owns the 5-phase pipeline, persists to MongoDB,

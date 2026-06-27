@@ -24,6 +24,7 @@ import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
+import MermaidBlock from "./MermaidBlock";       // Iter 212m-61 /diagram
 import PatRequiredCTA from "./PatRequiredCTA";
 import SystemSignalBanner from "./SystemSignalBanner";
 import StepCards from "./StepCards";   // Iter 212m-19 — live step cards
@@ -635,6 +636,13 @@ export default function MessageBubble({
             <RenderedMessage text={m.content} />
           ) : (
             m.content
+          )}
+          {/* Iter 212m-61 — Mermaid diagram payload from /diagram. */}
+          {m.role === "assistant" && m.diagram?.code && (
+            <MermaidBlock
+              code={m.diagram.code}
+              title={m.diagram.title}
+            />
           )}
           {/* Iter 212m-59 — Blinking cursor at the tail of a streaming
               assistant message.  Makes the perceived speed match

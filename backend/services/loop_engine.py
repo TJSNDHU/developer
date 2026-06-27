@@ -301,17 +301,24 @@ class LoopEngine:
         timeout + try/except so G1 + G2 hold."""
         try:
             await self._with_budget("execute", self._do_execute)
-            if self._cancelled or self.state in _TERMINAL:
-                return
+            if self._should_stop(): return
             await self._with_budget("verify",  self._do_verify)
-            if self._cancelled or self.state in _TERMINAL:
-                return
+            if self._should_stop(): return
             await self._with_budget("scan",    self._do_scan)
-            if self._cancelled or self.state in _TERMINAL:
-                return
+            if self._should_stop(): return
             await self._with_budget("ship",    self._do_ship)
         except Exception as e:                           # noqa: BLE001
             await self._fail(self.phase or "?", repr(e))
+
+    def _should_stop(self) -> bool:
+        """A phase that ended in PAUSED_FOR_USER must NOT advance — we
+        need explicit user input to resume.  Same goes for terminal
+        states + cancellation."""
+        return (
+            self._cancelled
+            or self.state in _TERMINAL
+            or self.state == LoopState.PAUSED_FOR_USER
+        )
 
     async def _with_budget(self, phase: str, coro) -> None:
         try:
@@ -344,18 +351,99 @@ class LoopEngine:
                 data={"file": f, "index": i, "total": total},
             )
 
-    # ── Phase 3 — Verify (Phase C wires real ruff/eslint) ────────────
+    # ── Phase 3 — Verify (Phase C: real ruff/eslint + self-heal) ────
     async def _do_verify(self) -> None:
         self.state = LoopState.VERIFYING
         self.phase = "verify"
         await self._emit(LoopState.VERIFYING, "verify",
                          step=3, total_steps=5,
                          message="Verifying changes…")
-        # Phase B: trivial pass-through; Phase C wires ruff + eslint
-        # and self-heal.
-        self.context["verification_results"] = {"ok": True, "phase_b_skeleton": True}
+        # Pull file objects (path+content) that the caller registered
+        # via /loop/{id}/submit-files OR were attached to the plan.
+        file_objs: list[dict] = list(self.context.get("submitted_files") or [])
+        if not file_objs:
+            # No files to verify (Phase A path / plan-only loops).
+            self.context["verification_results"] = {
+                "ok": True, "results": [], "errors": [],
+                "skipped_no_files": True,
+            }
+            return
+        from services.loop_verify import verify_files, self_heal
+        for attempt in range(1, MAX_VERIFY_RETRIES + 1):
+            report = await verify_files(file_objs)
+            self.context["verification_results"] = report
+            if report["ok"]:
+                if attempt > 1:
+                    self.context["self_heals_performed"].append({
+                        "phase":   "verify",
+                        "attempt": attempt - 1,
+                        "ok":      True,
+                        "ts":      _iso(),
+                    })
+                return
+            # Last-attempt fail → surface to user (no more self-heals).
+            if attempt >= MAX_SELF_HEALS + 1:
+                self.state = LoopState.PAUSED_FOR_USER
+                await _persist_session(self.db, self._doc())
+                await self._emit(
+                    LoopState.PAUSED_FOR_USER, "verify",
+                    step=3, total_steps=5,
+                    message=(
+                        f"Verify failed after {attempt - 1} self-heal "
+                        "attempts. Your input needed."
+                    ),
+                    data={"errors": report["errors"][:25]},
+                    requires_user_action=True,
+                )
+                return
+            # Self-heal: ask LLM to rewrite the failing files.
+            await self._emit(
+                LoopState.SELF_HEALING, "self_heal",
+                step=3, total_steps=5,
+                message=(
+                    f"Self-heal attempt {attempt} — rewriting "
+                    f"{sum(1 for r in report['results'] if not r['ok'])} "
+                    "file(s)…"
+                ),
+                data={"errors_preview": report["errors"][:10]},
+            )
+            new_file_objs: list[dict] = []
+            for f, r in zip(file_objs, report["results"]):
+                if r["ok"]:
+                    new_file_objs.append(f)
+                    continue
+                # Backup pre-heal version (G4).
+                with contextlib.suppress(Exception):
+                    await record_backup(self.db, self.loop_id,
+                                        f["path"], f["content"])
+                healed = await self_heal(
+                    f, [r["stdout"] or r["stderr"]] + report["errors"],
+                    user_request=self.user_message,
+                    user_id=self.user_id,
+                )
+                if healed:
+                    new_file_objs.append({"path": f["path"],
+                                          "content": healed})
+                else:
+                    new_file_objs.append(f)   # leave as-is; next pass
+                                              # surfaces to user.
+                self.context["self_heals_performed"].append({
+                    "phase":   "verify",
+                    "attempt": attempt,
+                    "file":    f["path"],
+                    "applied": bool(healed),
+                    "ts":      _iso(),
+                })
+            file_objs = new_file_objs
+            self.context["submitted_files"] = file_objs
+            self.state = LoopState.VERIFYING
+            await _persist_session(self.db, self._doc())
+        # All attempts exhausted (shouldn't reach here due to early-out
+        # above, but defensive in case constants change).
+        self.state = LoopState.PAUSED_FOR_USER
+        await _persist_session(self.db, self._doc())
 
-    # ── Phase 4 — Scan (re-uses existing security_scan endpoint) ─────
+    # ── Phase 4 — Scan (Phase C: real Vanguard via direct internals) ──
     async def _do_scan(self) -> None:
         self.state = LoopState.SCANNING
         self.phase = "scan"
@@ -367,6 +455,8 @@ class LoopEngine:
             self.context["scan_results"] = results
             crit = (results.get("summary", {})
                            .get("by_severity", {}).get("critical", 0))
+            high = (results.get("summary", {})
+                           .get("by_severity", {}).get("high", 0))
             if crit > 0:
                 self.state = LoopState.PAUSED_FOR_USER
                 await _persist_session(self.db, self._doc())
@@ -374,8 +464,17 @@ class LoopEngine:
                     LoopState.PAUSED_FOR_USER, "scan",
                     step=4, total_steps=5,
                     message=f"{crit} critical finding(s) — review required.",
-                    data={"summary": results.get("summary", {})},
+                    data={"summary": results.get("summary", {}),
+                          "findings": (results.get("findings") or [])[:25]},
                     requires_user_action=True,
+                )
+            elif high > 0:
+                # High is a soft warn — emit but continue.
+                await self._emit(
+                    LoopState.SCANNING, "scan",
+                    step=4, total_steps=5,
+                    message=f"{high} high finding(s) — continuing with caution.",
+                    data={"summary": results.get("summary", {})},
                 )
         except Exception as e:                          # noqa: BLE001
             await _log_error(self.db, self.loop_id, "scan", repr(e))
@@ -409,6 +508,20 @@ class LoopEngine:
         await _persist_session(self.db, self._doc())
         await self._emit(LoopState.ABORTED, self.phase or "?",
                          message="Loop cancelled by user.")
+
+    # ── Submit files for verification (Phase C) ──────────────────────
+    async def submit_files(self, files: list[dict]) -> None:
+        """Register a list of `{path, content}` objects that the loop's
+        VERIFY phase should lint + self-heal.  Idempotent — repeated
+        calls replace the prior list (use this when the caller has new
+        revisions)."""
+        clean = []
+        for f in (files or []):
+            if isinstance(f, dict) and f.get("path") and f.get("content") is not None:
+                clean.append({"path": str(f["path"])[:240],
+                              "content": str(f["content"])[:200_000]})
+        self.context["submitted_files"] = clean
+        await _persist_session(self.db, self._doc())
 
     # ── Helpers ──────────────────────────────────────────────────────
     async def _emit(self, state: LoopState, phase: str, **kw) -> None:
@@ -490,22 +603,82 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
 
 async def _run_security_scan(user_id: str,
                              project_id: Optional[str]) -> dict:
-    """Re-use the existing /security-scan/run logic in-process."""
+    """Re-use the real security_scan logic in-process.  Phase C builds
+    a synthetic Body+Header pair and dispatches `run_security_scan`
+    directly so we get the same 13-rule output the UI's manual scan
+    produces — no skipping, no auth dance.
+
+    Returns the engine-friendly summary shape (or a stub if the user
+    has no connected repo, which is the legitimate not-applicable
+    case)."""
     if not project_id:
-        return {"summary": {"total": 0, "by_severity": {}}, "skipped": True}
-    from routers.security_scan import run_security_scan
-    # The router uses Header(authorization) — bypass it by composing a
-    # fake "user" record and calling the handler with a dummy header.
-    # We sidestep auth entirely by calling the inner helpers; for Phase
-    # B we just return a minimal placeholder so the engine flow runs.
-    try:
-        # Direct invocation — note: run_security_scan reads
-        # `Authorization`.  Easier to noop for now and let Phase C
-        # implement a service-level helper.
         return {"summary": {"total": 0, "by_severity": {}},
-                "phase_b_skeleton": True}
-    except Exception as e:                              # noqa: BLE001
-        return {"error": repr(e)}
+                "skipped_reason": "no_project"}
+    # Pull the project's encrypted PAT + repo coords and reuse the
+    # scanner's lower-level helpers so we don't need a JWT.
+    from cto_services.db import get_db
+    from routers.security_scan import _decrypt_pat, _scan_text  # noqa
+    import httpx, asyncio as _asyncio
+    db = get_db()
+    if db is None:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "skipped_reason": "no_db"}
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "github_owner": 1, "github_repo": 1, "github_token": 1},
+    )
+    if not proj:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "skipped_reason": "no_project_doc"}
+    owner = proj.get("github_owner") or ""
+    repo  = proj.get("github_repo")  or ""
+    pat   = await _decrypt_pat(user_id, proj.get("github_token"))
+    if not (owner and repo and pat):
+        return {"summary": {"total": 0, "by_severity": {}},
+                "skipped_reason": "no_github_linkage"}
+    # Re-run a trimmed scan inline — same rule library, capped 200
+    # files for the engine path to keep phase budget under 120s.
+    from routers.security_scan import (
+        _list_repo_tree, _fetch_file, _SCAN_EXTS, _SKIP_DIRS,
+        _MAX_BYTES_PER_FILE,
+    )
+    async with httpx.AsyncClient() as client:
+        try:
+            blobs = await _list_repo_tree(client, owner, repo, pat)
+        except Exception as e:                          # noqa: BLE001
+            return {"summary": {"total": 0, "by_severity": {}},
+                    "scan_error": repr(e)}
+        candidates: list[dict] = []
+        for b in blobs:
+            path = b.get("path", "")
+            parts = path.split("/")
+            if any(p in _SKIP_DIRS for p in parts):
+                continue
+            if not any(path.lower().endswith(e) for e in _SCAN_EXTS):
+                continue
+            if b.get("size", 0) > _MAX_BYTES_PER_FILE:
+                continue
+            candidates.append(b)
+            if len(candidates) >= 200:
+                break
+        sem = _asyncio.Semaphore(8)
+        async def _scan_one(b):
+            async with sem:
+                text = await _fetch_file(client, owner, repo, b["path"], pat)
+            return _scan_text(b["path"], text) if text else []
+        all_findings = []
+        for sub in await _asyncio.gather(
+            *[_scan_one(b) for b in candidates], return_exceptions=False,
+        ):
+            all_findings.extend(sub)
+    by_sev: dict[str, int] = {}
+    for f in all_findings:
+        by_sev[f["severity"]] = by_sev.get(f["severity"], 0) + 1
+    return {
+        "summary":       {"total": len(all_findings), "by_severity": by_sev},
+        "findings":      all_findings[:100],
+        "scanned_files": len(candidates),
+    }
 
 
 def _commit_message(user_msg: str) -> str:

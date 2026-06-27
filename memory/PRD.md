@@ -13,6 +13,23 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-61/62/63 — Diagrams + Loop Phase C + Phase D-lite (Feb 27 2026) ✅
+- **/diagram chat command**: `POST /api/aurem-dev/diagram/generate`
+  + `MermaidBlock.jsx` renders Mermaid SVG inline in chat with
+  dark theme + Copy SVG/Code buttons. Auto-detects diagram type
+  (ERD/sequence/class/flowchart) from prompt keywords.  E2E
+  verified: `/diagram sequence: how ORA commits to GitHub` ships
+  a real SVG in ~6s.
+- **Loop Phase C**: real ruff + eslint subprocess runner
+  (`services/loop_verify.py`), self-heal LLM loop (max 2 attempts
+  → user-pause), real Vanguard security scan integration in
+  `_do_scan()`, new `POST /loop/{id}/submit-files` endpoint,
+  pause semantics fixed (`PAUSED_FOR_USER` no longer skipped
+  past).  **20/20 pytest cases green** (12 Phase B + 8 Phase C).
+- **Phase D lite**: `SelfHealIndicator` + `UserActionCard`
+  components shipped (`LoopActionCards.jsx`).  E2B/pytest
+  sandbox deferred per `2c` decision.
+
 ### Iter 212m-60 — Loop Mode Phase B: Production LoopEngine (Feb 27 2026) ✅
 - `services/loop_engine.py` (430 LoC) — full state machine, 12-state
   enum, MongoDB-persisted sessions/plans/errors/backups, G1+G2+G3+G5

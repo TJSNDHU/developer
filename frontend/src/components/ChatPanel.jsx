@@ -1058,6 +1058,75 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // demanded text, which is why an image-only chat silently refused.
     if ((!text && !readyAttachments.length) || busy || !sessionId) return;
     if (promptOverride == null) setInput("");
+
+    // ──────────────────────────────────────────────────────────────
+    // Iter 212m-61 — /diagram chat command.
+    // Bypass the normal SSE chat orchestration entirely and call the
+    // dedicated /diagram/generate endpoint, then render a
+    // <MermaidBlock> inside an assistant bubble.  All other slash
+    // commands flow through the existing path.
+    // ──────────────────────────────────────────────────────────────
+    const slashMatch = text.match(/^\/diagram\b\s*(.*)$/is);
+    if (slashMatch && promptOverride == null) {
+      const dgPrompt = (slashMatch[1] || "").trim();
+      if (!dgPrompt) {
+        setInput(text);    // restore — they typed only `/diagram`
+        return;
+      }
+      const userBubble = text;
+      setMessages((m) => [
+        ...m,
+        { role: "user", content: userBubble },
+        { role: "assistant", content: "", streaming: true,
+          diagramPending: true },
+      ]);
+      setBusy(true);
+      try {
+        const r = await api.post("/diagram/generate", {
+          prompt:  dgPrompt,
+          repo_id: activeProject?.project_id || null,
+        });
+        const payload = r?.data || r;
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].diagramPending) {
+              out[i] = {
+                role: "assistant",
+                streaming: false,
+                content: "",
+                diagram: {
+                  code:  payload.mermaid_code,
+                  title: payload.title || dgPrompt.slice(0, 80),
+                  type:  payload.diagram_type,
+                },
+              };
+              break;
+            }
+          }
+          return out;
+        });
+      } catch (e) {
+        const msg = e?.response?.data?.detail || e?.message || "Diagram failed";
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].diagramPending) {
+              out[i] = {
+                role: "assistant",
+                streaming: false,
+                content: `**Diagram failed**\n\n${msg}\n\nTry rephrasing or specify a type (e.g. \`/diagram sequence diagram of …\`).`,
+              };
+              break;
+            }
+          }
+          return out;
+        });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     // Iter 146 — once the user fires off the first message of this
     // session, broadcast `aurem:chat-session-started` so Shell.jsx
     // can hide the sidebar for the rest of the session. The peek hot
