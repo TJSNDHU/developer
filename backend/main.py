@@ -53,6 +53,7 @@ from routers.founder_offer import router as founder_offer_router    # Iter 212m-
 from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
 from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
+from routers.codebase_health import router as codebase_health_router # Iter 212m-72 5-category health scanner
 from routers.loop          import router as loop_router             # Iter 212m-60 Loop Mode engine
 from routers.diagram       import router as diagram_router          # Iter 212m-61 /diagram
 from routers.feature_window import router as feature_window_router  # Iter 212m-64 system map
@@ -1147,6 +1148,7 @@ app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
+app.include_router(codebase_health_router, prefix="/api/aurem-dev")  # Iter 212m-72 5-cat health
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
 app.include_router(diagram_router,        prefix="/api/aurem-dev")  # Iter 212m-61 /diagram
 app.include_router(feature_window_router, prefix="/api/aurem-dev")  # Iter 212m-64 system map

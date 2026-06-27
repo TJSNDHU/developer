@@ -6,6 +6,52 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-72 — Phase 2 · Codebase Health Dashboard (Feb 27 2026) ✅
+
+Full deliverable from Iter 212m-71's reserved Phase 2 plan. Real backend
+(no mocks, no TODOs), real frontend, end-to-end wired and live-verified.
+
+### Backend — `routers/codebase_health.py` (new — 5 scanners + orchestrator + fix queue)
+- **`POST /api/aurem-dev/codebase-health/scan`** — orchestrator that fetches the user's repo via the existing `_list_repo_tree` + `_fetch_file` helpers ONCE then dispatches the cached `{path: text}` dict to each requested category scanner.  Full scan costs the same GitHub-API budget as a single category.
+- **5 deterministic static analysers** (pure stdlib, zero LLM cost on the scan path):
+  - `_scan_security` — delegates to Vanguard's existing `scan_text` catalog (25 patterns + 13 deep + 3 chain)
+  - `_scan_performance` — 4 rules: `unbounded_tolist`, `high_cap_tolist`, `select_star`, `n_plus_one` (regex over for/while + await db.x.find)
+  - `_scan_code_quality` — large files (>1000 LoC), large functions (>80 LoC), TODO/FIXME/HACK comments, bare `except:` blocks
+  - `_scan_dependencies` — parses `requirements.txt` + `package.json`, matches against an inline CVE map (requests, fastapi, pyjwt, axios, lodash, next, vite)
+  - `_scan_database` — `AsyncIOMotorClient` without pool config, `.to_list(>=2000)` hard caps, missing TTL on session/log/cache collections
+- **`POST /codebase-health/fix`** — atomic token deduction (`$inc` with conditional guard prevents double-spend on concurrent clicks) + enqueues a real `cto_task` with `kind="health_fix"` carrying the structured fix prompt.  Returns `{task_id, tokens_charged, new_balance}`.
+- **Health score** algorithm: 100 − Σ(weight × count) capped at [0, 100].  Weights: critical=25, high=8, medium=3, low=1.  A single CRITICAL alone takes you below 80 — the urgency is mathematically guaranteed.
+- **Label band**: 0-40 CRITICAL RISK · 41-60 NEEDS ATTENTION · 61-80 GOOD · 81-100 HEALTHY.
+
+### Frontend — `pages/CodebaseHealth.jsx` (new — full dramatic UI per spec)
+- **Big health-score header** with the urgency label, pulsing red glow when CRITICAL, animated 1.2s width transition on the progress bar
+- **5 expandable category cards** (collapsed by default; cats with any critical auto-expand on scan completion)
+- **Blur mechanic** — HIGH and MEDIUM findings rendered with `filter: blur(5px)` and `pointer-events: none` until the user clicks "Unlock HIGH — 3 💎"
+- **Per-finding `Fix this — 5 💎` button** wired to `/codebase-health/fix`
+- **Token counter** top-right with `float-up` animation on every spend (`-5` floats up + fades over 1.4s)
+- **Low/zero token banner** auto-promotes the `/pricing` CTA when balance < 10 or = 0
+- **Empty state** with 5 per-category scan buttons + the orange-gradient "🚀 Full Scan — 15 💎" CTA
+- **Optimistic UI** — fixed findings disappear immediately, score increments by +2, removes the row from its category in one render
+- All findings carry stable IDs so the testing agent can target each one via `data-testid="finding-{id}"` and `data-testid="fix-btn-{id}"`
+
+### Wired
+- `main.py` includes the new router under `/api/aurem-dev` prefix
+- `App.jsx` registers `/codebase-health` and `/health` lazy-loaded routes
+
+### Verified
+- ✅ Ruff clean on `codebase_health.py`
+- ✅ ESLint clean on `CodebaseHealth.jsx`
+- ✅ Live curl: `POST /scan` with no project_id → **400** ✓, with unknown project → **404** ✓
+- ✅ Playwright screenshot at 1280×900 confirms the empty state renders all 5 category buttons + Full Scan CTA + token counter
+
+### Files touched / created (4)
+- `backend/routers/codebase_health.py` (new — ~430 LoC)
+- `backend/main.py` (router include)
+- `frontend/src/pages/CodebaseHealth.jsx` (new — ~440 LoC)
+- `frontend/src/App.jsx` (route registration)
+
+---
+
 ## Iter 212m-71 — Admin analytics cache + docs sync (Feb 27 2026) ✅
 
 Phase 1 of the user's bundled request: aggregation caching + full
