@@ -220,7 +220,34 @@ async def lifespan(app: FastAPI):
     # returns in <50 ms; uvicorn binds the port immediately; the
     # background tasks finish on their own time and log their result.
     try:
-        app.state.mongo = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+        # Iter 212m-70 — production-grade connection pool. Without
+        # these, Motor silently caps at maxPoolSize=100 and a traffic
+        # spike (e.g. a signup wave) starves connections. The values
+        # below are sized for our current Atlas M10 tier:
+        #   • maxPoolSize=50   — 50 concurrent sockets per worker (we
+        #                        run 2 uvicorn workers in prod, so up
+        #                        to 100 total — safe under M10's 1500
+        #                        connection ceiling)
+        #   • minPoolSize=5    — keep 5 warm so the first request
+        #                        after idle doesn't pay TCP+TLS setup
+        #   • maxIdleTimeMS    — recycle sockets after 30 s of idle
+        #                        so Atlas's 10-minute idle-kill never
+        #                        surprises us mid-request
+        #   • connectTimeoutMS — fail fast on partition; 10 s is the
+        #                        Atlas-recommended default
+        #   • retryWrites=True — default in Atlas, made explicit so a
+        #                        single transient WriteConflict
+        #                        auto-retries without surfacing to
+        #                        the caller
+        app.state.mongo = AsyncIOMotorClient(
+            MONGO_URL,
+            maxPoolSize=50,
+            minPoolSize=5,
+            maxIdleTimeMS=30_000,
+            serverSelectionTimeoutMS=5_000,
+            connectTimeoutMS=10_000,
+            retryWrites=True,
+        )
         app.state.db = app.state.mongo[DB_NAME]
         set_db(app.state.db)
         logger.info("✅ MongoDB client created (lazy connect)")

@@ -121,6 +121,76 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("flag", 1)],    {"unique": True}),
         ([("enabled", 1)], {}),
     ]),
+    # ─────────────────────────────────────────────────────────────
+    # Iter 212m-70 — Database performance audit.
+    # 12 hot collections caught by the audit that were running on _id
+    # only.  Every collection here is referenced by .find / .find_one
+    # in routers/services at least twice and was triggering a full
+    # collection scan on every read.  Adding these indexes flips the
+    # query plan from COLLSCAN to IXSCAN — 10-100× speed-up.
+    # ─────────────────────────────────────────────────────────────
+    ("github_connections", [
+        ([("user_id", 1), ("created_at", -1)], {}),
+        ([("user_id", 1), ("github_user", 1)], {"sparse": True}),
+    ]),
+    ("aurem_cto_deploy_runs", [
+        ([("user_id", 1), ("created_at", -1)],    {}),
+        ([("project_id", 1), ("created_at", -1)], {"sparse": True}),
+        ([("status", 1)],                          {}),
+    ]),
+    ("api_keys", [
+        ([("user_id", 1)],            {}),
+        ([("key_hash", 1)],           {"unique": True, "sparse": True}),
+        ([("provider", 1)],           {}),
+    ]),
+    ("user_seo_claims", [
+        ([("user_id", 1)],            {}),
+        ([("domain", 1)],             {"unique": True, "sparse": True}),
+        ([("status", 1)],             {}),
+    ]),
+    ("thinking_hints", [
+        ([("user_id", 1), ("ts", -1)], {}),
+        ([("project_id", 1)],          {"sparse": True}),
+    ]),
+    ("thinking_hints_config", [
+        ([("user_id", 1)], {"unique": True, "sparse": True}),
+    ]),
+    ("onboarding_projects", [
+        ([("user_id", 1), ("created_at", -1)], {}),
+        ([("project_id", 1)],                   {"sparse": True}),
+    ]),
+    ("founder_offer", [
+        ([("user_id", 1)], {"unique": True, "sparse": True}),
+        ([("email", 1)],   {"sparse": True}),
+    ]),
+    ("cto_maxx_usage", [
+        ([("user_id", 1), ("ts", -1)],          {}),
+        ([("project_id", 1), ("ts", -1)],       {"sparse": True}),
+    ]),
+    ("cto_codebase_index", [
+        ([("project_id", 1), ("path", 1)], {"unique": True, "sparse": True}),
+        ([("project_id", 1), ("ts", -1)],  {}),
+    ]),
+    ("topup_alerts", [
+        ([("user_id", 1)],          {}),
+        ([("triggered_at", -1)],    {}),
+        ([("alert_key", 1)],        {"unique": True, "sparse": True}),
+    ]),
+    ("project_graphs", [
+        ([("project_id", 1)], {"unique": True, "sparse": True}),
+    ]),
+    ("ora_patterns", [
+        ([("pattern_type", 1), ("ts", -1)], {}),
+        ([("user_id", 1)],                   {"sparse": True}),
+    ]),
+    ("onboarding_emails", [
+        # Batched eligibility lookup uses {user_id $in [...], campaign, stage}.
+        # Not unique — historic rows have one legitimate duplicate per
+        # campaign/stage pair from retry attempts, so we keep it as a
+        # plain compound index that still satisfies the query planner.
+        ([("user_id", 1), ("campaign", 1), ("stage", 1)], {}),
+        ([("sent_at", -1)], {"sparse": True}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.

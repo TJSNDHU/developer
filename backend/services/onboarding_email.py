@@ -228,6 +228,31 @@ async def eligible_users(db, *, stage: str) -> list[dict]:
         {"_id": 0, "user_id": 1, "email": 1, "name": 1, "created_at": 1},
     ).to_list(length=10_000)
 
+    # Iter 212m-70 — N+1 fix.  Was a find_one(cto_projects) PLUS a
+    # _has_been_sent(...) lookup per candidate.  Both are now batched
+    # into single $in queries before the filter loop.  Uses the
+    # cto_projects [(user_id, 1), ...] index (already present) and
+    # the new founder_offer/onboarding indexes from this iter.
+    candidate_ids = [u["user_id"] for u in candidates if u.get("user_id")]
+    users_with_project: set[str] = set()
+    if candidate_ids:
+        cur = db.cto_projects.find(
+            {"user_id": {"$in": candidate_ids}}, {"_id": 0, "user_id": 1},
+        )
+        async for p in cur:
+            uid = p.get("user_id")
+            if uid: users_with_project.add(uid)
+    users_already_sent: set[str] = set()
+    if candidate_ids:
+        cur = db.onboarding_emails.find(
+            {"user_id": {"$in": candidate_ids},
+             "campaign": CAMPAIGN, "stage": stage},
+            {"_id": 0, "user_id": 1},
+        )
+        async for r in cur:
+            uid = r.get("user_id")
+            if uid: users_already_sent.add(uid)
+
     out: list[dict] = []
     for u in candidates:
         ca = _created_at_dt(u.get("created_at"))
@@ -235,14 +260,10 @@ async def eligible_users(db, *, stage: str) -> list[dict]:
             continue
         if ca.timestamp() > cutoff:
             continue   # too new for this stage
-        # No connected repo?
-        proj = await db.cto_projects.find_one(
-            {"user_id": u["user_id"]}, {"_id": 1},
-        )
-        if proj is not None:
-            continue
-        if await _has_been_sent(db, u["user_id"], stage):
-            continue
+        if u["user_id"] in users_with_project:
+            continue   # already has a connected repo
+        if u["user_id"] in users_already_sent:
+            continue   # nudge already sent at this stage
         out.append(u)
     return out
 

@@ -219,15 +219,33 @@ async def list_users(
     # Always compute the three bucket counts (cheap — one count_documents
     # each, all over an indexed `created_at`). These power the filter
     # pills in the admin UI.
-    bucket_counts: dict[str, int] = {}
-    for label, since in buckets.items():
-        try:
-            bucket_counts[label] = await db.dev_users.count_documents(
-                {"created_at": {"$gte": since}}
-            )
-        except Exception as e:
-            logger.warning("list_users bucket[%s] failed: %r", label, e)
-            bucket_counts[label] = 0
+    # Iter 212m-70 — N+1 fix. Was 3 separate count_documents calls
+    # over the same indexed `created_at` field. Collapse into a single
+    # aggregation pipeline: one round-trip, one index scan, all three
+    # buckets returned together.
+    bucket_counts: dict[str, int] = {"24h": 0, "7d": 0, "30d": 0}
+    try:
+        pipeline = [
+            {"$match": {"created_at": {"$gte": buckets["30d"]}}},
+            {"$project": {
+                "_id": 0,
+                "is_24h": {"$gte": ["$created_at", buckets["24h"]]},
+                "is_7d":  {"$gte": ["$created_at", buckets["7d"]]},
+            }},
+            {"$group": {
+                "_id":     None,
+                "in_24h":  {"$sum": {"$cond": ["$is_24h", 1, 0]}},
+                "in_7d":   {"$sum": {"$cond": ["$is_7d",  1, 0]}},
+                "in_30d":  {"$sum": 1},
+            }},
+        ]
+        agg = await db.dev_users.aggregate(pipeline).to_list(1)
+        if agg:
+            bucket_counts["24h"] = int(agg[0].get("in_24h") or 0)
+            bucket_counts["7d"]  = int(agg[0].get("in_7d")  or 0)
+            bucket_counts["30d"] = int(agg[0].get("in_30d") or 0)
+    except Exception as e:
+        logger.warning("list_users bucket aggregation failed: %r", e)
     try:
         bucket_counts["all"] = await db.dev_users.count_documents({})
     except Exception:
@@ -623,10 +641,25 @@ async def list_support_tickets(
     tickets = await db.cto_support.find(q, {"_id": 0}).sort(
         "updated_at", -1
     ).limit(100).to_list(100)
+    # Iter 212m-70 — N+1 fix. Was a find() per ticket. Now: one $in
+    # query pulls every message for every ticket on the page, then we
+    # bucket them in Python. cto_support_messages already has the
+    # [(ticket_id, 1), (ts, 1)] compound index, so the single batch
+    # query hits the index and returns sorted.
+    ticket_ids = [t.get("ticket_id") for t in tickets if t.get("ticket_id")]
+    msgs_by_ticket: dict[str, list[dict]] = {tid: [] for tid in ticket_ids}
+    if ticket_ids:
+        cur = db.cto_support_messages.find(
+            {"ticket_id": {"$in": ticket_ids}}, {"_id": 0},
+        ).sort([("ticket_id", 1), ("ts", 1)])
+        # 200 messages × 100 tickets ceiling — same per-ticket cap as
+        # the legacy loop, just batched.
+        async for m in cur.limit(20_000):
+            tid = m.get("ticket_id")
+            if tid in msgs_by_ticket and len(msgs_by_ticket[tid]) < 200:
+                msgs_by_ticket[tid].append(m)
     for t in tickets:
-        t["messages"] = await db.cto_support_messages.find(
-            {"ticket_id": t.get("ticket_id")}, {"_id": 0},
-        ).sort("ts", 1).to_list(200)
+        t["messages"] = msgs_by_ticket.get(t.get("ticket_id"), [])
     return {"tickets": tickets}
 
 

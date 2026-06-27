@@ -209,7 +209,9 @@ async def build_project_brain(
     user_id = me["user_id"]
     db = get_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -284,7 +286,9 @@ async def warm_start_project(
     user_id = me["user_id"]
     db = get_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -521,7 +525,9 @@ async def build_project_graph(
     user_id = me["user_id"]
     db = get_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -1005,7 +1011,9 @@ async def test_project_pat(
     user_id = me["user_id"]
     db = require_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -1084,7 +1092,9 @@ async def get_project_tree(
     user_id = me["user_id"]
     db = require_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -1164,7 +1174,9 @@ async def get_project_file(
     user_id = me["user_id"]
     db = require_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -1261,7 +1273,9 @@ async def _enqueue_cto_task(
     proj = None
     if project_id and project_id != "home":
         proj = await db.cto_projects.find_one(
-            {"project_id": project_id, "user_id": user_id}
+            {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
         )
     if not proj:
         # Fall back to the user's most recently used project.
@@ -1377,7 +1391,9 @@ async def submit_task(
 
     db = require_db()
     proj = await db.cto_projects.find_one(
-        {"project_id": body.project_id, "user_id": me["user_id"]}
+        {"project_id": body.project_id, "user_id": me["user_id"]},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -1443,7 +1459,9 @@ async def rollback_task(
         )
 
     proj = await db.cto_projects.find_one(
-        {"project_id": t["project_id"], "user_id": me["user_id"]}
+        {"project_id": t["project_id"], "user_id": me["user_id"]},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Parent project not found")
@@ -1671,7 +1689,9 @@ async def retry_task(
                             f"(current: {old.get('status')})")
 
     proj = await db.cto_projects.find_one(
-        {"project_id": old["project_id"], "user_id": me["user_id"]}
+        {"project_id": old["project_id"], "user_id": me["user_id"]},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
         raise HTTPException(404, "Parent project not found")

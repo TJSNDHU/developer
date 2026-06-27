@@ -509,7 +509,11 @@ async def billing_portal(
     _require_stripe()
     user = await current_dev(authorization)
     db = require_db()
-    row = await db.dev_users.find_one({"user_id": user.get("user_id")})
+    # Iter 212m-70 — projection: only the stripe_sub_id is consumed.
+    row = await db.dev_users.find_one(
+        {"user_id": user.get("user_id")},
+        {"_id": 0, "stripe_sub_id": 1},
+    )
     sub_id = (row or {}).get("stripe_sub_id")
     if not sub_id:
         raise HTTPException(400, "No active subscription")

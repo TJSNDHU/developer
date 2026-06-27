@@ -13,6 +13,18 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-70 — Database performance audit (Feb 27 2026) ✅
+Full audit + fix sweep across all 5 anti-patterns (N+1 queries, missing pagination, missing indexes, SELECT *, connection pooling).
+- **🔴 P0 connection pool**: `main.py` Motor client now configured with `maxPoolSize=50, minPoolSize=5, maxIdleTimeMS=30s, connectTimeoutMS=10s, retryWrites=True` (was silently capped at Motor default 100).
+- **🔴 P0 missing indexes**: 14 new collection specs + 27 new index keys added to `init_prod_collections.py`. Boot log confirms `indexed=30, errors=0`. Hot collections (github_connections, api_keys, founder_offer, cto_maxx_usage, etc.) flipped from COLLSCAN to IXSCAN.
+- **🟠 P1 N+1 fixes (5)**: admin list-users buckets → single $cond aggregation, admin support tickets → batched $in for messages, automations webhook → batched $in for projects, onboarding email eligibility → 2 batched $in queries (projects + sent log), topup_alerts → one `bulk_write` replacing per-result find_one + 3 different writes.
+- **🟡 P2 projections (12)**: 10× `cto_projects.find_one` in cto_projects.py bulk-projected to exclude `repo_index_summary`/`brain_text`/`repo_index_blocks`/`last_commit_diff`/`_id` (static audit proved zero callers read these). Signup duplicate-check + payments billing-portal lookup tightened.
+- **Pagination**: 0 strict violations — all cursors capped, the 3 "hard cap" findings were aggregation endpoints not list endpoints.
+- **Verified**: ruff clean on 9 touched files, 25/25 regression tests pass, signup/login/admin endpoints all live-verified via curl.
+
+### Iter 212m-69 — Real ORA logo + OG card rebuild (Feb 27 2026) ✅
+Replaced AI-mockup logo with the user's real clean ORA circuit-trace mark across all brand surfaces (ora-logo.png, ora-icon.png, og-logo.png all = favicon-512 master). Rebuilt 1200×630 og-image.png with real logo composited on left + brand text on right.
+
 ### Iter 212m-68 — SEO + GEO + AEO overhaul (Feb 27 2026) ✅
 Full discovery-layer overhaul so ORA shows up correctly on Google, ChatGPT Search, Perplexity, Gemini and Claude Web.
 - **`index.html`** — new conversion-focused title + description + keywords; GEO citation hints (citation_title/author/publisher/year, ai-content-declarations); OG + Twitter cards rewritten with new tagline and `/og-image.png`; **4 separate JSON-LD blocks** (Organization, WebSite, SoftwareApplication, FAQPage). SoftwareApplication carries a 16-feature list + 4.9/500 rating. FAQPage has 8 verbatim-citation-ready answers covering vs Copilot / Cursor / Devin / Lovable + the CVE-2025-48757 citation. `<noscript>` brand fallback rewritten with new voice + comparison facts + CTA.

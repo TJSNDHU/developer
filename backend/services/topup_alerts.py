@@ -94,39 +94,58 @@ def _day_key(ts: float | None = None) -> str:
 async def upsert_alerts_from_snapshot(db, snap: dict) -> list[dict]:
     """Inspect `snap.results`, upsert one row per (integration, severity,
     day) into `db.topup_alerts`. Returns the list of NEW alerts that were
-    not seen earlier today (i.e. the ones we should email about)."""
+    not seen earlier today (i.e. the ones we should email about).
+
+    Iter 212m-70 — collapsed the per-result `find_one` existence check
+    + the three branches' single `update_one` / `update_many` /
+    `insert_one` writes into one `bulk_write`.  Round-trips drop from
+    1 + 2·N to 1 + 1, regardless of how many integrations the snapshot
+    contains.
+    """
+    from pymongo import InsertOne, UpdateOne, UpdateMany
+
     results = (snap or {}).get("results") or []
     day = _day_key((snap or {}).get("generated_at"))
     new_alerts: list[dict] = []
+    if not results:
+        return new_alerts
+
+    # 1. Pre-fetch every alert_key we might touch in a single $in query
+    #    using the [(alert_key, 1)] unique sparse index added in Iter
+    #    212m-70.
+    candidate_keys: list[str] = []
+    classified:     list[tuple[dict, str | None, str]] = []
     for r in results:
         severity = classify(r)
-        if not severity:
-            # Auto-resolve any previously-active alerts for this
-            # integration on this day — flips them to `resolved`.
-            try:
-                await db.topup_alerts.update_many(
-                    {
-                        "integration_id": r.get("id"),
-                        "day_key":        day,
-                        "status":         "active",
-                    },
-                    {"$set": {
-                        "status":      "resolved",
-                        "resolved_at": time.time(),
-                    }},
-                )
-            except Exception as e:
-                logger.warning(f"topup_alerts auto-resolve: {e!r}")
-            continue
-
-        key = f"{r.get('id')}::{severity}::{day}"
-        now = time.time()
-        existing = await db.topup_alerts.find_one(
-            {"alert_key": key}, {"_id": 0}
+        key = f"{r.get('id')}::{severity}::{day}" if severity else ""
+        classified.append((r, severity, key))
+        if key:
+            candidate_keys.append(key)
+    existing_keys: set[str] = set()
+    if candidate_keys:
+        cur = db.topup_alerts.find(
+            {"alert_key": {"$in": candidate_keys}}, {"_id": 0, "alert_key": 1},
         )
-        if existing:
-            # Bump last_seen + count without spamming email again.
-            await db.topup_alerts.update_one(
+        async for d in cur:
+            ak = d.get("alert_key")
+            if ak: existing_keys.add(ak)
+
+    # 2. Build a single bulk_write list across all 3 branches.
+    ops: list = []
+    now = time.time()
+    for r, severity, key in classified:
+        if not severity:
+            ops.append(UpdateMany(
+                {
+                    "integration_id": r.get("id"),
+                    "day_key":        day,
+                    "status":         "active",
+                },
+                {"$set": {"status": "resolved", "resolved_at": now}},
+            ))
+            continue
+        if key in existing_keys:
+            ops.append(UpdateOne(
                 {"alert_key": key},
                 {"$set": {
                     "last_seen": now,
@@ -135,9 +154,8 @@ async def upsert_alerts_from_snapshot(db, snap: dict) -> list[dict]:
                     "status":    "active",
                 },
                  "$inc": {"seen_count": 1}},
-            )
+            ))
             continue
-
         # First sighting today → row + flag as needing email.
         doc = {
             "alert_id":          f"al_{uuid.uuid4().hex[:10]}",
@@ -155,11 +173,15 @@ async def upsert_alerts_from_snapshot(db, snap: dict) -> list[dict]:
             "status":            "active",
             "email_sent":        False,
         }
+        ops.append(InsertOne(doc))
+        new_alerts.append({k: v for k, v in doc.items() if k != "_id"})
+
+    if ops:
         try:
-            await db.topup_alerts.insert_one(doc)
-            new_alerts.append({k: v for k, v in doc.items() if k != "_id"})
+            await db.topup_alerts.bulk_write(ops, ordered=False)
         except Exception as e:
-            logger.warning(f"topup_alerts insert: {e!r}")
+            logger.warning(f"topup_alerts bulk_write: {e!r}")
+            new_alerts = []   # don't claim new alerts we failed to persist
     return new_alerts
 
 

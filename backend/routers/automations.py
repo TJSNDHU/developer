@@ -85,6 +85,25 @@ async def github_webhook(
     # Lazy import to avoid circular routers <-> services on app boot.
     from routers.cto_projects import _enqueue_cto_task
 
+    # Iter 212m-70 — N+1 fix. Was a find_one per automation rule.
+    # Now: one batch query loads every {user_id → project} pair, then
+    # the per-rule loop just dict-lookups.  Uses the existing
+    # cto_projects [(user_id, 1), (created_at, -1)] compound index +
+    # the new [(user_id, 1), (github_user, 1)] index that landed in
+    # this same iteration.
+    owner = repo_full.split("/", 1)[0]
+    repo  = repo_full.split("/", 1)[-1]
+    user_ids = list({rule["user_id"] for rule in rules})
+    proj_by_user: dict[str, dict] = {}
+    if user_ids:
+        cur = db.cto_projects.find({
+            "user_id":      {"$in": user_ids},
+            "github_owner": owner,
+            "github_repo":  repo,
+        }, {"_id": 0, "user_id": 1, "project_id": 1})
+        async for p in cur:
+            proj_by_user.setdefault(p["user_id"], p)
+
     for rule in rules:
         try:
             description = rule["task_template"].format(
@@ -94,11 +113,7 @@ async def github_webhook(
             )
         except KeyError:
             description = rule["task_template"]
-        proj = await db.cto_projects.find_one({
-            "user_id":       rule["user_id"],
-            "github_owner":  repo_full.split("/", 1)[0],
-            "github_repo":   repo_full.split("/", 1)[-1],
-        })
+        proj = proj_by_user.get(rule["user_id"])
         if not proj:
             continue
         # Reuse the canonical enqueue path so the background worker

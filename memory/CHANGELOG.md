@@ -6,6 +6,49 @@ work in date-stamped chunks so PRD.md stays focused.
 
 ---
 
+## Iter 212m-70 — Database performance audit (Feb 27 2026) ✅
+
+Full DB audit + fixes across all 5 anti-patterns the user requested.
+Backend live-verified — 30 indexes ensured at boot, 25/25 regression
+tests pass, no schema breakage, no auth regression.
+
+### 1. Connection pool — `main.py` (1 fix) 🔴 P0 prod-critical
+- Was: `AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=5000)` — silently capped at Motor default `maxPoolSize=100`.
+- Now: `maxPoolSize=50, minPoolSize=5, maxIdleTimeMS=30_000, connectTimeoutMS=10_000, retryWrites=True`.
+
+### 2. Missing indexes — `scripts/init_prod_collections.py` (12 collections × 27 new indexes) 🔴 P0
+Hot collections caught running on `_id` only — now all indexed:
+`github_connections, aurem_cto_deploy_runs, api_keys, user_seo_claims, thinking_hints, thinking_hints_config, onboarding_projects, founder_offer, cto_maxx_usage, cto_codebase_index, topup_alerts, project_graphs, ora_patterns, onboarding_emails`.
+Boot log: `indexed=30, errors=0`. COLLSCAN → IXSCAN flip = 10-100× speed-up.
+
+### 3. N+1 queries — 5 fixes 🟠 P1
+- `routers/admin.py:223` — 3× `count_documents` per bucket → 1 `$cond` aggregation
+- `routers/admin.py:626` — `find()` per ticket → 1 `$in` batch + Python bucketing
+- `routers/automations.py:88` — `find_one` per rule → 1 `$in` over user_ids
+- `services/onboarding_email.py:232` — 2× `find_one` per candidate → 2 `$in` batches
+- `services/topup_alerts.py:101` — per-result `find_one` + 3-branch writes → 1 batch `$in` + 1 `bulk_write` (mixed `InsertOne`/`UpdateOne`/`UpdateMany`)
+- `cto_projects.py:1803` was a false positive (SSE 2s keep-alive poll).
+
+### 4. SELECT * projection — 12 fixes 🟡 P2
+- 10× `cto_projects.find_one(...)` in `routers/cto_projects.py` bulk-projected (exclude `repo_index_summary`, `brain_text`, `repo_index_blocks`, `last_commit_diff`, `_id`). Static audit proved zero callers read those heavy fields.
+- `routers/auth.py:169` signup dup-check narrowed to `{email: 1}`
+- `routers/payments.py:512` billing-portal lookup narrowed to `{stripe_sub_id: 1}`
+- `cto_tasks` find_one sites skipped — both legitimately read `commit_diff`.
+
+### 5. Pagination — 0 strict violations ✅
+No `.to_list(None)` anywhere; the 3 "hard cap" findings are aggregation endpoints, not list endpoints.
+
+### Files touched (9)
+- `backend/main.py`, `backend/scripts/init_prod_collections.py`, `backend/routers/admin.py`, `backend/routers/automations.py`, `backend/routers/auth.py`, `backend/routers/payments.py`, `backend/routers/cto_projects.py`, `backend/services/onboarding_email.py`, `backend/services/topup_alerts.py`
+
+### Verification
+- ✅ Ruff clean on all 9 touched files
+- ✅ `pytest` 25/25 pass (init_collections + iter212m66 + iter212m55)
+- ✅ Boot log: `indexed=30, errors=0`
+- ✅ Live curl: signup dup → 409 ✓, login → 200 ✓, admin/users with new aggregation → 200 + 43 rows ✓
+
+---
+
 ## Iter 212m-68 — SEO + GEO + AEO overhaul (Feb 27 2026) ✅
 
 Full discovery-layer overhaul so ORA shows up correctly on Google,

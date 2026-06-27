@@ -166,7 +166,12 @@ async def signup(body: SignupBody) -> dict:
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
-    existing = await db.dev_users.find_one({"email": body.email})
+    # Iter 212m-70 — projection: signup only needs the existence check
+    # plus the email field for the duplicate-message logic.  No need
+    # to pull password_hash / failed_logins / tokens_remaining etc.
+    existing = await db.dev_users.find_one(
+        {"email": body.email}, {"_id": 0, "email": 1},
+    )
     if existing:
         raise HTTPException(409, "Email already registered")
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
