@@ -86,6 +86,66 @@ _DEFAULT_FREE_MODELS = [
 # fallback chain has failed. Never called speculatively.
 _GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+
+# ─── Iter 212m-51 — DeepSeek direct API as second-hop fallback ────────
+# Independent vendor (api.deepseek.com, separate billing account from
+# OpenRouter) — covers the case where the user's OpenRouter credits
+# are exhausted but they still want PAID quality before dropping to
+# the free tier. Sits between OpenRouter primary and the OR :free
+# chain so the priority order is:
+#   1. OpenRouter primary (paid)        — best routing flexibility
+#   2. DeepSeek direct (paid)           — independent vendor failover
+#   3. OpenRouter :free chain           — free models, throttled
+#   4. Groq emergency (free)            — true last resort
+#
+# Per the integration playbook (Feb 2026): model slug pinned to
+# `deepseek-v4-flash` (the legacy `deepseek-chat` / `deepseek-coder`
+# aliases hard-deprecate on 2026-07-24). DeepSeek's API is OpenAI-
+# compatible so the existing payload shape passes straight through.
+_DEEPSEEK_DIRECT_URL   = "https://api.deepseek.com/chat/completions"
+_DEEPSEEK_DIRECT_MODEL = os.getenv("DEEPSEEK_DIRECT_MODEL", "deepseek-v4-flash")
+
+
+def _deepseek_direct_key() -> str:
+    return os.environ.get("DEEPSEEK_API_KEY", "")
+
+
+async def _call_deepseek_direct(
+    messages: list,
+    system: str = "",
+    max_tokens: int = 1500,
+    temperature: float = 0.7,
+) -> str:
+    """Call DeepSeek's own API directly (NOT via OpenRouter).
+
+    Used as the second hop in the fallback chain. Raises on any error
+    so the caller (`_call_deepseek` / `call_openrouter_model`) can
+    decide whether to walk forward to the next hop. Returns "" only
+    if the API responds 200 with empty content (treat as soft fail
+    so we walk forward).
+    """
+    key = _deepseek_direct_key()
+    if not key:
+        raise RuntimeError("DEEPSEEK_API_KEY not set — direct fallback unavailable")
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    msgs = ([{"role": "system", "content": system}] + messages) if system else messages
+    payload = {
+        "model": _DEEPSEEK_DIRECT_MODEL,
+        "messages": msgs,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    # Playbook-prescribed timeout (30s standard; 120s only for reasoning).
+    timeout_s = float(os.getenv("DEEPSEEK_DIRECT_TIMEOUT_S", "30.0"))
+    async with httpx.AsyncClient(timeout=timeout_s) as c:
+        r = await c.post(_DEEPSEEK_DIRECT_URL, headers=headers, json=payload)
+        r.raise_for_status()
+        data = r.json()
+    return (data["choices"][0]["message"].get("content") or "").strip()
+
 # Iter 212m-50 — Groq-only house rules. The file is read once at
 # module load (cheap, ~1 KB) and silently absent → defaults apply.
 # These rules nudge Groq toward the same shape/voice that ORA uses
@@ -411,9 +471,58 @@ async def _call_deepseek(messages: list, system: str = "",
                 )
                 raise
             logger.warning(
-                "OpenRouter %s failed (fallback-worthy, %d/%d): %r — walking free chain",
+                "OpenRouter %s failed (fallback-worthy, %d/%d): %r — walking chain",
                 cand_model, ci + 1, len(candidates), e,
             )
+            # Iter 212m-51 — after the PRIMARY OpenRouter model fails
+            # (and before we walk the OpenRouter free chain), try the
+            # DeepSeek direct API. Independent vendor / billing →
+            # bypasses OpenRouter credit exhaustion entirely while
+            # still delivering paid-tier quality. Only attempted once
+            # per call; if it ALSO fails we silently continue down
+            # the free chain.
+            if ci == 0 and _deepseek_direct_key():
+                try:
+                    logger.warning(
+                        "OpenRouter primary failed, trying DeepSeek direct (model=%s)…",
+                        _DEEPSEEK_DIRECT_MODEL,
+                    )
+                    ds_content = await _call_deepseek_direct(
+                        messages=messages,
+                        system=system,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    if ds_content:
+                        logger.warning(
+                            "DeepSeek call served by DeepSeek-direct model=%s",
+                            _DEEPSEEK_DIRECT_MODEL,
+                        )
+                        _set_last_provider("deepseek_direct", _DEEPSEEK_DIRECT_MODEL)
+                        return ds_content
+                    logger.warning(
+                        "DeepSeek direct returned empty content — walking free chain"
+                    )
+                except Exception as dse:
+                    if isinstance(dse, httpx.HTTPStatusError) and \
+                       dse.response.status_code in (400, 422):
+                        # GENUINE prompt-level error from DeepSeek
+                        # (request shape / parameters bad). Burning
+                        # the free chain on the same broken prompt
+                        # is pointless — abort.
+                        logger.warning(
+                            "DeepSeek direct rejected request (%d) — aborting chain",
+                            dse.response.status_code,
+                        )
+                        raise
+                    # 401 = bad key (config drift), 402 = balance,
+                    # 429 = throttle, 5xx = vendor issue. None of
+                    # these are the user's fault — keep walking the
+                    # OR free chain so they still get a response.
+                    logger.warning(
+                        "DeepSeek direct failed (%r) — walking OpenRouter free chain",
+                        dse,
+                    )
             continue
 
     if data is None:
@@ -641,6 +750,46 @@ async def call_openrouter_model(
                 "call_openrouter_model(%s) fallback-worthy failure (%d/%d): %r",
                 candidate, i + 1, len(candidates), e,
             )
+            # Iter 212m-51 — after the PRIMARY OpenRouter model fails
+            # (and before walking the OpenRouter :free chain), try
+            # DeepSeek direct. Same priority order as `_call_deepseek`
+            # so all paths (chat / agents / Vanguard / Mode D) share
+            # the same vendor-independent failover.
+            if i == 0 and _deepseek_direct_key():
+                try:
+                    logger.warning(
+                        "call_openrouter_model: primary %r failed, "
+                        "trying DeepSeek direct (model=%s)…",
+                        model, _DEEPSEEK_DIRECT_MODEL,
+                    )
+                    ds_content = await _call_deepseek_direct(
+                        messages=[{"role": "user", "content": user}],
+                        system=system,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    if ds_content:
+                        logger.warning(
+                            "call_openrouter_model: served by DeepSeek-direct model=%s",
+                            _DEEPSEEK_DIRECT_MODEL,
+                        )
+                        _set_last_provider("deepseek_direct", _DEEPSEEK_DIRECT_MODEL)
+                        return ds_content
+                except Exception as dse:
+                    if isinstance(dse, httpx.HTTPStatusError) and \
+                       dse.response.status_code in (400, 422):
+                        logger.warning(
+                            "DeepSeek direct rejected agent prompt (%d) — aborting chain",
+                            dse.response.status_code,
+                        )
+                        return ""
+                    # 401/402/429/5xx → bad key / balance / vendor
+                    # issue. Walk forward instead of failing the
+                    # whole agent call.
+                    logger.warning(
+                        "DeepSeek direct failed inside call_openrouter_model (%r) — "
+                        "walking OR free chain", dse,
+                    )
     # Iter 212m-49 — All OpenRouter candidates exhausted. Try the Groq
     # emergency net before giving up. Vendor-independent infra so an
     # OpenRouter-wide outage / global-free-tier 429 storm still gets
