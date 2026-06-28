@@ -42,6 +42,12 @@ export default function NewUserWizard({ onComplete }) {
   // directly so users don't hit the dead-end error state in
   // production where the helper link wasn't clickable.
   const [pat, setPat] = useState("");
+  // Iter 212m-94 — track "user clicked Generate PAT" so we can:
+  //   • auto-focus the PAT input when they tab back from GitHub
+  //   • show a glowing visual cue + success step indicator
+  //   • dismiss the cue once they've actually pasted something
+  const [patGenClicked, setPatGenClicked] = useState(false);
+  const patInputRef = React.useRef(null);
   const [task, setTask]         = useState("");
   const [projectId, setProject] = useState(null);
   const [taskId, setTaskId]     = useState(null);
@@ -81,6 +87,27 @@ export default function NewUserWizard({ onComplete }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Iter 212m-94 — auto-focus the PAT input when the user tabs back
+  // from the GitHub PAT-creation page. We listen for window focus
+  // events and snap focus + scroll to the PAT input if the user has
+  // clicked "Generate PAT" but hasn't yet pasted a token.
+  useEffect(() => {
+    if (!patGenClicked || pat) return;
+    const onFocus = () => {
+      // small delay so the focus lands AFTER browser tab switch animation
+      setTimeout(() => {
+        if (patInputRef.current) {
+          patInputRef.current.focus();
+          patInputRef.current.scrollIntoView({
+            behavior: "smooth", block: "center",
+          });
+        }
+      }, 250);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [patGenClicked, pat]);
 
   async function fetchRepos() {
     setReposBusy(true);
@@ -416,23 +443,38 @@ export default function NewUserWizard({ onComplete }) {
                       (required · Contents: Read &amp; write)
                     </span>
                   </label>
-                  <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                  <div style={{
+                    display: "flex", gap: 6, alignItems: "stretch",
+                    transition: "all .25s ease",
+                    ...(patGenClicked && !pat ? {
+                      // Glow ring when user just generated PAT but hasn't pasted yet
+                      boxShadow: "0 0 0 3px rgba(255,102,8,0.28)",
+                      borderRadius: 6,
+                    } : {}),
+                  }}>
                     <input
                       id="wizard-pat-input"
                       data-testid="wizard-pat-input"
+                      ref={patInputRef}
                       type="password"
                       autoComplete="off"
                       value={pat}
                       onChange={(e) => setPat(e.target.value)}
-                      placeholder="ghp_… or github_pat_…"
+                      placeholder={patGenClicked && !pat
+                        ? "Paste your fresh PAT here ↓"
+                        : "ghp_… or github_pat_…"}
                       style={{ ...iStyle, flex: 1, fontFamily:
-                        "var(--font-mono, ui-monospace, monospace)" }}
+                        "var(--font-mono, ui-monospace, monospace)",
+                        ...(patGenClicked && !pat
+                          ? { borderColor: "#FF6608" } : {}),
+                      }}
                     />
                     <a
                       data-testid="wizard-generate-pat-btn"
                       href="https://github.com/settings/tokens/new?scopes=repo&description=AUREM%20CTO%20(per-project)"
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => setPatGenClicked(true)}
                       style={{
                         display: "inline-flex", alignItems: "center",
                         gap: 6, padding: "9px 14px", fontSize: 12,
@@ -441,8 +483,44 @@ export default function NewUserWizard({ onComplete }) {
                         border: "1px solid #FF6608", borderRadius: 6,
                         textDecoration: "none", cursor: "pointer",
                       }}
-                    >Generate PAT →</a>
+                    >{patGenClicked ? "Open GitHub again" : "Generate PAT →"}</a>
                   </div>
+
+                  {/* Iter 212m-94 — Strong "next step" CTA visible only
+                      after Generate PAT click. Walks the user back
+                      from GitHub to the paste-here input. */}
+                  {patGenClicked && !pat && (
+                    <div data-testid="wizard-paste-pat-cta" style={{
+                      marginTop: 8, padding: "10px 12px", borderRadius: 6,
+                      background: "rgba(255,102,8,0.08)",
+                      border: "1px solid rgba(255,102,8,0.36)",
+                      color: "#FF6608", fontSize: 12, fontWeight: 600,
+                      display: "flex", alignItems: "center", gap: 8,
+                      fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                    }}>
+                      <span style={{
+                        display: "inline-block", width: 6, height: 6,
+                        borderRadius: "50%", background: "#FF6608",
+                        boxShadow: "0 0 8px #FF6608",
+                        animation: "oraBlink 1.5s infinite",
+                      }} />
+                      <span style={{ flex: 1 }}>
+                        GitHub tab opened ↑ — copy your new token, paste it above, then hit <strong>Continue</strong>.
+                      </span>
+                    </div>
+                  )}
+
+                  {pat && pat.length > 10 && (
+                    <div data-testid="wizard-pat-ready" style={{
+                      marginTop: 8, padding: "8px 12px", borderRadius: 6,
+                      background: "rgba(34,197,94,0.08)",
+                      border: "1px solid rgba(34,197,94,0.36)",
+                      color: "#22C55E", fontSize: 11, fontWeight: 600,
+                      fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                    }}>
+                      ✓ Token detected — click <strong>Continue</strong> to connect this repo.
+                    </div>
+                  )}
                   <p style={{
                     margin: "6px 0 0", fontSize: 10,
                     color: "var(--text-faint)",
