@@ -6,7 +6,7 @@ export const C = {
   sidebar: "#0F0F1E",
   main:    "#1A1A2E",
   panel:   "#141420",
-  orange:  "#E8A020",
+  orange:  "#FF6608",
   white:   "#FFFFFF",
   gray:    "#888888",
   border:  "#2A2A3E",

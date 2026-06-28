@@ -25,7 +25,7 @@ function HealthRing({ score = 87 }) {
       <div className="relative size-9 shrink-0">
         <svg viewBox="0 0 36 36" className="size-9 -rotate-90">
           <circle cx="18" cy="18" r={r} fill="none" stroke="#222222" strokeWidth="3" />
-          <circle cx="18" cy="18" r={r} fill="none" stroke="#e8a020" strokeWidth="3"
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#FF6608" strokeWidth="3"
             strokeLinecap="round" strokeDasharray={c} strokeDashoffset={offset} />
         </svg>
         <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums text-foreground">{score}</span>
@@ -35,7 +35,13 @@ function HealthRing({ score = 87 }) {
   );
 }
 
-export function TopBar({ tab, onTabChange, mode, onModeChange, hidden = false, onNewRun }) {
+export function TopBar({
+  tab, onTabChange, mode, onModeChange,
+  hidden = false, onNewRun,
+  // Iter 212m-82 — live breadcrumb + healthScore (null → ring hidden)
+  breadcrumb = { owner: "TJSNDHU", repo: "Aurem", branch: "main" },
+  healthScore = null,
+}) {
   return (
     <header data-testid="ds2-topbar" className={cn(
       "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0c0c0c]/90 backdrop-blur-xl",
@@ -44,11 +50,13 @@ export function TopBar({ tab, onTabChange, mode, onModeChange, hidden = false, o
     )}>
       <div className="flex h-[48px] items-center gap-3 px-5">
         <nav className="flex min-w-0 flex-1 items-center gap-[5px] font-mono text-[11px]">
-          <span className="text-muted-foreground">TJSNDHU/Aurem</span>
-          <ChevronRight className="size-3 shrink-0 text-border" strokeWidth={2} />
-          <span className="text-muted-foreground">main</span>
-          <ChevronRight className="size-3 shrink-0 text-border" strokeWidth={2} />
-          <span className="truncate text-foreground">feat/streaming</span>
+          {breadcrumb.owner && (
+            <>
+              <span className="text-muted-foreground truncate">{breadcrumb.owner}/{breadcrumb.repo}</span>
+              <ChevronRight className="size-3 shrink-0 text-border" strokeWidth={2} />
+            </>
+          )}
+          <span className="truncate text-foreground">{breadcrumb.branch}</span>
         </nav>
 
         <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#0a0a0a] p-[3px]">
@@ -63,8 +71,12 @@ export function TopBar({ tab, onTabChange, mode, onModeChange, hidden = false, o
           ))}
         </div>
 
-        <HealthRing score={87} />
-        <div className="h-5 w-px bg-border" />
+        {typeof healthScore === "number" && (
+          <>
+            <HealthRing score={healthScore} />
+            <div className="h-5 w-px bg-border" />
+          </>
+        )}
 
         <button onClick={onNewRun} data-testid="ds2-new-run"
           className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-[6px] text-[12px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:scale-95">

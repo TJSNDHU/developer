@@ -51,7 +51,7 @@ export function GraphView() {
             const isActive = a.kind === "active" && b.kind === "active";
             return (
               <line key={i} x1={`${a.x}%`} y1={`${a.y}%`} x2={`${b.x}%`} y2={`${b.y}%`}
-                stroke={isActive ? "#E8A020" : "#222222"}
+                stroke={isActive ? "#FF6608" : "#222222"}
                 strokeWidth={isActive ? 2 : 1.5}
                 strokeOpacity={isActive ? 0.9 : 0.7} />
             );

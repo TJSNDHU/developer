@@ -55,7 +55,7 @@ export function useChatSession() {
 }
 
 // ── Shell ──────────────────────────────────────────────────────────────
-export default function Shell({ children, requireAuth }) {
+export default function Shell({ children, requireAuth, chromeless = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const user = getUser();
@@ -346,6 +346,11 @@ export default function Shell({ children, requireAuth }) {
       sessionId, setSessionId, refreshSessions,
       tokensRemaining, setTokensRemaining, refreshTokens,
     }}>
+      {/* Iter 212m-82 — `chromeless` escape hatch.  When set, Shell
+          still runs the auth gate + provides SessionCtx, but skips
+          its legacy sidebar/topbar so a new page (DashboardV2) can
+          render its own chrome around the same {children}. */}
+      {chromeless ? <>{children}</> : (
       <div
         className="aurem-app-shell"
         data-collapsed={collapsed ? "true" : "false"}
@@ -960,6 +965,7 @@ export default function Shell({ children, requireAuth }) {
           {children}
         </main>
       </div>
+      )}
       {token && <PWAInstallPrompt />}
       {/* Iter 149 — Floating ORA Panel. Mounted only when an authenticated
           token is present so the panel inherits the logged-in user's JWT
