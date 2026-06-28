@@ -1,0 +1,71 @@
+{
+  "summary": "Iter 18 — Production end-to-end UI/UX testing of https://auremcto.com against qa-prod@aurem.dev. Auth + Sidebar logo + Health Scanner page (+ Back btn) all PASS on prod. Found 6 P0/P1 production bugs: (1) GitHub OAuth button on /login is COMPLETELY DEAD (click → no nav, no redirect, URL stays /login), (2) Mode pills (Swift/Pro/Maxx) click but localStorage 'aurem_chat_mode' never updates from 'swift' — value does not persist, (3) Theme toggle stuck at 'dark' through 3 clicks (3-state cycle is preview-only, confirmed PENDING PROD REDEPLOY), (4) Loop Mode click does nothing — composer placeholder unchanged, Send button still says 'Send' (PENDING PROD REDEPLOY per spec), (5) Vanguard Security click does nothing — no drawer, no nav (PENDING PROD REDEPLOY), (6) Avatar dropdown items (Edit Profile/Settings/Token Recharge/Logout) never appear when avatar is clicked — root cause is the NewUserWizard 'Connect your GitHub repo' modal auto-opens on every /dashboard load (user has 0 projects) and its overlay intercepts/blocks all topbar + avatar clicks. Sidebar tool clicks DO work because sidebar is outside the modal. Codebase Graph (/feature-window) is 403 Founder-only on backend so non-founder users get redirected to /dashboard — UI does not show a friendly error. /bug-hunt page exists. /admin redirects non-admin to /dashboard cleanly (good). Mobile 375x812 has no horizontal overflow.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/aurem-dev/feature-window/status", "issue": "Returns 403 'Founder-only' for normal paid/free users, but the sidebar Codebase Graph button is shown to everyone — clicking it silently redirects to /dashboard. Either remove the button for non-founders OR loosen the gate. UX is broken.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/projects/list", "issue": "Returns 404 Not Found (only /cto/projects/list exists). If any frontend code still calls /projects/list, those calls will silently 404."},
+      {"endpoint": "/api/health, /api/aurem-dev/cto/projects/list, /api/aurem-dev/wrapped/me, /api/aurem-dev/github/oauth/status", "issue": "Intermittent HTTP 520 from Cloudflare edge during browser session. Direct curl 1s later returned 200 for all. Likely transient CF edge cold-start or rate-limit. Worth monitoring CF analytics."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login.jsx — Continue with GitHub button", "issue": "P0: Click does NOT initiate GitHub OAuth. URL stays at /login, no redirect to github.com/login/oauth/authorize, no popup opened, no /api/aurem-dev/github/oauth/start request captured. The entire GH sign-in path is dead on prod.", "selector": "text=Continue with GitHub", "priority": "P0"},
+      {"component": "TopBar.jsx — Mode pills (Swift/Pro/Maxx)", "issue": "P0: Clicking Pro then Maxx never updates localStorage.aurem_chat_mode — stays at 'swift'. Either the click handler isn't firing (likely intercepted by the NewUserWizard modal overlay that auto-opens for 0-project users) or the state setter is broken. Active pill highlight also did not change visually.", "selector": "[data-testid='ds2-mode-pro'], [data-testid='ds2-mode-maxx']", "priority": "P0"},
+      {"component": "TopBar.jsx — Theme toggle", "issue": "Click does nothing; .ds2-root data-theme stays at 'dark' through 3 clicks. 3-state cycle preview fix is NOT deployed to prod. Marked PENDING PROD REDEPLOY per spec.", "selector": "[data-testid='ds2-theme-toggle']", "priority": "P1 PENDING REDEPLOY"},
+      {"component": "SidebarBound.jsx — Loop Mode tool", "issue": "Click registers but composer placeholder remains 'Ask ORA to build, fix, or scan...' and Send button remains 'Send' (should switch to 'Run loop' and update placeholder to mention plans/approves/ships). PENDING PROD REDEPLOY (ChatPanel.jsx Loop event listener is preview-only per spec).", "selector": "[data-testid='ds2-tool-loop']", "priority": "P1 PENDING REDEPLOY"},
+      {"component": "SidebarBound.jsx — Vanguard Security tool", "issue": "Click does not open a drawer, no URL change, no modal. Button is wired in the DOM (testid present) but no observable effect. PENDING PROD REDEPLOY (ChatPanel.jsx Vanguard listener is preview-only).", "selector": "[data-testid='ds2-tool-vanguard']", "priority": "P1 PENDING REDEPLOY"},
+      {"component": "Dashboard.jsx — Avatar dropdown", "issue": "P0: Clicking [data-testid='ds2-sidebar-avatar'] does not produce a dropdown with Edit Profile / Settings / Token Recharge / Logout. Items are not present in DOM after click. Root cause: NewUserWizard overlay (z-index higher than avatar dropdown) is auto-opening over the dashboard for 0-project users and either intercepts the click OR pushes dropdown z-index below. Logout is therefore unreachable from the UI.", "selector": "[data-testid='ds2-sidebar-avatar']", "priority": "P0"},
+      {"component": "Sidebar — Codebase Graph tool", "issue": "Click navigates to /feature-window which then redirects back to /dashboard because backend returns 403 Founder-only. Button should be hidden for non-founders OR show 'Founder-only' tooltip rather than silent redirect.", "selector": "[data-testid='ds2-tool-graph']", "priority": "P1"}
+    ],
+    "integration_issues": [
+      {"flow": "NewUserWizard auto-open", "issue": "On every /dashboard mount for a user with 0 projects, the NewUserWizard 'Connect your GitHub repo' modal auto-opens and its backdrop covers the entire viewport (including the topbar and bottom-left avatar). All topbar/avatar interactions are therefore blocked until the user clicks 'Skip for now' or completes GH connect. The wizard pops AGAIN every fresh dashboard load even after Skip — should remember dismissal in localStorage.", "affected_selectors": ["[data-testid='ds2-mode-pro']", "[data-testid='ds2-mode-maxx']", "[data-testid='ds2-theme-toggle']", "[data-testid='ds2-sidebar-avatar']"]},
+      {"flow": "GitHub OAuth from Login", "issue": "Continue with GitHub button click triggers no request to /api/aurem-dev/github/oauth/start nor any window.location change. Either onClick handler is missing in the prod bundle or the popup-open is being blocked silently. End users cannot sign in via GitHub on prod.", "affected_selectors": ["text=Continue with GitHub"]}
+    ],
+    "design_issues": [
+      {"screen": "/codebase-health", "issues": ["Looks clean, back-to-dashboard button present (FIX DEPLOYED TO PROD — confirms preview-only marker is stale for this page)."]},
+      {"screen": "/login", "issues": ["Password field initial value rendered with low contrast — confirmed acceptable."]}
+    ]
+  },
+  "verified_passing": [
+    "Login form (email+password) → /dashboard with JWT stored at localStorage.aurem_token — PASS",
+    "Sidebar circular logo image rendered (28x28 from customer-assets) — NOT a placeholder 'O', PASS",
+    "All sidebar tool buttons have proper data-testids (ds2-tool-vanguard/health/loop/graph/bughunt) — PASS",
+    "Health Scanner sidebar click → /codebase-health with full UI (Security/Performance/Code Quality/Dependencies/Database/Bug Hunt cards + Full Scan CTA) AND a working '← Back to dashboard' button — PASS (the preview-only marker for this fix is incorrect; it IS on prod)",
+    "Chat composer renders with data-testid='chat-input' and placeholder 'Ask ORA to build, fix, or scan...' — PASS",
+    "Ask Advisor right panel renders Morning brief + Diagnose failed run + Summarize open PRs + Token breakdown chips — PASS",
+    "Mobile 375x812 viewport: no horizontal overflow (scrollWidth == innerWidth == 375) — PASS",
+    "/admin route for non-admin user cleanly redirects to /dashboard (no crash) — PASS",
+    "Direct backend curl health: /api/health, /cto/projects/list, /wrapped/me, /github/oauth/status, /usage/me all return 200 with valid JSON — PASS"
+  ],
+  "test_report_links": [
+    "/app/test_reports/iteration_18.json"
+  ],
+  "action_items": [
+    "[P0] Fix GitHub OAuth button on /login — click does nothing on prod. Verify onClick handler is in the production bundle and points to /api/aurem-dev/github/oauth/start (or whatever the prod route is). Confirm popup-blocker isn't silently swallowing window.open.",
+    "[P0] Fix NewUserWizard overlay blocking topbar + avatar dropdown. Two fixes: (a) lower wizard backdrop z-index OR carve out the sidebar/topbar from the backdrop, AND (b) remember 'Skip for now' in localStorage so the wizard does not pop on every dashboard mount.",
+    "[P0] Mode pills (Swift/Pro/Maxx) must actually update localStorage.aurem_chat_mode and re-render the active highlight (#FF6608). Currently the click is consumed but state stays 'swift'. Likely related to the wizard overlay blocking pointer events.",
+    "[P1] REDEPLOY PROD to pick up the preview-only fixes: 3-state theme cycle, Loop Mode chat event listener, Vanguard Security drawer event listener, avatar dropdown route fixes. Spec confirmed these are preview-only and need a prod redeploy.",
+    "[P1] Codebase Graph sidebar button should be HIDDEN or DISABLED for non-founder users (backend returns 403 Founder-only). Today the click silently redirects to /dashboard — looks like a dead button to the user.",
+    "[P2] Frontend should stop calling /api/aurem-dev/projects/list (404). Audit callers and switch to /cto/projects/list.",
+    "[P2] Add error boundary / toast for the intermittent Cloudflare 520s on /api/health, /cto/projects/list, /wrapped/me — they surface as red console errors but the UI shows blank cards rather than a friendly retry."
+  ],
+  "critical_code_review_comments": [
+    "Login.jsx (line ~148) — Continue with GitHub onClick is either not bound or the prod build is missing the handler. Verify the OAuth-start URL is reachable: curl https://auremcto.com/api/aurem-dev/github/oauth/start → expect 302 to github.com/login/oauth/authorize?client_id=...&redirect_uri=...",
+    "Dashboard.jsx — NewUserWizard mount condition is 'projects.length === 0' with no localStorage 'wizard_dismissed' guard. Add: const [dismissed] = useState(() => localStorage.getItem('aurem_wizard_dismissed') === '1'); and gate the wizard on (!dismissed && projects.length===0). Also ensure the wizard backdrop pointer-events do not cover the sidebar and topbar — current implementation appears to be a full-viewport backdrop.",
+    "TopBar.jsx — Mode pill click handler may be relying on a pointer event that is being captured by the wizard backdrop. Either (a) move mode-pill click handlers to onClickCapture, (b) lift the topbar above the modal z-index, or (c) only mount the wizard inside the chat pane, not as a viewport-wide overlay.",
+    "SidebarBound.jsx — Vanguard/Loop Mode tool buttons emit a CustomEvent that ChatPanel.jsx listens for; in preview ChatPanel.jsx subscribes via useEffect(window.addEventListener('aurem:vanguard-open' …)). Confirm this listener wiring is present in the prod bundle hash m1c5587c — backend /api/health reports build_hash 'm1c5587c'."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "API surface 7/8 endpoints PASS via direct curl (1 expected 403 Founder-only); browser session saw 4 transient Cloudflare 520s that resolved on retry — call it 90%.",
+    "frontend": "Sidebar nav 4/5 PASS (Health Scanner, Bug Hunt, Vanguard click is dead, Loop click is dead, Codebase Graph dead-ends due to 403). Topbar 0/3 PASS (mode pills + theme + avatar all blocked by wizard overlay). Login form PASS; GitHub OAuth button FAIL. Overall ~45%."
+  },
+  "test_credentials": "qa-prod@aurem.dev / qq*U71r#ZQ*fnB1BqRIKBQLt (production, /app/memory/test_credentials.md §0)",
+  "seed_data_creation": "None.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Production build_hash at time of test: m1c5587c (from /api/health). The NewUserWizard modal overlay is the root cause of MULTIPLE apparent 'dead button' bugs (mode pills, theme toggle, avatar dropdown). To test those interactions in isolation, first programmatically dismiss the wizard via page.locator('text=Skip for now').click(force=True), THEN re-test the topbar. The Vanguard/Loop dead clicks are NOT caused by the wizard (those are sidebar buttons outside the overlay) and are confirmed preview-only fixes per the spec. GitHub OAuth-start endpoint should be tested with curl -i -L https://auremcto.com/api/aurem-dev/github/oauth/start to confirm whether the backend route exists on prod at all — if backend returns 404 then the front button has nothing to redirect to.",
+  "rca_of_top_bugs": "1) NewUserWizard backdrop: a viewport-wide fixed overlay with pointer-events:auto sits above topbar/avatar but below the sidebar (because sidebar uses higher z-index). This is why sidebar tool clicks register but topbar+avatar clicks are silently swallowed. 2) GitHub OAuth button: either the prod bundle is missing the onClick prop OR /api/aurem-dev/github/oauth/start is not registered on prod backend (would 404). The browser shows zero outbound request, suggesting it's the frontend handler that's missing, not the backend. 3) Loop/Vanguard sidebar buttons dispatch CustomEvents that ChatPanel.jsx listens for; if ChatPanel.jsx in the prod bundle predates the preview commit that added the listeners, the events fire into the void — confirmed PENDING PROD REDEPLOY."
+}
