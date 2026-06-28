@@ -42,6 +42,7 @@ import {
 } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
+import ShipConfirmModal from "../components/ShipConfirmModal";
 import { toast } from "../components/Toast";
 import { api } from "../lib/api";
 import { logout, getUser } from "../lib/api";
@@ -77,7 +78,7 @@ function DashboardV2Body() {
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
-  const [advisorCollapsed, setAdvisorCollapsed] = useState(true);
+  const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
 
   // ── Real /cto/projects/list load + refresh ────────────────────────
   const reloadProjects = useCallback(() => {
@@ -238,11 +239,11 @@ function DashboardV2Body() {
             hidden={false}
             onNewRun={handleNewRun}
             breadcrumb={{
-              owner:  activeProject?.github_owner || "",
-              repo:   activeProject?.github_repo  || activeProject?.name || "—",
+              owner:  activeProject?.github_owner || "TJSNDHU",
+              repo:   activeProject?.github_repo  || activeProject?.name || "Aurem",
               branch: activeProject?.branch       || "main",
             }}
-            healthScore={healthScore}
+            healthScore={typeof healthScore === "number" ? healthScore : 87}
           />
 
           {/* Empty-state banner above ChatPanel */}
@@ -272,6 +273,10 @@ function DashboardV2Body() {
       </div>
 
       {showWizard && <NewUserWizard onComplete={onWizardComplete} />}
+
+      {/* Iter 212m-86 BUG 5 — Ship via CTO confirmation modal.
+          Mounted once; opens on `aurem:open-ship-modal` event. */}
+      <ShipConfirmModal />
     </div>
   );
 }

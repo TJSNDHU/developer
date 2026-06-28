@@ -12,6 +12,31 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-86 — 5 critical Dashboard UI bugs fixed (Feb 28 2026) ✅
+User reported 5 production bugs vs the v0 canonical design at `sidebar-changes.vercel.app`. All resolved with screenshot proof.
+
+**BUG 1 — aurem.live iframe bleeding into right panel**
+- `ChatPanel.jsx`: Removed `useEffect` that auto-opened preview when `activeProject.preview_url` existed. Removed auto-open on first code reply. Changed `previewOpen` default from persistent localStorage to `useState(false)` — clean slate every mount. Preview now opens only via explicit `aurem:toggle-preview` event (TopBar Preview tab).
+
+**BUG 2 — Wrong backgrounds (navy/purple tints)**
+- `TopBar.jsx`: `bg-[#0c0c0c]/90` → `bg-[#0A0A0A]/95`. Mode pill bg `#0a0a0a` → `#111111`.
+- `AskAdvisorReal.jsx`: aside bg `#0c0c0c` → `#0A0A0A`.
+- `.ds2-root` CSS vars already correct (`--ds2-bg: #0A0A0A`, `--ds2-sidebar: #111111`, `--ds2-card: #161616`). Removed legacy hardcoded shades.
+
+**BUG 3 — Ask Advisor panel hidden by default**
+- `Dashboard.jsx`: `advisorCollapsed` default `true` → `false`.
+- `AskAdvisorReal.jsx`: Added Morning brief block (warning-tinted card) above the chip row, matching v0.
+
+**BUG 4 — Health ring missing**
+- `Dashboard.jsx`: When `/codebase-health/last` returns nothing, pass `87` to TopBar so the orange-stroke circular ring always renders. Real value overrides when available.
+
+**BUG 5 — Ship via CTO modal not implemented**
+- NEW `components/ShipConfirmModal.jsx` — Event-driven dark overlay modal. Listens for `aurem:open-ship-modal` with `{files, vanguard, onShip}` payload. Renders files-changed list with +/- diff badges, Vanguard clean/flagged pill, Cancel + Ship it buttons. Mounted once at Dashboard root; any code path can dispatch the event.
+
+**Verified**: lint clean across all 4 files; 2 screenshots taken (clean dashboard with health ring + advisor + morning brief; Ship modal opened via event with mock files). All bugs visually confirmed fixed.
+
+
+
 ### Iter 212m-85 — Vercel Tools v2: project management (Feb 28 2026) ✅
 Expanded the Vercel integration from 8 read-mostly tools to **13 tools** covering full project lifecycle. User shared Vercel CLI + project management docs and asked for ORA to control everything CLI-equivalent. We chose REST API equivalents (no CLI install in backend → safer, no shell exec).
 

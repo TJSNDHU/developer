@@ -44,7 +44,7 @@ export function TopBar({
 }) {
   return (
     <header data-testid="ds2-topbar" className={cn(
-      "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0c0c0c]/90 backdrop-blur-xl",
+      "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0A0A0A]/95 backdrop-blur-xl",
       "transition-transform duration-200 ease-in-out",
       hidden ? "-translate-y-full" : "translate-y-0",
     )}>
@@ -59,7 +59,7 @@ export function TopBar({
           <span className="truncate text-foreground">{breadcrumb.branch}</span>
         </nav>
 
-        <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#0a0a0a] p-[3px]">
+        <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#111111] p-[3px]">
           {MODES.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => onModeChange(id)}
               data-testid={`ds2-mode-${id}`}

@@ -124,7 +124,7 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
       </button>
 
       <aside className={cn(
-        "flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-[#0c0c0c]",
+        "flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-[#0A0A0A]",
         "transition-transform duration-200 ease-in-out",
         collapsed ? "translate-x-full" : "translate-x-0",
       )}>
@@ -145,6 +145,14 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
             <ChevronRight className="size-4" strokeWidth={2} />
           </button>
+        </div>
+
+        <div className="mx-3 mt-3 shrink-0 rounded-lg border border-warning/20 bg-[#1a1200] p-3">
+          <p className="mb-1 text-[11px] font-bold text-warning">Morning brief</p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            ORA Advisor live · Council few-shot retrieval active · ask any
+            repo, run, or token-usage question
+          </p>
         </div>
 
         <div className="mx-3 mt-3 shrink-0 flex flex-wrap gap-1.5">

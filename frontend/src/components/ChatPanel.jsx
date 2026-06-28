@@ -271,9 +271,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // expects `maxx_mode` so we keep the var alive — but it's a pure
   // derivation now, no setter, no localStorage.
   const maxxMode = chatMode === "maxx";
-  const [previewOpen, setPreviewOpen] = useState(
-    () => localStorage.getItem(PREVIEW_KEY) === "1"
-  );
+  // Iter 212m-86 — default preview CLOSED on every mount (regardless of
+  // localStorage). User must click Preview tab to open. Prevents the
+  // iframe from auto-bleeding into the dashboard right panel.
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBlocks, setPreviewBlocks] = useState([]);
   // Iter 212m-9 — when the ShipDialog banner is clicked we want the
   // PreviewPanel to mount directly in deploy mode. Tracking it here
@@ -710,11 +711,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (blocks.length === 0) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewBlocks(blocks);
-    // Auto-open the panel on first code reply (don't override if user closed it manually mid-session)
-    if (!localStorage.getItem(PREVIEW_KEY)) {
-      setPreviewOpen(true);
-      localStorage.setItem(PREVIEW_KEY, "1");
-    }
+    // Iter 212m-86 — REMOVED auto-open of preview on first code reply.
+    // User reported the iframe bleeding into the dashboard right panel
+    // on mount. Preview now opens ONLY when user clicks the Preview tab
+    // (TopBar v2) or when ChatPanel's "Open preview" button fires
+    // `aurem:toggle-preview`.
   }, [latestAssistant]);
 
   // Iter 169 — when the latest assistant turn shipped a task, fetch
@@ -860,13 +861,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     };
   }, []);
 
-  // Auto-open preview when a project with a preview_url is selected
-  useEffect(() => {
-    if (!activeProject?.preview_url) return;
-    if (localStorage.getItem(PREVIEW_KEY) === "0") return; // user explicitly closed
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPreviewOpen(true);
-  }, [activeProject?.preview_url, activeProject?.project_id]);
+  // Iter 212m-86 — REMOVED `auto-open preview when activeProject.preview_url`.
+  // This was bleeding aurem.live iframe into the dashboard right panel on
+  // mount even when the user just wanted to chat. Preview now opens only
+  // via explicit user action (Preview tab / inline button).
 
   // Load history on session change
   useEffect(() => {
