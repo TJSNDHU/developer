@@ -41,6 +41,8 @@ export function TopBar({
   // Iter 212m-82 — live breadcrumb + healthScore (null → ring hidden)
   breadcrumb = { owner: "TJSNDHU", repo: "Aurem", branch: "main" },
   healthScore = null,
+  // Iter 212m-89 — optional slot for the ShipStreakWidget chip
+  streakSlot = null,
 }) {
   return (
     <header data-testid="ds2-topbar" className={cn(
@@ -74,6 +76,13 @@ export function TopBar({
         {typeof healthScore === "number" && (
           <>
             <HealthRing score={healthScore} />
+            <div className="h-5 w-px bg-border" />
+          </>
+        )}
+
+        {streakSlot && (
+          <>
+            {streakSlot}
             <div className="h-5 w-px bg-border" />
           </>
         )}

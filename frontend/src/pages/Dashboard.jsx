@@ -43,6 +43,7 @@ import {
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import ShipConfirmModal from "../components/ShipConfirmModal";
+import ShipStreakWidget from "../components/ShipStreakWidget";
 import { toast } from "../components/Toast";
 import { api } from "../lib/api";
 import { logout, getUser } from "../lib/api";
@@ -244,6 +245,7 @@ function DashboardV2Body() {
               branch: activeProject?.branch       || "main",
             }}
             healthScore={typeof healthScore === "number" ? healthScore : 87}
+            streakSlot={<ShipStreakWidget />}
           />
 
           {/* Empty-state banner above ChatPanel */}

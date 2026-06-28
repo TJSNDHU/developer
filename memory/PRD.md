@@ -12,7 +12,18 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-88 — Ship via CTO 3-phase Live modal (Feb 28 2026) ✅
+### Iter 212m-89 — Ship Streak widget + milestone share toasts (Feb 28 2026) ✅
+Engagement booster: small pill on the v2 TopBar shows the user's weekly ship count, auto-fires celebratory share toasts on milestones.
+
+- NEW `components/ShipStreakWidget.jsx` — Fetches `/wrapped/me?period=this_week`, renders `🔥 {N} ships this week` pill. Hover reveals **Tweet** / **LinkedIn** share buttons (both open native intent URLs with pre-filled copy + auremcto.com link).
+- Milestones `[10, 25, 50, 100, 250]` — when crossed, fires success toast `🔥 N ships this week — tap to share` (tap opens Twitter). De-duped via `localStorage.aurem_streak_toast_{N}` so each milestone only toasts once per user.
+- Auto-refresh: on mount + on every `aurem:shipped` window event + 60s background poll.
+- Fires custom `aurem:streak-milestone` event so analytics / audit log can hook in.
+- TopBar got an optional `streakSlot` prop; Dashboard mounts `<ShipStreakWidget />` between Health ring and "New run" button.
+
+**E2E verified**: route-intercepted `/wrapped/me` returning `tasks_shipped: 12` → widget renders pill with "12 ships this week", hover reveals Tweet+LinkedIn buttons, milestone toast "10 ships this week — tap to share" appears top-right (10 milestone crossed since 12 ≥ 10).
+
+
 Upgraded `ShipConfirmModal` from a single-purpose confirmation to a full 3-phase Live ship + verify + rollback flow:
 
 **Phase 1 `confirm`** — Files changed list + Vanguard preflight pill + Cancel/Ship it (unchanged from 212m-86).
