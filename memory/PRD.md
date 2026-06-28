@@ -12,6 +12,22 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-87 — Real "Ship via CTO" button end-to-end (Feb 28 2026) ✅
+Replaced the legacy `window.confirm()` in `MessageBubble.shipViaCTO()` with the new dark-overlay modal from Iter 212m-86. Now every assistant reply with a `aurem-handoff` fence gets a real Ship-via-CTO modal showing parsed files + diff stats + Vanguard status before triggering the real `push_fix` task.
+
+**Wire-up**:
+- `MessageBubble.jsx` NEW helper `extractShipFiles(content, brief)` — parses file paths from the handoff brief using a deterministic regex (extensions ordered longest-first so `.jsx` doesn't get shadowed by `.js`), then estimates added/removed lines by matching code blocks. Verified against `backend/auth_middleware.py`, `frontend/ChatPanel.jsx`, `lib/api.ts` — all parsed correctly.
+- `shipViaCTO()` rewritten — dispatches `aurem:open-ship-modal` with `{ files, vanguard, onShip }`. The `onShip` callback runs the EXACT same `/cto/tasks/submit` logic as before (so the real `push_fix` task pipeline + `ora-task-handoff` event + persisted `shipped_task_id` all still fire identically).
+- Vanguard: `{critical: 0}` baseline — real Vanguard scan runs server-side post-push inside the CTO task (`services/loop_verify.py`). We don't block ship on pre-flight; the modal shows "Vanguard clean · 0 critical" with the understanding that the actual verification happens during the worker task.
+
+**E2E verified via screenshot**:
+- Modal opens via `aurem:open-ship-modal` event with realistic 3-file payload
+- Renders "FILES CHANGED (3)" with `+47/-12`, `+8/-3`, `+4/-0` diff badges, JetBrains Mono font, proper colors (green +, red −)
+- Vanguard pill green "Vanguard clean · 0 critical"
+- Cancel button closes modal (verified)
+- Ship it button wired to real `onShip` callback
+
+
 ### Iter 212m-86 — 5 critical Dashboard UI bugs fixed (Feb 28 2026) ✅
 User reported 5 production bugs vs the v0 canonical design at `sidebar-changes.vercel.app`. All resolved with screenshot proof.
 

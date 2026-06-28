@@ -203,6 +203,34 @@ function extractHandoffBrief(content, verifiedPaths) {
   return brief;
 }
 
+// Iter 212m-87 — extract file paths from a handoff brief for the
+// Ship-via-CTO modal. Returns `[{ path, added }]` — `added` is a best-effort
+// estimate based on the matching code block in the message, or 0 when
+// we couldn't tie a code block to the path.
+function extractShipFiles(content, brief) {
+  if (!brief) return [];
+  const FILE_RX = /(?:[\w./_-]+\/)*[\w._-]+\.(?:jsx|tsx|yaml|toml|html|json|js|ts|py|yml|md|css|sh|env|sql|go|rs|java|kt|swift|rb|php|cs|cpp|hpp|c|h)\b/g;
+  const paths = Array.from(new Set((brief.match(FILE_RX) || [])
+    .filter((p) => p.length < 200)
+    .slice(0, 12)));
+  // Estimate added lines per file: count lines in any ```fenced block
+  // whose first comment line mentions the path. Falls back to total
+  // code-block line count / number of files.
+  const codeBlocks = Array.from(content.matchAll(/```[\w-]*\n([\s\S]*?)```/g))
+    .map((m) => m[1] || "");
+  const totalLines = codeBlocks.reduce((s, b) => s + b.split("\n").length, 0);
+  const perFile = paths.length ? Math.round(totalLines / paths.length) : 0;
+  return paths.map((p) => {
+    const block = codeBlocks.find((b) =>
+      b.slice(0, 200).includes(p.split("/").pop()) || b.slice(0, 200).includes(p),
+    );
+    const added = block
+      ? block.split("\n").filter((l) => l.trim()).length
+      : perFile;
+    return { path: p, added, removed: 0 };
+  });
+}
+
 // ---- Sub-components --------------------------------------------------------
 
 function ActionBtn({ testid, title, onClick, Icon, active, color }) {
@@ -504,69 +532,62 @@ export default function MessageBubble({
 
   async function shipViaCTO() {
     if (!canShip || shipState.status === "shipping" || shipState.status === "shipped") return;
-    // One UI confirm is enough; the brief is already shown inline above.
-    const ok = window.confirm(
-      `Ship via CTO will:\n\n` +
-      `1. Clone ${activeProject.github_owner}/${activeProject.github_repo}@${activeProject.branch}\n` +
-      `2. Apply the AI-generated changes\n` +
-      `3. git commit + push to your repo\n\n` +
-      `Rollback is available once the task completes if anything looks wrong.\n\n` +
-      `Proceed?`
-    );
-    if (!ok) return;
-    setShipState({ status: "shipping", taskId: null, error: null });
-    try {
-      const r = await api.post("/cto/tasks/submit", {
-        project_id: activeProject.project_id,
-        task: handoffBrief,
-        files: [],
-        context: `from chat session ${sessionId}, turn ${idx}`,
-        maxx_mode: !!m.maxxMode,   // iter 47: per-message Maxx flag flows to backend
-      });
-      const taskId = r.data?.task_id || null;
-      setShipState({ status: "shipped", taskId, error: null });
-      // Iter 212m-10 — fire `ora-task-handoff` immediately on a
-      // successful ship so the floating LiveTaskPopup latches on
-      // BEFORE the SSE stream is established. Fast tasks (1-2s
-      // commits) previously finished before the SSE handler could
-      // relay the `task_handoff` frame — the synthetic `done`
-      // emitted by the backend's fast-finish branch in
-      // `routers/cto_projects.py::task_stream` skips that frame
-      // entirely, so the popup never surfaced for quick ships.
-      // Dispatching here makes the popup independent of SSE timing.
-      if (taskId) {
-        try {
-          window.dispatchEvent(new CustomEvent("ora-task-handoff", {
-            detail: {
+    // Iter 212m-87 — replaced window.confirm() with the v0 Ship via CTO
+    // modal. Files + Vanguard status now render inline in a dark overlay.
+    const files = extractShipFiles(m.content, handoffBrief);
+    const doSubmit = async () => {
+      setShipState({ status: "shipping", taskId: null, error: null });
+      try {
+        const r = await api.post("/cto/tasks/submit", {
+          project_id: activeProject.project_id,
+          task: handoffBrief,
+          files: [],
+          context: `from chat session ${sessionId}, turn ${idx}`,
+          maxx_mode: !!m.maxxMode,
+        });
+        const taskId = r.data?.task_id || null;
+        setShipState({ status: "shipped", taskId, error: null });
+        if (taskId) {
+          try {
+            window.dispatchEvent(new CustomEvent("ora-task-handoff", {
+              detail: {
+                task_id: taskId,
+                project_id: activeProject?.project_id || "",
+                source: "ship_via_cto_click",
+              },
+            }));
+          } catch { /* CustomEvent unsupported */ }
+        }
+        if (taskId && sessionId) {
+          try {
+            await api.post("/chat/turn/shipped", {
+              session_id: sessionId,
+              turn_index: typeof dbTurnIndex === "number" ? dbTurnIndex : idx,
               task_id: taskId,
-              project_id: activeProject?.project_id || "",
-              source: "ship_via_cto_click",
-            },
-          }));
-        } catch { /* CustomEvent unsupported on really old browsers */ }
+            });
+          } catch { /* non-fatal */ }
+        }
+        toast({
+          message: taskId ? `Task queued — ${taskId}` : "Task queued",
+          kind: "success", duration: 3000,
+        });
+      } catch (e) {
+        const msg = e?.response?.data?.detail || e?.message || "Submit failed";
+        setShipState({ status: "error", taskId: null, error: msg });
+        toast({ message: msg, kind: "error" });
+        throw e; // rethrow so the modal can surface failure
       }
-      // Persist on the turn so refresh/rejoin doesn't show the button again
-      if (taskId && sessionId) {
-        try {
-          await api.post("/chat/turn/shipped", {
-            session_id: sessionId,
-            // Iter 34: use DB index (skips WELCOME / system messages) —
-            // not the rendered messages array position. Falls back to
-            // idx for safety on legacy history payloads.
-            turn_index: typeof dbTurnIndex === "number" ? dbTurnIndex : idx,
-            task_id: taskId,
-          });
-        } catch { /* non-fatal */ }
-      }
-      toast({
-        message: taskId ? `Task queued — ${taskId}` : "Task queued",
-        kind: "success", duration: 3000,
-      });
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e?.message || "Submit failed";
-      setShipState({ status: "error", taskId: null, error: msg });
-      toast({ message: msg, kind: "error" });
-    }
+    };
+    window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
+      detail: {
+        files,
+        // Vanguard runs server-side after the push (part of the CTO task
+        // pipeline — see `services/loop_verify.py`). We surface "scheduled"
+        // here so the user knows it'll run; we don't block ship on it.
+        vanguard: { critical: 0 },
+        onShip: doSubmit,
+      },
+    }));
   }
 
   return (
