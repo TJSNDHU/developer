@@ -5,6 +5,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Iter 212m-81 — Dashboard v2 (v0 design) CSS vars scoped to `.ds2-root`
+   so the new Tailwind tokens (`bg-primary`, `text-foreground`, etc.) only
+   resolve inside the preview pages. Existing pages stay untouched. */
+.ds2-root {
+  color-scheme: dark;
+  --ds2-bg:                 #0A0A0A;
+  --ds2-fg:                 #F5F5F5;
+  --ds2-border:             #222222;
+  --ds2-primary:            #E8A020;
+  --ds2-primary-fg:         #0A0A0A;
+  --ds2-secondary:          #1F1F1F;
+  --ds2-secondary-fg:       #F5F5F5;
+  --ds2-muted:              #181818;
+  --ds2-muted-fg:           #8A8A8A;
+  --ds2-card:               #161616;
+  --ds2-card-fg:            #F5F5F5;
+  --ds2-popover:            #161616;
+  --ds2-popover-fg:         #F5F5F5;
+  --ds2-sidebar:            #111111;
+  --ds2-sidebar-fg:         #F5F5F5;
+  --ds2-sidebar-border:     #222222;
+  --ds2-sidebar-accent:     #1A1A1A;
+  --ds2-success:            #22C55E;
+  --ds2-warning:            #F59E0B;
+  --ds2-destructive:        #EF4444;
+  --ds2-chart-4:            #A855F7;
+  background-color: var(--ds2-bg);
+  color: var(--ds2-fg);
+}
+
 @keyframes bell-ring {
   0%, 100% { transform: rotate(0deg); }
   25% { transform: rotate(15deg); }

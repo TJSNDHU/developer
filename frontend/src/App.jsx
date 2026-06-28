@@ -55,6 +55,7 @@ const FeatureWindow     = lazy(() => import("./pages/FeatureWindow"));  // Iter 
 const CodebaseHealth    = lazy(() => import("./pages/CodebaseHealth"));  // Iter 212m-72
 const BugHunt           = lazy(() => import("./pages/BugHunt"));        // Iter 212m-75
 const SidebarPreview    = lazy(() => import("./pages/SidebarPreview")); // Iter 212m-80
+const DashboardPreviewV2 = lazy(() => import("./pages/DashboardPreviewV2")); // Iter 212m-81
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="/health"             element={<CodebaseHealth />} />
           <Route path="/bug-hunt"           element={<BugHunt />} />
           <Route path="/sidebar-preview"    element={<SidebarPreview />} />
+          <Route path="/dashboard-preview-v2" element={<DashboardPreviewV2 />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
           <Route path="/terms"          element={<PolicyPage slug="terms" />} />
