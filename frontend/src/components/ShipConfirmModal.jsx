@@ -203,8 +203,13 @@ export default function ShipConfirmModal() {
   const owner  = project?.github_owner || task?.repo_owner;
   const repo   = project?.github_repo  || task?.repo_name;
   const branch = task?.branch || project?.branch;
-  const prUrl  = task?.pr_url || (sha && owner && repo
-    ? `https://github.com/${owner}/${repo}/commit/${sha}` : null);
+  // Iter 212m-107 — prefer the html_url GitHub returns directly (loop
+  // ship flow) over the reconstructed URL. The full SHA in the URL is
+  // exact whereas owner/repo lookups can be stale post-rename.
+  const prUrl  = task?.html_url || task?.pr_url
+    || (sha && owner && repo
+        ? `https://github.com/${owner}/${repo}/commit/${task?.full_sha || sha}`
+        : null);
 
   // post-push scan summary helpers
   const scanFindings = Array.isArray(scan?.findings) ? scan.findings : [];
@@ -370,28 +375,50 @@ export default function ShipConfirmModal() {
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
               color: phase === "reverted" ? "#8A8A8A" : "#22C55E",
-              fontWeight: 600, marginBottom: 8,
+              fontWeight: 600, marginBottom: 10,
             }}>
               <CheckCircle2 size={14} />
               {phase === "reverted" ? "Reverted on GitHub" : "Pushed to GitHub"}
               {sha && (
-                <span style={{ marginLeft: "auto", color: "#666", fontSize: 10 }}>
+                <span
+                  data-testid="ship-modal-sha-chip"
+                  title={task?.full_sha || sha}
+                  onClick={() => {
+                    // Iter 212m-107 — click to copy full SHA to clipboard.
+                    try { navigator.clipboard?.writeText(task?.full_sha || sha); } catch { /* ignore */ }
+                  }}
+                  style={{
+                    marginLeft: "auto", padding: "2px 8px", borderRadius: 999,
+                    background: "rgba(255,102,8,0.10)",
+                    border: "1px solid rgba(255,102,8,0.32)",
+                    color: "#FF6608",
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+                    cursor: "pointer", userSelect: "all",
+                  }}
+                >
                   {sha.slice(0, 7)}
                 </span>
               )}
             </div>
             {prUrl && (
-              <a href={prUrl} target="_blank" rel="noreferrer"
-                data-testid="ship-modal-final-pr"
+              <a
+                href={prUrl} target="_blank" rel="noreferrer"
+                data-testid="ship-modal-view-on-github"
                 style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  color: "#FF6608", textDecoration: "none", fontSize: 11,
-                }}>
-                <ExternalLink size={11} /> View commit
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "8px 14px", borderRadius: 8,
+                  background: "#FF6608", color: "#0A0A0A",
+                  textDecoration: "none", fontSize: 12, fontWeight: 700,
+                  letterSpacing: "0.02em",
+                  boxShadow: "0 0 20px -6px rgba(255,102,8,0.55)",
+                  transition: "transform 100ms ease, box-shadow 200ms ease",
+                }}
+              >
+                <ExternalLink size={12} strokeWidth={2.5} /> View on GitHub
               </a>
             )}
             {branch && (
-              <div style={{ marginTop: 6, fontSize: 11, color: "#8A8A8A" }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: "#8A8A8A" }}>
                 branch · {branch}
               </div>
             )}
