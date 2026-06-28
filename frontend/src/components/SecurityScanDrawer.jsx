@@ -80,7 +80,13 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
       const body = { project_id: projectId };
       if (twoRound) body.two_round = true;
       if (autoPr)   body.auto_pr   = true;
-      const res = await api.post("/security-scan/run", body);
+      const res = await api.post("/security-scan/run", body, {
+        // Iter 212m-102 — Vanguard deep scan can take 30-60s on big repos;
+        // bump axios timeout to 120s so CF edge timeouts surface as the
+        // real error instead of an axios-side abort that looks like
+        // "client disconnected".
+        timeout: 120000,
+      });
       const payload = res?.data || res;
       setCachedScan(cacheKey, payload);
       setData(payload);

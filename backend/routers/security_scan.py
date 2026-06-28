@@ -283,8 +283,32 @@ async def run_security_scan(
     owner = proj.get("github_owner") or ""
     repo  = proj.get("github_repo") or ""
     pat   = await _decrypt_pat(user_id, proj.get("github_token"))
-    if not (owner and repo and pat):
-        raise HTTPException(400, "Project missing GitHub linkage / PAT")
+    # Iter 212m-102 — Fallback to the user's GitHub OAuth access_token
+    # when the project row has no per-project PAT. OAuth tokens carry
+    # `repo, read:user, user:email` scopes (see services/github_oauth.py
+    # SCOPES) which is enough for the static scanner's tree/contents
+    # reads. Without this fallback, every OAuth-only user hits
+    # "Project missing GitHub linkage / PAT" even when their GitHub
+    # account is fully connected.
+    if not pat:
+        try:
+            u = await db.dev_users.find_one(
+                {"user_id": user_id}, {"_id": 0, "github": 1},
+            )
+            pat = ((u or {}).get("github") or {}).get("access_token") or None
+        except Exception:
+            pat = None
+    if not (owner and repo):
+        raise HTTPException(
+            400,
+            "Project is not linked to a GitHub repo. Connect a repo in Settings.",
+        )
+    if not pat:
+        raise HTTPException(
+            400,
+            "No GitHub credentials found. Add a PAT to this project, "
+            "or connect GitHub in Settings.",
+        )
 
     async with httpx.AsyncClient() as client:
         # 1. List repo tree.
