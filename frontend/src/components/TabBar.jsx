@@ -193,7 +193,21 @@ function Tab({ testid, nameTestid, label, Icon, active, onClick, onClose }) {
  */
 export function useActiveProject() {
   const [pid, setPid] = useState(() => getActiveProjectId());
-  const [project, setProject] = useState(null);
+  // Iter 212m-105 — Synchronously hydrate from localStorage cache so
+  // downstream consumers (AskAdvisor projectId, ChatPanel activeProject,
+  // TopBar breadcrumb) get a non-null value on the very first render
+  // after login. Without this, the Ask Advisor's tool calls hit the
+  // backend with project_id=null and the model replies "No repo
+  // connected" even when the user has projects.
+  const [project, setProject] = useState(() => {
+    if (!pid) return null;
+    try {
+      const raw = localStorage.getItem("aurem_projects_cache");
+      if (!raw) return null;
+      const cached = JSON.parse(raw);
+      return (Array.isArray(cached) && cached.find((x) => x.project_id === pid)) || null;
+    } catch { return null; }
+  });
 
   useEffect(() => {
     function onChange() { setPid(getActiveProjectId()); }
@@ -207,10 +221,14 @@ export function useActiveProject() {
     api.get("/cto/projects/list")
       .then((r) => {
         if (cancelled) return;
-        const p = (r.data?.projects || []).find((x) => x.project_id === pid);
+        const list = r.data?.projects || [];
+        const p = list.find((x) => x.project_id === pid);
         setProject(p || null);
+        // Keep the cache fresh for the next mount.
+        try { localStorage.setItem("aurem_projects_cache", JSON.stringify(list)); }
+        catch { /* quota — ignore */ }
       })
-      .catch(() => !cancelled && setProject(null));
+      .catch(() => { /* keep cached project intact on transient failure */ });
     return () => { cancelled = true; };
   }, [pid]);
 

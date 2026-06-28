@@ -22,6 +22,37 @@ import CodeBlock from "./CodeBlock";
 
 const FENCE_RE = /```([a-zA-Z0-9_+\-.]*)?[ \t]*([^\n`]*)\n([\s\S]*?)```/g;
 
+// Iter 212m-105 — Internal orchestrator markers that must NEVER reach
+// the bubble. Same list mirrored in pytest test_iter212m105_sanitize.
+// `INTERNAL_FENCES` covers BOTH legacy + future tool-protocol fences.
+const INTERNAL_FENCES = new Set([
+  "tool_call", "tool_calls", "tool_use", "tool_result", "tool_results",
+  "tool_response", "function_call", "function_result", "function_response",
+  "system", "system_prompt", "internal", "orchestrator", "scratchpad",
+  "thinking", "chain_of_thought",
+]);
+
+function sanitizeForDisplay(raw) {
+  if (!raw) return "";
+  let out = raw;
+  // 1. Strip LOOP_PHASE:plan / :execute / :verify / :scan / :ship prefixes
+  //    (the leading metadata token send() injects, never user-visible).
+  out = out.replace(/^LOOP_PHASE:[a-z_]+\s*\n+/i, "");
+  // 2. Strip the [Working on project: …] context preamble we auto-prepend
+  //    on every prompt — internal scoping context, not content.
+  out = out.replace(/^\[Working on project:[^\]]+\]\s*\n+/i, "");
+  // 3. Strip any fenced block whose lang label is in the internal set.
+  //    The fence regex must match the same shape as FENCE_RE above.
+  out = out.replace(
+    /```([a-zA-Z0-9_+\-.]*)[ \t]*[^\n`]*\n[\s\S]*?```/g,
+    (match, lang) => INTERNAL_FENCES.has((lang || "").toLowerCase().trim()) ? "" : match,
+  );
+  // 4. Collapse any 3+ consecutive newlines left over from the strips
+  //    so the bubble doesn't have giant gaps where the fences used to be.
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim() ? out : "";
+}
+
 // Iter 212m-12 — line-leading color tags. Case-insensitive. The
 // matching tag is stripped from the displayed text; the rest of
 // the line is wrapped in a tinted pill so the user sees ONE clean
@@ -155,11 +186,16 @@ function renderTextSegment(text, keyPrefix) {
 }
 
 export default function RenderedMessage({ text }) {
-  const segments = useMemo(() => splitFences(text), [text]);
+  // Iter 212m-105 — Strip internal orchestrator markers before render.
+  // Tool-call / tool-result / system_prompt fences and LOOP_PHASE
+  // prefixes are MACHINE-only and were leaking into the chat bubble as
+  // raw "```tool_call …```" code blocks. Sanitize at the boundary.
+  const cleaned = useMemo(() => sanitizeForDisplay(text || ""), [text]);
+  const segments = useMemo(() => splitFences(cleaned), [cleaned]);
   if (segments.length === 0) {
     return (
       <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-        {renderTextSegment(text, "root")}
+        {renderTextSegment(cleaned, "root")}
       </span>
     );
   }
