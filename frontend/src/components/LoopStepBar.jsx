@@ -1,11 +1,16 @@
 /**
- * LoopStepBar.jsx — Iter 212m-93 (v0 pill format)
+ * LoopStepBar.jsx — Iter 212m-103 (v0 pixel-perfect rewrite)
  *
- * Horizontal pill row that visualises ORA's pipeline phases. Matches
- * sidebar-changes.vercel.app exactly:
- *   [LOOP] [✓ PLAN] [—] [⟳ EXECUTE] [○ VERIFY] [○ SCAN] [○ SHIP]
+ *   [LOOP]  ✓ PLAN  ─  ⟳ EXECUTE  ─  ○ VERIFY  ─  ○ SCAN  ─  ○ SHIP
  *
- * Icons: ✓ for done, ⟳ (spinner) for active, ○ for pending, ⚠ for error.
+ * • Done   → green check + bright green label
+ * • Active → orange spinning ring + bright orange label, slight halo
+ * • Future → empty gray circle + muted label
+ * • Error  → red triangle + red label
+ *
+ * Visual shell: 1px rounded card (12px radius), #161616 background,
+ * #2A2A2A border. Sits between the Slow-response banner and the
+ * composer card.
  */
 import React from "react";
 import { Check, Circle, AlertTriangle, Loader2 } from "lucide-react";
@@ -36,22 +41,23 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
       role="status"
       aria-label={`Loop step ${active} of 5`}
       style={{
-        display: "flex", alignItems: "center", gap: 6,
-        padding: "8px 12px", margin: "0 12px 6px",
+        display: "flex", alignItems: "center", gap: 14,
+        padding: "12px 18px",
+        margin: "8px 12px 8px",
         background: "#161616",
-        border: "1px solid #222",
-        borderRadius: 8,
+        border: "1px solid #2A2A2A",
+        borderRadius: 12,
         fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 10,
-        flexWrap: "wrap",
-        letterSpacing: "0.06em",
+        fontSize: 11,
+        letterSpacing: "0.10em",
+        overflowX: "auto",
+        whiteSpace: "nowrap",
       }}
     >
       <span style={{
-        padding: "2px 7px", borderRadius: 4,
-        background: "rgba(255,102,8,0.12)",
-        color: "#FF6608", fontWeight: 700,
-        fontSize: 9.5,
+        color: "#8A8A8A", fontWeight: 700, fontSize: 11,
+        letterSpacing: "0.14em",
+        flexShrink: 0,
       }}>LOOP</span>
 
       {STEPS.map((s, i) => {
@@ -69,25 +75,39 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
               data-testid={`loop-step-${s.key}`}
               data-step-state={errd ? "error" : done ? "done" : live ? "active" : "future"}
               style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
-                padding: "2px 6px", borderRadius: 4,
-                color, fontWeight: live ? 700 : 600,
+                display: "inline-flex", alignItems: "center", gap: 7,
+                color, fontWeight: 700,
                 opacity: future ? 0.55 : 1,
-                background: live ? "rgba(255,102,8,0.08)" : "transparent",
+                flexShrink: 0,
               }}
             >
-              {errd
-                ? <AlertTriangle size={10} />
-                : done
-                  ? <Check size={10} strokeWidth={3} />
-                  : live
-                    ? <Loader2 size={10} className="loop-spin" />
-                    : <Circle size={9} />}
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 16, height: 16, borderRadius: 999,
+                border: live
+                  ? "1.5px solid #FF6608"
+                  : done
+                    ? "1.5px solid #22C55E"
+                    : errd
+                      ? "1.5px solid #EF4444"
+                      : "1.5px solid #444",
+                background: live ? "rgba(255,102,8,0.10)" : "transparent",
+                flexShrink: 0,
+              }}>
+                {errd
+                  ? <AlertTriangle size={10} strokeWidth={2.5} />
+                  : done
+                    ? <Check size={10} strokeWidth={3} />
+                    : live
+                      ? <Loader2 size={10} className="loop-spin" strokeWidth={2.5} />
+                      : <Circle size={5} strokeWidth={0} fill="transparent" />}
+              </span>
               <span>{s.label}</span>
             </span>
             {i < STEPS.length - 1 && (
               <span aria-hidden style={{
-                color: "#333", fontSize: 9, userSelect: "none",
+                color: "#3A3A3A", fontSize: 11, userSelect: "none",
+                flexShrink: 0, fontWeight: 700,
               }}>—</span>
             )}
           </React.Fragment>
@@ -99,11 +119,12 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
           data-testid="loop-retry-pill"
           style={{
             marginLeft: "auto",
-            padding: "2px 7px", borderRadius: 4,
-            fontSize: 9, fontWeight: 600,
+            padding: "3px 9px", borderRadius: 999,
+            fontSize: 10, fontWeight: 700,
             color: "#FB923C",
             background: "rgba(251,146,60,0.10)",
             border: "1px solid rgba(251,146,60,0.32)",
+            flexShrink: 0,
           }}
         >{retryCount}/3 retries</span>
       )}
@@ -115,4 +136,3 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
     </div>
   );
 }
-

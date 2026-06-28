@@ -2659,11 +2659,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       </div>
 
-      {/* Iter 212m-100 — Prompt / Loop mode inline toggle (re-enabled
-          per founder spec — Vanguard + Loop are now inline composer
-          toggles, not sidebar items). One click toggles between
-          Prompt mode (Send) and Loop mode (Run loop). */}
-      <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
+      {/* Iter 212m-103 — LoopModeToggle is now rendered INSIDE the
+          composer toolbar (next to Paperclip / Github icons). The line
+          here is intentionally a no-op so the toolbar render order is
+          the single source of truth. */}
 
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by
@@ -2711,8 +2710,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       {/* Iter 212m-57 — Stream health pill (slow / reconnecting). Sits
           directly above the composer so the user has clear feedback
           when the SSE stream stalls — previously the chat just looked
-          frozen for up to 90s before silently auto-recovering. */}
-      <StreamHealthPill state={streamHealth} />
+          frozen for up to 90s before silently auto-recovering.
+          Iter 212m-103 — `Retry now` button aborts the in-flight
+          controller; existing AbortError → retry path picks it up. */}
+      <StreamHealthPill
+        state={streamHealth}
+        onRetry={() => {
+          try { abortRef.current?.abort(); } catch { /* ignore */ }
+        }}
+      />
 
       <form
         data-testid="chat-form"
@@ -3097,21 +3103,57 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ))}
             </select>
           )}
+          {/* Iter 212m-103 — LoopModeToggle pill inside the composer
+              toolbar, immediately before the Send button. Matches v0
+              screenshot: chunky orange pill ("LOOP ON") when active,
+              transparent outlined ("LOOP OFF") when inactive. */}
+          <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
+
           {busy ? (
             <button
               type="button" data-testid="chat-stop"
-              className="btn-ghost" onClick={stop}
+              onClick={stop}
+              title="Stop streaming"
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 38, height: 38, borderRadius: "50%",
+                background: "rgba(255,102,8,0.18)",
+                border: "1px solid rgba(255,102,8,0.45)",
+                color: "#FF6608",
+                cursor: "pointer",
+                transition: "background 140ms, transform 100ms",
+              }}
             >
-              <Square size={13} /> Stop
+              <Square size={14} strokeWidth={2.5} />
             </button>
           ) : (
             <button
               type="submit" data-testid="chat-send"
-              className="btn-primary"
               disabled={!input.trim() || !sessionId || exhausted}
-              title={exhausted ? "Tokens exhausted — upgrade your plan" : undefined}
+              title={
+                exhausted
+                  ? "Tokens exhausted — upgrade your plan"
+                  : execMode === EXEC_MODES.LOOP
+                    ? "Run loop"
+                    : "Send"
+              }
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 38, height: 38, borderRadius: "50%",
+                background: (!input.trim() || !sessionId || exhausted)
+                  ? "rgba(255,102,8,0.25)"
+                  : "#FF6608",
+                border: "none",
+                color: (!input.trim() || !sessionId || exhausted) ? "#7A3B0B" : "#0A0A0A",
+                cursor: (!input.trim() || !sessionId || exhausted) ? "not-allowed" : "pointer",
+                opacity: (!input.trim() || !sessionId || exhausted) ? 0.55 : 1,
+                boxShadow: (!input.trim() || !sessionId || exhausted)
+                  ? "none"
+                  : "0 0 20px -6px rgba(255,102,8,0.7)",
+                transition: "background 140ms, opacity 140ms, transform 100ms",
+              }}
             >
-              <Send size={14} /> {execMode === EXEC_MODES.LOOP ? "Run loop" : "Send"}
+              <Send size={15} strokeWidth={2.5} />
             </button>
           )}
         </div>
@@ -3253,14 +3295,10 @@ function ToolButton({ testid, title, onClick, Icon, active, className, wide }) {
  *   • phase === 'idle'         → renders nothing (null)
  * No close button — auto-clears on next token / done / error / Stop.
  */
-function StreamHealthPill({ state }) {
+function StreamHealthPill({ state, onRetry }) {
   if (!state || state.phase === "idle") return null;
   const isReconnect = state.phase === "reconnecting";
-  const color = isReconnect ? "#ef4444" : "#f59e0b";
-  const label = isReconnect
-    ? `Reconnecting after ${state.silentFor}s of silence…`
-    : `Slow response — ${state.silentFor}s silent` +
-      (state.retryEtaSec != null ? `, auto-retry in ${state.retryEtaSec}s` : "");
+  const accent = isReconnect ? "#EF4444" : "#FF6608";
   return (
     <div
       data-testid="chat-stream-health-pill"
@@ -3268,34 +3306,51 @@ function StreamHealthPill({ state }) {
       role="status"
       aria-live="polite"
       style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "6px 12px",
-        margin: "6px 12px 0",
-        borderRadius: 999,
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "12px 16px",
+        margin: "8px 12px 0",
+        borderRadius: 12,
         background: isReconnect
-          ? "rgba(239,68,68,0.10)"
-          : "rgba(245,158,11,0.10)",
-        border: `1px solid ${isReconnect
-          ? "rgba(239,68,68,0.45)"
-          : "rgba(245,158,11,0.45)"}`,
-        color, fontSize: 11.5,
+          ? "rgba(239,68,68,0.07)"
+          : "rgba(255,102,8,0.07)",
+        border: `1px solid ${accent}`,
+        color: "#E5E5E5",
         fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 12,
         animation: isReconnect ? "pillPulse 1.2s ease-in-out infinite" : "none",
       }}
     >
-      <span
-        style={{
-          width: 8, height: 8, borderRadius: "50%",
-          background: color,
-          boxShadow: `0 0 6px ${color}`,
-          flexShrink: 0,
-        }}
-      />
-      <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
+      <Zap size={14} strokeWidth={2.5} style={{ color: accent, flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0, display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+        <strong style={{ color: accent, fontWeight: 700 }}>
+          {isReconnect ? "Reconnecting" : "Slow response"}
+        </strong>
+        <span style={{ color: "#9AA3B2" }}>
+          · {state.silentFor}s silent
+          {!isReconnect && state.retryEtaSec != null && (
+            <> · auto-retry in {state.retryEtaSec}s</>
+          )}
+        </span>
+      </span>
+      {onRetry && (
+        <button
+          type="button"
+          data-testid="chat-stream-retry-now"
+          onClick={onRetry}
+          style={{
+            background: "transparent", border: "none",
+            color: "#E5E5E5", fontSize: 12, fontWeight: 600,
+            cursor: "pointer", padding: "4px 8px",
+            fontFamily: "inherit",
+          }}
+        >
+          Retry now
+        </button>
+      )}
       <style>{`
         @keyframes pillPulse {
           0%, 100% { opacity: 1; }
-          50%      { opacity: 0.55; }
+          50%      { opacity: 0.65; }
         }
       `}</style>
     </div>
