@@ -327,29 +327,95 @@ class LoopEngine:
             await self._fail(phase, f"Phase {phase} exceeded "
                                     f"{PHASE_TIMEOUTS_S[phase]}s budget.")
 
-    # ── Phase 2 — Execute (skeleton; Phase C wires the real writer) ──
+    # ── Phase 2 — Execute (LLM generates file content) ─────────────
     async def _do_execute(self) -> None:
         self.state = LoopState.EXECUTING
         self.phase = "execute"
         plan = self.context.get("plan") or {}
         files = plan.get("files_to_change") or []
         total = max(len(files), 1)
+        logger.info("[loop %s] EXECUTE START — %d file(s) planned", self.loop_id, len(files))
         await self._emit(LoopState.EXECUTING, "execute",
                          step=2, total_steps=5,
                          message=f"Executing — {total} file(s) planned…",
                          data={"total_files": total})
-        # Phase B placeholder — emit a synthetic file-write event for
-        # each planned file so the frontend bar can advance.  Phase C
-        # replaces this loop with the actual GitHub write + lint cycle.
-        for i, f in enumerate(files, start=1):
-            self.context["files_changed"].append(f)
+
+        if not files:
+            logger.warning("[loop %s] EXECUTE — plan has no files_to_change, skipping LLM", self.loop_id)
+            return
+
+        # Iter 212m-109 — Real code generation. Previously this loop
+        # only emitted synthetic events without ever populating
+        # `submitted_files`, so SHIP found nothing to commit and the
+        # user saw "Ship complete" with no real GitHub commit.
+        # Now: for each planned file, fetch current content from
+        # GitHub, ask the LLM to rewrite it per the approved plan,
+        # then feed the result into `submitted_files` so VERIFY can
+        # lint it and SHIP can commit it.
+        proj = await self.db.cto_projects.find_one(
+            {"project_id": self.project_id, "user_id": self.user_id},
+            {"_id": 0, "github_owner": 1, "github_repo": 1,
+             "github_branch": 1, "github_token": 1},
+        )
+        if not proj:
+            logger.error("[loop %s] EXECUTE — project not found, aborting", self.loop_id)
+            await self._fail("execute", "Project not found for execute phase.")
+            return
+        owner   = proj.get("github_owner") or ""
+        repo    = proj.get("github_repo")  or ""
+        branch  = proj.get("github_branch") or "main"
+        from routers.security_scan import _decrypt_pat  # local import
+        token = await _decrypt_pat(self.user_id, proj.get("github_token"))
+        if not token:
+            try:
+                u = await self.db.dev_users.find_one(
+                    {"user_id": self.user_id}, {"_id": 0, "github": 1},
+                )
+                token = ((u or {}).get("github") or {}).get("access_token") or None
+            except Exception:
+                token = None
+        if not (owner and repo and token):
+            logger.error("[loop %s] EXECUTE — missing GitHub creds (owner=%s repo=%s token=%s)",
+                         self.loop_id, bool(owner), bool(repo), bool(token))
+            await self._fail("execute",
+                             "GitHub credentials missing for execute. Connect repo + PAT/OAuth.")
+            return
+
+        from services.loop_execute import generate_files
+        try:
+            generated = await generate_files(
+                plan=plan, user_message=self.user_message,
+                owner=owner, repo=repo, branch=branch, token=token,
+                user_id=self.user_id,
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.exception("[loop %s] EXECUTE — generate_files raised", self.loop_id)
+            await self._fail("execute", f"Code generation failed: {e}")
+            return
+
+        if not generated:
+            logger.warning("[loop %s] EXECUTE — generate_files returned 0 files", self.loop_id)
+            await self._fail("execute",
+                             "LLM produced no usable file content. Try refining the plan.")
+            return
+
+        # Persist + emit per-file events so the frontend can show
+        # real progress.
+        for i, f in enumerate(generated, start=1):
+            self.context["files_changed"].append(f["path"])
             await _persist_session(self.db, self._doc())
             await self._emit(
                 LoopState.EXECUTING, "execute",
                 step=2, total_steps=5,
-                message=f"Wrote {f} ({i}/{total})",
-                data={"file": f, "index": i, "total": total},
+                message=f"Wrote {f['path']} ({i}/{len(generated)})",
+                data={"file": f["path"], "index": i, "total": len(generated),
+                      "bytes": len(f.get("content") or "")},
             )
+
+        self.context["submitted_files"] = generated
+        await _persist_session(self.db, self._doc())
+        logger.info("[loop %s] EXECUTE DONE — %d files in submitted_files",
+                    self.loop_id, len(generated))
 
     # ── Phase 3 — Verify (Phase C: real ruff/eslint + self-heal) ────
     async def _do_verify(self) -> None:
@@ -552,6 +618,9 @@ class LoopEngine:
             return
 
         commit_message = _commit_message(self.user_message)
+        logger.info("[loop %s] SHIP ATTEMPT — %s/%s@%s with %d file(s), msg=%r",
+                    self.loop_id, owner, repo, branch,
+                    len(files_dict), commit_message)
         await self._emit(LoopState.SHIPPING, "ship",
                          step=5, total_steps=5,
                          message=f"Committing {len(files_dict)} file(s) to {owner}/{repo}@{branch}…")
@@ -563,8 +632,9 @@ class LoopEngine:
                 files=files_dict, commit_message=commit_message,
                 progress=None,
             )
+            logger.info("[loop %s] SHIP RESULT — %r", self.loop_id, res)
         except Exception as e:  # network / 401 / 422 / etc.
-            logger.exception("[loop %s] commit_files failed", self.loop_id)
+            logger.exception("[loop %s] SHIP commit_files failed", self.loop_id)
             await _log_error(self.db, self.loop_id, "ship", repr(e))
             await self._fail_ship(f"GitHub push failed: {e}")
             return

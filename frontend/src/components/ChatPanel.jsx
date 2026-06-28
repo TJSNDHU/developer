@@ -2226,6 +2226,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           display: "flex", flexDirection: "column",
           flex: previewOpen ? "0 0 50%" : "1 1 auto",
           minWidth: 0,
+          minHeight: 0,
           height: "100%",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
@@ -2315,6 +2316,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         data-testid="chat-messages"
         style={{
           flex: 1, overflowY: "auto",
+          minHeight: 0,
           padding: "24px 28px",
           paddingRight: livePopupTaskId ? 392 : 28,
           display: "flex", flexDirection: "column", gap: 20,
@@ -2702,10 +2704,28 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           errorCount={f12.errorCount}
           hasErrors={f12.hasErrors}
           onSendToORA={() => {
+            // Iter 212m-109 — was auto-firing form.requestSubmit() which
+            // sent the canned diagnostic message without user consent
+            // (user reported clicking the badge unexpectedly hijacked
+            // their conversation). Now: ask for confirmation and only
+            // submit if the user explicitly opts in. Cancel → just
+            // copies the JSON payload to the clipboard so they can
+            // paste it manually if they want.
             const payload = f12.flush();
             const cc = payload?.console_errors?.length || 0;
             const nc = payload?.network_errors?.length || 0;
             const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+            const ok = window.confirm(
+              `Send the captured F12 errors to ORA for analysis?\n\n` +
+              `${cc} console error(s), ${nc} network error(s)\n\n` +
+              `OK → send to ORA\nCancel → copy payload to clipboard instead`
+            );
+            if (!ok) {
+              try {
+                navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+              } catch { /* ignore */ }
+              return;
+            }
             setInput(msg);
             lastF12PayloadRef.current = payload;
             setTimeout(() => {
@@ -3181,14 +3201,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             </button>
           ) : (
             <button
-              type="submit" data-testid="chat-send"
+              type="button" data-testid="chat-send"
               disabled={!input.trim() || !sessionId || exhausted}
               onClick={(e) => {
-                // Iter 212m-106 — explicit click handler as a defensive
-                // backup. Some browsers/Safari versions skip the form's
-                // implicit submit when the button is a `type="submit"`
-                // inside a flex container with overflow tricks. This
-                // makes the click 100% reliable regardless.
+                // Iter 212m-109 — Standalone button (not type="submit")
+                // to avoid double-submit when both the form's onSubmit
+                // and onClick fire. Always call send(e) explicitly.
+                e.preventDefault();
+                e.stopPropagation();
                 if (e.currentTarget.disabled) return;
                 send(e);
               }}

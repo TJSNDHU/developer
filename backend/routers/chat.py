@@ -2140,7 +2140,11 @@ async def chat_history(
     session_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Return last 20 turns of a session for the current user."""
+    """Return last 100 turns of a session for the current user.
+    Iter 212m-109 — bumped from 20 → 100. Loop runs emit 8-15 turns each
+    (plan, per-file execute events, verify, scan, ship), so 20 turns
+    truncated after just 2-3 runs and earlier user messages disappeared
+    on reload — user reported it as 'chat history not persisting'."""
     user = await current_dev(authorization)
     db = get_db()
     if db is None or not session_id:
@@ -2149,7 +2153,7 @@ async def chat_history(
         {"session_id": session_id, "user_id": user["user_id"]},
         {"_id": 0, "turns": 1, "title": 1},
     )
-    turns = ((doc or {}).get("turns") or [])[-20:]
+    turns = ((doc or {}).get("turns") or [])[-100:]
     return {
         "ok": True,
         "messages": turns,
