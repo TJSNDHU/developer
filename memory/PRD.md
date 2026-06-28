@@ -12,6 +12,32 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-98 — Sidebar v2 wiring: logo, avatar dropdown, category routing + Back buttons (Feb 28 2026) ✅
+P0 last-working-item from previous fork. User reported (1) sidebar v2 categories were mock/dummy, (2) Avatar dropdown links pointed to legacy `/profile`/`/pricing` routes (which 404 → catch-all redirect = legacy trap), (3) company logo missing from sidebar brand.
+
+- **Real ORA logo** wired in `components/dashboard/v2/SidebarBound.jsx` brand block (`size-[28px]` rounded image, `ring-1 ring-primary/25`). Replaces the placeholder `<div>O</div>`. Asset URL: `customer-assets.../f27gnf9d_logo new 11.png`.
+- **Avatar dropdown routes fixed** in `pages/Dashboard.jsx`:
+  - `Edit Profile` → `/settings` (no `/profile` route exists; was 404 → `/`).
+  - `Settings` → `/settings` (unchanged, real Settings page).
+  - `Token Recharge` → `/tokens` (was `/pricing`, now goes to the actual recharge page).
+  - `Logout` → unchanged (real `logout()` API).
+- **Vanguard + Loop sidebar wiring** in `components/ChatPanel.jsx`:
+  - New `useEffect` listens for `aurem:open-vanguard` → opens `SecurityScanDrawer` if active project has github_owner+repo, otherwise toast "Connect a GitHub repo to run Vanguard scan".
+  - Listens for `aurem:toggle-loop` → flips `execMode` PROMPT↔LOOP via existing `handleExecModeChange` (preserves swift→pro auto-swap).
+  - Uses a `sidebarWireRefs` ref pattern so the listener always reads latest state without re-binding.
+- **Back button on the 3 category pages** so users never get trapped:
+  - `pages/CodebaseHealth.jsx` — top-left `← Back to dashboard` button (`data-testid="ch-back-dashboard"`).
+  - `pages/BugHunt.jsx` — added `← Dashboard` link as first item in nav (`data-testid="bh-nav-dashboard"`).
+  - `pages/FeatureWindow.jsx` — top-left `← Back to dashboard` button (`data-testid="fw-back-dashboard"`).
+
+**E2E verified via 3 screenshots**:
+1. Sidebar shows new circular ORA logo + avatar dropdown lists all 4 items pointing to real routes.
+2. Health Scanner click → `/codebase-health` → Back button click → `/dashboard` (round-trip works).
+3. Bug Hunt click → `/bug-hunt` → `← Dashboard` nav link present.
+4. Loop Mode click in sidebar flipped composer placeholder + "Run loop" button (proves `aurem:toggle-loop` listener works).
+5. Vanguard click on a repo without github_owner/repo correctly skipped drawer open (expected behavior — drawer only opens for real connected repos).
+
+
 ### Iter 212m-91 — Cursor-like inline file diff peek (Feb 28 2026) ✅
 Founder UX: when ORA's reply mentions a file path, a small orange chip appears under the bubble. Hovering 350 ms fetches the current GitHub content and shows a side-by-side line diff vs the proposed code block.
 

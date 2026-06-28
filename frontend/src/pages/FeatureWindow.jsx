@@ -62,6 +62,24 @@ export default function FeatureWindow() {
         fontFamily: "Inter, system-ui, sans-serif",
       }}
     >
+      {/* Back to dashboard — Iter 212m-98 */}
+      <div style={{ marginBottom: 16 }}>
+        <button
+          data-testid="fw-back-dashboard"
+          onClick={() => navigate("/dashboard")}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "6px 12px", borderRadius: 8,
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "#cbd5e1",
+            fontSize: 12, fontFamily: "'JetBrains Mono', monospace",
+            cursor: "pointer",
+          }}
+        >
+          ← Back to dashboard
+        </button>
+      </div>
       <Header data={data} loading={loading} onRefresh={load} />
       <StatusPills integrations={data.integrations} />
       <Section title="Modes" id="modes">

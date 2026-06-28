@@ -640,6 +640,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     return () => window.removeEventListener("aurem:toggle-preview", onToggle);
   }, []);
 
+  // Iter 212m-98 — Sidebar v2 wiring refs (latest-value pattern so the
+  // event listeners below always read the current state).
+  const sidebarWireRefs = useRef({});
+  sidebarWireRefs.current.execMode = execMode;
+  sidebarWireRefs.current.activeProject = activeProject;
+
   // Iter 145 — broadcast every previewOpen change (incl. auto-open
   // when a code reply lands or a project with preview_url is selected)
   // so Dashboard's top-right Preview/Hide button label always matches.
@@ -2111,6 +2117,37 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     }
     setExecMode(m);
   }
+
+  // Iter 212m-98 — Sidebar v2 Tools wiring. Lives here so it has
+  // access to `handleExecModeChange` and reads latest execMode via
+  // the refs declared in the toggle-preview effect above.
+  useEffect(() => {
+    const openVanguard = () => {
+      const ap = sidebarWireRefs.current.activeProject;
+      if (ap?.project_id && ap?.github_owner && ap?.github_repo) {
+        setScanOpen(true);
+      } else {
+        try {
+          window.dispatchEvent(new CustomEvent("aurem:toast", {
+            detail: {
+              message: "Connect a GitHub repo to run Vanguard scan",
+              kind: "warn",
+            },
+          }));
+        } catch { /* no-op */ }
+      }
+    };
+    const toggleLoop = () => {
+      const cur = sidebarWireRefs.current.execMode;
+      handleExecModeChange(cur === EXEC_MODES.LOOP ? EXEC_MODES.PROMPT : EXEC_MODES.LOOP);
+    };
+    window.addEventListener("aurem:open-vanguard", openVanguard);
+    window.addEventListener("aurem:toggle-loop", toggleLoop);
+    return () => {
+      window.removeEventListener("aurem:open-vanguard", openVanguard);
+      window.removeEventListener("aurem:toggle-loop", toggleLoop);
+    };
+  }, []);
 
   // Phase D (Iter 212m-65): plan card renders the structured plan the
   // backend LoopEngine returned. We no longer rely on the model's

@@ -343,6 +343,7 @@ export default function BugHunt() {
           <div className="logo-text">ORA<span> by Aurem CTO</span></div>
         </div>
         <div className="nav-links">
+          <Link className="nav-link" to="/dashboard" data-testid="bh-nav-dashboard">← Dashboard</Link>
           <Link className="nav-link" to="/" data-testid="bh-nav-home">Home</Link>
           <Link className="nav-link" to="/pricing" data-testid="bh-nav-pricing">Pricing</Link>
           <Link className="nav-link" to="/login" data-testid="bh-nav-login">Sign in</Link>

@@ -350,6 +350,33 @@ export default function CodebaseHealth() {
       `}</style>
 
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
+        {/* Back to dashboard — Iter 212m-98 */}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            data-testid="ch-back-dashboard"
+            onClick={() => navigate("/dashboard")}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 12px", borderRadius: 8,
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "#cbd5e1",
+              fontSize: 12, fontFamily: "'JetBrains Mono', monospace",
+              cursor: "pointer", transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#FF6608";
+              e.currentTarget.style.color = "#FF6608";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+              e.currentTarget.style.color = "#cbd5e1";
+            }}
+          >
+            ← Back to dashboard
+          </button>
+        </div>
+
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                       marginBottom: 24, flexWrap: "wrap", gap: 12 }}>

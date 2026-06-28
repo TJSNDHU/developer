@@ -353,9 +353,9 @@ function SidebarReal({
         try { logout(); } catch { /* ignore */ }
         navigate("/login");
       }}
-      onEditProfile={() => navigate("/profile")}
+      onEditProfile={() => navigate("/settings")}
       onSettings={() => navigate("/settings")}
-      onRecharge={() => navigate("/pricing")}
+      onRecharge={() => navigate("/tokens")}
     />
   );
 }

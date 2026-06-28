@@ -113,10 +113,16 @@ export default function SidebarBound({
     )}>
       {/* Brand */}
       <div className={cn("flex h-[52px] shrink-0 items-center border-b border-sidebar-border cursor-pointer",
-        isCollapsed ? "justify-center" : "gap-2.5 px-4")} onClick={() => navigate("/dashboard")}>
-        <div className="size-[26px] shrink-0 overflow-hidden rounded-full ring-1 ring-primary/25 flex items-center justify-center bg-primary text-[12px] font-bold text-primary-foreground">
-          O
-        </div>
+        isCollapsed ? "justify-center" : "gap-2.5 px-4")} onClick={() => navigate("/dashboard")}
+        data-testid="ds2-sidebar-brand"
+      >
+        <img
+          src="https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/f27gnf9d_logo%20new%2011.png"
+          alt="ORA by Aurem CTO"
+          data-testid="ds2-sidebar-logo"
+          className="size-[28px] shrink-0 rounded-full object-cover ring-1 ring-primary/25"
+          draggable={false}
+        />
         {!isCollapsed && (
           <>
             <div className="min-w-0 flex-1">
