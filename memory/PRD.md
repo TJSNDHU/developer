@@ -12,7 +12,22 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-99 — Sidebar v2 wiring + theme cycle + GitHub OAuth fix + prod test triage (Feb 28 2026) ✅
+### Iter 212m-100 — Founder spec: tool re-org (Feb 28 2026) ✅
+User direction: "Vanguard + Loop Mode need to be inline composer toggles, not sidebar items. Bug Hunt must live on the homepage. Day/Night toggle should be on dashboard topbar only, not on the landing page."
+
+**Changes shipped:**
+- **`SidebarBound.jsx` — TOOLS array trimmed.** Removed `vanguard`, `loop`, `bughunt` from sidebar. Only `health` (Health Scanner) + `graph` (Codebase Graph, founder-only via filter) remain. Unused lucide imports (ShieldAlert, RefreshCw, Bug) removed. The `aurem:open-vanguard` / `aurem:toggle-loop` event listeners in `Dashboard.jsx`'s `onToolClick` are kept as defensive no-ops (no longer reachable from sidebar, but harmless).
+- **`ChatPanel.jsx` — inline `<LoopModeToggle>` re-enabled.** Previously commented out per old "lean composer" spec. Now visible above the textarea as a pill that flips between Prompt mode (Send) and Loop mode (Run loop). Pairs with the existing inline Shield button (`chat-security-scan-btn`) which already handles Vanguard scans.
+- **`Landing.jsx` — `<ThemeToggle compact />` removed** from the marketing nav. Theme cycling is now exclusively a dashboard concern (Iter 212m-99's TopBar toggle).
+- **`Landing.jsx` — Bug Hunt nav link added** (`/bug-hunt` route, `data-testid="nav-bughunt"`). The existing public `/bug-hunt` marketing page now reachable directly from the homepage nav between Reviews and Sign in.
+
+**E2E verified via Playwright**:
+- Landing nav: Bug Hunt link YES, ThemeToggle NO.
+- Sidebar tools: vanguard/loop/bughunt = false, health/graph = true.
+- Inline Loop toggle: "Prompt mode" pill rendered above composer (button text confirmed via DOM evaluate).
+
+
+### Iter 212m-100 — Sidebar tools cleanup + inline Loop toggle + Bug Hunt to homepage + theme toggle off landing (Feb 28 2026) ✅
 P0 last-working-item from previous fork. User reported (1) sidebar v2 categories were mock/dummy, (2) Avatar dropdown links pointed to legacy `/profile`/`/pricing` routes (which 404 → catch-all redirect = legacy trap), (3) company logo missing from sidebar brand.
 
 - **Real ORA logo** wired in `components/dashboard/v2/SidebarBound.jsx` brand block (`size-[28px]` rounded image, `ring-1 ring-primary/25`). Replaces the placeholder `<div>O</div>`. Asset URL: `customer-assets.../f27gnf9d_logo new 11.png`.

@@ -9,8 +9,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "./cn";
 import {
-  Pin, PinOff, Plus, ShieldAlert, HeartPulse,
-  RefreshCw, GitFork, Bug, Github,
+  Pin, PinOff, Plus, HeartPulse,
+  GitFork, Github,
   User, Settings, Zap, LogOut, ChevronRight,
 } from "lucide-react";
 import { getToken } from "../../../lib/api";
@@ -18,11 +18,12 @@ import { getToken } from "../../../lib/api";
 const API_BASE = `${(typeof process !== "undefined" ? process.env.REACT_APP_BACKEND_URL : "") || ""}/api/aurem-dev`;
 
 const TOOLS = [
-  { id: "vanguard", label: "Vanguard Security", icon: ShieldAlert },
+  // Iter 212m-100 — Founder spec: Vanguard, Loop Mode, Bug Hunt removed
+  // from sidebar. Vanguard & Loop now live as inline composer toggles
+  // (chat-security-scan-btn + LoopModeToggle). Bug Hunt promoted to
+  // the homepage marketing nav. Codebase Graph filtered for founders.
   { id: "health",   label: "Health Scanner",    icon: HeartPulse  },
-  { id: "loop",     label: "Loop Mode",         icon: RefreshCw   },
   { id: "graph",    label: "Codebase Graph",    icon: GitFork     },
-  { id: "bughunt",  label: "Bug Hunt",          icon: Bug         },
 ];
 
 function Dot({ tone }) {
@@ -264,7 +265,6 @@ export default function SidebarBound({
               const Icon = tool.icon;
               const isActive =
                 (tool.id === "health"  && location.pathname.startsWith("/codebase-health")) ||
-                (tool.id === "bughunt" && location.pathname.startsWith("/bug-hunt"))      ||
                 (tool.id === "graph"   && location.pathname.startsWith("/feature-window"));
               const row = (
                 <button onClick={() => onToolClick?.(tool.id)}
@@ -274,7 +274,7 @@ export default function SidebarBound({
                       ? "bg-sidebar-accent text-sidebar-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
                     isCollapsed ? "h-9 w-12 justify-center" : "px-4 py-[6px]")}>
-                  <Icon className={cn("size-3.5 shrink-0", tool.id === "vanguard" && "text-destructive")} strokeWidth={2} />
+                  <Icon className="size-3.5 shrink-0" strokeWidth={2} />
                   {!isCollapsed && <span className="flex-1 text-left text-[12px]">{tool.label}</span>}
                 </button>
               );

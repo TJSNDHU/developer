@@ -2659,11 +2659,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       </div>
 
-      {/* Iter 212m-58 — Prompt / Loop mode toggle (REMOVED in 212m-90 per
-          founder spec; chat composer should be lean, only icon toolbar
-          stays. Loop mode is still accessible via the icon button in
-          the composer's right-hand toolbar). */}
-      {/* <LoopModeToggle value={execMode} onChange={handleExecModeChange} /> */}
+      {/* Iter 212m-100 — Prompt / Loop mode inline toggle (re-enabled
+          per founder spec — Vanguard + Loop are now inline composer
+          toggles, not sidebar items). One click toggles between
+          Prompt mode (Send) and Loop mode (Run loop). */}
+      <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
 
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by

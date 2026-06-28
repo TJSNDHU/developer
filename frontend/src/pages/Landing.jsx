@@ -30,7 +30,6 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import FounderOfferPill from "../components/FounderOfferPill";
 import PricingCards from "../components/PricingCards";
-import ThemeToggle from "../components/ThemeToggle";
 
 // ─── Decorative CSS (scoped to .ora-landing) ───
 const LANDING_CSS = `
@@ -561,7 +560,7 @@ export default function Landing() {
           <a className="nav-link" href="#features" data-testid="nav-features">Features</a>
           <a className="nav-link" href="#pricing" data-testid="nav-pricing">Pricing</a>
           <a className="nav-link" href="#reviews" data-testid="nav-reviews">Reviews</a>
-          <ThemeToggle compact />
+          <Link className="nav-link" to="/bug-hunt" data-testid="nav-bughunt">Bug Hunt</Link>
           <Link className="nav-link" to="/login" data-testid="nav-login">Sign in</Link>
           <Link className="nav-cta" to="/signup" data-testid="nav-signup-cta">Start free</Link>
         </div>
