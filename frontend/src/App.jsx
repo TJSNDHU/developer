@@ -53,6 +53,7 @@ const AdminFinancials   = lazy(() => import("./pages/AdminFinancials"));
 const AdminVanguard     = lazy(() => import("./pages/AdminVanguard"));
 const FeatureWindow     = lazy(() => import("./pages/FeatureWindow"));  // Iter 212m-64
 const CodebaseHealth    = lazy(() => import("./pages/CodebaseHealth"));  // Iter 212m-72
+const BugHunt           = lazy(() => import("./pages/BugHunt"));        // Iter 212m-75
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
@@ -152,6 +153,7 @@ export default function App() {
           <Route path="/admin/system-map"   element={<FeatureWindow />} />
           <Route path="/codebase-health"    element={<CodebaseHealth />} />
           <Route path="/health"             element={<CodebaseHealth />} />
+          <Route path="/bug-hunt"           element={<BugHunt />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
           <Route path="/terms"          element={<PolicyPage slug="terms" />} />

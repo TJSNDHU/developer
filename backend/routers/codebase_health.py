@@ -34,10 +34,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import JSONResponse
 
 from cto_services.auth import current_dev
 from cto_services.db import get_db
@@ -444,6 +446,31 @@ async def scan(
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
+
+    # Iter 212m-75 — sliding-window rate limit (10 scans / hour / user / category).
+    # Admins are exempt via JWT `is_admin` claim. Each call writes one
+    # log row to `scan_rate_limits`; the prune step deletes rows older
+    # than the window so the collection stays small. Returns 429 with
+    # `retry_after_seconds` on the first denied category so the client
+    # can wait the right amount.
+    is_admin = bool(user.get("is_admin"))
+    if not is_admin:
+        denied_cat, retry_secs, remaining = await _check_scan_rate_limit(
+            db, user_id, categories,
+        )
+        if denied_cat is not None:
+            mins = max(1, int(round(retry_secs / 60.0)))
+            raise HTTPException(429, {
+                "error":               "scan_rate_limited",
+                "category":            denied_cat,
+                "message":             (f"You have used 10/10 scans for "
+                                        f"'{denied_cat}' this hour. Try again "
+                                        f"in {mins} minutes."),
+                "retry_after_seconds": int(retry_secs),
+            })
+    else:
+        remaining = {c: 999 for c in categories}
+
     proj = await db.cto_projects.find_one(
         {"project_id": project_id, "user_id": user_id},
         {"_id": 0, "github_owner": 1, "github_repo": 1, "github_token": 1},
@@ -486,7 +513,7 @@ async def scan(
     overall_score = _score_for_findings(all_findings)
     label, tone = _category_label(overall_score)
     total = sum(b["total"] for b in breakdown.values())
-    return {
+    payload = {
         "ok":            True,
         "score":         overall_score,
         "label":         label,
@@ -498,7 +525,87 @@ async def scan(
             f"{sum(1 for f in all_findings if f['severity']=='critical')} critical."
         ),
         "breakdown":     breakdown,
+        "scan_remaining": remaining,
     }
+    # Iter 212m-75 — surface remaining quota per category in a header so
+    # callers can render an inline counter without parsing the body.
+    headers = {
+        "X-Scan-Remaining": str(min(remaining.values()) if remaining else 0),
+        "X-Scan-Remaining-Per-Category": ",".join(
+            f"{c}:{n}" for c, n in remaining.items()
+        ),
+    }
+    return JSONResponse(content=payload, headers=headers)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Iter 212m-75 — Sliding-window scan rate limiter.
+#   • Bucket: (user_id, category)
+#   • Window: 3600 seconds (1 hour, rolling)
+#   • Cap:    10 successful scan starts per bucket
+#   • Storage: scan_rate_limits collection (one doc per scan call)
+#   • TTL: prune-on-read — every check deletes window-expired rows for
+#         the caller so the collection stays bounded.
+# ──────────────────────────────────────────────────────────────────────
+_SCAN_RATE_WINDOW = 3600
+_SCAN_RATE_CAP    = 10
+
+
+async def _check_scan_rate_limit(
+    db, user_id: str, categories: list[str],
+) -> tuple[Optional[str], int, dict[str, int]]:
+    """Returns (denied_category, retry_after_seconds, remaining_per_cat).
+
+    If any requested category is over cap, returns the *first* one that
+    is denied + the seconds until its oldest hit ages out of the window.
+    On success, writes one entry per category and returns (None, 0,
+    remaining-per-category dict).
+    """
+    now = time.time()
+    cutoff = now - _SCAN_RATE_WINDOW
+    coll = db.scan_rate_limits
+
+    # Prune expired entries for this user (cheap — indexed).
+    try:
+        await coll.delete_many({"user_id": user_id, "ts": {"$lt": cutoff}})
+    except Exception as e:
+        logger.debug("scan_rate prune failed: %r", e)
+
+    # Count hits per requested category in the current window.
+    counts: dict[str, int] = {}
+    oldest: dict[str, float] = {}
+    for cat in categories:
+        cur = coll.find(
+            {"user_id": user_id, "category": cat, "ts": {"$gte": cutoff}},
+            {"_id": 0, "ts": 1},
+        ).sort("ts", 1)
+        ts_list = [d["ts"] async for d in cur]
+        counts[cat] = len(ts_list)
+        if ts_list:
+            oldest[cat] = ts_list[0]
+
+    # First over-cap category wins the denial.
+    for cat in categories:
+        if counts.get(cat, 0) >= _SCAN_RATE_CAP:
+            o = oldest.get(cat, now)
+            retry = max(1, int((o + _SCAN_RATE_WINDOW) - now))
+            remaining = {c: max(0, _SCAN_RATE_CAP - counts.get(c, 0))
+                         for c in categories}
+            return cat, retry, remaining
+
+    # Allowed — log one entry per category atomically.
+    try:
+        await coll.insert_many([
+            {"user_id": user_id, "category": cat, "ts": now}
+            for cat in categories
+        ])
+    except Exception as e:
+        # Storage failure must NEVER block a paying user's scan.
+        logger.warning("scan_rate insert failed: %r", e)
+    remaining = {
+        c: max(0, _SCAN_RATE_CAP - (counts.get(c, 0) + 1)) for c in categories
+    }
+    return None, 0, remaining
 
 
 # ──────────────────────────────────────────────────────────────────────

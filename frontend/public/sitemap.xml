@@ -41,6 +41,12 @@
     <priority>0.95</priority>
   </url>
   <url>
+    <loc>https://auremcto.com/bug-hunt</loc>
+    <lastmod>2026-06-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
     <loc>https://auremcto.com/vs/devin</loc>
     <lastmod>2026-06-28</lastmod>
     <changefreq>monthly</changefreq>

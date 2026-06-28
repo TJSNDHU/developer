@@ -743,30 +743,104 @@ async def add_project(body: AddProject, authorization: str = Header(None)) -> di
         "branch": body.branch, "tech_stack": body.tech_stack or "auto",
         "preview_url": (body.preview_url or "").strip() or None,
         "status": "connected", "tasks_done": 0,
+        # Iter 212m-75 — async indexing pipeline. Endpoint returns
+        # immediately; background task flips status to ready/error.
+        "indexing_status":  "indexing",
+        "indexing_error":   None,
+        "indexed_at":       None,
+        "indexing_started_at": time.time(),
         "created_at": time.time(),
     }
     await db.cto_projects.insert_one(doc)
-    # Iter 165 — fire-and-forget: build Brain V2 immediately on connect so
-    # the first chat turn already has the structural map injected. Pure
-    # background — failure cannot block project creation.
+    # Iter 212m-75 — fire-and-forget indexing wrapper.  Wraps the legacy
+    # build_brain_v2 with explicit status writes so the FE can poll
+    # /indexing-status and show a progress spinner instead of guessing.
     try:
-        import asyncio as _asyncio
-        from services.project_brain import build_brain_v2
-        _asyncio.create_task(build_brain_v2(
+        asyncio.create_task(_run_project_indexing(
             db=db, project_id=proj_id, user_id=me["user_id"],
             github_token=pat, github_owner=owner, github_repo=repo,
             branch=body.branch or "main",
         ))
     except Exception as _bbe:
-        logger.warning("brain v2 initial build skipped: %r", _bbe)
+        logger.warning("indexing scheduler skipped: %r", _bbe)
     return {"ok": True, "project_id": proj_id,
             "owner": owner, "repo": repo,
             "auth_method": doc["auth_method"],
+            "indexing_status": "indexing",
+            "message": "Indexing your repository in the background...",
             # Iter 211 — surface that PAT verification already passed
             # during creation so the frontend can skip a redundant
             # `/test-pat` round-trip and show the green checkmark
             # immediately.
             "pat_verified": True}
+
+
+async def _run_project_indexing(
+    *, db, project_id: str, user_id: str,
+    github_token: str, github_owner: str, github_repo: str, branch: str,
+) -> None:
+    """Background indexing wrapper for Iter 212m-75.
+
+    Runs build_brain_v2 and writes the result to cto_projects so the
+    FE polling endpoint /indexing-status can report progress.
+    Errors are swallowed and persisted as `indexing_error`.
+    """
+    try:
+        from services.project_brain import build_brain_v2
+        await build_brain_v2(
+            db=db, project_id=project_id, user_id=user_id,
+            github_token=github_token, github_owner=github_owner,
+            github_repo=github_repo, branch=branch,
+        )
+        await db.cto_projects.update_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"$set": {
+                "indexing_status": "ready",
+                "indexed_at":      time.time(),
+                "indexing_error":  None,
+            }},
+        )
+        logger.info("project indexing complete: %s", project_id)
+    except Exception as e:
+        logger.warning("project indexing failed for %s: %r", project_id, e)
+        await db.cto_projects.update_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"$set": {
+                "indexing_status": "error",
+                "indexing_error":  str(e)[:500],
+                "indexed_at":      time.time(),
+            }},
+        )
+
+
+@router.get("/projects/{project_id}/indexing-status")
+async def project_indexing_status(
+    project_id: str,
+    authorization: str = Header(None),
+) -> dict:
+    """Iter 212m-75 — poll endpoint for FE to track async indexing.
+    Returns: {status: "indexing"|"ready"|"error", error, indexed_at}.
+    """
+    me = await current_dev(authorization)
+    db = require_db()
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": me["user_id"]},
+        {"_id": 0, "indexing_status": 1, "indexing_error": 1,
+         "indexed_at": 1, "indexing_started_at": 1, "name": 1},
+    )
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    status = proj.get("indexing_status") or "ready"  # legacy rows = ready
+    return {
+        "ok":          True,
+        "project_id":  project_id,
+        "name":        proj.get("name"),
+        "status":      status,
+        "error":       proj.get("indexing_error"),
+        "indexed_at":  proj.get("indexed_at"),
+        "started_at":  proj.get("indexing_started_at"),
+        "ready":       status == "ready",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────
