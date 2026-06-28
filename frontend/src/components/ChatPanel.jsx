@@ -243,6 +243,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // destructive Clear button.
   const [hideOlder, setHideOlder] = useState(false);
   // Iter 153 — review mode (swift / pro / maxx). Persisted across reloads.
+  // Iter 212m-97 — also synced with the TopBar pills in Dashboard via
+  // the `aurem:set-chat-mode` custom event so the two surfaces stay
+  // in lockstep (previously the TopBar was a dummy).
   const [chatMode, setChatMode] = useState(() => {
     try { return localStorage.getItem("aurem_chat_mode") || "swift"; }
     catch { return "swift"; }
@@ -250,6 +253,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   useEffect(() => {
     try { localStorage.setItem("aurem_chat_mode", chatMode); }
     catch { /* ignore */ }
+    // Broadcast → TopBar
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:chat-mode-changed", {
+        detail: { mode: chatMode },
+      }));
+    } catch { /* CustomEvent unsupported */ }
+  }, [chatMode]);
+
+  // Listen ← TopBar pill clicks
+  useEffect(() => {
+    const onSet = (e) => {
+      const m = e?.detail?.mode;
+      if (m && ["swift", "pro", "maxx"].includes(m) && m !== chatMode) {
+        setChatMode(m);
+      }
+    };
+    window.addEventListener("aurem:set-chat-mode", onSet);
+    return () => window.removeEventListener("aurem:set-chat-mode", onSet);
   }, [chatMode]);
 
   const [clearingChat, setClearingChat] = useState(false);
@@ -3006,11 +3027,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               selected via the ModeSelector pill on the right; the
               standalone toggle was redundant and confused users. */}
           <span style={{ flex: 1 }} />
-          <ModeSelector
-            value={chatMode}
-            onChange={setChatMode}
-            excludeKeys={execMode === EXEC_MODES.LOOP ? ["swift"] : []}
-          />
+          {/* Iter 212m-97 — REMOVED in-composer <ModeSelector>. Swift/
+              Pro/Maxx now lives ONLY in the TopBar (single source of
+              truth). The two are kept in sync via the
+              `aurem:set-chat-mode` ↔ `aurem:chat-mode-changed`
+              custom-event bridge so the chat backend still receives
+              the right `mode` payload. */}
           {/* Iter 145 — agent selector hidden. AUREM is default for
               everyone; ORA runs as a silent shadow-learner in the
               backend (see services/ora_learning.py). */}

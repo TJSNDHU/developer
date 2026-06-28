@@ -33,6 +33,22 @@
   --ds2-chart-4:            #A855F7;
   background-color: var(--ds2-bg);
   color: var(--ds2-fg);
+
+  /* Iter 212m-97 — bridge legacy text/bg vars so chat bubbles, welcome
+     cards, and any component that reads `--text` / `--text-dim` /
+     `--panel-2` inside the dashboard renders with v0 light text on
+     #0A0A0A. Without this, the legacy `:root` defaults bleed through
+     and chat replies appeared faint / invisible (production issue). */
+  --text:        #F5F5F5;
+  --text-dim:    #B8B8B8;
+  --text-faint:  #888888;
+  --bg:          #0A0A0A;
+  --panel:       #161616;
+  --panel-2:     #1E1E1E;
+  --border:      #222222;
+  --accent:      #FF6608;
+  --accent-2:    #FF6608;
+  --accent-soft: rgba(255,102,8,0.15);
 }
 
 @keyframes bell-ring {

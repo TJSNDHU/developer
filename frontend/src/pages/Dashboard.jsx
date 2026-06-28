@@ -74,7 +74,32 @@ function DashboardV2Body() {
   // v2 chrome state ----------------------------------------------------
   const [projects,         setProjects]         = useState([]);
   const [tab,              setTab]              = useState("Chat");
-  const [mode,             setMode]             = useState("maxx");
+  // Iter 212m-97 — mode pill state is now SHARED with ChatPanel via a
+  // custom event bridge. Default reads from localStorage so we land on
+  // the same value the chat composer sees on first paint.
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem("aurem_chat_mode") || "swift"; }
+    catch { return "swift"; }
+  });
+  // Listen for ChatPanel broadcasts so a programmatic change there
+  // (e.g. Loop mode auto-flipping swift→pro) is reflected in the pills.
+  useEffect(() => {
+    const onChanged = (e) => {
+      const m = e?.detail?.mode;
+      if (m && m !== mode) setMode(m);
+    };
+    window.addEventListener("aurem:chat-mode-changed", onChanged);
+    return () => window.removeEventListener("aurem:chat-mode-changed", onChanged);
+  }, [mode]);
+  // Push pill clicks → ChatPanel
+  const handleModeChange = (m) => {
+    setMode(m);
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:set-chat-mode", {
+        detail: { mode: m },
+      }));
+    } catch { /* ignore */ }
+  };
   const [sidebarPinned,    setSidebarPinned]    = useState(true);
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
@@ -236,7 +261,7 @@ function DashboardV2Body() {
               }
             }}
             mode={mode}
-            onModeChange={setMode}
+            onModeChange={handleModeChange}
             hidden={false}
             onNewRun={handleNewRun}
             breadcrumb={{
@@ -244,7 +269,7 @@ function DashboardV2Body() {
               repo:   activeProject?.github_repo  || activeProject?.name || "Aurem",
               branch: activeProject?.branch       || "main",
             }}
-            healthScore={typeof healthScore === "number" ? healthScore : 87}
+            healthScore={healthScore}
             streakSlot={<ShipStreakWidget />}
           />
 
