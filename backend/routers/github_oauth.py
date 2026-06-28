@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
 from cto_services.auth import create_token, current_dev
@@ -24,17 +24,48 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/github/oauth", tags=["GitHub OAuth"])
 
 
-def _frontend_url(path: str, query: str) -> str:
-    # APP_URL must be set in deployment env (e.g. https://auremcto.com).
-    # No hardcoded fallback so misconfiguration fails loud, not silent.
-    base = (os.getenv("APP_URL") or "").rstrip("/")
+def _request_origin(req: Request) -> Optional[str]:
+    """Derive the live origin (scheme + host) the user is sitting on so
+    the OAuth callback can redirect back to that same domain instead of
+    a hardcoded APP_URL. Handles preview pods, auremcto.com, aurem.dev,
+    and any custom domain in one shot.
+
+    Precedence:
+      1. Origin header (set by the browser on the /connect navigation)
+      2. Referer header (parsed for scheme + host)
+      3. X-Forwarded-Proto + X-Forwarded-Host (Kubernetes ingress)
+      4. None → callback falls back to APP_URL.
+    """
+    try:
+        origin = req.headers.get("origin")
+        if origin and origin.startswith(("http://", "https://")):
+            return origin.rstrip("/")
+        ref = req.headers.get("referer") or req.headers.get("referrer")
+        if ref:
+            from urllib.parse import urlparse
+            p = urlparse(ref)
+            if p.scheme and p.netloc:
+                return f"{p.scheme}://{p.netloc}"
+        proto = req.headers.get("x-forwarded-proto") or "https"
+        host = req.headers.get("x-forwarded-host") or req.headers.get("host")
+        if host:
+            return f"{proto}://{host}".rstrip("/")
+    except Exception:
+        pass
+    return None
+
+
+def _frontend_url(path: str, query: str, origin: Optional[str] = None) -> str:
+    # Prefer the origin captured at /connect time (multi-domain support).
+    # Falls back to APP_URL env for legacy callers that didn't store one.
+    base = (origin or os.getenv("APP_URL") or "").rstrip("/")
     if not base:
         raise HTTPException(500, "APP_URL not configured on this deployment")
     return f"{base}{path}?{query}"
 
 
-def _frontend_settings_url(query: str) -> str:
-    return _frontend_url("/settings", query)
+def _frontend_settings_url(query: str, origin: Optional[str] = None) -> str:
+    return _frontend_url("/settings", query, origin=origin)
 
 
 async def _gh_primary_email(token: str) -> Optional[str]:
@@ -65,6 +96,7 @@ async def _gh_primary_email(token: str) -> Optional[str]:
 
 @router.get("/connect")
 async def connect(
+    request: Request,
     authorization: Optional[str] = Header(None),
     auth: Optional[str] = Query(None),
     signup: Optional[str] = Query(None),
@@ -91,6 +123,7 @@ async def connect(
     "Switch GitHub account" link in the Add-Project modal.
     """
     fr = (force_reauth or "").lower() in ("1", "true", "yes")
+    origin = _request_origin(request)
     db = get_db()
     if signup in ("1", "true", "yes"):
         # Anonymous OAuth start — state nonce only, no user binding.
@@ -106,6 +139,10 @@ async def connect(
                 "mode":       prefix,
                 "user_id":    None,
                 "ts":         time.time(),
+                # Iter 212m-99 — capture the live origin so /callback
+                # can redirect back to the same host the user started
+                # on (preview pod, auremcto.com, aurem.dev, custom).
+                "origin":     origin,
                 # Iter 212j — tz-aware created_at for the 5-min TTL
                 # check in /callback. Prevents replay of stale state
                 # rows if a user opens the OAuth tab, leaves it for
@@ -125,6 +162,7 @@ async def connect(
             "mode":       "connect",
             "user_id":    user["user_id"],
             "ts":         time.time(),
+            "origin":     origin,
             "created_at": datetime.now(timezone.utc),
         })
     return RedirectResponse(url=auth_url(state, force_reauth=fr))
@@ -150,6 +188,16 @@ async def callback(
     if error or not code:
         logger.info("[oauth] callback non-success: error=%s code_present=%s state=%s",
                     error, bool(code), state)
+        # Iter 212m-99 — pull origin out of the state row so the
+        # cancel-redirect lands on the same host the user started on.
+        cancel_origin = None
+        try:
+            db_tmp = get_db()
+            if db_tmp is not None and state:
+                s_tmp = await db_tmp.oauth_states.find_one({"state": state})
+                cancel_origin = (s_tmp or {}).get("origin")
+        except Exception:
+            pass
         # Decide where to send them based on the state prefix:
         #   "login:..."  → /login    (iter 113 — UX fix)
         #   "signup:..." → /signup
@@ -172,7 +220,8 @@ async def callback(
         reason = error or "missing_code"
         # Keep the redirect URL short — frontend reads ?github=cancelled
         return RedirectResponse(
-            url=_frontend_url(target_path, f"github=cancelled&reason={reason}")
+            url=_frontend_url(target_path, f"github=cancelled&reason={reason}",
+                              origin=cancel_origin)
         )
 
     if not state or ":" not in state:
@@ -204,11 +253,12 @@ async def callback(
     flow = s.get("mode") or (
         "signup" if mode_or_user in ("signup", "login") else "connect"
     )
+    # Iter 212m-99 — origin captured at /connect time; falls back to APP_URL.
+    state_origin = s.get("origin")
     # Iter 113 — both `signup:` and `login:` prefixes use the same
     # OAuth-first auth path. The only difference is the cancel-redirect
     # target (handled above) and where the SUCCESS path sends them on
     # login (existing user → /dashboard either way, new user → /dashboard).
-    success_path_on_no_account = "/login" if mode_or_user == "login" else "/signup"
 
     # Exchange code → token → GitHub user (common to both flows).
     try:
@@ -224,7 +274,8 @@ async def callback(
         err_path = "/projects" if flow == "connect" else "/settings"
         from urllib.parse import quote_plus
         return RedirectResponse(
-            url=_frontend_url(err_path, f"github=error&msg={quote_plus(str(e))}")
+            url=_frontend_url(err_path, f"github=error&msg={quote_plus(str(e))}",
+                              origin=state_origin)
         )
 
     await db.oauth_states.delete_one({"state": state})
@@ -303,7 +354,10 @@ async def callback(
         # the token in localStorage and routes to /dashboard. Token
         # goes in the URL fragment (`#`) so it never hits server logs
         # or Referer headers.
-        base = (os.getenv("APP_URL") or "").rstrip("/")
+        # Iter 212m-99 — use the origin captured at /connect time so
+        # the JWT lands on the same domain the user started on
+        # (auremcto.com vs aurem.dev vs preview pod).
+        base = (state_origin or os.getenv("APP_URL") or "").rstrip("/")
         if not base:
             raise HTTPException(500, "APP_URL not configured")
         return RedirectResponse(
@@ -333,7 +387,8 @@ async def callback(
         }}},
     )
     return RedirectResponse(
-        url=_frontend_settings_url(f"github=connected&login={gh_login}")
+        url=_frontend_settings_url(f"github=connected&login={gh_login}",
+                                    origin=state_origin)
     )
 
 

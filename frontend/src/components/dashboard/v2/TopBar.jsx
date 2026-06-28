@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
-import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus, Moon } from "lucide-react";
+import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus, Moon, Sun, Laptop } from "lucide-react";
 
 const TABS = [
   { id: "Chat",    icon: MessagesSquare },
@@ -72,6 +72,35 @@ export function TopBar({
       window.removeEventListener("mousemove", onMouseMove);
     };
   }, []);
+  // Iter 212m-99 — 3-state theme cycle (dark → light → auto → dark…)
+  // Persisted in localStorage; applies `data-theme` on .ds2-root via a
+  // CustomEvent that Dashboard.jsx listens to. Defaults to "dark".
+  const THEME_ORDER = ["dark", "light", "auto"];
+  const [theme, setTheme] = useState(() => {
+    try {
+      const v = localStorage.getItem("aurem_theme");
+      return THEME_ORDER.includes(v) ? v : "dark";
+    } catch { return "dark"; }
+  });
+  useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:theme-changed", {
+        detail: { theme },
+      }));
+    } catch { /* ignore */ }
+  }, [theme]);
+  const cycleTheme = () => {
+    setTheme((cur) => {
+      const next = THEME_ORDER[(THEME_ORDER.indexOf(cur) + 1) % THEME_ORDER.length];
+      try { localStorage.setItem("aurem_theme", next); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const ThemeIcon = theme === "light" ? Sun : theme === "auto" ? Laptop : Moon;
+  const themeLabel = theme === "light" ? "Day (click for Night)"
+                     : theme === "auto" ? "Auto — follow system (click for Day)"
+                     : "Night (click for Auto)";
+
   const effectiveHidden = hidden || autoHidden;
 
   return (
@@ -122,8 +151,15 @@ export function TopBar({
           <Plus className="size-3 shrink-0" strokeWidth={3} /> New run
         </button>
 
-        <button aria-label="Toggle theme" className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-          <Moon className="size-[14px]" strokeWidth={2} />
+        <button
+          aria-label={`Theme: ${theme}`}
+          title={themeLabel}
+          onClick={cycleTheme}
+          data-testid="ds2-theme-toggle"
+          data-theme-state={theme}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <ThemeIcon className="size-[14px]" strokeWidth={2} />
         </button>
       </div>
 

@@ -12,7 +12,7 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-98 — Sidebar v2 wiring: logo, avatar dropdown, category routing + Back buttons (Feb 28 2026) ✅
+### Iter 212m-99 — Sidebar v2 wiring + Day/Night/Auto theme cycle + GitHub OAuth multi-domain redirect (Feb 28 2026) ✅
 P0 last-working-item from previous fork. User reported (1) sidebar v2 categories were mock/dummy, (2) Avatar dropdown links pointed to legacy `/profile`/`/pricing` routes (which 404 → catch-all redirect = legacy trap), (3) company logo missing from sidebar brand.
 
 - **Real ORA logo** wired in `components/dashboard/v2/SidebarBound.jsx` brand block (`size-[28px]` rounded image, `ring-1 ring-primary/25`). Replaces the placeholder `<div>O</div>`. Asset URL: `customer-assets.../f27gnf9d_logo new 11.png`.
@@ -49,6 +49,23 @@ Founder UX: when ORA's reply mentions a file path, a small orange chip appears u
 - `MessageBubble.jsx` — extended `extractShipFiles()` to also return `code` (the matched code block); inserted a chips row above `<ShipDialog>` that renders one `FileDiffPeek` per detected file when `handoffBrief && activeProject.project_id` are present. Gated to assistant messages only.
 
 **Why hover delay 350 ms** — prevents wasteful GitHub calls when the user just scrolls past a file path. Real hover intent triggers the fetch.
+
+
+**Day/Night/Auto cycle (TopBar theme button)** — user reported the moon button on TopBar was a dummy. Wired it up as a 3-state cycle:
+- States: `dark` → `light` → `auto` → repeat. Persisted in `localStorage.aurem_theme`.
+- Icon swaps via lucide: `Moon` (night), `Sun` (day), `Laptop` (auto).
+- `auto` resolves to OS preference live via `matchMedia('(prefers-color-scheme: light)')` with `addEventListener('change')`.
+- Architecture: TopBar dispatches `aurem:theme-changed` CustomEvent → Dashboard.jsx listens → applies `data-theme` on the `.ds2-root` container.
+- CSS: new `.ds2-root[data-theme="light"]` overrides in `index.css` flip all ds2-* tokens (bg/fg/card/sidebar/border/muted) + legacy bridge tokens (`--text`, `--bg`, `--panel`) for chat bubbles and composer. Brand `#FF6608` unchanged.
+- Verified via Playwright: click 1 → `data-theme="light"` applied, sidebar/cards visibly flipped to white, localStorage updated.
+
+**GitHub OAuth multi-domain redirect fix (P0 bug)** — user reported "GitHub sign-in is just a dummy button, user can't actually sign in". Root cause: `APP_URL=https://aurem.dev` env was hardcoded, but the user opens the app on `https://auremcto.com`. After GitHub callback the backend redirected to `aurem.dev/oauth-finish#token=...` → token landed on wrong domain → `auremcto.com` never got the JWT → user stayed logged out.
+- Fix in `backend/routers/github_oauth.py`:
+  - New `_request_origin(req)` helper reads `Origin` → `Referer` → `X-Forwarded-Proto`+`X-Forwarded-Host`.
+  - `/connect` captures origin via FastAPI `Request` and stores it on the `oauth_states` row.
+  - `/callback` reads `state.origin` and uses it as the redirect base (with `APP_URL` env as fallback). All redirect paths now domain-agnostic: cancel, error, success (OAuthFinish), connect-flow success → /settings.
+- Verified: `curl -H "Origin: https://auremcto.com" /connect?signup=1` → mongo `oauth_states` row stored `origin: 'https://auremcto.com'`. Multi-domain (preview pod, prod, aurem.dev, custom domains) now works without any env churn.
+
 
 **Privacy/perf note**: file content fetched lazily, never on initial render. Only when the user actively hovers. Cap at 8 chips per message to avoid spamming chip rows.
 

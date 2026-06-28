@@ -51,6 +51,66 @@
   --accent-soft: rgba(255,102,8,0.15);
 }
 
+/* Iter 212m-99 — Day theme override. Applied when the TopBar theme
+   toggle cycles to Day mode (data-theme="light") or when Auto resolves
+   to light via prefers-color-scheme. Inverts ds2-* tokens + the legacy
+   bridge tokens so chat bubbles, sidebar, topbar, advisor, and Ship
+   modal all flip cleanly. Brand orange #FF6608 stays unchanged. */
+.ds2-root[data-theme="light"] {
+  color-scheme: light;
+  --ds2-bg:                 #F7F7F5;
+  --ds2-fg:                 #0F0F0F;
+  --ds2-border:             #E2E2E0;
+  --ds2-primary:            #FF6608;
+  --ds2-primary-fg:         #FFFFFF;
+  --ds2-secondary:          #ECECEA;
+  --ds2-secondary-fg:       #0F0F0F;
+  --ds2-muted:              #EFEFEC;
+  --ds2-muted-fg:           #6B6B6B;
+  --ds2-card:               #FFFFFF;
+  --ds2-card-fg:            #0F0F0F;
+  --ds2-popover:            #FFFFFF;
+  --ds2-popover-fg:         #0F0F0F;
+  --ds2-sidebar:            #FFFFFF;
+  --ds2-sidebar-fg:         #0F0F0F;
+  --ds2-sidebar-border:     #E2E2E0;
+  --ds2-sidebar-accent:     #F0F0EE;
+
+  /* Legacy bridge tokens flipped to light */
+  --text:        #0F0F0F;
+  --text-dim:    #4A4A4A;
+  --text-faint:  #777777;
+  --bg:          #F7F7F5;
+  --panel:       #FFFFFF;
+  --panel-2:     #ECECEA;
+  --border:      #E2E2E0;
+  --accent:      #FF6608;
+  --accent-2:    #FF6608;
+  --accent-soft: rgba(255,102,8,0.12);
+  background-color: var(--ds2-bg);
+  color: var(--ds2-fg);
+}
+.ds2-root[data-theme="light"] body,
+.ds2-root[data-theme="light"] {
+  background: #F7F7F5 !important;
+}
+/* Chat bubble inversion under day theme */
+.ds2-root[data-theme="light"] .glass-bubble-user {
+  background: #ECECEA;
+  color: #0F0F0F;
+}
+.ds2-root[data-theme="light"] .glass-bubble-assistant {
+  background: #FFFFFF;
+  color: #0F0F0F;
+  border-left-color: #FF6608;
+}
+.ds2-root[data-theme="light"] .glass-composer {
+  background: #FFFFFF;
+  border: 1px solid #E2E2E0;
+}
+
+
+
 @keyframes bell-ring {
   0%, 100% { transform: rotate(0deg); }
   25% { transform: rotate(15deg); }

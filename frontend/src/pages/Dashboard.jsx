@@ -106,6 +106,45 @@ function DashboardV2Body() {
   const [healthScore,      setHealthScore]      = useState(null);
   const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
 
+  // Iter 212m-99 — Theme cycle (dark/light/auto). The TopBar button
+  // dispatches `aurem:theme-changed`; we apply `data-theme` on the
+  // .ds2-root container. For "auto" we resolve to the OS preference
+  // live via matchMedia.
+  const [theme, setTheme] = useState(() => {
+    try {
+      const v = localStorage.getItem("aurem_theme");
+      return ["dark", "light", "auto"].includes(v) ? v : "dark";
+    } catch { return "dark"; }
+  });
+  useEffect(() => {
+    const onChanged = (e) => {
+      const t = e?.detail?.theme;
+      if (["dark", "light", "auto"].includes(t)) setTheme(t);
+    };
+    window.addEventListener("aurem:theme-changed", onChanged);
+    return () => window.removeEventListener("aurem:theme-changed", onChanged);
+  }, []);
+  const [systemPrefersLight, setSystemPrefersLight] = useState(() => {
+    try {
+      return typeof window !== "undefined"
+        && window.matchMedia?.("(prefers-color-scheme: light)")?.matches === true;
+    } catch { return false; }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = (e) => setSystemPrefersLight(e.matches);
+    try { mq.addEventListener("change", onChange); }
+    catch { mq.addListener?.(onChange); }
+    return () => {
+      try { mq.removeEventListener("change", onChange); }
+      catch { mq.removeListener?.(onChange); }
+    };
+  }, []);
+  const effectiveTheme = theme === "auto"
+    ? (systemPrefersLight ? "light" : "dark")
+    : theme;
+
   // ── Real /cto/projects/list load + refresh ────────────────────────
   const reloadProjects = useCallback(() => {
     api.get("/cto/projects/list")
@@ -225,6 +264,7 @@ function DashboardV2Body() {
 
   return (
     <div className="ds2-root" data-testid="dashboard-v2-root"
+      data-theme={effectiveTheme}
       style={{ height: "100vh", overflow: "hidden" }}>
       <div style={{ display: "flex", height: "100%", width: "100%" }}>
 
