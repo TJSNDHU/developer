@@ -36,6 +36,12 @@ export default function NewUserWizard({ onComplete }) {
   const [step, setStep]         = useState(1);
   const [repoUrl, setRepoUrl]   = useState("");
   const [branch, setBranch]     = useState("main");
+  // Iter 212m-92 — per-project PAT input. Backend rejects /projects/add
+  // without a github_token even when GitHub OAuth is connected (OAuth
+  // is identity-only since iter 211). The wizard now collects this
+  // directly so users don't hit the dead-end error state in
+  // production where the helper link wasn't clickable.
+  const [pat, setPat] = useState("");
   const [task, setTask]         = useState("");
   const [projectId, setProject] = useState(null);
   const [taskId, setTaskId]     = useState(null);
@@ -154,6 +160,7 @@ export default function NewUserWizard({ onComplete }) {
       const name = parts[parts.length - 1].replace(/\.git$/, "");
       const r = await api.post("/cto/projects/add", {
         name, github_url: repoUrl.trim(), branch: branch.trim() || "main",
+        github_token: pat.trim() || undefined,
       });
       setProject(r.data?.project_id);
       setStep(2);
@@ -398,6 +405,52 @@ export default function NewUserWizard({ onComplete }) {
                     placeholder="main"
                     style={iStyle}
                   />
+
+                  {/* Iter 212m-92 — PAT input + Generate PAT CTA.
+                      Without this users hit a dead-end "Personal Access
+                      Token required" error with no actionable button. */}
+                  <label style={lStyle} htmlFor="wizard-pat-input">
+                    GitHub Personal Access Token
+                    <span style={{ color: "var(--text-faint)",
+                                   marginLeft: 6, fontSize: 10 }}>
+                      (required · Contents: Read &amp; write)
+                    </span>
+                  </label>
+                  <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                    <input
+                      id="wizard-pat-input"
+                      data-testid="wizard-pat-input"
+                      type="password"
+                      autoComplete="off"
+                      value={pat}
+                      onChange={(e) => setPat(e.target.value)}
+                      placeholder="ghp_… or github_pat_…"
+                      style={{ ...iStyle, flex: 1, fontFamily:
+                        "var(--font-mono, ui-monospace, monospace)" }}
+                    />
+                    <a
+                      data-testid="wizard-generate-pat-btn"
+                      href="https://github.com/settings/tokens/new?scopes=repo&description=AUREM%20CTO%20(per-project)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-flex", alignItems: "center",
+                        gap: 6, padding: "9px 14px", fontSize: 12,
+                        fontWeight: 600, whiteSpace: "nowrap",
+                        background: "#FF6608", color: "#0A0A0A",
+                        border: "1px solid #FF6608", borderRadius: 6,
+                        textDecoration: "none", cursor: "pointer",
+                      }}
+                    >Generate PAT →</a>
+                  </div>
+                  <p style={{
+                    margin: "6px 0 0", fontSize: 10,
+                    color: "var(--text-faint)",
+                    fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                  }}>
+                    Encrypted at rest · only used to read &amp; push this repo
+                  </p>
+
                   {err && <div data-testid="wizard-error" style={errStyle}>{err}</div>}
                   <Footer
                     busy={busy}
@@ -503,7 +556,18 @@ const primaryBtn = { display: "inline-flex", alignItems: "center", gap: 6,
                      letterSpacing: "0.02em", cursor: "pointer" };
 
 function buildRobotMessage({ step, ghStatus, busy, err, repoUrl, task, taskId }) {
-  if (err) return `Hmm — <strong>${escapeHtml(err)}</strong>. Try again, or skip for now.`;
+  if (err) {
+    // Iter 212m-92 — if the error mentions PAT, inject a clickable
+    // "Generate PAT" link so the user has a one-tap path forward
+    // (used to be plain text URL — production users got stuck).
+    const isPatErr = /personal access token|github_pat_|ghp_/i.test(err);
+    if (isPatErr) {
+      return `Hmm — <strong>GitHub Personal Access Token needed.</strong> ` +
+        `Tap <a href="https://github.com/settings/tokens/new?scopes=repo&description=AUREM%20CTO" target="_blank" rel="noopener" style="color:#FF6608;text-decoration:underline;font-weight:600;">Generate PAT on GitHub →</a> ` +
+        `then paste it in the field below. Or skip for now.`;
+    }
+    return `Hmm — <strong>${escapeHtml(err)}</strong>. Try again, or skip for now.`;
+  }
   if (busy) return `Working on it… <span class="ora-arrow">⏳</span>`;
   if (step === 1) {
     if (ghStatus === "checking") return `Checking your GitHub connection…`;
