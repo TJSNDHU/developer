@@ -202,6 +202,15 @@ async def _gh_get(client: httpx.AsyncClient, url: str, pat: str):
 
 async def _list_repo_tree(client: httpx.AsyncClient, owner: str, repo: str, pat: str) -> list[dict]:
     """One GitHub API hit for tree; we cap at _MAX_FILES below."""
+    blobs, _sha = await _list_repo_tree_with_sha(client, owner, repo, pat)
+    return blobs
+
+
+async def _list_repo_tree_with_sha(
+    client: httpx.AsyncClient, owner: str, repo: str, pat: str,
+) -> tuple[list[dict], str]:
+    """Same as `_list_repo_tree` but also returns the GitHub tree SHA
+    so callers can key a content-addressed cache.  Iter 212m-79."""
     repo_meta = await _gh_get(client, f"{_GH_API}/repos/{owner}/{repo}", pat)
     branch = repo_meta.get("default_branch") or "main"
     tree = await _gh_get(
@@ -209,7 +218,9 @@ async def _list_repo_tree(client: httpx.AsyncClient, owner: str, repo: str, pat:
         f"{_GH_API}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1",
         pat,
     )
-    return [t for t in (tree.get("tree") or []) if t.get("type") == "blob"]
+    sha = tree.get("sha") or ""
+    blobs = [t for t in (tree.get("tree") or []) if t.get("type") == "blob"]
+    return blobs, sha
 
 
 async def _fetch_file(

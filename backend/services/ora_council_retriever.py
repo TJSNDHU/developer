@@ -250,30 +250,33 @@ async def get_council_few_shot(
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
     k: int = _DEFAULT_K,
-) -> str:
-    """Returns a formatted few-shot block (string) or '' when the
-    Council corpus is too small / no good matches found.
+) -> tuple[str, int]:
+    """Returns (formatted_block, recalled_count).
 
-    SAFE on failure — every internal exception is swallowed and an
-    empty string is returned so the chat path never breaks because
-    of a retriever bug."""
+    Iter 212m-78 — return tuple so the chat router can surface the
+    "📚 ORA recalled N similar past answers" caption to the FE. An
+    empty corpus or no matches returns ("", 0).
+
+    SAFE on failure — every internal exception is swallowed and
+    ("", 0) is returned so the chat path never breaks because of a
+    retriever bug."""
     try:
         await _maybe_refresh(db)
     except Exception as e:
         logger.debug("council refresh skipped: %r", e)
-        return ""
+        return ("", 0)
 
     if _index["row_count"] < _MIN_GLOBAL:
-        return ""
+        return ("", 0)
 
     cand_idx, bucket_label = _candidate_indices(mode, user_id, project_id)
     if not cand_idx:
-        return ""
+        return ("", 0)
 
     # Tokenise the live query once and reuse the bag-of-words.
     q_toks = _tokenize(user_message or "")
     if not q_toks:
-        return ""
+        return ("", 0)
     q_tf: dict[str, int] = {}
     for t in q_toks:
         q_tf[t] = q_tf.get(t, 0) + 1
@@ -286,11 +289,11 @@ async def get_council_few_shot(
         if s > 0:
             scored.append((s, row))
     if not scored:
-        return ""
+        return ("", 0)
 
     scored.sort(key=lambda x: x[0], reverse=True)
     top = [r for _s, r in scored[:max(1, int(k))]]
-    return _format_block(top, bucket_label)
+    return (_format_block(top, bucket_label), len(top))
 
 
 def get_retriever_stats() -> dict:

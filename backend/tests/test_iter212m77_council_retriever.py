@@ -54,8 +54,9 @@ def _reset(): r._reset_for_tests(); yield; r._reset_for_tests()
 async def test_below_threshold_returns_empty():
     # Only 3 rows, threshold is 5.
     db = _FakeDB([_row(f"q{i}", f"a{i}") for i in range(3)])
-    out = await r.get_council_few_shot(db, "how do I add a button?")
-    assert out == ""
+    block, n = await r.get_council_few_shot(db, "how do I add a button?")
+    assert block == ""
+    assert n == 0
     s = r.get_retriever_stats()
     assert s["active"] is False
     assert s["corpus_rows"] == 3
@@ -78,12 +79,13 @@ async def test_returns_few_shot_block_when_active():
              "class Item(BaseModel): name: str"),
     ]
     db = _FakeDB(rows)
-    out = await r.get_council_few_shot(
+    out, n = await r.get_council_few_shot(
         db, "add an onClick button in React", mode="A", k=2,
     )
     assert "[ORA COUNCIL — LEARNED EXAMPLES]" in out
     assert "Past example #1" in out
     assert "Past example #2" in out
+    assert n == 2
     # The two most relevant matches mention React + button + onClick.
     assert "React" in out or "button" in out or "onClick" in out
 
@@ -117,8 +119,9 @@ async def test_quality_filter_excludes_failed_code_runs():
 async def test_empty_query_returns_empty():
     rows = [_row(f"q{i}", f"a{i}") for i in range(10)]
     db = _FakeDB(rows)
-    out = await r.get_council_few_shot(db, "", mode="A")
+    out, n = await r.get_council_few_shot(db, "", mode="A")
     assert out == ""
+    assert n == 0
 
 
 @pytest.mark.asyncio
@@ -126,8 +129,9 @@ async def test_retriever_safe_on_db_error():
     class _BrokenDB:
         def __getitem__(self, name):
             raise RuntimeError("DB exploded")
-    out = await r.get_council_few_shot(_BrokenDB(), "anything")
+    out, n = await r.get_council_few_shot(_BrokenDB(), "anything")
     assert out == ""   # NEVER raises
+    assert n == 0
 
 
 def test_get_retriever_stats_shape():
@@ -145,7 +149,7 @@ async def test_top_k_capped():
     rows = [_row(f"question about react state {i}",
                  f"answer {i}") for i in range(30)]
     db = _FakeDB(rows)
-    out = await r.get_council_few_shot(
+    out, n = await r.get_council_few_shot(
         db, "react state question", mode="A", k=3,
     )
     # Block must mention exactly 3 past examples.
@@ -153,3 +157,4 @@ async def test_top_k_capped():
     assert "Past example #2" in out
     assert "Past example #3" in out
     assert "Past example #4" not in out
+    assert n == 3

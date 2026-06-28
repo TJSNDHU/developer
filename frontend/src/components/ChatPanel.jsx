@@ -1243,7 +1243,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       ...(opts.skipUserBubble
         ? []
         : [{ role: "user", content: displayContent }]),
-      { role: "assistant", content: "", streaming: true, maxxMode },
+      { role: "assistant", content: "", streaming: true, maxxMode, councilRecalled: 0 },
     ]);
     setBusy(true);
 
@@ -1405,6 +1405,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
       },
       onOpsRedirect: (m) => { bumpActivity(); setOpsRedirect(m); },
+      // Iter 212m-78 — Council self-learning indicator. Emitted by
+      // the backend BEFORE token streaming when the retriever
+      // returned >=1 past similar (user, ORA-reply) pair. Pin the
+      // count on the assistant bubble so it can render the
+      // "📚 ORA recalled N similar past answers" caption above the
+      // reply. Silent (no caption) on 0.
+      onCouncil: (n) => {
+        bumpActivity();
+        if (!n || n <= 0) return;
+        setMessages((msgs) => {
+          const copy = msgs.slice();
+          const last = copy[copy.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            copy[copy.length - 1] = { ...last, councilRecalled: n };
+          }
+          return copy;
+        });
+      },
       // Iter 51 — SSE Task Progress Streamer. Mode D→C (and any auto
       // handoff) emits this BEFORE content streams. Pin the task_id on
       // the streaming assistant bubble so the ShipStatusCard renders
@@ -2384,6 +2402,34 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             : [];
           return (
             <React.Fragment key={i}>
+              {/* Iter 212m-78 — Council recall caption.  Renders only
+                  when the backend RAG retriever surfaced past
+                  examples for this turn (council_recalled > 0). */}
+              {m.role === "assistant"
+                && (m.councilRecalled || 0) > 0 && (
+                <div
+                  data-testid={`council-recall-caption-${i}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    margin: "4px 0 2px 4px",
+                    padding: "3px 9px",
+                    fontSize: 11,
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, JetBrains Mono, monospace",
+                    color: "rgba(245,158,11,0.95)",
+                    background: "rgba(245,158,11,0.06)",
+                    border: "1px solid rgba(245,158,11,0.25)",
+                    borderRadius: 999,
+                    letterSpacing: 0.2,
+                  }}
+                  title="ORA Council self-learning — pulled similar past Q&A as few-shot context for this reply"
+                >
+                  📚 ORA recalled {m.councilRecalled} similar past
+                  answer{m.councilRecalled === 1 ? "" : "s"}
+                </div>
+              )}
               <MessageBubble
                 idx={i}
                 dbTurnIndex={dbTurnIndex}

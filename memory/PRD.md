@@ -13,6 +13,43 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-78/79 — Council recall caption (FE) + cross-pod scan dedup (Feb 28 2026) ✅
+Two ships:
+
+**Iter 212m-78 — "📚 ORA recalled N similar past answers" caption (FE)**
+- `services/ora_council_retriever.py` — `get_council_few_shot` now returns `(block, count)` tuple instead of bare string. The 8 retriever tests updated to unpack.
+- Backend wiring:
+  - `routers/chat.py /chat/send` — adds `council_recalled: N` to JSON response payload.
+  - `routers/chat.py /chat/stream` — emits a `{type: "council", council_recalled: N}` SSE frame BEFORE token streaming starts, and duplicates `council_recalled` on the `done` frame for refresh/retry flows.
+- Frontend wiring (5 small touches):
+  - `lib/api.js` — new `onCouncil(n)` callback in `streamChat()` invoked on the SSE council frame.
+  - `components/ChatPanel.jsx` — assistant placeholder now seeds `councilRecalled: 0`; `onCouncil` callback pins the count on the streaming bubble; per-bubble caption renders directly above `<MessageBubble />` with a pill design (`📚 ORA recalled N similar past answer(s)`) in the brand orange + JetBrains Mono.
+  - Singular/plural copy. Hover tooltip explains the RAG self-learning behaviour.
+  - `data-testid` on each caption for E2E coverage.
+
+**Iter 212m-79 — Cross-pod scan dedup via Redis**
+- `services/scan_cache.py` (NEW, ~190 LoC, pure-Python, no new deps):
+  - Lazy Redis connect (reuses `REDIS_URL` env), keyed on `aurem:scan_textcache:{owner}/{repo}@{tree_sha}`.
+  - **24-hour TTL** — auto-invalidates on the next commit because the tree SHA changes.
+  - **Gzip compression** (text caches compress ~5×).
+  - **6 MB per-entry cap** — refuses giant bundles to keep Redis RAM bounded.
+  - **Fail-safe** — Redis down or any error → silent miss → scanner does its normal GitHub walk. Writes never raise.
+  - **Observability counters** — hits / misses / writes / skipped_too_big / errors / hit_rate_pct / last_hit_at.
+- `routers/security_scan.py` — new helper `_list_repo_tree_with_sha` that returns `(blobs, tree_sha)` (the legacy `_list_repo_tree` now delegates to it for back-compat).
+- `routers/codebase_health.py` `_build_text_cache`:
+  - Calls `_list_repo_tree_with_sha` once, peeks at Redis for `owner/repo@tree_sha`.
+  - **HIT** → return cached dict, skip all GitHub file fetches (~50-600 API calls saved, ~60s saved on large repos).
+  - **MISS** → normal fetch path, write-back to Redis with 24 h TTL (best-effort; never blocks the response).
+  - Re-applies the path-extension filter on cache hits in case `_SCAN_EXTS` changed between writes.
+- New `GET /codebase-health/cache-stats` endpoint (admin-only) — surfaces `redis_configured`, `redis_connected`, hits, misses, writes, hit_rate_pct so the founder can monitor GitHub-quota savings.
+
+**Testing — 40/40 pytest green across 5 iter test suites**:
+- 8 new scan_cache tests (disabled-without-Redis, empty inputs, gzip+json round-trip, oversized-bundle skip, corrupted-value safety, hit/miss counters, stats shape, key format).
+- 8 retriever tests updated for the tuple return; all still pass.
+- 23 regression tests from iter 212m-76/75/73 — all green.
+
+Backend lint clean ✅, frontend lint clean ✅, backend boots clean ✅, `/codebase-health/cache-stats` live-verified ✅, `onCouncil` grep confirms FE wiring ✅. **No deploys break — Redis URL is OPTIONAL; everything degrades gracefully if it's unset.**
+
 ### Iter 212m-77 — ORA Council self-learning ACTIVATED (RAG retrieval) (Feb 28 2026) ✅
 The Council had been collecting (user_message, ORA-reply) pairs since Iter 30 — 165 rows by Feb 28 — but the self-learning loop was gated behind a hard-coded 1,000-row fine-tuning threshold. That gate is wrong: RAG (retrieval-augmented generation) over the existing logs gets ~80% of the self-learning benefit AT N=20+ AND ships today instead of after weeks of fine-tune cycle time.
 

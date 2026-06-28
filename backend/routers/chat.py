@@ -594,17 +594,16 @@ async def chat_send(
     # card + web_sources chip in the UI and logs into tool_invocations.
     t_preflight = time.time()
     extra_sys = repo_ctx or ""
-    # Iter 212m-77 — ORA Council self-learning ACTIVATED.
-    # RAG retrieval over `ora_council_logs` injects up to 2 past
-    # high-quality (user, ORA-reply) pairs as few-shot examples on
-    # the system prompt. Works from N=5 globally / N=20 per-bucket.
-    # Errors are swallowed inside the retriever — chat never breaks.
+    # Iter 212m-77/78 — ORA Council self-learning ACTIVATED.
+    # Returns (block, recalled_count). Surface count back to caller so
+    # the FE can render "📚 ORA recalled N similar past answers".
+    _council_recalled = 0
     try:
         from cto_services.db import get_db as _get_db
         from services.ora_council_retriever import get_council_few_shot
         _db_ref = _get_db()
         if _db_ref is not None:
-            _council_block = await get_council_few_shot(
+            _council_block, _council_recalled = await get_council_few_shot(
                 _db_ref, body.prompt or "",
                 mode=_detect_mode(body.prompt or ""),
                 user_id=user.get("user_id"),
@@ -707,6 +706,10 @@ async def chat_send(
         "session_id": body.session_id,
         "user_id": user.get("user_id"),
         "tokens_remaining": tokens_remaining,
+        # Iter 212m-78 — Council self-learning indicator. FE renders
+        # "📚 ORA recalled N similar past answers" above the bubble
+        # when this is > 0.
+        "council_recalled": _council_recalled,
     }
 
 
@@ -1108,17 +1111,18 @@ async def chat_stream(
         s for s in (repo_ctx, brain_ctx, url_ctx) if s
     )
 
-    # Iter 212m-77 — ORA Council self-learning ACTIVATED (streaming
-    # path). Same RAG retrieval as the /chat/send endpoint. Skip when
-    # ora_panel is set so the Ask Advisor side panel keeps its own
-    # casual voice without past code-task contamination.
+    # Iter 212m-77/78 — ORA Council self-learning (streaming path).
+    # Same RAG retrieval as /chat/send. Skip for ora_panel=true. Count
+    # is closed over by gen() and emitted as an SSE `council` frame
+    # BEFORE token streaming begins so the FE can render the caption.
+    _council_recalled = 0
     if not body.ora_panel:
         try:
             from cto_services.db import get_db as _get_db
             from services.ora_council_retriever import get_council_few_shot
             _db_ref = _get_db()
             if _db_ref is not None:
-                _council_block = await get_council_few_shot(
+                _council_block, _council_recalled = await get_council_few_shot(
                     _db_ref, body.prompt or "",
                     mode=_detect_mode(body.prompt or ""),
                     user_id=user.get("user_id"),
@@ -1183,6 +1187,16 @@ async def chat_stream(
     async def gen():
         import time as _t
         t_start = _t.monotonic()
+        # Iter 212m-78 — Council recall caption. Emit FIRST so the
+        # FE renders "📚 ORA recalled N similar past answers" before
+        # any tokens arrive. Skipped silently when count is 0.
+        if _council_recalled and _council_recalled > 0:
+            yield (
+                "data: " + json.dumps({
+                    "type":             "council",
+                    "council_recalled": int(_council_recalled),
+                }) + "\n\n"
+            )
         # Iter 36: hard wall-clock ceiling — if the worker doesn't return
         # within HARD_TIMEOUT_S we abort and emit a friendly error so the
         # UI can never "thinking…" for 15 minutes again.
@@ -2085,6 +2099,11 @@ async def chat_stream(
             # Iter 209 — typed tool-failure signals + citation-guard meta.
             "system_signals":          system_signals,
             "citation_guard_triggered": guard_triggered,
+            # Iter 212m-78 — duplicate the Council recall counter on
+            # the done frame so refresh flows + retry handlers can
+            # still surface the caption even if the client missed the
+            # early `council` frame.
+            "council_recalled":        int(_council_recalled or 0),
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 

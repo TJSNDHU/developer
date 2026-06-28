@@ -44,12 +44,15 @@ from fastapi.responses import JSONResponse
 from cto_services.auth import current_dev
 from cto_services.db import get_db
 from routers.security_scan import (
-    _decrypt_pat, _list_repo_tree, _fetch_file,
+    _decrypt_pat, _list_repo_tree, _list_repo_tree_with_sha, _fetch_file,
     _MAX_FILES, _MAX_BYTES_PER_FILE, _SCAN_EXTS, _SKIP_DIRS,
     _CONCURRENT_FETCHES,
 )
 from services.vanguard_scanner import scan_text
 from services.bug_hunt_rules import scan_bug_hunt
+from services.scan_cache import (
+    get_cached_text_cache, put_cached_text_cache,
+)
 
 router = APIRouter(prefix="/codebase-health", tags=["Codebase Health"])
 logger = logging.getLogger(__name__)
@@ -395,10 +398,40 @@ SCANNERS = {
 async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
     """Walk the repo tree + fetch every scannable file.  Cached for the
     duration of a single /scan request so all 5 categories share the
-    same fetch budget."""
-    text_cache: dict[str, str] = {}
+    same fetch budget.
+
+    Iter 212m-79 — also checks Redis for a previously-built bundle
+    keyed on `owner/repo@tree_sha`.  Cross-pod cache hits skip the
+    ~50-600 GitHub calls entirely (~60 s saved on large repos).  TTL
+    24 h; key invalidates automatically on the next commit because the
+    tree SHA changes."""
     async with httpx.AsyncClient() as client:
-        blobs = await _list_repo_tree(client, owner, repo, pat)
+        blobs, tree_sha = await _list_repo_tree_with_sha(
+            client, owner, repo, pat,
+        )
+
+        # ── Redis-backed dedup lookup ──────────────────────────────
+        if tree_sha:
+            cached = await get_cached_text_cache(owner, repo, tree_sha)
+            if cached is not None:
+                # Hit — skip GitHub entirely.  Re-apply the path
+                # candidate filter in case _SCAN_EXTS changed between
+                # writes (cheap; pure-Python loop over keys).
+                filtered: dict[str, str] = {}
+                for path, txt in cached.items():
+                    if not path:
+                        continue
+                    if any(p in _SKIP_DIRS for p in path.split("/")):
+                        continue
+                    lower = path.lower()
+                    if not (any(lower.endswith(ext) for ext in _SCAN_EXTS)
+                            or lower.endswith("requirements.txt")
+                            or lower.endswith("package.json")):
+                        continue
+                    filtered[path] = txt
+                return filtered
+
+        text_cache: dict[str, str] = {}
         candidates: list[dict] = []
         for b in blobs:
             path = b.get("path", "")
@@ -426,7 +459,26 @@ async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
                 text_cache[blob["path"]] = t
 
         await asyncio.gather(*[_one(b) for b in candidates])
+
+        # ── Best-effort write-back; never blocks the response ─────
+        if tree_sha and text_cache:
+            try:
+                await put_cached_text_cache(owner, repo, tree_sha, text_cache)
+            except Exception as e:
+                logger.debug("scan_cache put_cached failed: %r", e)
+
     return text_cache
+
+
+@router.get("/cache-stats")
+async def cache_stats(authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 212m-79 — surface Redis scan-cache hit-rate to founders.
+    Admin-only."""
+    user = await current_dev(authorization)
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    from services.scan_cache import get_scan_cache_stats
+    return get_scan_cache_stats()
 
 
 @router.post("/scan")
