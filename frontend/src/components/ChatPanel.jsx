@@ -2301,8 +2301,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       )}
       {/* Iter 165 — Warm Start status bar. Renders while the 4
           background agents are pre-loading project context after a
-          project select. Auto-hides on ready/idle. */}
-      <WarmStatusBar status={warmStatus} progress={warmProgress} />
+          project select. Auto-hides on ready/idle.
+          Iter 212m-108 — also hide once any chat content is on
+          screen (history loaded OR user already sent a message).
+          Previously the skeleton bars stayed visible above real
+          messages because warm-start polling didn't always reach
+          "ready" within the 60s cap, leaving the user staring at
+          shimmer bars on top of working content. */}
+      {messages.length === 0 && (
+        <WarmStatusBar status={warmStatus} progress={warmProgress} />
+      )}
       <div
         data-testid="chat-messages"
         style={{
