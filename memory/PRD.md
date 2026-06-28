@@ -12,7 +12,22 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-90 — Chat inbox v0 design match (Feb 28 2026) ✅
+### Iter 212m-91 — Cursor-like inline file diff peek (Feb 28 2026) ✅
+Founder UX: when ORA's reply mentions a file path, a small orange chip appears under the bubble. Hovering 350 ms fetches the current GitHub content and shows a side-by-side line diff vs the proposed code block.
+
+- NEW `components/FileDiffPeek.jsx` — chip + floating tooltip combo.
+  - Chip: `📄 {filename}` styled in `rgba(255,102,8,0.10)` with orange border (matches v0 chat aesthetic).
+  - Hover delay 350 ms before firing `GET /cto/projects/{project_id}/file?path=…` (single in-flight request; cached after first load).
+  - Tooltip: 640px floating panel pinned below chip, dark `#0A0A0A` bg with orange border. Header row shows full path + `+N / −N` diff summary. Body renders the diff with per-line `+` green, `−` red, ` ` muted (LCS-light naive diff for fast render, capped at 60 lines — full review remains in the actual PR).
+  - Handles new files (404 → treats current as empty), loading state, errors gracefully.
+- `MessageBubble.jsx` — extended `extractShipFiles()` to also return `code` (the matched code block); inserted a chips row above `<ShipDialog>` that renders one `FileDiffPeek` per detected file when `handoffBrief && activeProject.project_id` are present. Gated to assistant messages only.
+
+**Why hover delay 350 ms** — prevents wasteful GitHub calls when the user just scrolls past a file path. Real hover intent triggers the fetch.
+
+**Privacy/perf note**: file content fetched lazily, never on initial render. Only when the user actively hovers. Cap at 8 chips per message to avoid spamming chip rows.
+
+
+
 6-point alignment to sidebar-changes.vercel.app:
 
 **Bubble styles (scoped to `.ds2-root` only — legacy pages untouched)**:

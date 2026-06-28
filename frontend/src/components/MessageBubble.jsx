@@ -20,6 +20,7 @@ import {
 import { api } from "../lib/api";
 import { toast } from "./Toast";
 import ShipDialog from "./ShipDialog";
+import FileDiffPeek from "./FileDiffPeek";
 import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
@@ -227,7 +228,7 @@ function extractShipFiles(content, brief) {
     const added = block
       ? block.split("\n").filter((l) => l.trim()).length
       : perFile;
-    return { path: p, added, removed: 0 };
+    return { path: p, added, removed: 0, code: block || "" };
   });
 }
 
@@ -987,6 +988,30 @@ export default function MessageBubble({
             <ActionBtn testid={`thumbs-down-${idx}`} title="Bad reply — we'll refine" onClick={() => sendVote("down")} Icon={ThumbsDown} active={vote === "down"} color="rgba(255,107,107,0.55)" />
           </div>
         )}
+
+        {/* Iter 212m-91 — Cursor-like file-diff peek chips. Renders one
+            small chip per file referenced in the handoff brief; hover
+            fetches current GitHub content + side-by-side diff vs the
+            proposed code block in this reply. */}
+        {m.role === "assistant" && handoffBrief && activeProject?.project_id && (() => {
+          const peekFiles = extractShipFiles(m.content, handoffBrief);
+          if (peekFiles.length === 0) return null;
+          return (
+            <div data-testid={`file-peek-row-${idx}`} style={{
+              display: "flex", flexWrap: "wrap", gap: 0,
+              marginTop: 8, paddingLeft: 2,
+            }}>
+              {peekFiles.slice(0, 8).map((f) => (
+                <FileDiffPeek
+                  key={f.path}
+                  path={f.path}
+                  projectId={activeProject.project_id}
+                  proposedCode={f.code}
+                />
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Ship via CTO row — only when an aurem-handoff brief is present */}
         <ShipDialog
