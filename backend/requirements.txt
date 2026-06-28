@@ -51,11 +51,13 @@ google-auth-httplib2==0.4.0
 google-genai==1.2.0
 google-generativeai==0.8.6
 googleapis-common-protos==1.75.0
+groq==1.5.0
 grpcio==1.80.0
 grpcio-status==1.71.2
 h11==0.16.0
 h2==4.3.0
 hf-xet==1.5.0
+hiredis==3.4.0
 hpack==4.1.0
 httpcore==1.0.9
 httplib2==0.31.2
@@ -122,6 +124,7 @@ pyflakes==3.4.0
 Pygments==2.20.0
 PyJWT==2.10.0
 pymongo==4.9.2
+PyOTP==2.10.0
 pyparsing==3.3.2
 pypdfium2==5.8.0
 pytest==8.3.0
@@ -133,7 +136,9 @@ python-multipart==0.0.18
 python-pptx==1.0.2
 pytokens==0.4.1
 PyYAML==6.0.3
+qrcode==8.2
 radon==6.0.1
+redis==5.3.1
 referencing==0.37.0
 regex==2026.5.9
 requests==2.34.2
@@ -173,8 +178,3 @@ xlsxwriter==3.2.9
 yarl==1.24.2
 youtube-transcript-api==1.0.3
 zipp==4.1.0
-
-pyotp==2.10.0
-qrcode==8.2
-pillow==12.2.0
-groq==1.5.0

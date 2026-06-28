@@ -13,6 +13,34 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-76 — Redis-backed admin analytics cache (Feb 28 2026) ✅
+Fixed the pod-restart cold-start that hit every deploy: admin analytics cache (Iter 212m-71) was in-memory only, so the founder saw 6 s of aggregation latency right after every redeploy + every uvicorn worker restart.
+
+Audit findings:
+- `services/admin_analytics_cache.py` — in-memory `_STORE` dict → ✅ **fixed in this iter**.
+- `founder_offer` counter — **already Mongo-atomic** (`find_one_and_update + $inc + $expr` on the `founder_offer` singleton). No fix needed; survives any restart.
+- `scan_rate_limits` (Iter 212m-75) — **already Mongo-backed** with prune-on-read TTL. No fix needed.
+
+Implementation:
+- **`services/admin_analytics_cache.py`** rewritten as a **dual-backend tiered cache**. Public API (`cached_agg`, `invalidate`, `stats`) is unchanged — zero caller changes across `routers/admin.py` etc.
+- **Redis primary path** activated whenever `REDIS_URL` env is set. Uses `redis>=5.0` async client (`redis.asyncio`), `aurem:cache:admin:*` namespace, JSON-encoded values, 2 s connect/read timeouts.
+- **Cross-worker single-flight** via Redis SETNX lock (`aurem:lock:admin:*`, 60 s lease). Multiple uvicorn workers + multiple pods now share one warm view; thundering herd eliminated.
+- **In-memory fallback** preserved as the second tier — kicks in transparently when `REDIS_URL` is unset OR Redis is down. `_TRIED` flag logs the backend choice exactly once. The in-mem mirror also acts as an L1 cache when Redis is up, so subsequent reads on the same worker skip Redis entirely until the TTL expires.
+- **Best-effort writes** — Redis SET/DEL failures NEVER raise. Worst case: cache miss next call.
+- **`stats()` surfaces** `redis.configured` + `redis.connected` so the founder's `/admin/cache/analytics-stats` endpoint reports backend health.
+- **Dependencies**: `redis==5.3.1 + hiredis==3.4.0` added via pip freeze.
+
+Testing — 7 new pytest in `tests/test_iter212m76_redis_cache.py`:
+- In-memory fallback when REDIS_URL unset ✅
+- Single-flight under 3 concurrent callers (builder runs once) ✅
+- TTL expiry triggers rebuild ✅
+- `invalidate(key)` and `invalidate(None)` drop local mirror ✅
+- `stats()` shape includes redis flags ✅
+- Unreachable REDIS_URL falls back silently — no exception ✅
+- Builder exception does NOT cache the failure ✅
+
+Verified live: backend boots clean, `/admin/cache/analytics-stats` now returns `{redis: {configured: false, connected: false}}` in preview (no REDIS_URL set). Production: set `REDIS_URL=redis://...` env var to flip the backend live with zero code change.
+
 ### Iter 212m-75 — Bug Hunt landing page + scan rate limiting + async project indexing (Feb 28 2026) ✅
 Four-task ship: dedicated /bug-hunt landing, sitemap entry, sliding-window rate limit on health scans, background indexing for project creation.
 
