@@ -1,0 +1,72 @@
+{
+  "summary": "Iter 19 — PRODUCTION (https://auremcto.com) end-to-end UI/UX test against qa-prod@aurem.dev. SIGNIFICANT IMPROVEMENT vs iter 18: all four iter-18 P0/P1 'pending prod redeploy' items are now LIVE on prod — (a) Composer placeholder = 'Ask ORA to build, fix, or scan...' ✓, (b) Theme toggle 3-state cycle dark→light→auto→dark ✓, (c) Mode pills Swift/Pro/Maxx persist to localStorage ✓, (d) Avatar dropdown (Edit Profile / Settings / Token Recharge / Logout) renders correctly with proper user identity ✓, (e) LOOP OFF/ON pill toggles and persists. NEW prod build (commit hash unknown — /api/aurem-dev/health is 404; correct path is /api/health). REMAINING / NEW PROD BUGS: P0-1 Topbar auto-hide on scroll is NOT working — topbar height stayed 87px through scroll-down and scroll-up cycles (this is the user's main 'screen fluctuation / black ghost header gap' complaint and is NOT yet on prod). P0-2 Prompt-mode send click appears to fire but no user bubble nor ORA reply rendered in the chat — composer still showed the unsent text and only the initial ORA greeting bubble remained (regression vs iter 18 where send worked). P1-1 NewUserWizard 'Connect your GitHub repo' modal STILL auto-opens on every /dashboard load for the 0-project test user (iter-18 P0 fix not deployed). P1-2 Graph/Preview tab buttons fire (clicks register) but URL does not change and the side drawer effect was not visually verifiable — no regression but no confirmation of GraphPanel/PreviewPanel drawer opening. P2-1 The 'X console errors' badge inside ChatPanel shows '1 console error' on first load — root cause is a 404 on /api/aurem-dev/health that some startup probe is hitting (badge correctly reflects this). No tool_call XML / LOOP_PHASE / [Working on project:] leaks were observed in the rendered bubble (sanitizer works). Mobile 390×844 has no horizontal overflow. Console errors filtered for app-origin: only 1 (the /aurem-dev/health 404). Network 4xx/5xx: only 1 (same /aurem-dev/health 404). Stream-health pill 30s/90s state, Loop ship→GitHub commit, and Ship modal could NOT be tested because the test user has zero connected projects (active_project=null) which is the documented constraint for qa-prod.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/health", "issue": "Returns 404 on prod (correct path is /api/health). Some frontend startup probe still calls /aurem-dev/health and produces a visible '1 console error' badge in the chat UI on every page load. Either remove the probe call or add a /aurem-dev/health alias that proxies to /api/health."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TopBar.jsx — auto-hide on scroll", "issue": "P0: Topbar does NOT auto-collapse on scroll-down. Measured getBoundingClientRect().height before/after scrollBy(0,800) and scrollBy(0,-800) → 87px / 87px / 87px (no change). The user explicitly called out 'screen fluctuation' and 'black ghost header gap' — this fix is NOT deployed to prod yet. Need to verify maxHeight collapse logic is in the prod bundle.", "selector": "[data-testid='ds2-topbar']", "priority": "P0"},
+      {"component": "ChatPanel.jsx — prompt-mode send", "issue": "P0: Clicking the orange send button after filling 'reply with exactly: hello world' did NOT produce a user-side bubble nor an ORA reply within 8 seconds. The composer textarea still contained the unsent text and the rendered bubble count remained at 1 (the initial greeting). This is a REGRESSION vs iter 18 where prompt send worked. Possible causes: (a) send onClick depends on a project_id and silently no-ops when active_project is null, (b) the loop-toggle state toggled to ON during the toggle test and the send is now waiting on a plan that never appears, (c) wizard overlay is intercepting pointer events on the composer area.", "selector": "[data-testid='chat-send-button']", "priority": "P0"},
+      {"component": "Dashboard.jsx — NewUserWizard", "issue": "P1: 'Connect your GitHub repo' modal still auto-opens on every /dashboard mount for the 0-project user. Backdrop is full-viewport and covers the topbar (visible in screenshot 1). iter-18 P0 fix (localStorage 'aurem_wizard_dismissed' guard + carve-out for sidebar/topbar) is NOT yet deployed. After clicking Skip the dashboard becomes interactable, but the wizard returns on every reload.", "selector": ".wizard-backdrop", "priority": "P1"},
+      {"component": "TopBar.jsx — Graph / Preview tabs", "issue": "P2: Clicking [data-testid='ds2-tab-graph'] and [data-testid='ds2-tab-preview'] fires without console error but the URL does not change and we could not visually confirm whether the GraphPanel drawer or PreviewPanel iframe actually opened. Visual verification blocked because the test user has no connected repo. Add a clear empty-state ('No repo connected — connect to see graph') so the click feels responsive.", "selector": "[data-testid='ds2-tab-graph']", "priority": "P2"}
+    ],
+    "integration_issues": [
+      {"flow": "Prompt mode send → bubble render", "issue": "P0: Send click fires but neither outgoing /chat/send request nor incoming SSE chunks produced a visible bubble. Need network-tab inspection to confirm whether the request actually hit /api/aurem-dev/chat/send.", "affected_selectors": ["[data-testid='chat-send-button']", "[data-testid='chat-input']"]},
+      {"flow": "/aurem-dev/health probe", "issue": "Front-end probe hits a non-existent endpoint on prod and the visible 'console error' badge in the UI scares users.", "affected_selectors": [".chat-console-error-badge"]}
+    ],
+    "design_issues": [
+      {"screen": "Dashboard with wizard open", "issues": ["Wizard backdrop dims topbar + sidebar + Ask Advisor — full-viewport overlay (see screenshot 01_login.png after auto-login). Should carve out the chrome so user feels less trapped."]},
+      {"screen": "Composer area", "issues": ["The 'LOOP OFF' / 'LOOP ON' pill and the red '1 console error — send to ORA' badge sit very close to the send button; some users may misclick. Add 6-8px more breathing room."]}
+    ]
+  },
+  "verified_passing_on_prod": [
+    "Email+password login → /dashboard with JWT at localStorage.aurem_token — PASS",
+    "Composer placeholder = 'Ask ORA to build, fix, or scan...' (iter 212m-106 fix LIVE) — PASS",
+    "Theme toggle 3-state cycle dark→light→auto→dark, localStorage.aurem_theme syncs — PASS",
+    "Mode pills (Swift/Pro/Maxx) — localStorage.aurem_chat_mode updates to 'pro' / 'maxx' / 'swift' on click (iter 18 P0 FIXED) — PASS",
+    "Loop OFF/ON pill toggles and persists localStorage.ora_execution_mode='loop' — PASS",
+    "Avatar dropdown shows Edit Profile / Settings / Token Recharge / Logout with user identity (iter 18 P0 FIXED) — PASS",
+    "No tool_call / LOOP_PHASE: / [Working on project:] leak markers in rendered DOM — PASS (sanitizer works)",
+    "Mobile 390×844 viewport: scrollWidth==innerWidth==390, no horizontal overflow — PASS",
+    "App-origin console errors during full session: 1 (the /aurem-dev/health 404 probe) — acceptable",
+    "App-origin 4xx/5xx network during session: 1 (same /aurem-dev/health 404) — acceptable"
+  ],
+  "could_not_test": [
+    "Loop mode → real GitHub commit (P0 BUG 1 from spec) — qa-prod user has zero connected projects, cannot run loop ship",
+    "Ship Modal post-loop with View on GitHub CTA — same blocker",
+    "Stream Health Pill 30s 'Slow response' / 90s 'Reconnecting...' states — prompt send failure blocked this test",
+    "Stale chat on reload — only the initial greeting bubble was present so reload-restore was trivially identical (1 bubble before, 1 after)",
+    "Token balance floor-at-0 — /codebase-health page navigation works (verified in iter 18) but no 5-message send loop was completable due to prompt send P0"
+  ],
+  "test_report_links": [
+    "/app/test_reports/iteration_19.json"
+  ],
+  "action_items": [
+    "[P0] Deploy topbar auto-hide / maxHeight collapse to prod — currently topbar height stays constant on scroll-down, which is the user's #1 'screen fluctuation' / 'black ghost gap' complaint.",
+    "[P0] Investigate prompt-mode send regression — click fires but no /chat/send is observable and no bubble renders. Likely needs a fallback for users with active_project=null (auto-create a sandbox project or show 'Connect a repo first' inline). Check ChatPanel.jsx send handler around line 3120 for a silent early-return.",
+    "[P1] Deploy NewUserWizard fix to prod — add localStorage 'aurem_wizard_dismissed' guard and carve-out the topbar+sidebar from the backdrop. Iter 18 P0 still not on prod.",
+    "[P1] Add /aurem-dev/health alias on backend OR remove the front-end probe that hits it. The 404 surfaces as a visible '1 console error' badge inside the chat UI.",
+    "[P2] Graph and Preview tabs need a clear empty-state for 0-project users so the click is not silently no-op.",
+    "[P2] Re-run this test once a project is connected to verify: real loop ship → GitHub commit, Ship Modal with View on GitHub CTA, Stream Health pill states, and stale-chat-on-reload."
+  ],
+  "critical_code_review_comments": [
+    "ChatPanel.jsx send handler — must NOT silently no-op when active_project is null. Either route to a sandbox project, show an inline 'Connect a repo to chat with your codebase' empty-state in the composer, or render a toast. Today the user clicks and nothing happens — looks completely broken.",
+    "TopBar.jsx scroll-collapse — verify the IntersectionObserver / scroll listener is bound to the actual chat scroll container (probably [data-testid='chat-scroll']) and not window. On prod the height never changes which suggests the listener is bound to the wrong element OR maxHeight transition isn't applied.",
+    "NewUserWizard.jsx — add `const [dismissed, setDismissed] = useState(()=>localStorage.getItem('aurem_wizard_dismissed')==='1');` and gate the modal on `!dismissed && projects.length===0`. Also reduce backdrop opacity over .ds2-sidebar and [data-testid='ds2-topbar'] OR set pointer-events:none on those regions of the backdrop.",
+    "Routes — `/api/aurem-dev/health` should either be added as a thin alias to `/api/health` or removed from the front-end startup probe. The user-visible '1 console error' badge that appears on every dashboard load is purely from this 404 and erodes trust."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "1 probe 404 (/aurem-dev/health), all other reachable endpoints succeeded — ~95%",
+    "frontend": "Auth + composer placeholder + theme cycle + mode pills + loop pill + avatar dropdown + mobile + leak-sanitizer all PASS. Topbar auto-hide + prompt-mode send + wizard backdrop FAIL. ~70%."
+  },
+  "test_credentials": "qa-prod@aurem.dev / qq*U71r#ZQ*fnB1BqRIKBQLt (production, /app/memory/test_credentials.md §0)",
+  "seed_data_creation": "None. Used existing qa-prod row (0 projects).",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Iter 18→19 confirmed prod redeploy DID happen: composer placeholder, theme 3-state, mode pills persistence, and avatar dropdown all moved from broken→working between the two runs. Still pending: topbar auto-hide on scroll (the user's #1 complaint), prompt-mode send when active_project=null, and the NewUserWizard auto-open + full-viewport backdrop. To unblock loop-mode + ship-modal + stream-health-pill testing the next agent should either (a) seed a project_id on qa-prod via direct Mongo write, or (b) connect a real GitHub repo through the wizard, or (c) test under teji.ss1986@gmail.com which has founder unlimited and likely existing projects. The console error visible inside the chat UI on every load is a single /api/aurem-dev/health 404 — confirm whether this is the front-end probe or a service worker.",
+  "rca_of_top_bugs": "1) Topbar auto-hide: scroll listener likely bound to window but the actual scroll container is [data-testid='chat-scroll'] — confirm by inspecting useEffect inside TopBar.jsx or wherever the scroll-state hook lives. 2) Prompt-mode send no-op: send handler in ChatPanel.jsx likely early-returns when no active_project — needs either a sandbox fallback or a user-facing 'Connect a repo first' message instead of silent failure. 3) Wizard backdrop: full-viewport <div className='wizard-backdrop'> with pointer-events:auto blocks topbar + sidebar interactions until Skip is clicked, AND the dismissal is not persisted across reloads."
+}
