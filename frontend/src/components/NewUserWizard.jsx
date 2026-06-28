@@ -247,12 +247,15 @@ export default function NewUserWizard({ onComplete }) {
     >
       <RobotGuideKeyframes />
       <div style={{
-        width: "min(440px, 100%)",
+        width: "min(460px, 100%)",
+        maxHeight: "92vh",
         background: "#0f172a",
         border: "0.5px solid rgba(255,255,255,0.1)",
         borderRadius: 14,
         boxShadow: "0 24px 60px -16px rgba(245,158,11,0.18)",
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
       }}>
         {/* ORA brand header */}
         <header style={{
@@ -290,7 +293,8 @@ export default function NewUserWizard({ onComplete }) {
           </div>
         </header>
 
-        <div style={{ padding: "20px 20px 16px" }}>
+        <div style={{ padding: "20px 20px 16px", overflowY: "auto",
+                       flex: "1 1 auto", minHeight: 0 }}>
           {/* Step dots + label */}
           <div style={{
             display: "flex", alignItems: "center", gap: 6, marginBottom: 18,
@@ -471,7 +475,7 @@ export default function NewUserWizard({ onComplete }) {
                     />
                     <a
                       data-testid="wizard-generate-pat-btn"
-                      href="https://github.com/settings/tokens/new?scopes=repo&description=AUREM%20CTO%20(per-project)"
+                      href="https://github.com/settings/tokens/new?scopes=repo,workflow,read:user,user:email&description=AUREM%20CTO%20(per-project)&default_expires_at=90"
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => setPatGenClicked(true)}

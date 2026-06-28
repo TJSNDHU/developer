@@ -23,9 +23,21 @@ import AdminHouseRules from "../components/AdminHouseRules";  // Iter 212m-24
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
 const fmtMoney = (n) => `$${(n || 0).toFixed(2)}`;
-const ago = (sec) => {
-  if (!sec) return "—";
+// Iter 212m-96 — accept BOTH numeric epoch seconds AND ISO date strings.
+// Backend returns ISO strings for newer users (Iter 211+) and Unix epoch
+// numbers for legacy rows. Either way we normalize to epoch seconds.
+const ago = (v) => {
+  if (v == null || v === "") return "—";
+  let sec;
+  if (typeof v === "number") {
+    sec = v;
+  } else {
+    const t = new Date(v).getTime();
+    if (isNaN(t)) return "—";
+    sec = Math.floor(t / 1000);
+  }
   const s = Math.floor(Date.now() / 1000 - sec);
+  if (s < 0) return "—";
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
@@ -354,9 +366,23 @@ function UsersList({ onSelect }) {
               // Iter 194 — Joined column. Shows "x ago" + absolute
               // date as a tooltip so admin can scan recency and
               // hover for the exact timestamp.
+              // Iter 212m-96 — defensive date parse: backend returns
+              // either a Unix epoch (number) or an ISO string depending
+              // on user vintage. Either form crashed `new Date(undefined*1000)`
+              // → "Invalid time value" which crashed the entire Users
+              // tab. Now we handle both safely.
               <span
                 key="joined"
-                title={u.created_at ? new Date(u.created_at * 1000).toISOString() : "unknown"}
+                title={(() => {
+                  try {
+                    const v = u.created_at;
+                    if (v == null) return "unknown";
+                    const d = typeof v === "number"
+                      ? new Date(v * 1000)
+                      : new Date(v);
+                    return isNaN(d.getTime()) ? "unknown" : d.toISOString();
+                  } catch { return "unknown"; }
+                })()}
                 style={{
                   fontSize: 11,
                   color: "var(--text-faint)",
