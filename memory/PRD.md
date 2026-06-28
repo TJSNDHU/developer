@@ -11,6 +11,16 @@ Stack:
 
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
+
+### Iter 212m-83 — Dashboard v2: AskAdvisorReal wired into chrome (Feb 28 2026) ✅
+Final wire-up of the v0 dark dashboard (`#111111`, `#FF6608`) on the real `/dashboard` route:
+- `pages/Dashboard.jsx`: Added missing render of `<AskAdvisorReal />` (was imported but never mounted in prior iter). New `advisorCollapsed` state drives the collapsible side panel.
+- `components/dashboard/v2/AskAdvisorReal.jsx`: Wires the v0 visual layout to the real `streamChat()` SSE endpoint with `ora_panel: true` (Council few-shot + mode routing + fallback chain). Replaces the legacy `FloatingORAButton` for the chromeless dashboard.
+- `components/dashboard/v2/SidebarBound.jsx`: Empty-state "Connect with GitHub" OAuth button (one-click popup) for users with 0 repos.
+- `components/Shell.jsx`: `chromeless` flag suppresses `FloatingORAButton` to avoid duplicate Ask Advisor instances.
+- TopBar "Preview" tab dispatches `aurem:toggle-preview` to ChatPanel's existing iframe.
+- Verified: lint clean across all 3 files; smoke screenshot confirms `ds2-sidebar`, `ds2-sidebar-connect-github`, and `ds2-advisor-real` all mount cleanly on first paint for the wizard smoketest user.
+
 ## Implemented Iterations
 
 ### Iter 212m-78/79 — Council recall caption (FE) + cross-pod scan dedup (Feb 28 2026) ✅

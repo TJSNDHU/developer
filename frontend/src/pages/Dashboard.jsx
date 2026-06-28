@@ -49,6 +49,7 @@ import { logout, getUser } from "../lib/api";
 // v2 chrome
 import { TopBar }       from "../components/dashboard/v2/TopBar";
 import SidebarV2Bound   from "../components/dashboard/v2/SidebarBound";
+import AskAdvisorReal   from "../components/dashboard/v2/AskAdvisorReal";
 
 const SHARE_MILESTONES = [10, 25, 50, 100, 250];
 
@@ -76,6 +77,7 @@ function DashboardV2Body() {
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
+  const [advisorCollapsed, setAdvisorCollapsed] = useState(true);
 
   // ── Real /cto/projects/list load + refresh ────────────────────────
   const reloadProjects = useCallback(() => {
@@ -260,6 +262,13 @@ function DashboardV2Body() {
             </div>
           </div>
         </div>
+
+        {/* Real Ask Advisor — replaces legacy FloatingORAButton in chromeless mode */}
+        <AskAdvisorReal
+          collapsed={advisorCollapsed}
+          onCollapse={setAdvisorCollapsed}
+          projectId={activeProject?.project_id || null}
+        />
       </div>
 
       {showWizard && <NewUserWizard onComplete={onWizardComplete} />}

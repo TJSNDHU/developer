@@ -966,11 +966,13 @@ export default function Shell({ children, requireAuth, chromeless = false }) {
         </main>
       </div>
       )}
-      {token && <PWAInstallPrompt />}
+      {token && !chromeless && <PWAInstallPrompt />}
       {/* Iter 149 — Floating ORA Panel. Mounted only when an authenticated
           token is present so the panel inherits the logged-in user's JWT
-          (never the admin token). */}
-      {token && <FloatingORAButton />}
+          (never the admin token).
+          Iter 212m-83 — chromeless suppresses this so Dashboard v2 can
+          mount its own AskAdvisorReal SSE panel without doubling up. */}
+      {token && !chromeless && <FloatingORAButton />}
     </SessionCtx.Provider>
   );
 }

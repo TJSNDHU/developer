@@ -10,9 +10,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "./cn";
 import {
   Pin, PinOff, Plus, ShieldAlert, HeartPulse,
-  RefreshCw, GitFork, Bug,
+  RefreshCw, GitFork, Bug, Github,
   User, Settings, Zap, LogOut, ChevronRight,
 } from "lucide-react";
+import { getToken } from "../../../lib/api";
+
+const API_BASE = `${(typeof process !== "undefined" ? process.env.REACT_APP_BACKEND_URL : "") || ""}/api/aurem-dev`;
 
 const TOOLS = [
   { id: "vanguard", label: "Vanguard Security", icon: ShieldAlert },
@@ -144,9 +147,55 @@ export default function SidebarBound({
           )}
           <ul className="space-y-[1px]">
             {repos.length === 0 && !isCollapsed && (
-              <li className="px-4 py-1 text-[11px] text-muted-foreground/70 italic">
-                No repos yet — click Add Repository
-              </li>
+              <>
+                <li className="px-4 py-1 text-[11px] text-muted-foreground/70 italic">
+                  No repos yet — connect in 1 click ↓
+                </li>
+                <li className="px-3 pt-2 pb-1">
+                  <button
+                    data-testid="ds2-sidebar-connect-github"
+                    onClick={() => {
+                      const token = getToken();
+                      if (!token) return;
+                      const url = `${API_BASE}/github/oauth/connect?auth=${encodeURIComponent(token)}`;
+                      const w = 560, h = 720;
+                      const left = Math.max(0, window.screenX + (window.outerWidth  - w) / 2);
+                      const top  = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
+                      const popup = window.open(url, "aurem_github_oauth",
+                        `width=${w},height=${h},left=${left},top=${top}`);
+                      // Poll until connected, then refresh real projects via
+                      // the existing event other parts of the app use.
+                      const started = Date.now();
+                      const iv = setInterval(async () => {
+                        try {
+                          const r = await fetch(`${API_BASE}/github/oauth/status`, {
+                            headers: { Authorization: `Bearer ${token}` },
+                          });
+                          const d = await r.json();
+                          if (d.connected) {
+                            clearInterval(iv);
+                            try { popup?.close?.(); } catch { /* xorigin */ }
+                            window.dispatchEvent(new CustomEvent("aurem:projects-refresh"));
+                            // ALSO open the wizard repo-picker so the user
+                            // can choose which repo to actually connect.
+                            onAddRepo?.();
+                          }
+                        } catch { /* keep polling */ }
+                        if (popup?.closed || Date.now() - started > 90_000) {
+                          clearInterval(iv);
+                        }
+                      }, 2000);
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-[7px] text-[12px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:scale-[0.98]"
+                  >
+                    <Github className="size-3.5 shrink-0" strokeWidth={2.5} />
+                    Connect with GitHub
+                  </button>
+                  <p className="mt-1.5 text-center text-[10px] text-muted-foreground/60">
+                    One-click OAuth · no PAT
+                  </p>
+                </li>
+              </>
             )}
             {repos.map((repo) => {
               const label = repo.owner ? `${repo.owner}/${repo.name}` : repo.name;
