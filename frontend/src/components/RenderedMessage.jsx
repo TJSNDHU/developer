@@ -41,13 +41,31 @@ function sanitizeForDisplay(raw) {
   // 2. Strip the [Working on project: …] context preamble we auto-prepend
   //    on every prompt — internal scoping context, not content.
   out = out.replace(/^\[Working on project:[^\]]+\]\s*\n+/i, "");
-  // 3. Strip any fenced block whose lang label is in the internal set.
+  // 3. Strip XML-style internal tags the model sometimes emits when it
+  //    bypasses the OpenAI function-calling protocol:
+  //      <tool_call>{"name":"…"}</tool_call>
+  //      <tool_result>{…}</tool_result>
+  //      <thinking>…</thinking> etc.
+  //    Iter 212m-106 — added after a prod user reported seeing
+  //    "<tool_call>read_repo_file {"path":"…"}" leak into a chat bubble.
+  out = out.replace(
+    /<\s*(tool_call|tool_calls|tool_use|tool_result|tool_results|tool_response|function_call|function_result|function_response|thinking|chain_of_thought|scratchpad|internal|system|system_prompt|orchestrator)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    "",
+  );
+  // 3b. Some models leave an opening tag without a closing one when the
+  //     stream is cut. Strip orphan opens too so we don't render
+  //     "<tool_call>{..." raw.
+  out = out.replace(
+    /<\s*(tool_call|tool_calls|tool_use|tool_result|tool_results|tool_response|function_call|function_result|function_response|thinking|chain_of_thought|scratchpad|internal|system|system_prompt|orchestrator)\b[^>]*>[\s\S]*$/gi,
+    "",
+  );
+  // 4. Strip any fenced block whose lang label is in the internal set.
   //    The fence regex must match the same shape as FENCE_RE above.
   out = out.replace(
     /```([a-zA-Z0-9_+\-.]*)[ \t]*[^\n`]*\n[\s\S]*?```/g,
     (match, lang) => INTERNAL_FENCES.has((lang || "").toLowerCase().trim()) ? "" : match,
   );
-  // 4. Collapse any 3+ consecutive newlines left over from the strips
+  // 5. Collapse any 3+ consecutive newlines left over from the strips
   //    so the bubble doesn't have giant gaps where the fences used to be.
   out = out.replace(/\n{3,}/g, "\n\n");
   return out.trim() ? out : "";

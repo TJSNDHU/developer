@@ -612,7 +612,7 @@ async def _generate_remediation_report(
                 mode="chat",
                 review_mode="swift",       # cheapest path — GLM-only
             ),
-            timeout=10.0,
+            timeout=30.0,  # Iter 212m-106 — bumped from 10s (user saw timeouts on the health page).
         )
         if not isinstance(res, dict) or not res.get("ok"):
             return empty_report, "failed"

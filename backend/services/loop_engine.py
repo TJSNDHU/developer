@@ -482,22 +482,129 @@ class LoopEngine:
 
     # ── Phase 5 — Ship (commits via existing GitHub writer) ──────────
     async def _do_ship(self) -> None:
+        """Iter 212m-106 — Phase C wiring. Was a `phase_b_stub: True` no-op
+        that emitted "Ship complete" without ever pushing to GitHub
+        (user found this in prod via `git log` showing no commits).
+        Now calls services.github_api_writer.commit_files() with the
+        files the Execute/Verify phases produced and only marks the
+        loop COMPLETED after the GitHub API returns a real commit_sha.
+        """
         self.state = LoopState.SHIPPING
         self.phase = "ship"
         await self._emit(LoopState.SHIPPING, "ship",
                          step=5, total_steps=5,
-                         message="Committing to repo…")
-        # Phase B stub: record the commit message but don't push.
-        # Phase C wires the real github_api_write.commit_files() call.
-        msg = _commit_message(self.user_message)
-        self.context["commit"] = {"message": msg, "phase_b_stub": True}
+                         message="Resolving GitHub credentials…")
+
+        files_to_commit = self.context.get("submitted_files") or []
+        if not files_to_commit:
+            # Nothing to ship — Execute produced no diff. Mark the loop
+            # PAUSED so the user knows there's nothing to commit instead
+            # of a fake "Ship complete".
+            self.state = LoopState.PAUSED_FOR_USER
+            await _persist_session(self.db, self._doc())
+            await self._emit(LoopState.PAUSED_FOR_USER, "ship",
+                             step=5, total_steps=5,
+                             message="Nothing to ship — Execute produced no file changes.",
+                             data={"requires_user_action": True,
+                                   "reason": "no_files"})
+            return
+
+        # Fetch project's GitHub linkage (owner / repo / branch / token)
+        proj = await self.db.cto_projects.find_one(
+            {"project_id": self.project_id, "user_id": self.user_id},
+            {"_id": 0, "github_owner": 1, "github_repo": 1,
+             "github_branch": 1, "github_token": 1},
+        )
+        if not proj:
+            await self._fail_ship("Project not found for ship — re-link your repo in Settings.")
+            return
+        owner   = proj.get("github_owner") or ""
+        repo    = proj.get("github_repo")  or ""
+        branch  = proj.get("github_branch") or "main"
+
+        # Resolve PAT (project-scoped) then fall back to user's OAuth
+        # access_token if no per-project PAT was stored.
+        from routers.security_scan import _decrypt_pat  # local import
+        token = await _decrypt_pat(self.user_id, proj.get("github_token"))
+        if not token:
+            try:
+                u = await self.db.dev_users.find_one(
+                    {"user_id": self.user_id}, {"_id": 0, "github": 1},
+                )
+                token = ((u or {}).get("github") or {}).get("access_token") or None
+            except Exception:
+                token = None
+        if not (owner and repo and token):
+            await self._fail_ship(
+                "GitHub credentials missing. Connect a repo + PAT (or OAuth) before shipping."
+            )
+            return
+
+        # Convert [{path, content}] → {path: content} for commit_files().
+        files_dict: dict[str, str] = {}
+        for f in files_to_commit:
+            p = (f or {}).get("path")
+            c = (f or {}).get("content")
+            if p and c is not None:
+                files_dict[str(p)] = str(c)
+        if not files_dict:
+            await self._fail_ship("Submitted files were empty — nothing valid to commit.")
+            return
+
+        commit_message = _commit_message(self.user_message)
+        await self._emit(LoopState.SHIPPING, "ship",
+                         step=5, total_steps=5,
+                         message=f"Committing {len(files_dict)} file(s) to {owner}/{repo}@{branch}…")
+
+        try:
+            from services.github_api_writer import commit_files
+            res = await commit_files(
+                owner=owner, repo=repo, branch=branch, token=token,
+                files=files_dict, commit_message=commit_message,
+                progress=None,
+            )
+        except Exception as e:  # network / 401 / 422 / etc.
+            logger.exception("[loop %s] commit_files failed", self.loop_id)
+            await _log_error(self.db, self.loop_id, "ship", repr(e))
+            await self._fail_ship(f"GitHub push failed: {e}")
+            return
+
+        full_sha = res.get("full_sha") or res.get("sha") or ""
+        short_sha = res.get("sha") or full_sha[:7]
+        html_url  = res.get("html_url") or (
+            f"https://github.com/{owner}/{repo}/commit/{full_sha}" if full_sha else None
+        )
+        self.context["commit"] = {
+            "message":   commit_message,
+            "sha":       short_sha,
+            "full_sha":  full_sha,
+            "html_url":  html_url,
+            "files":     list(files_dict.keys()),
+        }
         self.state = LoopState.COMPLETED
         await _persist_session(self.db, self._doc())
         await self._emit(LoopState.COMPLETED, "ship",
                          step=5, total_steps=5,
-                         message=f"Loop complete: {msg}",
-                         data={"commit_message": msg,
-                               "files_changed": self.context["files_changed"]})
+                         message=f"Shipped {short_sha} → {owner}/{repo}@{branch}",
+                         data={
+                             "commit_message": commit_message,
+                             "commit_sha":     short_sha,
+                             "full_sha":       full_sha,
+                             "html_url":       html_url,
+                             "files_changed":  list(files_dict.keys()),
+                             "scan_results":   self.context.get("scan_results"),
+                         })
+
+    async def _fail_ship(self, reason: str) -> None:
+        """Helper: persist + emit a clean ship-phase failure event."""
+        self.state = LoopState.FAILED
+        self.context["commit"] = {"error": reason}
+        await _persist_session(self.db, self._doc())
+        await self._emit(LoopState.FAILED, "ship",
+                         step=5, total_steps=5,
+                         message=reason,
+                         data={"requires_user_action": True,
+                               "error": reason})
 
     # ── Cancellation ─────────────────────────────────────────────────
     async def cancel(self) -> None:

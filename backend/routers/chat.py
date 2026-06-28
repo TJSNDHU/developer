@@ -136,9 +136,26 @@ async def _deduct_tokens(user_id: str, reply: str) -> int:
         return 0
     used = max(1, len((reply or "").split()) // 3 + 1)
     try:
+        # Iter 212m-106 — Token floor. Was `$inc -used` unconditional
+        # which let the balance go negative (user saw -28,359 on the
+        # health page). Now: atomic clamp via aggregation pipeline so
+        # tokens_remaining never drops below 0 even if `used` exceeds
+        # the current balance.
         await db.dev_users.update_one(
             {"user_id": user_id},
-            {"$inc": {"tokens_remaining": -used}},
+            [{
+                "$set": {
+                    "tokens_remaining": {
+                        "$max": [
+                            0,
+                            {"$subtract": [
+                                {"$ifNull": ["$tokens_remaining", 0]},
+                                used,
+                            ]},
+                        ]
+                    }
+                }
+            }],
         )
         u = await db.dev_users.find_one(
             {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1}

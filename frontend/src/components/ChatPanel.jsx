@@ -646,6 +646,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   sidebarWireRefs.current.execMode = execMode;
   sidebarWireRefs.current.activeProject = activeProject;
 
+  // Iter 212m-106 — Top-tab "Graph" wiring. Was a no-op per the
+  // original "feature window WIP" note; now dispatches via the
+  // existing `setGraphOpen` flag so the GraphPanel drawer opens
+  // on the user's currently-active project. The same event is
+  // also fired by the sidebar Codebase Graph link.
+  useEffect(() => {
+    const open = () => setGraphOpen(true);
+    const close = () => setGraphOpen(false);
+    const toggle = (e) => {
+      const d = e?.detail || {};
+      if (d.open === true) open();
+      else if (d.open === false) close();
+      else setGraphOpen((v) => !v);
+    };
+    window.addEventListener("aurem:toggle-graph", toggle);
+    return () => window.removeEventListener("aurem:toggle-graph", toggle);
+  }, []);
+
   // Iter 145 — broadcast every previewOpen change (incl. auto-open
   // when a code reply lands or a project with preview_url is selected)
   // so Dashboard's top-right Preview/Hide button label always matches.
@@ -1937,6 +1955,37 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     else if (state === "failed")    setLoopPhase("error");
     else if (state === "aborted")   setLoopPhase("idle");
 
+    // Iter 212m-106 — Ship modal wiring. The engine emits the final
+    // ship event with state="completed", phase="ship", and `data`
+    // carrying the REAL commit_sha + html_url + files_changed from
+    // GitHub's API response. Forward this to the dashboard's
+    // ShipConfirmModal so the user sees the commit confirmation
+    // (or a failure card if the push failed).
+    if (state === "completed" && phase === "ship" && data && data.commit_sha) {
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
+          detail: {
+            kind: "shipped",
+            commit_sha:  data.commit_sha,
+            full_sha:    data.full_sha,
+            html_url:    data.html_url,
+            files:       data.files_changed || [],
+            scan:        data.scan_results || null,
+            commit_msg:  data.commit_message,
+          },
+        }));
+      } catch { /* event dispatch never throws but be defensive */ }
+    } else if (state === "failed" && phase === "ship") {
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
+          detail: {
+            kind: "failed",
+            error: data?.error || ev.message || "Ship failed",
+          },
+        }));
+      } catch { /* noop */ }
+    }
+
     // Self-heal indicator visibility.
     if (state === "self_healing") {
       const preview = Array.isArray(data.errors_preview)
@@ -2880,11 +2929,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               handleFiles(files);
             }
           }}
-          placeholder={
-            execMode === EXEC_MODES.LOOP
-              ? "Describe the feature / fix — ORA plans → approves → ships."
-              : "Ask ORA to build, fix, or scan..."
-          }
+          placeholder="Ask ORA to build, fix, or scan..."
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}
@@ -3130,6 +3175,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             <button
               type="submit" data-testid="chat-send"
               disabled={!input.trim() || !sessionId || exhausted}
+              onClick={(e) => {
+                // Iter 212m-106 — explicit click handler as a defensive
+                // backup. Some browsers/Safari versions skip the form's
+                // implicit submit when the button is a `type="submit"`
+                // inside a flex container with overflow tricks. This
+                // makes the click 100% reliable regardless.
+                if (e.currentTarget.disabled) return;
+                send(e);
+              }}
               title={
                 exhausted
                   ? "Tokens exhausted — upgrade your plan"

@@ -130,7 +130,16 @@ function Header({ data, loading, onRefresh }) {
         <MapIcon size={20} color="#e8a020" />
         <h1 data-testid="fw-title" style={{
           margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: 0.3,
-        }}>System map</h1>
+        }}>ORA System Internals</h1>
+        <span style={{
+          padding: "3px 8px", borderRadius: 999,
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          background: "rgba(255,102,8,0.10)",
+          border: "1px solid rgba(255,102,8,0.35)",
+          color: "#FF6608",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}>Admin · Platform</span>
         <button
           type="button"
           data-testid="fw-refresh"

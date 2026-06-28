@@ -60,6 +60,43 @@ export default function ShipConfirmModal() {
   useEffect(() => {
     const handler = (e) => {
       const d = e?.detail || {};
+      // Iter 212m-106 — Loop engine emits `kind: "shipped" | "failed"`
+      // AFTER the GitHub commit completes. Skip the confirm step and
+      // jump straight to the post-ship state so the user sees the real
+      // commit_sha + html_url. Legacy callers (manual ship from chat
+      // bubble) still use the no-kind / "confirm" path below.
+      if (d.kind === "shipped") {
+        setFiles(Array.isArray(d.files) ? d.files : []);
+        setVan({ critical: 0 });
+        setOnShip(() => async () => ({}));
+        setProject(null);
+        setErr("");
+        setScan(d.scan || null);
+        setTaskId(null);
+        setTask({
+          status:      "succeeded",
+          commit_sha:  d.commit_sha || "",
+          full_sha:    d.full_sha || "",
+          html_url:    d.html_url || "",
+          commit_msg:  d.commit_msg || "",
+        });
+        setPhase("shipped");
+        setOpen(true);
+        return;
+      }
+      if (d.kind === "failed") {
+        setFiles([]);
+        setVan({ critical: 0 });
+        setOnShip(() => async () => ({}));
+        setProject(null);
+        setScan(null);
+        setTaskId(null);
+        setTask(null);
+        setErr(d.error || "Ship failed");
+        setPhase("error");
+        setOpen(true);
+        return;
+      }
       setFiles(Array.isArray(d.files) ? d.files : []);
       setVan(d.vanguard || { critical: 0 });
       setOnShip(() => (typeof d.onShip === "function" ? d.onShip : async () => ({})));

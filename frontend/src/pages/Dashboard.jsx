@@ -315,9 +315,19 @@ function DashboardV2Body() {
             onTabChange={(next) => {
               setTab(next);
               if (next === "Preview") handleTogglePreview();
+              if (next === "Graph") {
+                // Iter 212m-106 — opens the existing GraphPanel drawer
+                // (force-directed nodes of the active project's repo).
+                window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
+                  detail: { open: true },
+                }));
+              }
               if (next === "Chat") {
                 // Best-effort hide of the preview when returning to Chat.
                 window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
+                  detail: { open: false },
+                }));
+                window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
                   detail: { open: false },
                 }));
               }
