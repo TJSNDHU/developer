@@ -571,20 +571,21 @@ export default function MessageBubble({
           message: taskId ? `Task queued — ${taskId}` : "Task queued",
           kind: "success", duration: 3000,
         });
+        // Iter 212m-88 — return task_id so ShipConfirmModal can poll
+        // and stream the post-push Vanguard scan + rollback affordance.
+        return { task_id: taskId };
       } catch (e) {
         const msg = e?.response?.data?.detail || e?.message || "Submit failed";
         setShipState({ status: "error", taskId: null, error: msg });
         toast({ message: msg, kind: "error" });
-        throw e; // rethrow so the modal can surface failure
+        throw e;
       }
     };
     window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
       detail: {
         files,
-        // Vanguard runs server-side after the push (part of the CTO task
-        // pipeline — see `services/loop_verify.py`). We surface "scheduled"
-        // here so the user knows it'll run; we don't block ship on it.
         vanguard: { critical: 0 },
+        project: activeProject,
         onShip: doSubmit,
       },
     }));

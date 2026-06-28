@@ -12,7 +12,26 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-87 — Real "Ship via CTO" button end-to-end (Feb 28 2026) ✅
+### Iter 212m-88 — Ship via CTO 3-phase Live modal (Feb 28 2026) ✅
+Upgraded `ShipConfirmModal` from a single-purpose confirmation to a full 3-phase Live ship + verify + rollback flow:
+
+**Phase 1 `confirm`** — Files changed list + Vanguard preflight pill + Cancel/Ship it (unchanged from 212m-86).
+
+**Phase 2 `shipping`** — Modal transforms after Ship-it click. Shows live stage badge (`Cloning…` → `Reading…` → `AI thinking…` → `Writing & pushing…`), last 3 worker steps, commit URL **as soon as `task.commit_sha` lands**, "Run in background" minimize button. Polls `GET /cto/tasks/{id}` every 1.5 s until terminal state.
+
+**Phase 3 `shipped`** — Green "Pushed to GitHub" success card with commit SHA + "View commit" link + branch chip. Live **Vanguard scan streaming** — pulls `GET /cto/tasks/{id}/scan` once status flips to `done`, shows scanning → clean → flagged states with finding counts. Two actions: **Rollback** (red border) → `POST /cto/tasks/{id}/rollback` with polling until `rollback_sha` appears, **Done** closes modal.
+
+**Phase 4 `reverted` / `error`** — Surfaces revert success or ship failure with close button.
+
+**Wire-up via MessageBubble**:
+- `shipViaCTO()` now passes `project: activeProject` to the modal so we can construct the GitHub commit URL even before the task row carries owner/repo.
+- `doSubmit()` returns `{task_id}` from the modal so `ShipConfirmModal` can pick it up and start polling.
+
+**E2E verified via 2 screenshots**:
+- Phase 1: 2 files (`backend/auth.py +47/-12`, `frontend/ChatPanel.jsx +8/-3`), green Vanguard pill, Cancel + Ship it.
+- Click Ship it → mocked `/cto/tasks/{id}` returns done status → modal flips to Phase 3 with commit SHA `abc1234`, "View commit" link, branch chip `main`, orange "Vanguard scanning…" pill (scan endpoint hadn't returned), red Rollback button, orange Done button.
+
+
 Replaced the legacy `window.confirm()` in `MessageBubble.shipViaCTO()` with the new dark-overlay modal from Iter 212m-86. Now every assistant reply with a `aurem-handoff` fence gets a real Ship-via-CTO modal showing parsed files + diff stats + Vanguard status before triggering the real `push_fix` task.
 
 **Wire-up**:
