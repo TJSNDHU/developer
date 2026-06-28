@@ -12,6 +12,23 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-85 — Vercel Tools v2: project management (Feb 28 2026) ✅
+Expanded the Vercel integration from 8 read-mostly tools to **13 tools** covering full project lifecycle. User shared Vercel CLI + project management docs and asked for ORA to control everything CLI-equivalent. We chose REST API equivalents (no CLI install in backend → safer, no shell exec).
+
+**5 new tools added** (all admin-only, write):
+- `vercel_create_project` — `POST /v11/projects`. Optional GitHub repo link + framework.
+- `vercel_pause_project` — `POST /v1/projects/{id}/pause`. Halts production traffic (503 DEPLOYMENT_PAUSED).
+- `vercel_resume_project` — `POST /v1/projects/{id}/unpause`. Reverses pause.
+- `vercel_add_domain` — `POST /v10/projects/{id}/domains`. Attaches custom domain; SSL auto-provisioned.
+- `vercel_delete_project` — `DELETE /v9/projects/{id}`. **Destructive guard** — refuses without explicit `confirm: true`.
+
+**Hardening**:
+- `routers/vercel.py` `_WRITE_TOOLS` set expanded — all 6 write/destructive tools now require `is_admin` user (founder-only) when invoked via `/integrations/vercel/execute`.
+- `vercel_delete_project` has a second guardrail: even an admin can't delete without `confirm: true` in args. Verified: `{ok:false, error:"Refusing destructive op…"}` when called without confirm.
+
+**E2E verified**: `/integrations/vercel/status` shows `tool_count: 13`; tool catalogue endpoint enumerates all 13; destructive guard tested with a fake project id.
+
+
 ### Iter 212m-84 — Vercel MCP (shared-token hybrid) for ORA chat (Feb 28 2026) ✅
 Pragmatic Vercel platform tool integration so ORA can manage projects/deployments/logs/env vars/domains directly from chat. Architectural choice: **REST API now, OAuth 2.1 + PKCE / mcp.vercel.com swap later** (option C in user dialog).
 

@@ -120,7 +120,27 @@ async def _vercel_post(path: str, body: dict) -> dict:
             except Exception:
                 msg = r.text[:200]
             return {"ok": False, "error": f"Vercel error: {msg}"}
-        return {"ok": True, "data": r.json()}
+        try:
+            return {"ok": True, "data": r.json()}
+        except Exception:
+            return {"ok": True, "data": {"status": r.status_code}}
+    except Exception as e:                                  # noqa: BLE001
+        return {"ok": False, "error": f"Vercel call failed: {e!s}"}
+
+
+async def _vercel_delete(path: str) -> dict:
+    if not _token():
+        return {"ok": False, "error": "VERCEL_API_TOKEN not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as c:
+            r = await c.delete(f"{VERCEL_API}{path}", headers=_headers())
+        if r.status_code >= 400:
+            try:
+                msg = r.json().get('error', {}).get('message', r.text[:200])
+            except Exception:
+                msg = r.text[:200]
+            return {"ok": False, "error": f"Vercel error: {msg}"}
+        return {"ok": True, "data": {"deleted": True, "status": r.status_code}}
     except Exception as e:                                  # noqa: BLE001
         return {"ok": False, "error": f"Vercel call failed: {e!s}"}
 
@@ -317,8 +337,6 @@ async def vercel_trigger_deploy_hook(ctx: dict, args: dict) -> dict:
         return {"ok": False, "error": f"Hook call failed: {e!s}"}
 
 
-# ── SKILL 8: vercel_account_info ─────────────────────────────────────
-
 async def vercel_account_info(ctx: dict, args: dict) -> dict:
     """Who am I — verifies the connected Vercel account."""
     res = await _vercel_get("/v2/user")
@@ -337,6 +355,119 @@ async def vercel_account_info(ctx: dict, args: dict) -> dict:
     }
     await _audit(ctx, "vercel_account_info", args, "ok", out.get("email", ""))
     return {"ok": True, "account": out}
+
+
+# ── SKILL 9: vercel_create_project (write, admin) ────────────────────
+
+async def vercel_create_project(ctx: dict, args: dict) -> dict:
+    """Create a new Vercel project, optionally linking a Git repo."""
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "error": "name is required"}
+    body: dict = {"name": name}
+    if args.get("framework"):
+        body["framework"] = args["framework"]
+    if args.get("repo"):  # e.g. "owner/repo" on GitHub
+        body["gitRepository"] = {
+            "repo":  args["repo"],
+            "type":  (args.get("git_provider") or "github").lower(),
+        }
+    if args.get("root_directory"):
+        body["rootDirectory"] = args["root_directory"]
+    if args.get("install_command"):
+        body["installCommand"] = args["install_command"]
+    res = await _vercel_post("/v11/projects", body)
+    if not res["ok"]:
+        await _audit(ctx, "vercel_create_project", args, "failed", res["error"])
+        return {"ok": False, "error": res["error"]}
+    p = res["data"]
+    await _audit(ctx, "vercel_create_project", args, "ok", p.get("id", ""))
+    return {"ok": True, "project_id": p.get("id"), "name": p.get("name"),
+            "framework": p.get("framework"), "created_at": p.get("createdAt")}
+
+
+# ── SKILL 10: vercel_pause_project (write, admin) ────────────────────
+
+async def vercel_pause_project(ctx: dict, args: dict) -> dict:
+    """Pause a Vercel project — production deployments stop serving
+    traffic (return 503 DEPLOYMENT_PAUSED). Useful for halting spend on
+    a runaway project or temporarily disabling a service."""
+    pid = (args.get("project_id") or "").strip()
+    if not pid:
+        return {"ok": False, "error": "project_id is required"}
+    team_q = ""
+    if args.get("team_id"):
+        team_q = f"?teamId={args['team_id']}"
+    res = await _vercel_post(f"/v1/projects/{pid}/pause{team_q}", {})
+    if not res["ok"]:
+        await _audit(ctx, "vercel_pause_project", args, "failed", res["error"])
+        return {"ok": False, "error": res["error"]}
+    await _audit(ctx, "vercel_pause_project", args, "ok", pid)
+    return {"ok": True, "paused": True, "project_id": pid}
+
+
+# ── SKILL 11: vercel_resume_project (write, admin) ───────────────────
+
+async def vercel_resume_project(ctx: dict, args: dict) -> dict:
+    """Resume a previously paused Vercel project — production deployments
+    serve traffic again. Counterpart to vercel_pause_project."""
+    pid = (args.get("project_id") or "").strip()
+    if not pid:
+        return {"ok": False, "error": "project_id is required"}
+    team_q = ""
+    if args.get("team_id"):
+        team_q = f"?teamId={args['team_id']}"
+    res = await _vercel_post(f"/v1/projects/{pid}/unpause{team_q}", {})
+    if not res["ok"]:
+        await _audit(ctx, "vercel_resume_project", args, "failed", res["error"])
+        return {"ok": False, "error": res["error"]}
+    await _audit(ctx, "vercel_resume_project", args, "ok", pid)
+    return {"ok": True, "paused": False, "project_id": pid}
+
+
+# ── SKILL 12: vercel_add_domain (write, admin) ───────────────────────
+
+async def vercel_add_domain(ctx: dict, args: dict) -> dict:
+    """Add a custom domain to a Vercel project. After this call, the user
+    must update their DNS records to point to Vercel; an SSL cert is
+    provisioned automatically once DNS is verified."""
+    pid    = (args.get("project_id") or "").strip()
+    domain = (args.get("domain") or "").strip()
+    if not pid or not domain:
+        return {"ok": False, "error": "project_id and domain are required"}
+    res = await _vercel_post(f"/v10/projects/{pid}/domains",
+                             {"name": domain})
+    if not res["ok"]:
+        await _audit(ctx, "vercel_add_domain", args, "failed", res["error"])
+        return {"ok": False, "error": res["error"]}
+    d = res["data"]
+    await _audit(ctx, "vercel_add_domain", args, "ok", domain)
+    return {"ok": True, "domain": d.get("name") or domain,
+            "verified": d.get("verified", False),
+            "project_id": pid,
+            "next_step": "Update DNS records — run vercel_list_domains to "
+                         "see required A/CNAME entries"}
+
+
+# ── SKILL 13: vercel_delete_project (write, admin — DESTRUCTIVE) ─────
+
+async def vercel_delete_project(ctx: dict, args: dict) -> dict:
+    """⚠ DESTRUCTIVE — permanently delete a Vercel project, including
+    deployments, env vars, and (non-transferred) domains. Requires
+    explicit `confirm: true` flag to prevent accidental loss."""
+    pid = (args.get("project_id") or "").strip()
+    if not pid:
+        return {"ok": False, "error": "project_id is required"}
+    if args.get("confirm") is not True:
+        return {"ok": False,
+                "error": "Refusing destructive op — pass {confirm: true} "
+                         "to delete project " + pid}
+    res = await _vercel_delete(f"/v9/projects/{pid}")
+    if not res["ok"]:
+        await _audit(ctx, "vercel_delete_project", args, "failed", res["error"])
+        return {"ok": False, "error": res["error"]}
+    await _audit(ctx, "vercel_delete_project", args, "ok", pid)
+    return {"ok": True, "deleted": True, "project_id": pid}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -437,6 +568,73 @@ VERCEL_TOOL_SPECS = [
                         "omitted = use the founder default",
         },
     },
+    {
+        "name": "vercel_create_project",
+        "description": (
+            "Create a new Vercel project — optionally link a GitHub repo "
+            "(`repo: 'owner/repo'`) and pick a framework. USE when the user "
+            "says 'create a vercel project for X' or to scaffold deployment "
+            "for a fresh repo. ADMIN-ONLY."
+        ),
+        "args_spec": {
+            "name":            "string — project name (3-100 chars, kebab-case)",
+            "framework":       "optional string — 'nextjs'|'vite'|'remix'|… (auto-detect if omitted)",
+            "repo":            "optional string — 'owner/repo' on the git provider",
+            "git_provider":    "optional 'github'|'gitlab'|'bitbucket' (default github)",
+            "root_directory":  "optional string — monorepo subdir",
+            "install_command": "optional string — override install command",
+        },
+    },
+    {
+        "name": "vercel_pause_project",
+        "description": (
+            "Pause a Vercel project — production deployments return "
+            "503 DEPLOYMENT_PAUSED. Useful to halt runaway spend or "
+            "temporarily disable a service without deleting it. ADMIN-ONLY."
+        ),
+        "args_spec": {
+            "project_id": "string — Vercel project id (prj_…)",
+            "team_id":    "optional string — team id if multi-team scope",
+        },
+    },
+    {
+        "name": "vercel_resume_project",
+        "description": (
+            "Resume a previously paused Vercel project — production "
+            "deployments serve traffic again. Counterpart to "
+            "vercel_pause_project. ADMIN-ONLY."
+        ),
+        "args_spec": {
+            "project_id": "string — Vercel project id (prj_…)",
+            "team_id":    "optional string — team id if multi-team scope",
+        },
+    },
+    {
+        "name": "vercel_add_domain",
+        "description": (
+            "Attach a custom domain to a Vercel project. SSL is "
+            "auto-provisioned once DNS verifies. After calling, prompt "
+            "the user to update their A/CNAME records — vercel_list_domains "
+            "shows the required entries. ADMIN-ONLY."
+        ),
+        "args_spec": {
+            "project_id": "string — Vercel project id (prj_…)",
+            "domain":     "string — fully-qualified domain (e.g. 'app.aurem.dev')",
+        },
+    },
+    {
+        "name": "vercel_delete_project",
+        "description": (
+            "⚠ DESTRUCTIVE — permanently delete a Vercel project, including "
+            "all deployments, env vars, and non-transferred domains. REQUIRES "
+            "explicit `confirm: true` flag — without it the call refuses. "
+            "ADMIN-ONLY. Use only after confirming intent with the user."
+        ),
+        "args_spec": {
+            "project_id": "string — Vercel project id (prj_…)",
+            "confirm":    "bool — MUST be true to authorise deletion",
+        },
+    },
 ]
 
 
@@ -449,4 +647,9 @@ VERCEL_TOOLS = {
     "vercel_list_env_vars":        vercel_list_env_vars,
     "vercel_list_domains":         vercel_list_domains,
     "vercel_trigger_deploy_hook":  vercel_trigger_deploy_hook,
+    "vercel_create_project":       vercel_create_project,
+    "vercel_pause_project":        vercel_pause_project,
+    "vercel_resume_project":       vercel_resume_project,
+    "vercel_add_domain":           vercel_add_domain,
+    "vercel_delete_project":       vercel_delete_project,
 }

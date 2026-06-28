@@ -114,7 +114,14 @@ class _ExecuteIn(BaseModel):
     args: dict = {}
 
 
-_WRITE_TOOLS = {"vercel_trigger_deploy_hook"}
+_WRITE_TOOLS = {
+    "vercel_trigger_deploy_hook",
+    "vercel_create_project",
+    "vercel_pause_project",
+    "vercel_resume_project",
+    "vercel_add_domain",
+    "vercel_delete_project",
+}
 
 
 @router.post("/execute")
