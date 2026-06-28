@@ -105,10 +105,16 @@ export function TopBar({
 
   return (
     <header data-testid="ds2-topbar" className={cn(
-      "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0A0A0A]/95 backdrop-blur-xl",
-      "transition-transform duration-200 ease-in-out",
-      effectiveHidden ? "-translate-y-full" : "translate-y-0",
-    )}>
+      "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0A0A0A]/95 backdrop-blur-xl overflow-hidden",
+      // Iter 212m-104 — collapse layout slot (not just translate) when
+      // hidden so the chat pane reclaims the space and there's no
+      // black "ghost header" gap above. We drive max-height inline
+      // since arbitrary Tailwind classes can race with JIT compile.
+      "transition-[max-height,transform,border-color] duration-200 ease-in-out",
+      effectiveHidden
+        ? "-translate-y-full border-b-transparent"
+        : "translate-y-0",
+    )} style={{ maxHeight: effectiveHidden ? 0 : 200 }}>
       <div className="flex h-[48px] items-center gap-3 px-5">
         <nav className="flex min-w-0 flex-1 items-center gap-[5px] font-mono text-[11px]">
           {breadcrumb.owner && (

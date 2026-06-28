@@ -146,15 +146,37 @@ function DashboardV2Body() {
     : theme;
 
   // ── Real /cto/projects/list load + refresh ────────────────────────
+  // Iter 212m-104 — Instant render: read localStorage cache synchronously
+  // (default useState value), then refresh from server in the background.
+  // Eliminates the 200-800ms "no repos visible" flicker right after
+  // login that made users think repos were missing.
+  const PROJECTS_CACHE_KEY = "aurem_projects_cache";
+  const [projectsHydrated, setProjectsHydrated] = useState(false);
+  useEffect(() => {
+    if (projectsHydrated) return;
+    try {
+      const raw = localStorage.getItem(PROJECTS_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (Array.isArray(cached) && cached.length > 0) {
+          setProjects(cached);
+          setProjectCount(cached.length);
+        }
+      }
+    } catch { /* corrupt cache — ignore */ }
+    setProjectsHydrated(true);
+  }, []);
   const reloadProjects = useCallback(() => {
     api.get("/cto/projects/list")
       .then((r) => {
         const list = (r.data?.projects || []);
         setProjects(list);
         setProjectCount(list.length);
+        try { localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(list)); }
+        catch { /* quota / private mode — ignore */ }
         if (list.length === 0 && !isWizardDismissed()) setShowWizard(true);
       })
-      .catch(() => { /* silent */ });
+      .catch(() => { /* silent — cached list keeps the UI populated */ });
   }, []);
 
   useEffect(() => {

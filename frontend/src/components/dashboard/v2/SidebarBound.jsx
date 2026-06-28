@@ -120,7 +120,7 @@ export default function SidebarBound({
           // /dashboard without clearing (escape hatch).
           if (e.metaKey || e.ctrlKey) { navigate("/dashboard"); return; }
           try {
-            const KEEP = new Set(["aurem_token", "aurem_user", "aurem_theme", "aurem_wizard_dismissed"]);
+            const KEEP = new Set(["aurem_token", "aurem_user", "aurem_theme", "aurem_wizard_dismissed", "aurem_projects_cache", "aurem_active_project"]);
             const drops = [];
             for (let i = 0; i < localStorage.length; i++) {
               const k = localStorage.key(i);
