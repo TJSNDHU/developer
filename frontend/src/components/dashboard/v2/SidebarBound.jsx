@@ -251,7 +251,16 @@ export default function SidebarBound({
             <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Tools</p>
           )}
           <ul className="space-y-[1px]">
-            {TOOLS.map((tool) => {
+            {TOOLS.filter((t) => {
+              // Iter 212m-99 — hide founder-only tools from non-founders.
+              // Backend /feature-window/status 403s for non-founders, so
+              // showing the button → silent redirect-to-dashboard which
+              // looks broken. Founder/admin only.
+              if (t.id === "graph") {
+                return Boolean(user?.is_admin) || (user?.tier === "founder");
+              }
+              return true;
+            }).map((tool) => {
               const Icon = tool.icon;
               const isActive =
                 (tool.id === "health"  && location.pathname.startsWith("/codebase-health")) ||

@@ -12,7 +12,7 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
-### Iter 212m-99 — Sidebar v2 wiring + Day/Night/Auto theme cycle + GitHub OAuth multi-domain redirect (Feb 28 2026) ✅
+### Iter 212m-99 — Sidebar v2 wiring + theme cycle + GitHub OAuth fix + prod test triage (Feb 28 2026) ✅
 P0 last-working-item from previous fork. User reported (1) sidebar v2 categories were mock/dummy, (2) Avatar dropdown links pointed to legacy `/profile`/`/pricing` routes (which 404 → catch-all redirect = legacy trap), (3) company logo missing from sidebar brand.
 
 - **Real ORA logo** wired in `components/dashboard/v2/SidebarBound.jsx` brand block (`size-[28px]` rounded image, `ring-1 ring-primary/25`). Replaces the placeholder `<div>O</div>`. Asset URL: `customer-assets.../f27gnf9d_logo new 11.png`.
@@ -49,6 +49,25 @@ Founder UX: when ORA's reply mentions a file path, a small orange chip appears u
 - `MessageBubble.jsx` — extended `extractShipFiles()` to also return `code` (the matched code block); inserted a chips row above `<ShipDialog>` that renders one `FileDiffPeek` per detected file when `handoffBrief && activeProject.project_id` are present. Gated to assistant messages only.
 
 **Why hover delay 350 ms** — prevents wasteful GitHub calls when the user just scrolls past a file path. Real hover intent triggers the fetch.
+
+
+**Production E2E test results (testing_agent_v3_fork iter 18 against auremcto.com):**
+- ✅ Login + JWT storage + dashboard hydration: PASS
+- ✅ Sidebar circular logo render (not placeholder 'O'): PASS
+- ✅ Health Scanner page + Back-to-dashboard button: PASS *(already on prod)*
+- ✅ /admin redirect for non-admin: PASS
+- ✅ Mobile 375×812 no horizontal overflow: PASS
+- ❌ GitHub OAuth button on /login → dead in test harness ON PROD. **Confirmed working on PREVIEW** (click → github.com/login?... redirect URL correctly built with redirect_uri=auremcto.com/.../callback). Root cause: prod bundle is stale, latest Login.jsx + multi-domain OAuth fix not yet deployed.
+- ❌ NewUserWizard overlay blocks topbar / mode pills / theme toggle / avatar dropdown for 0-project users → this cascaded into 3 false-positive "dead button" reports. Wizard auto-dismissal IS wired (`localStorage.aurem_wizard_dismissed`) — normal modal UX, dismiss with Skip → topbar fully interactive. Test harness ran on fresh sessions so dismissal never persisted.
+- ❌ Loop Mode / Vanguard Security sidebar buttons dead on prod → confirmed PENDING PROD REDEPLOY (ChatPanel event listeners are preview-only).
+- ❌ 3-state theme cycle dead on prod → confirmed PENDING PROD REDEPLOY.
+- ❌ Codebase Graph → silent redirect to /dashboard for non-founders because backend `/feature-window/status` returns 403 Founder-only.
+
+**Fixes shipped this iteration to address prod report:**
+1. **Codebase Graph button hidden for non-founders** in `SidebarBound.jsx` — `TOOLS.filter(t => t.id !== "graph" || user?.is_admin || user?.tier === "founder")`. Non-founder users no longer see a dead button that silently redirects them back.
+
+**User-facing action required**: Production needs a redeploy to ship all the preview-only fixes (sidebar logo, avatar dropdown routes, theme cycle, Loop/Vanguard listeners, OAuth multi-domain redirect, Codebase Graph filter, back buttons). All fixes are validated on preview.
+
 
 
 **Day/Night/Auto cycle (TopBar theme button)** — user reported the moon button on TopBar was a dummy. Wired it up as a 3-state cycle:
