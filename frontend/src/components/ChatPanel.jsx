@@ -2601,12 +2601,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       </div>
 
-      {/* Iter 212m-58 — Prompt / Loop mode toggle.  Sits ABOVE the
-          founder offer card so it's the first thing the user sees
-          when composing. localStorage-backed via LoopModeToggle's
-          helpers; switching modes also flips the model selector
-          away from Swift if needed (Swift is disabled in Loop). */}
-      <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
+      {/* Iter 212m-58 — Prompt / Loop mode toggle (REMOVED in 212m-90 per
+          founder spec; chat composer should be lean, only icon toolbar
+          stays. Loop mode is still accessible via the icon button in
+          the composer's right-hand toolbar). */}
+      {/* <LoopModeToggle value={execMode} onChange={handleExecModeChange} /> */}
 
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by
@@ -2819,8 +2818,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           }}
           placeholder={
             execMode === EXEC_MODES.LOOP
-              ? "Describe the feature / fix — ORA will plan first, ask you to approve, then ship through Verify → Security → Ship."
-              : "Ask ORA to build, debug, or audit — Vanguard scans every commit before it ships."
+              ? "Describe the feature / fix — ORA plans → approves → ships."
+              : "Ask ORA to build, fix, or scan..."
           }
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus

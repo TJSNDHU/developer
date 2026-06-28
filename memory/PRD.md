@@ -12,6 +12,33 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-90 — Chat inbox v0 design match (Feb 28 2026) ✅
+6-point alignment to sidebar-changes.vercel.app:
+
+**Bubble styles (scoped to `.ds2-root` only — legacy pages untouched)**:
+- `.ds2-root .glass-bubble-user` — `background: #1E1E1E`, no orange tint (was `rgba(255,138,42,0.18)`)
+- `.ds2-root .glass-bubble-assistant` — `background: #161616` + **2px solid #FF6608 left border**
+- `.ds2-root .glass-bubble` — removed `backdrop-filter`, shimmer `::before`, box-shadow — pure flat dark
+- User bubble max-width 70% (was 80%); assistant stays 80%
+
+**Composer**:
+- Removed `<LoopModeToggle>` pill row above composer (was "Prompt mode / Loop mode" toggle)
+- New placeholder text: `"Ask ORA to build, fix, or scan..."`
+- `.ds2-root .glass-composer` — `background: #161616`, flat (no glass blur)
+- Icon toolbar (shield / attach / git / loop) retained
+
+**Background**:
+- New rule `.ds2-root, .ds2-root body { background: #0A0A0A !important; }` — kills the legacy amber radial-gradient bleeding into the dashboard. Marketing/pricing/settings pages untouched (no `.ds2-root` wrap).
+
+**Ship via CTO button below message**:
+- Already present via existing `<ShipDialog>` outside the bubble (when `aurem-handoff` fence detected). Position matches v0 (under message, above next).
+
+**Console error check**:
+- Page-error + console.error listeners captured **0 errors** on /dashboard load → "red badge" was either resolved by earlier bug fixes (Iter 212m-86) or environment-specific. Will revisit if reproducer arrives.
+
+**E2E verified via screenshot** with console capture: 0 page-errors, composer renders without LoopModeToggle pills, sidebar/main/topbar all on pure #0A0A0A, new placeholder visible.
+
+
 ### Iter 212m-89 — Ship Streak widget + milestone share toasts (Feb 28 2026) ✅
 Engagement booster: small pill on the v2 TopBar shows the user's weekly ship count, auto-fires celebratory share toasts on milestones.
 

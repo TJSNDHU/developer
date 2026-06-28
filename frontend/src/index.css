@@ -138,6 +138,14 @@ body {
   min-height: 100vh;
 }
 
+/* Iter 212m-90 — pure #0A0A0A inside the dashboard. The legacy
+   amber radial-gradient stays on marketing / pricing / settings
+   pages but never bleeds into the v2 dashboard chat. */
+.ds2-root,
+.ds2-root body {
+  background: #0A0A0A !important;
+}
+
 ::selection { background: var(--accent-soft); color: var(--accent-2); }
 
 a { color: var(--accent-2); text-decoration: none; }
@@ -396,6 +404,35 @@ body.aurem-glass #root {
 }
 .glass-bubble-assistant {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* Iter 212m-90 — v0-spec chat bubble + composer overrides scoped to
+   the dashboard (.ds2-root) only. Legacy pages keep their original
+   amber-glass aesthetic; the v2 dashboard chat matches sidebar-changes.vercel.app */
+.ds2-root .glass-bubble {
+  border-radius: 12px;
+  border: 1px solid #222;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  overflow: visible;
+}
+.ds2-root .glass-bubble::before { display: none; }
+.ds2-root .glass-bubble-user {
+  background: #1E1E1E;
+  border-color: #2A2A2A;
+}
+.ds2-root .glass-bubble-assistant {
+  background: #161616;
+  border-color: #222;
+  border-left: 2px solid #FF6608;
+}
+.ds2-root .glass-composer {
+  background: #161616;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 12px;
+  border: 1px solid #222 !important;
 }
 
 /* Composer bar over the glass background.

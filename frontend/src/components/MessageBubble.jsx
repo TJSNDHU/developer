@@ -611,7 +611,7 @@ export default function MessageBubble({
       }}>
         {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
       </div>
-      <div style={{ maxWidth: "80%", position: "relative" }}>
+      <div style={{ maxWidth: m.role === "user" ? "70%" : "80%", position: "relative" }}>
         <div
           className={
             "glass-bubble " +
