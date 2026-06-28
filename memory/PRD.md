@@ -13,6 +13,36 @@ Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergent
 
 ## Implemented Iterations
 
+### Iter 212m-77 — ORA Council self-learning ACTIVATED (RAG retrieval) (Feb 28 2026) ✅
+The Council had been collecting (user_message, ORA-reply) pairs since Iter 30 — 165 rows by Feb 28 — but the self-learning loop was gated behind a hard-coded 1,000-row fine-tuning threshold. That gate is wrong: RAG (retrieval-augmented generation) over the existing logs gets ~80% of the self-learning benefit AT N=20+ AND ships today instead of after weeks of fine-tune cycle time.
+
+- **New retriever** `services/ora_council_retriever.py` (~290 LoC, pure-Python TF-IDF, zero new heavy deps):
+  - Builds a TF-IDF index over `ora_council_logs.user_message` (cap 1,500 rows, refresh every 600 s).
+  - **Quality filter** — drops `lint_blocked=true` rows, drops `mode=C` rows where `pass_result=false`. Don't learn from failures.
+  - **4-tier bucket fallback** — `user+project+mode` → `user+mode` → `mode-global` → `global`. Threshold N=20 for personalised bucket, N=5 for global activation.
+  - **Cosine-style TF-IDF scoring** with IDF weighting; cold-start latency < 50 ms.
+  - **Returns a formatted few-shot block** ready to prepend to `extra_sys` in the chat router. Block format includes bucket label + k count so the model can calibrate confidence.
+  - **Fail-safe**: every internal exception is swallowed → empty string returned → chat never breaks because of a retriever bug.
+- **Wired into both chat paths**:
+  - `POST /chat/send` — injects the few-shot block at the top of `extra_sys` (above repo_ctx, below house_rules).
+  - `POST /chat/stream` — same injection, skipped only for `ora_panel=true` (the Ask Advisor side panel keeps its own casual voice without code-task contamination).
+- **Updated `get_council_stats`**:
+  - New fields `self_learning_active` (true when total ≥ 5) + `self_learning_mode` (`"rag_retrieval"`).
+  - The legacy `ready_for_finetune` + 1,000-row tip are kept but reworded — RAG runs today, fine-tune is OPTIONAL.
+  - New `retriever` block surfaces corpus_rows, unique_users, unique_projects, modes_indexed, refresh_ttl_s, and thresholds — visible on the Admin Overview tab.
+
+Testing — 8 new pytest in `tests/test_iter212m77_council_retriever.py`:
+- below-threshold returns empty ✅
+- few-shot block format + relevance ✅
+- quality filter excludes lint_blocked ✅
+- quality filter excludes failed `mode=C` pass_result=false ✅
+- empty query returns empty ✅
+- retriever-safe on DB error ✅
+- stats shape ✅
+- top-K cap respected ✅
+
+Verified live: backend boots clean, lint clean, `/admin/ora-stats` now returns `self_learning_active: true`, `self_learning_mode: "rag_retrieval"`, full retriever stats block. **Biggest USP — self-learning — is now LIVE.**
+
 ### Iter 212m-76 — Redis-backed admin analytics cache (Feb 28 2026) ✅
 Fixed the pod-restart cold-start that hit every deploy: admin analytics cache (Iter 212m-71) was in-memory only, so the founder saw 6 s of aggregation latency right after every redeploy + every uvicorn worker restart.
 

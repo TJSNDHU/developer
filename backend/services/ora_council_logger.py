@@ -156,13 +156,31 @@ async def get_council_stats(db: AsyncIOMotorDatabase) -> dict:
         "parallel_tasks_run":    parallel,
         "exported_for_training": exported,
         "pending_export":        total - exported,
+        # Iter 212m-77 — Self-learning is ACTIVE via RAG retrieval at
+        # any N>=5. The 1,000-row threshold is now only for the
+        # OPTIONAL fine-tune ship; RAG runs today regardless.
+        "self_learning_active":  total >= 5,
+        "self_learning_mode":    "rag_retrieval",
         "ready_for_finetune":    total >= 1000,
         "finetune_tip": (
             "Ready — export logs and submit to fine-tuning pipeline"
             if total >= 1000
-            else f"Collect {1000 - total} more interactions before fine-tuning ORA"
+            else f"Collect {1000 - total} more interactions for the "
+                 f"OPTIONAL fine-tune ship. RAG self-learning is "
+                 f"already live."
         ),
+        "retriever":             _retriever_stats_safe(),
     }
+
+
+def _retriever_stats_safe() -> dict:
+    """Pulls the live RAG retriever state without raising on import-time
+    failure (e.g. during unit tests that don't load the full app)."""
+    try:
+        from services.ora_council_retriever import get_retriever_stats
+        return get_retriever_stats()
+    except Exception:
+        return {"active": False, "corpus_rows": 0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

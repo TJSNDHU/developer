@@ -594,6 +594,28 @@ async def chat_send(
     # card + web_sources chip in the UI and logs into tool_invocations.
     t_preflight = time.time()
     extra_sys = repo_ctx or ""
+    # Iter 212m-77 — ORA Council self-learning ACTIVATED.
+    # RAG retrieval over `ora_council_logs` injects up to 2 past
+    # high-quality (user, ORA-reply) pairs as few-shot examples on
+    # the system prompt. Works from N=5 globally / N=20 per-bucket.
+    # Errors are swallowed inside the retriever — chat never breaks.
+    try:
+        from cto_services.db import get_db as _get_db
+        from services.ora_council_retriever import get_council_few_shot
+        _db_ref = _get_db()
+        if _db_ref is not None:
+            _council_block = await get_council_few_shot(
+                _db_ref, body.prompt or "",
+                mode=_detect_mode(body.prompt or ""),
+                user_id=user.get("user_id"),
+                project_id=body.project_id,
+                k=2,
+            )
+            if _council_block:
+                extra_sys = (_council_block
+                             + ("\n\n" + extra_sys if extra_sys else ""))
+    except Exception as _cre:
+        logger.debug("council retrieval skipped (chat/send): %r", _cre)
     # Iter 212m-24 — Admin House Rules (HIGHEST PRIORITY).
     # If the admin has enabled house rules for `chat` + the requested
     # mode, prepend the rules block at the very top of extra_sys so it
@@ -1085,6 +1107,29 @@ async def chat_stream(
     extra_sys = "\n\n".join(
         s for s in (repo_ctx, brain_ctx, url_ctx) if s
     )
+
+    # Iter 212m-77 — ORA Council self-learning ACTIVATED (streaming
+    # path). Same RAG retrieval as the /chat/send endpoint. Skip when
+    # ora_panel is set so the Ask Advisor side panel keeps its own
+    # casual voice without past code-task contamination.
+    if not body.ora_panel:
+        try:
+            from cto_services.db import get_db as _get_db
+            from services.ora_council_retriever import get_council_few_shot
+            _db_ref = _get_db()
+            if _db_ref is not None:
+                _council_block = await get_council_few_shot(
+                    _db_ref, body.prompt or "",
+                    mode=_detect_mode(body.prompt or ""),
+                    user_id=user.get("user_id"),
+                    project_id=body.project_id,
+                    k=2,
+                )
+                if _council_block:
+                    extra_sys = (_council_block
+                                 + ("\n\n" + extra_sys if extra_sys else ""))
+        except Exception as _cre:
+            logger.debug("council retrieval skipped (chat/stream): %r", _cre)
 
     # Iter 212m-24 — Admin House Rules (HIGHEST PRIORITY).
     # For SSE chat (non-Advisor), scope is "chat" + the requested mode.
