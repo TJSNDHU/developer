@@ -68,6 +68,61 @@
     return false;
   }
 
+  // Iter 212m-95 — 3rd-party tracker / analytics filter.
+  // The console-error red badge was counting ad-blocker-blocked Google
+  // Ads pixels + Cloudflare RUM as "errors". These never come from our
+  // own code, never break anything, never benefit ORA's debugging.
+  // Drop them at every capture entry point so the badge reflects only
+  // first-party AUREM bugs.
+  const THIRD_PARTY_HOST_RX = new RegExp([
+    // Google ecosystem
+    "(^|\\.)google\\.com$",
+    "(^|\\.)google-analytics\\.com$",
+    "(^|\\.)googletagmanager\\.com$",
+    "(^|\\.)googleadservices\\.com$",
+    "(^|\\.)googlesyndication\\.com$",
+    "(^|\\.)doubleclick\\.net$",
+    "(^|\\.)gstatic\\.com$",
+    // Cloudflare RUM / web analytics
+    "(^|\\.)cloudflareinsights\\.com$",
+    "(^|\\.)cloudflare\\.com$",
+    // Meta / Facebook pixels
+    "(^|\\.)facebook\\.com$",
+    "(^|\\.)facebook\\.net$",
+    "(^|\\.)connect\\.facebook\\.net$",
+    // Common SaaS analytics
+    "(^|\\.)segment\\.(com|io)$",
+    "(^|\\.)mixpanel\\.com$",
+    "(^|\\.)amplitude\\.com$",
+    "(^|\\.)hotjar\\.com$",
+    "(^|\\.)hubspot\\.com$",
+    "(^|\\.)intercom\\.io$",
+    "(^|\\.)intercomcdn\\.com$",
+    "(^|\\.)linkedin\\.com$",
+    "(^|\\.)licdn\\.com$",
+    "(^|\\.)twitter\\.com$",
+    "(^|\\.)ads-twitter\\.com$",
+    "(^|\\.)t\\.co$",
+    "(^|\\.)tiktok\\.com$",
+    "(^|\\.)bing\\.com$",
+    "(^|\\.)clarity\\.ms$",
+    "(^|\\.)sentry\\.io$",
+  ].join("|"), "i");
+
+  function _isThirdPartyTracker(url) {
+    if (!url || typeof url !== "string") return false;
+    // Catch /cdn-cgi/rum (Cloudflare's first-party-pathed RUM beacon)
+    if (/\/cdn-cgi\/(rum|beacon|trace)/.test(url)) return true;
+    let host = "";
+    try {
+      host = new URL(url, window.location.origin).hostname.toLowerCase();
+    } catch (_) {
+      // Relative or malformed — first-party by default
+      return false;
+    }
+    return THIRD_PARTY_HOST_RX.test(host);
+  }
+
   const store = {
     console_errors: [],
     network_errors: [],
@@ -81,9 +136,21 @@
   console.error = function (...args) {
     _origError(...args);
     if (store.console_errors.length >= MAX_ERRORS) return;
+    const message = args.map(String).join(" ");
+    // Iter 212m-95 — drop console.errors whose ENTIRE content is a
+    // 3rd-party tracker URL (typical ad-blocker output like
+    // "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT  https://www.google.com/…")
+    // so the badge stops counting AdBlock as a code bug.
+    const urls = message.match(/https?:\/\/[^\s'")]+/g) || [];
+    if (urls.length > 0 && urls.every((u) => _isThirdPartyTracker(u))) return;
+    // Also drop classic "Failed to load resource" messages — these are
+    // browser-emitted, never from our code, and ad-blockers/CSP cause
+    // floods of them. Without a useful stack we can't diagnose them.
+    if (/^Failed to load resource:/.test(message) &&
+        urls.some((u) => _isThirdPartyTracker(u))) return;
     store.console_errors.push({
       type:      "error",
-      message:   args.map(String).join(" ").slice(0, 300),
+      message:   message.slice(0, 300),
       source:    _getCallerSource(),
       timestamp: new Date().toISOString(),
     });
@@ -93,6 +160,12 @@
   const _origOnError = window.onerror;
   window.onerror = function (msg, src, line, col, err) {
     if (_origOnError) _origOnError.call(this, msg, src, line, col, err);
+    // Iter 212m-95 — cross-origin "Script error." from tracker scripts
+    // arrives here with no real info. Drop if the src is a known
+    // tracker, or if the message is the opaque "Script error." with no
+    // line info (always cross-origin per browser security model).
+    if (_isThirdPartyTracker(src)) return;
+    if (msg === "Script error." || (typeof msg === "string" && /^Script error\.?$/.test(msg))) return;
     store.console_errors.push({
       type:      "uncaught_exception",
       message:   String(msg).slice(0, 300),
@@ -125,6 +198,9 @@
     const url    = typeof input === "string" ? input : input.url;
     const method = (init && init.method) || "GET";
 
+    // Iter 212m-95 — skip 3rd-party trackers entirely.
+    const isTracker = _isThirdPartyTracker(url);
+
     let response;
     try {
       response = await _origFetch(input, init);
@@ -138,7 +214,7 @@
         err.name === "AbortError" ||
         /aborted|abort/i.test(err.message || "")
       );
-      if (!isAbort) {
+      if (!isAbort && !isTracker) {
         store.network_errors.push({
           url:           url.slice(0, 200),
           method:        method.toUpperCase(),
@@ -151,6 +227,9 @@
     }
 
     if (!response.ok && response.status >= 400) {
+      // Iter 212m-95 — skip 3rd-party trackers (ad blockers cause
+      // legitimate 4xx/5xx that aren't our bugs).
+      if (isTracker) return response;
       // Clone to read body without consuming it
       const clone = response.clone();
       let body = "";
@@ -191,6 +270,9 @@
   XMLHttpRequest.prototype.send = function () {
     this.addEventListener("load", function () {
       if (this.status >= 400) {
+        // Iter 212m-95 — drop 3rd-party tracker XHRs (Google Ads,
+        // Cloudflare RUM, Meta Pixel, etc.) before pushing to store.
+        if (_isThirdPartyTracker(this._aurem_url)) return;
         // Iter 105 — same transient-proxy filter as fetch interceptor.
         const body = this.responseText || "";
         const ct = this.getResponseHeader
