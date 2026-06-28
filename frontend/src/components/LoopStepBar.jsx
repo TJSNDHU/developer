@@ -1,50 +1,27 @@
 /**
- * LoopStepBar.jsx — Iter 212m-58
+ * LoopStepBar.jsx — Iter 212m-93 (v0 pill format)
  *
- * Horizontal 5-segment progress strip that visualises ORA's
- * pipeline phases while running in Loop mode:
+ * Horizontal pill row that visualises ORA's pipeline phases. Matches
+ * sidebar-changes.vercel.app exactly:
+ *   [LOOP] [✓ PLAN] [—] [⟳ EXECUTE] [○ VERIFY] [○ SCAN] [○ SHIP]
  *
- *   1 Plan       — ORA drafts a plan; user must approve.
- *   2 Execute    — ORA writes files one at a time.
- *   3 Verify     — Ruff / ESLint on each file (max 3 retries).
- *   4 Security   — Vanguard / Shield scan runs automatically.
- *   5 Ship       — Commit (only after all prior steps pass).
- *
- * Driven entirely by the `phase` prop:
- *   • 'idle'                 — bar hidden
- *   • 'plan_pending'         — Step 1 pulsing amber (awaiting approval)
- *   • 'plan_approved'        — Step 1 green, Step 2 starts
- *   • 'executing'            — Step 2 pulsing
- *   • 'verifying'            — Step 3 pulsing (retry counter visible)
- *   • 'security'             — Step 4 pulsing
- *   • 'shipping'             — Step 5 pulsing
- *   • 'done'                 — all green
- *   • 'error'                — current step red, downstream greyed
- *
- * `retryCount` (0-3) and `errorStep` (1-5) are optional context props.
+ * Icons: ✓ for done, ⟳ (spinner) for active, ○ for pending, ⚠ for error.
  */
 import React from "react";
-import { CheckCircle2, Circle, AlertTriangle, Loader2 } from "lucide-react";
+import { Check, Circle, AlertTriangle, Loader2 } from "lucide-react";
 
 const STEPS = [
-  { id: 1, key: "plan",     label: "Plan" },
-  { id: 2, key: "execute",  label: "Execute" },
-  { id: 3, key: "verify",   label: "Verify" },
-  { id: 4, key: "security", label: "Security" },
-  { id: 5, key: "ship",     label: "Ship" },
+  { id: 1, key: "plan",     label: "PLAN" },
+  { id: 2, key: "execute",  label: "EXECUTE" },
+  { id: 3, key: "verify",   label: "VERIFY" },
+  { id: 4, key: "security", label: "SCAN" },
+  { id: 5, key: "ship",     label: "SHIP" },
 ];
 
-// Map phase → the step index currently active (1-5).
 const PHASE_TO_STEP = {
-  idle:           0,
-  plan_pending:   1,
-  plan_approved:  1,
-  executing:      2,
-  verifying:      3,
-  security:       4,
-  shipping:       5,
-  done:           5,
-  error:          0,   // errorStep prop drives this
+  idle: 0, plan_pending: 1, plan_approved: 1,
+  executing: 2, verifying: 3, security: 4,
+  shipping: 5, done: 5, error: 0,
 };
 
 export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
@@ -59,21 +36,33 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
       role="status"
       aria-label={`Loop step ${active} of 5`}
       style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", alignItems: "center", gap: 6,
         padding: "8px 12px", margin: "0 12px 6px",
-        background: "var(--surface-2, rgba(255,255,255,0.03))",
-        border: "1px solid var(--border, rgba(255,255,255,0.10))",
+        background: "#161616",
+        border: "1px solid #222",
         borderRadius: 8,
         fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 10.5,
+        fontSize: 10,
         flexWrap: "wrap",
+        letterSpacing: "0.06em",
       }}
     >
+      <span style={{
+        padding: "2px 7px", borderRadius: 4,
+        background: "rgba(255,102,8,0.12)",
+        color: "#FF6608", fontWeight: 700,
+        fontSize: 9.5,
+      }}>LOOP</span>
+
       {STEPS.map((s, i) => {
         const done = isDone || s.id < active;
         const live = !isDone && s.id === active && phase !== "error";
         const errd = phase === "error" && s.id === errorStep;
         const future = !done && !live && !errd;
+        const color = errd ? "#EF4444"
+          : done ? "#22C55E"
+          : live ? "#FF6608"
+          : "#666";
         return (
           <React.Fragment key={s.id}>
             <span
@@ -81,58 +70,49 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
               data-step-state={errd ? "error" : done ? "done" : live ? "active" : "future"}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
-                color: errd ? "#f87171"
-                  : done ? "#86efac"
-                  : live ? "#c4b5fd"
-                  : "var(--text-dim, #9aa3b2)",
+                padding: "2px 6px", borderRadius: 4,
+                color, fontWeight: live ? 700 : 600,
                 opacity: future ? 0.55 : 1,
+                background: live ? "rgba(255,102,8,0.08)" : "transparent",
               }}
             >
               {errd
-                ? <AlertTriangle size={11} />
+                ? <AlertTriangle size={10} />
                 : done
-                  ? <CheckCircle2 size={11} />
+                  ? <Check size={10} strokeWidth={3} />
                   : live
-                    ? <Loader2 size={11} className="anim-spin" />
-                    : <Circle size={10} />}
-              <span style={{ fontWeight: live ? 600 : 500 }}>
-                {s.id}. {s.label}
-              </span>
+                    ? <Loader2 size={10} className="loop-spin" />
+                    : <Circle size={9} />}
+              <span>{s.label}</span>
             </span>
             {i < STEPS.length - 1 && (
-              <span
-                aria-hidden
-                style={{
-                  flex: "0 0 8px", height: 1,
-                  background: done
-                    ? "rgba(134,239,172,0.45)"
-                    : "var(--border, rgba(255,255,255,0.10))",
-                }}
-              />
+              <span aria-hidden style={{
+                color: "#333", fontSize: 9, userSelect: "none",
+              }}>—</span>
             )}
           </React.Fragment>
         );
       })}
-      <span
-        data-testid="loop-retry-pill"
-        style={{
-          marginLeft: "auto",
-          padding: "2px 8px",
-          borderRadius: 999,
-          fontSize: 9.5, letterSpacing: 0.3,
-          color: retryCount > 0 ? "#fdba74" : "var(--text-dim, #9aa3b2)",
-          background: retryCount > 0 ? "rgba(249,115,22,0.10)" : "transparent",
-          border: `1px solid ${retryCount > 0
-            ? "rgba(249,115,22,0.4)"
-            : "var(--border, rgba(255,255,255,0.10))"}`,
-        }}
-      >
-        max 3 retries{retryCount > 0 ? ` • ${retryCount}/3 used` : ""}
-      </span>
+
+      {retryCount > 0 && (
+        <span
+          data-testid="loop-retry-pill"
+          style={{
+            marginLeft: "auto",
+            padding: "2px 7px", borderRadius: 4,
+            fontSize: 9, fontWeight: 600,
+            color: "#FB923C",
+            background: "rgba(251,146,60,0.10)",
+            border: "1px solid rgba(251,146,60,0.32)",
+          }}
+        >{retryCount}/3 retries</span>
+      )}
+
       <style>{`
-        .anim-spin { animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        .loop-spin { animation: loop-spin 1s linear infinite; }
+        @keyframes loop-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
 }
+

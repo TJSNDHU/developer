@@ -1,7 +1,7 @@
 /**
  * TopBar.jsx — Iter 212m-81 — JSX port of v0 `topbar.tsx`.
  */
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
 import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus, Moon } from "lucide-react";
 
@@ -44,11 +44,41 @@ export function TopBar({
   // Iter 212m-89 — optional slot for the ShipStreakWidget chip
   streakSlot = null,
 }) {
+  // Iter 212m-93 — Auto-hide topbar on scroll-down (translateY -100%,
+  // 200ms transition). Reappears when scrolling up OR when the mouse
+  // moves to the top 20px of the viewport (mac-style hover-reveal).
+  const [autoHidden, setAutoHidden] = useState(false);
+  const lastY = useRef(0);
+  useEffect(() => {
+    const HIDE_THRESHOLD = 60;
+    const onScroll = (e) => {
+      // listen to any scroll on the dashboard's chat scroller (or window)
+      const t = e.target;
+      const y = (t === document) ? window.scrollY : (t?.scrollTop ?? 0);
+      if (y < HIDE_THRESHOLD) { setAutoHidden(false); lastY.current = y; return; }
+      const dy = y - lastY.current;
+      lastY.current = y;
+      if (dy > 4) setAutoHidden(true);         // scrolling down
+      else if (dy < -4) setAutoHidden(false);  // scrolling up
+    };
+    const onMouseMove = (e) => {
+      if (e.clientY <= 20) setAutoHidden(false);
+    };
+    // Attach broadly — chat scroll lives inside the chat pane, not window.
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("mousemove", onMouseMove);
+    };
+  }, []);
+  const effectiveHidden = hidden || autoHidden;
+
   return (
     <header data-testid="ds2-topbar" className={cn(
       "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0A0A0A]/95 backdrop-blur-xl",
       "transition-transform duration-200 ease-in-out",
-      hidden ? "-translate-y-full" : "translate-y-0",
+      effectiveHidden ? "-translate-y-full" : "translate-y-0",
     )}>
       <div className="flex h-[48px] items-center gap-3 px-5">
         <nav className="flex min-w-0 flex-1 items-center gap-[5px] font-mono text-[11px]">
