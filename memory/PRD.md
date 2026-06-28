@@ -12,7 +12,27 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-101 — New logo + click-to-clear-cache (Feb 28 2026) ✅
 ### Iter 212m-100 — Founder spec: tool re-org (Feb 28 2026) ✅
+*(see iter detail below — preserved)*
+
+
+User direction: previous logo was wrong. New orange circuit-board "O" logo provided. Logo click should also clear app cache.
+
+**Changes (`SidebarBound.jsx`):**
+- Logo image URL swapped to the new circuit-board variant: `customer-assets.../oj4581h8_Gemini_Generated_Image_sozbptsozbptsozb.png`.
+- Logo brand block now has a smarter click handler:
+  - **Plain click** → clears localStorage (except auth: `aurem_token`, `aurem_user`, `aurem_theme`, `aurem_wizard_dismissed`), clears sessionStorage, clears Cache Storage API, then hard-reloads with `?_cb=<timestamp>` to bypass HTTP cache.
+  - **Cmd/Ctrl+click** → escape hatch: just navigates to `/dashboard` without clearing.
+- `title` tooltip explains the behavior so users see it on hover.
+
+**E2E verified via Playwright**:
+- `img.src` confirms new logo URL.
+- `localStorage.test_junk` (set via eval) → null after click.
+- `localStorage.aurem_token` (test value) → preserved.
+- URL after click contains `?_cb=...` cache-bust param.
+
+
 User direction: "Vanguard + Loop Mode need to be inline composer toggles, not sidebar items. Bug Hunt must live on the homepage. Day/Night toggle should be on dashboard topbar only, not on the landing page."
 
 **Changes shipped:**

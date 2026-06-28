@@ -113,12 +113,35 @@ export default function SidebarBound({
       isCollapsed ? "w-12" : "w-[220px]",
     )}>
       {/* Brand */}
-      <div className={cn("flex h-[52px] shrink-0 items-center border-b border-sidebar-border cursor-pointer",
-        isCollapsed ? "justify-center" : "gap-2.5 px-4")} onClick={() => navigate("/dashboard")}
+      <div className={cn("flex h-[52px] shrink-0 items-center border-b border-sidebar-border cursor-pointer select-none",
+        isCollapsed ? "justify-center" : "gap-2.5 px-4")} onClick={(e) => {
+          // Iter 212m-101 — Logo click clears app caches (preserves auth)
+          // then hard-reloads. Standard Cmd/Ctrl+click still navigates to
+          // /dashboard without clearing (escape hatch).
+          if (e.metaKey || e.ctrlKey) { navigate("/dashboard"); return; }
+          try {
+            const KEEP = new Set(["aurem_token", "aurem_user", "aurem_theme", "aurem_wizard_dismissed"]);
+            const drops = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i);
+              if (k && !KEEP.has(k)) drops.push(k);
+            }
+            drops.forEach((k) => { try { localStorage.removeItem(k); } catch {/*noop*/} });
+            try { sessionStorage.clear(); } catch {/*noop*/}
+            if ("caches" in window) {
+              caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {/*noop*/});
+            }
+          } catch { /* noop */ }
+          // Cache-bust the URL so the next load skips HTTP cache.
+          const u = new URL(window.location.href);
+          u.searchParams.set("_cb", Date.now().toString(36));
+          window.location.replace(u.toString());
+        }}
+        title="Click to clear cache and reload (Cmd/Ctrl+click → just open dashboard)"
         data-testid="ds2-sidebar-brand"
       >
         <img
-          src="https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/f27gnf9d_logo%20new%2011.png"
+          src="https://customer-assets.emergentagent.com/job_launch-pad-237/artifacts/oj4581h8_Gemini_Generated_Image_sozbptsozbptsozb.png"
           alt="ORA by Aurem CTO"
           data-testid="ds2-sidebar-logo"
           className="size-[28px] shrink-0 rounded-full object-cover ring-1 ring-primary/25"
