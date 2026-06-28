@@ -8,6 +8,7 @@ import Shell, { PageHeader } from "../components/Shell";
 import { api, getUser } from "../lib/api";
 import { trackPurchase } from "../lib/analytics";
 import GitHubCard from "../components/GitHubCard";
+import VercelCard from "../components/VercelCard";
 import PricingCards from "../components/PricingCards";
 import OraWrapped from "../components/OraWrapped";
 import ReferralShare from "../components/ReferralShare";
@@ -103,6 +104,11 @@ export default function Settings() {
         </section>
 
         <GitHubCard />
+
+        {/* Iter 212m-84 — Vercel platform tools for ORA chat */}
+        <section style={{ gridColumn: "1 / -1" }}>
+          <VercelCard />
+        </section>
 
         {/* Iter 101 — Referral share */}
         <section style={{ gridColumn: "1 / -1" }}>

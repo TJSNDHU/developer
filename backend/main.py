@@ -40,6 +40,7 @@ from routers.admin import router as admin_router
 from routers.support import router as support_router
 from routers.payments import router as payments_router
 from routers.mcp import router as mcp_router, mcp_discovery_root
+from routers.vercel import router as vercel_router  # Iter 212m-84 — Vercel platform tools for ORA
 from routers.oauth import router as oauth_router
 from routers.usage import router as usage_router
 from routers.lint_preview import router as lint_preview_router
@@ -1153,6 +1154,7 @@ app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(diagram_router,        prefix="/api/aurem-dev")  # Iter 212m-61 /diagram
 app.include_router(feature_window_router, prefix="/api/aurem-dev")  # Iter 212m-64 system map
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server
+app.include_router(vercel_router,         prefix="/api/aurem-dev")  # Iter 212m-84 — Vercel tools for ORA
 app.include_router(oauth_router,          prefix="/api/aurem-dev")  # iter 182 — OAuth 2.1 + PKCE for Claude Directory
 # Iter 174 — root-level alias for the MCP well-known discovery URL so
 # clients can probe `https://auremcto.com/.well-known/mcp` without

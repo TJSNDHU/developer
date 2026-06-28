@@ -12,6 +12,25 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-84 — Vercel MCP (shared-token hybrid) for ORA chat (Feb 28 2026) ✅
+Pragmatic Vercel platform tool integration so ORA can manage projects/deployments/logs/env vars/domains directly from chat. Architectural choice: **REST API now, OAuth 2.1 + PKCE / mcp.vercel.com swap later** (option C in user dialog).
+
+Why hybrid not strict MCP from day one: `mcp.vercel.com` strictly requires OAuth 2.1 + PKCE (bearer/personal tokens return 401 — confirmed via curl). Founder gave their existing `VERCEL_API_TOKEN` (`vcp_...`) and deploy hook URL, so we use api.vercel.com REST today. The skill surface is identical to what an MCP transport swap would expose.
+
+**Backend additions**:
+- `services/vercel_skills.py` (NEW) — 8 ORA-callable tools: `vercel_account_info`, `vercel_list_projects`, `vercel_get_project_details`, `vercel_list_deployments`, `vercel_get_deployment_logs`, `vercel_list_env_vars` (keys only — never values, security rule), `vercel_list_domains`, `vercel_trigger_deploy_hook` (defaults to founder `VERCEL_DEPLOY_HOOK_URL` if no URL passed).
+- `routers/vercel.py` (NEW) — `/integrations/vercel/{status,tools,audit,execute}` endpoints, registered under `/api/aurem-dev`.
+- `services/local_tools.py` — imports `VERCEL_TOOLS` / `VERCEL_TOOL_SPECS` and merges them into the orchestrator's tool catalogue. ORA chat tool-use loop picks them up automatically (no chat router changes needed).
+- MongoDB collection `vercel_tool_audit` — every tool invocation logged with user_id, tool, args (secrets stripped), status, summary, timestamp.
+- `.env` (preview) — `VERCEL_API_TOKEN`, `VERCEL_DEPLOY_HOOK_URL` set.
+
+**Frontend additions**:
+- `components/VercelCard.jsx` (NEW) — Settings → integrations card showing connection status (CONNECTED pill + account + plan + tool count), 8-tool catalogue, "Try a tool" dropdown with live execute, real-time audit log, swap hint footer.
+- `pages/Settings.jsx` — Imports + renders `<VercelCard />` below `<GitHubCard />`.
+
+**E2E verified**: `/integrations/vercel/status` returns `connected:true`, account `polarisbuiltinc@gmail.com` / hobby plan, tool execution `vercel_list_projects` returns 2 real projects (sidebar-changes, developer-dashboard-design), audit log populates after each call.
+
+
 ### Iter 212m-83 — Dashboard v2: AskAdvisorReal wired into chrome (Feb 28 2026) ✅
 Final wire-up of the v0 dark dashboard (`#111111`, `#FF6608`) on the real `/dashboard` route:
 - `pages/Dashboard.jsx`: Added missing render of `<AskAdvisorReal />` (was imported but never mounted in prior iter). New `advisorCollapsed` state drives the collapsible side panel.
