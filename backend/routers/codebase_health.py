@@ -770,6 +770,14 @@ async def request_fix(
                 "message":        "Connect your GitHub PAT / OAuth before applying fixes.",
                 "tokens_refunded": True,
             })
+        # Iter 212m-114 (iter_26 follow-up) — match /security-scan/fix:
+        # ownership-mismatch and missing-file should be 404, not 500.
+        if err_code in ("project_not_found_or_not_yours",
+                        "file_not_found", "file_empty_or_missing"):
+            raise HTTPException(404, {
+                "error":          err_code,
+                "tokens_refunded": True,
+            })
         raise HTTPException(500, {
             "error":          err_code,
             "tokens_refunded": True,

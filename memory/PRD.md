@@ -12,6 +12,32 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-114 — REAL Security Scan + Bug Hunt Fix pipeline (founder trust release) (Feb 28 2026) ✅
+
+P0 founder call-out: "Security scan ke baad fix option nahi aata. Health fix DUMMY hai — sirf queue karta hai. TRUTH bata — scans real hain PAT se ya mock? Real fix banao with founder=free."
+
+**Truth audit (delivered):**
+- Security scan + Bug Hunt SCANS: ✅ 100% REAL — PAT-decrypted GitHub walk + real 13-rule Vanguard scanner. Always was.
+- Security scan FIX flow: ❌ Pre-iter114 — endpoint didn't exist at all.
+- Health/Bug Hunt FIX flow: ⚠️ Pre-iter114 — token deducted but only a `cto_tasks {status:'queued'}` row inserted; no worker consumed it → effectively dummy.
+
+**Iter 212m-114 changes:**
+- **`services/finding_fix_applier.py`** (NEW): Unified pipeline `apply_finding_fix()` — (1) decrypt PAT, (2) fetch current file from GitHub Contents API, (3) LLM patch with strict minimum-diff system prompt, (4) **RE-VALIDATE** by re-running `vanguard_scanner.scan_text` on the patched content — if the same `rule_id` still fires, REFUSE the commit, (5) push via `commit_files()` (same Git Data API Loop Mode uses), (6) persist `finding_fixes` history row. PAT is never logged.
+- **`routers/security_scan.py`**: NEW `POST /security-scan/fix` endpoint. Founder bypass (is_admin|is_unlimited|tier=='founder'). Atomic token deduction → REFUND on any failure. HTTP status codes mapped: 401 (no creds), 404 (project / file missing), 422 (patch rejected), 500 (other).
+- **`routers/codebase_health.py`**: `/fix` refactored — no more `cto_tasks {status:'queued'}` dummy. Calls `apply_finding_fix()` directly, refunds on failure, writes audit row with `status:'completed'` + `commit_sha` on success. Iter_26 follow-up: ownership-mismatch and file-missing now return 404 (was 500) for consistency with security_scan.
+- **Frontend `SecurityScanDrawer.jsx`**: Per-finding Fix button (`data-testid='finding-fix-btn'`, `data-rule-id={rule_id}`). On success: row dims to 55% opacity + green ✓ + 'Fixed · commit <sha>' link to GitHub (`data-testid='finding-fix-commit-link'`). On failure: sonner toast with mapped error messages. Footer changed from "no auto-fixes" to "per-finding Fix button · founder = free".
+- **Frontend `CodebaseHealth.jsx`**: Existing Fix button now surfaces real `commit_sha + html_url` in a 6s sonner toast; handles all the new error codes.
+
+**Tests + proofs:**
+- 9 new tests in `test_iter212m114_real_finding_fix.py`: happy path commits files, **patch rejection → commit_files NEVER called** (the "no dummy fix" invariant), no-credentials path, founder bypass on `/security-scan/fix`, token refund on rejection, body validation, source-grep dummy-queue removal, endpoint registration.
+- 6 tests in `test_iter212m110` updated (3 modified + 1 NEW `test_fix_route_refunds_tokens_when_patch_fails`).
+- Total **51/51 backend unit tests GREEN** across iter 109+110+111+112+113+114.
+- **9 live HTTP smoke checks on PREVIEW** (founder bearer test@aurem.dev): 401 no-auth, 400 empty/missing-file, 404 unowned-project (both endpoints, consistent), 422 mapping (unit), tokens refunded on failure (unit).
+
+**Re-scan idempotency proof:** Guaranteed by construction — a commit only lands if `_finding_still_present()` returns False on the patched content. Therefore re-running the same scanner cannot find the same `rule_id` at that location.
+
+
+
 ### Iter 212m-113 — Production-ready Codebase Graph (per-project gating + incremental + tour/search/impact) (Feb 28 2026) ✅
 
 P0 founder request: borrow Understand-Anything (68.9k★) UX into AUREM's Codebase Graph with strict per-project gating (no data leak across repos), PAT-based auth, minimal tokens, real build, full E2E proof.
