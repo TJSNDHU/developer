@@ -2465,8 +2465,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         style={{
           flex: 1, overflowY: "auto",
           minHeight: 0,
-          padding: "24px 28px",
-          paddingRight: livePopupTaskId ? 392 : 28,
+          // Iter 212m-134 — Claude-style centered chat: 17.25% horizontal
+          // padding on both sides of the messages area. Composer is OUTSIDE
+          // this container (glass-composer wrapper below) so it stays full
+          // width. When a live-popup is open, right padding swaps to 392px
+          // so the popup doesn't overlap message content.
+          padding: "24px 17.25%",
+          paddingRight: livePopupTaskId ? 392 : "17.25%",
           display: "flex", flexDirection: "column", gap: 20,
           transition: "padding-right 0.2s ease",
         }}

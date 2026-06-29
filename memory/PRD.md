@@ -12,6 +12,39 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-134 — Full PROD-vs-PREVIEW QA + Claude-style centered chat (Feb 2026) ✅
+
+Two work-streams in this session:
+
+**A) 32-step Production QA test executed against BOTH environments** (`auremcto.com` + `launch-pad-237.preview.emergentagent.com`) using founder credentials on each.
+
+Full diff report: `/app/qa_run/FINAL_REPORT.md`. Headlines:
+
+- **Build fingerprint**: PROD ships a Vite production bundle (`/assets/index-CeRgA3Pq.js`); PREVIEW runs the Vite dev server. Both expose the same endpoint surface (Iter 212m-125 → 212m-133 all live on PROD — the previously-flagged "deploy timeout" was a stale handoff note).
+- **Phase A/B/C/D/E/F/G/H — every gate passes** on both environments. Cancel-by-id, founder gate (403 `loop_mode_locked` for non-founders), Loop plan returning a real bullets array for founders, SSE stream end-to-end with tool_calls > 0, founder FREE bypass on `/fix-pipeline/preview`, real diff-aware Vanguard findings on PROD's connected repo, real GitHub commit + `commit_sha` + `html_url` in PROD's `/fix-pipeline/list` history.
+- **Working on PROD only because of data, not code gap**: Codebase Health `/last` returns 144 findings on a connected repo; warm-start + brain + graph fire on `TJSNDHU/Aurem`. PREVIEW has no GitHub repo wired to its sole project (`p_norepotest`).
+- **Broken on BOTH (= backlog, not regressions)**: bulk-clean banner for orphaned/red repos (endpoint+collection ready, banner UI not built); Vanguard CI ingest path returns empty until `AUREM_CI_INGEST_TOKEN` + GitHub Action are configured by the user; reCAPTCHA on signup (blocked on user-provided key); mem0/pgvector Phase 2 of ORA Fix-Learning.
+- **Real-data quirk on PROD**: `polarisbuiltinc-wq/auremdev` returns 404 on GitHub — the new red-row Settings deep-link (Iter 212m-133) is the path-out.
+
+**B) ChatPanel.jsx — Claude-style centered chat layout**:
+
+Founder spec: messages container should sit in a centered column with 17.25% horizontal padding on each side; composer (input row) stays full width.
+
+- `frontend/src/components/ChatPanel.jsx` — the `data-testid="chat-messages"` scroll container's `padding` shorthand swapped from `"24px 28px"` → `"24px 17.25%"`. The existing `paddingRight: livePopupTaskId ? 392 : 28` override (live-popup overlap protection) updated to `livePopupTaskId ? 392 : "17.25%"` so the popup behaviour is preserved.
+- The composer (`<div className="glass-composer">`) is rendered OUTSIDE this container, so it stays edge-to-edge — exactly as the founder requested.
+- Verified via live browser probe: on a 1918px-wide viewport, computed `paddingLeft / paddingRight` = `330.844px` (exactly 17.25%). Screenshot confirms Claude-style centered column.
+
+**Test coverage** — `backend/tests/test_iter212m134_chat_messages_padding.py` (3 new tests):
+- Padding shorthand pinned at `"24px 17.25%"`.
+- Live-popup right-padding override preserved (`livePopupTaskId ? 392 : "17.25%"`).
+- Composer rendered after the chat-messages container closes (sanity guard against a future refactor accidentally nesting the composer inside the padded scroll area).
+
+**Regression**: 22/22 passing across iter 212m-132 + 133 + 134.
+
+**Files touched**: `frontend/src/components/ChatPanel.jsx`, `backend/tests/test_iter212m134_chat_messages_padding.py` (new), `memory/PRD.md`, `qa_run/FINAL_REPORT.md` (new).
+
+
+
 ### Iter 212m-133 — Red repo dot actionable + production audit (Feb 2026) ✅
 
 **Founder report**: dogfood repo showed red dot in production with no path to recovery. User asked us to use founder credentials and audit production.
