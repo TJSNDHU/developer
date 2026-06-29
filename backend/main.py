@@ -277,6 +277,24 @@ async def lifespan(app: FastAPI):
         except Exception as e:                          # noqa: BLE001
             logger.warning("loop_engine resume_stale failed: %r", e)
     _asyncio.create_task(_resume_stale_loops())
+
+    # Iter 212m-115 safety — Create the unique index for the
+    # concurrent-loop lock collection so we can never have two active
+    # loops on the same {project_id, user_id}.
+    async def _ensure_loop_safety_indexes():
+        try:
+            if app.state.db is None:
+                return
+            from services.loop_safety import ensure_loop_lock_index
+            await ensure_loop_lock_index(app.state.db)
+            # Index on loop_failures for the circuit-breaker window query.
+            await app.state.db.loop_failures.create_index(
+                [("project_id", 1), ("user_id", 1), ("occurred_at", -1)],
+                name="ix_loop_fail_window",
+            )
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("loop_safety indexes failed: %r", e)
+    _asyncio.create_task(_ensure_loop_safety_indexes())
     # Iter 212m-32 — hourly onboarding nudge cron. Sends the
     # "connect a repo" email to users 24h after signup (and again at
     # 72h if still no repo). Idempotent via the `onboarding_emails`

@@ -68,7 +68,48 @@ async def start_loop(body: StartBody,
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB unavailable")
+    # Iter 212m-115 safety #4 — Circuit breaker: refuse new starts if
+    # this {project_id, user_id} has hit 3+ failures in the last 15 min.
+    # Founders bypass (so we never block our own debugging).
+    from services.loop_safety import (
+        is_loop_circuit_open, acquire_loop_lock,
+    )
+    proj_key = body.project_id or "_no_project"
+    is_founder = bool(
+        user.get("is_admin") or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+    )
+    if not is_founder:
+        circuit_open, fail_count, retry_after = await is_loop_circuit_open(
+            db, proj_key, user["user_id"],
+        )
+        if circuit_open:
+            raise HTTPException(429, {
+                "error":             "loop_circuit_open",
+                "fail_count":        fail_count,
+                "retry_after_seconds": retry_after,
+                "message": (
+                    f"Loop disabled for this project — {fail_count} failed "
+                    f"runs in the last 15 minutes. Try again in "
+                    f"{(retry_after or 0) // 60} min "
+                    f"{(retry_after or 0) % 60} s."
+                ),
+            })
+
     loop_id = eng.new_loop_id()
+    # Iter 212m-115 safety #2 — Concurrent-loop lock. Refuses a 2nd
+    # parallel loop on the same project for the same user.
+    locked, existing = await acquire_loop_lock(
+        db, proj_key, user["user_id"], loop_id,
+    )
+    if not locked:
+        raise HTTPException(409, {
+            "error":            "loop_already_running",
+            "existing_loop_id": (existing or {}).get("loop_id"),
+            "message":          "Another loop is already running for this "
+                                "project. Wait for it to finish or cancel it.",
+        })
+
     engine = eng.LoopEngine(
         db=db, loop_id=loop_id,
         user_id=user["user_id"],
@@ -76,8 +117,6 @@ async def start_loop(body: StartBody,
         user_message=body.user_message,
     )
     eng.register(engine)
-    # Drain the plan-phase generator to completion (it pauses on
-    # AWAITING_CONFIRMATION before returning).
     async for _ev in engine.start():
         pass
     return {
@@ -86,6 +125,54 @@ async def start_loop(body: StartBody,
         "phase":        engine.phase,
         "plan":         engine.context.get("plan"),
         "requires_user_action": engine.state.value == "awaiting_confirmation",
+    }
+
+
+@router.get("/active")
+async def get_active_loop(
+    project_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 212m-115 safety #3 — Resume on browser refresh. Returns
+    the user's most recent non-terminal loop (paused at ship, plan
+    awaiting confirm, etc.) so the frontend can re-hydrate the UI
+    without losing the manual Ship gate.
+
+    Scoped to {user_id, project_id} so no cross-user leak."""
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        return {"ok": True, "active": None}
+    q = {
+        "user_id":  user["user_id"],
+        "state":    {"$in": [
+            "awaiting_confirmation", "executing", "verifying",
+            "scanning", "shipping", "paused_for_user", "self_healing",
+        ]},
+    }
+    if project_id:
+        q["project_id"] = project_id
+    doc = await db.loop_sessions.find_one(q, sort=[("updated_at", -1)])
+    if not doc:
+        return {"ok": True, "active": None}
+    # Strip Mongo _id, GitHub PAT in ship_pending (security).
+    doc.pop("_id", None)
+    ctx = doc.get("context") or {}
+    ship_pending = (ctx.get("ship_pending") or {}).copy()
+    if ship_pending:
+        ship_pending.pop("token", None)              # never leak token
+    return {
+        "ok":     True,
+        "active": {
+            "loop_id":    doc.get("loop_id"),
+            "state":      doc.get("state"),
+            "phase":      doc.get("phase"),
+            "project_id": doc.get("project_id"),
+            "plan":       ctx.get("plan"),
+            "ship_pending": ship_pending if ship_pending else None,
+            "files_changed": ctx.get("files_changed") or [],
+            "updated_at": doc.get("updated_at"),
+        },
     }
 
 

@@ -273,7 +273,46 @@ class LoopEngine:
     async def _do_plan(self) -> None:
         """Generate the plan via the existing LLM service.  We import
         lazily so this module stays unit-testable without the full app
-        bootstrap."""
+        bootstrap.
+
+        Iter 212m-115 safety #1 — PAT pre-flight. We validate the
+        user's GitHub token at the START of the loop (before spending
+        LLM tokens) so an expired/revoked PAT fails-fast in <2 s
+        instead of crashing at SHIP after Plan + Execute + Verify +
+        Scan have completed. Only runs when project_id is set."""
+        if self.project_id:
+            try:
+                proj = await self.db.cto_projects.find_one(
+                    {"project_id": self.project_id, "user_id": self.user_id},
+                    {"_id": 0, "github_owner": 1, "github_repo": 1,
+                     "github_branch": 1, "github_token": 1},
+                )
+                if proj and proj.get("github_owner") and proj.get("github_repo"):
+                    from routers.security_scan import _decrypt_pat
+                    token = await _decrypt_pat(self.user_id, proj.get("github_token"))
+                    if not token:
+                        u = await self.db.dev_users.find_one(
+                            {"user_id": self.user_id}, {"_id": 0, "github": 1},
+                        )
+                        token = ((u or {}).get("github") or {}).get("access_token") or None
+                    if token:
+                        from services.loop_safety import validate_github_token
+                        ok, err = await validate_github_token(
+                            proj["github_owner"], proj["github_repo"], token,
+                        )
+                        if not ok:
+                            await self._fail(
+                                "plan",
+                                f"GitHub PAT preflight failed: {err}. "
+                                f"Reconnect your repo before running the loop.",
+                            )
+                            return
+            except Exception as e:                          # noqa: BLE001
+                # Preflight is best-effort. Don't block the loop on
+                # an unexpected error in the preflight code itself.
+                logger.warning("[loop %s] PAT preflight skipped: %r",
+                               self.loop_id, e)
+
         plan = await _generate_plan(
             self.user_id, self.project_id, self.user_message,
         )
@@ -736,6 +775,15 @@ class LoopEngine:
             self.state = LoopState.ABORTED
             self.context.pop("ship_pending", None)
             await _persist_session(self.db, self._doc())
+            # Iter 212m-115 — release lock on cancel.
+            try:
+                from services.loop_safety import release_loop_lock
+                await release_loop_lock(
+                    self.db, self.project_id or "_no_project",
+                    self.user_id, self.loop_id,
+                )
+            except Exception:
+                pass
             await self._emit(
                 LoopState.ABORTED, "ship",
                 step=5, total_steps=5,
@@ -787,6 +835,15 @@ class LoopEngine:
         self.context.pop("ship_pending", None)
         self.state = LoopState.COMPLETED
         await _persist_session(self.db, self._doc())
+        # Iter 212m-115 — release the concurrent-loop lock on success.
+        try:
+            from services.loop_safety import release_loop_lock
+            await release_loop_lock(
+                self.db, self.project_id or "_no_project",
+                self.user_id, self.loop_id,
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug("release_loop_lock on COMPLETED failed: %r", e)
         await self._emit(LoopState.COMPLETED, "ship",
                          step=5, total_steps=5,
                          message=f"Shipped {short_sha} → {owner}/{repo}@{branch}",
@@ -864,6 +921,22 @@ class LoopEngine:
         await _log_error(self.db, self.loop_id, phase, reason,
                          context=self.context)
         await _persist_session(self.db, self._doc())
+        # Iter 212m-115 safety #4 — feed the circuit breaker + release
+        # the concurrent-loop lock so the user can retry (after the
+        # cooldown if they've hit FAIL_THRESHOLD).
+        try:
+            from services.loop_safety import (
+                record_loop_failure, release_loop_lock,
+            )
+            proj_key = self.project_id or "_no_project"
+            await record_loop_failure(
+                self.db, proj_key, self.user_id, phase, reason,
+            )
+            await release_loop_lock(
+                self.db, proj_key, self.user_id, self.loop_id,
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug("safety hooks on _fail failed: %r", e)
         await self._emit(LoopState.FAILED, phase,
                          message=reason, requires_user_action=True)
 
