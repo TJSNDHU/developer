@@ -112,6 +112,29 @@ async def select_relevant_files(
 
     nodes: dict = graph.get("nodes") or {}
     planner_set = set(planner_files or [])
+
+    # Iter 212m-142 — CRITICAL: trust small planner scopes verbatim.
+    # When the planner specifies ≤ 2 files (e.g. "add a comment to
+    # `backend/.gitignore`"), the planner has already done the file
+    # selection. Running the keyword-similarity sweep at this point
+    # can score OTHER files higher than the planner's pick (because
+    # user prompts often share tokens with many router/service files),
+    # which then truncates the planner's file out of the candidate
+    # list — and Execute modifies the wrong files. Real PROD repro:
+    # planner picked `backend/.gitignore` but candidates returned 10
+    # unrelated routers, none of them .gitignore → 10 wrong-file edits
+    # → verify FileNotFoundError → no commit.
+    if len(planner_set) <= 2 and planner_set:
+        return {
+            "ok": True,
+            "has_graph": True,
+            "candidates": list(planner_set),
+            "skipped": [],
+            "total_scored": 0,
+            "tokens": _tokenize(task_description),
+            "trusted_planner": True,
+        }
+
     tokens = _tokenize(task_description)
     scored: list[tuple[str, int]] = []
     for path, node in nodes.items():
@@ -131,7 +154,11 @@ async def select_relevant_files(
     return {
         "ok": True,
         "has_graph": True,
-        "candidates":   candidates[:max(top_n, len(planner_set))],
+        # Iter 212m-142 — hard cap is `top_n + planner_set` so planner-
+        # appended files (line 128 above) are NEVER truncated. The old
+        # `max(top_n, len(planner_set))` cut planner files when
+        # `len(planner_set) < top_n` — exact PROD bug repro.
+        "candidates":   candidates[:top_n + len(planner_set)],
         "skipped":      skipped,
         "total_scored": len(scored),
         "tokens":       tokens,

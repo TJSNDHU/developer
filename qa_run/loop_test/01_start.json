@@ -1,0 +1,19 @@
+{
+    "loop_id": "loop_337a645a1a2f49",
+    "state": "awaiting_confirmation",
+    "phase": "plan",
+    "plan": {
+        "title": "Add gitignore QA marker comment",
+        "files_to_change": [
+            "backend/.gitignore"
+        ],
+        "bullets": [
+            "1. Open backend/.gitignore",
+            "2. Insert '# Aurem CTO QA test marker \u2014 feel free to delete' as the first line",
+            "3. Preserve all existing content below the new line",
+            "4. Save the file"
+        ],
+        "estimated_time": "~1 minute"
+    },
+    "requires_user_action": true
+}

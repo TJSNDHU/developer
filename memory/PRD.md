@@ -12,6 +12,62 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-142 — Loop Execute wrong-files CRITICAL bug fix (Feb 2026) 🚨✅
+
+**Live PROD reproduction during founder QA**:
+
+User asked Loop Mode to: *"Add a one-line comment at the top of `backend/.gitignore` that says: # Aurem CTO QA test marker — feel free to delete"* on PROD repo `TJSNDHU/Aurem`.
+
+What happened (timed):
+
+| Phase | LLM | Duration | Outcome |
+|---|---|---|---|
+| Plan | GLM-5.2 + Claude review (pro mode) | ~5 s | ✅ correctly returned `files_to_change=["backend/.gitignore"]` |
+| Execute | GLM-5.2 swift (localizer) + GLM-5.2 pro (generator) | ~120 s | ❌ modified **10 random unrelated files** (`backend/routers/aurem_llm_proxy_router.py`, 5 `archive/legacy_ora/routers/*.py`, etc.) — NONE of them `.gitignore` |
+| Verify | GLM-5.2 + Claude review | aborted | ❌ `FileNotFoundError(2, 'No such file or directory')` |
+| Scan | — | — | never reached |
+| Ship | GitHub API (no LLM) | — | ❌ never reached, **no commit** |
+
+**Root cause** (traced through `loop_engine.py` → `file_selector.py`):
+
+`select_relevant_files` (Iter 212m-116 "Sweep-pattern file trimmer") was meant to TRIM the planner's file list down to the most relevant ones. Instead, when the planner specified 1 file and the user's prompt tokens (e.g. "comment", "aurem", "test", "marker") happened to keyword-match OTHER router files in the codebase graph, the keyword-scored files outranked the planner's `.gitignore` (which had no keyword matches; only the +200 planner bonus). 10 router files filled `top_n=10` slots. The planner's `.gitignore` was appended at index 10 (correct intent: "always include planner files even if keyword-low"). Then the final return statement:
+
+```python
+"candidates": candidates[:max(top_n, len(planner_set))]
+# = candidates[:max(10, 1)] = candidates[:10]
+```
+
+**TRUNCATED the planner's file back out**. Execute received `["10 unrelated routers"]` instead of `["backend/.gitignore"]`, modified all 10, and Verify failed at the first non-existent file path.
+
+**Real fixes — two layers**:
+
+1. **Trust small planner scopes** (`services/file_selector.py`): when `planner_files` has ≤ 2 entries, skip the keyword sweep entirely and return the planner's list verbatim with `trusted_planner: True`. The planner has already done file selection at that scale; the sweep can only mislead.
+
+2. **Hard cap that respects planner appends**: change the final slice from `candidates[:max(top_n, len(planner_set))]` to `candidates[:top_n + len(planner_set)]`. Planner-appended files (added by the line-128 `if p not in candidates: candidates.append(p)` loop) are now never truncated, regardless of `len(planner_set)` vs `top_n`.
+
+**Test coverage** — `backend/tests/test_iter212m142_loop_execute_wrong_files_fix.py` (5 new tests):
+- Exact PROD repro: 1 planner file + 20 keyword-matching distractors → returns ONLY the planner file (trust path)
+- 2 planner files → still trusted verbatim
+- 3+ planner files → keyword sweep runs (smart helper discovery) but planner files survive
+- Boundary case: `top_n=2`, 3 planner files, one is keyword-zero → planner-zero file MUST survive (the exact off-by-one fixed by the new slice formula)
+- Fully autonomous mode (planner_files=[]) → sweep still returns up to top_n
+
+**Regression**: 116/116 passing across iter 212m-130 → 142.
+
+**Files touched**: `backend/services/file_selector.py`, `backend/tests/test_iter212m142_loop_execute_wrong_files_fix.py` (new).
+
+
+
+### Iter 212m-141 — Ask Advisor reachability-aware inference (Feb 2026) ✅
+
+**Hardening of Iter 212m-139.** PROD has 2 wired projects (`automation` ✓ + `dogfood` ✗ 404). Iter 139's inference abstained because it only checked `github_owner+repo` field presence (both populated), not actual GitHub reachability. Fix: when 2+ candidates exist, consult the `repo_status._CACHE` to filter to those whose `status` is `connected`. If exactly one remains, pick it. Applied to both the chat-router-level inference AND the tool-resolver-level inference for defence-in-depth.
+
+**Tests**: 2 new contract tests added to `test_iter212m139_ask_advisor_no_repo_fix.py`. 12/12 GREEN.
+
+**Files touched**: `backend/routers/chat.py`, `backend/services/local_tools.py`, `backend/tests/test_iter212m139_ask_advisor_no_repo_fix.py`.
+
+
+
 ### Iter 212m-140 — Adaptive Claude-style chat width via CSS container queries (Feb 2026) ✅
 
 **Founder spec**: chat layout should adapt naturally to 3 viewport states:
