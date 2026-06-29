@@ -12,6 +12,52 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-144 / 145 / 146 — Loop cross-worker robustness + safety hatches (Feb 2026) ✅
+
+Three back-to-back fixes shipped to make Loop Mode survive the realities of a multi-worker production cluster.
+
+**Iter 212m-144 — Cross-worker engine rehydration**:
+
+PROD repro during founder QA: `POST /loop/start` returned `loop_id` + `state=awaiting_confirmation` (200). 80 ms later `POST /loop/{id}/confirm` returned 404 "Loop not found or already finished".
+
+Root cause: `services/loop_engine._LIVE` is per-process in-memory. With multiple uvicorn workers in PROD, `start()` created the engine in worker A's `_LIVE` while `confirm()` landed on worker B → `lookup()` returned None → 404. The Mongo `loop_sessions` row was correctly persisted by worker A but worker B never consulted it.
+
+Fix: new `lookup_or_rehydrate(db, loop_id)` helper in `loop_engine.py`. Local lookup first; on miss, load the persisted session doc from Mongo and rebuild a fresh `LoopEngine` instance with the same state + context, register it in this worker's `_LIVE`, return it. Safety guard: only rehydrate when the persisted state is **PAUSED** (`AWAITING_CONFIRMATION` / `PAUSED_FOR_USER`) so we never split-brain a running pipeline across two workers.
+
+Wired into `routers/loop.py`: `confirm`, `confirm-ship`, `pause-response`, `submit-files`, `cancel` all go through the rehydrating helper. Stream stays local-only (in-memory queue can't be reconstructed).
+
+**Iter 212m-145 — Ghost loop_lock cleanup**:
+
+PROD repro after Iter 144 deploy: cancel returned `state: aborted`, `/loop/active` returned no loop, but `POST /loop/start` on the same project still 409'd with `loop_already_running existing_loop_id=<the-cancelled-one>` for 15+ minutes (the stale_s timeout).
+
+Root cause: `engine.cancel()` only releases the lock when the engine is in this worker's `_LIVE`. After cancel via the router fallback path (engine not rehydratable because state was already terminal), only `loop_sessions.state` was updated — `loop_locks` stayed locked forever.
+
+Two-layer real fix:
+  A. `routers/loop.py` cancel fallback now also calls `release_loop_lock(...)` when persisting `state=aborted` via Mongo. Belt.
+  B. `services/loop_safety.acquire_loop_lock` proactive ghost sweep: before reporting `loop_already_running`, cross-reference `loop_sessions` for the existing lock's `loop_id`. If that loop is in terminal state (`aborted`/`failed`/`completed`), sweep the lock and proceed with the new claim. Braces. Now even a worker crash mid-flight is auto-recovered on the next `/start` — no 15-min wait.
+
+**Iter 212m-146 — Founder safety hatch (`POST /loop/force-release-lock`)**:
+
+Even with 144 + 145, edge cases remain (Mongo write contention, multi-worker race during cancel, unknown future bugs). New founder-only endpoint deletes the caller's `(project_id, user_id)` lock row + marks the associated session row aborted. Returns `released_loop_id` for audit. Live-verified on preview.
+
+**Test coverage** — 14 new tests across `test_iter212m144_loop_cross_worker_rehydrate.py` (8) + `test_iter212m145_loop_ghost_lock_sweep.py` (6, incl. the 146 contract test):
+- Local-first fast path (no Mongo call when engine exists)
+- Cross-worker rehydrate on local miss
+- Refuses non-PAUSED states (split-brain guard)
+- Rehydrates AWAITING_CONFIRMATION and PAUSED_FOR_USER
+- Handles None db / unknown state strings safely
+- Router contract: ≥ 4 endpoints use `lookup_or_rehydrate`
+- Ghost sweep: aborted/failed/completed dead loops are auto-cleared
+- Sweep refuses to clear a still-running loop's lock (safety)
+- Cancel fallback releases the lock
+- `force-release-lock` endpoint exists + is founder-gated
+
+**Regression**: 45 / 45 passing (iter 144 + 145 + 146 + nearby).
+
+**Files touched**: `backend/services/loop_engine.py`, `backend/services/loop_safety.py`, `backend/routers/loop.py`, `backend/tests/test_iter212m144_loop_cross_worker_rehydrate.py` (new), `backend/tests/test_iter212m145_loop_ghost_lock_sweep.py` (new).
+
+
+
 ### Iter 212m-143 — Topbar Preview tab toggle behaviour (Feb 2026) ✅
 
 **Founder spec**: clicking the topbar **Preview** tab should TOGGLE the preview window — first click opens, second click closes. Previously every click dispatched `aurem:toggle-preview { open: true }`, so a second click was a no-op (user had to use the `Hide` button inside the panel itself).

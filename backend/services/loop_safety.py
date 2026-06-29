@@ -134,6 +134,36 @@ async def acquire_loop_lock(
         })
     except Exception as e:                                # noqa: BLE001
         logger.debug("loop_lock stale sweep failed: %r", e)
+    # Iter 212m-145 — also sweep locks whose `loop_id` points to a
+    # loop that has ALREADY terminated in loop_sessions. This handles
+    # the worker-crash / cancel-fallback scenario where the engine
+    # never got a chance to call release_loop_lock — instead of making
+    # the user wait 15 min for stale_s, we detect the ghost lock and
+    # free the project immediately.
+    try:
+        existing = await db.loop_locks.find_one(
+            {"project_id": project_id, "user_id": user_id},
+            {"_id": 0},
+        )
+        if existing and existing.get("loop_id"):
+            sess = await db.loop_sessions.find_one(
+                {"loop_id": existing["loop_id"]},
+                {"_id": 0, "state": 1},
+            )
+            if sess and (sess.get("state") or "") in (
+                "aborted", "failed", "completed",
+            ):
+                await db.loop_locks.delete_one(
+                    {"project_id": project_id, "user_id": user_id,
+                     "loop_id": existing["loop_id"]},
+                )
+                logger.info(
+                    "[loop_safety] swept ghost lock for terminated "
+                    "loop %s (state=%s)",
+                    existing["loop_id"], sess.get("state"),
+                )
+    except Exception as e:                                # noqa: BLE001
+        logger.debug("loop_lock ghost sweep failed: %r", e)
     try:
         await db.loop_locks.insert_one({
             "project_id":  project_id,

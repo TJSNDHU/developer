@@ -38,11 +38,14 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, AsyncIterator, Optional
+
+_PID = os.getpid()
 
 logger = logging.getLogger(__name__)
 
@@ -1613,6 +1616,80 @@ def deregister(loop_id: str) -> None:
 
 def lookup(loop_id: str) -> Optional["LoopEngine"]:
     return _LIVE.get(loop_id)
+
+
+# ─── Iter 212m-144 — cross-worker engine rehydration ─────────────────
+#
+# `_LIVE` is per-process in-memory. With multiple uvicorn workers in
+# PROD, `start()` can land on worker A (engine created in A's _LIVE)
+# while `confirm()` lands on worker B (lookup returns None → 404
+# "Loop not found or already finished"). The Mongo `loop_sessions`
+# collection always has the latest persisted state — we just need
+# to reconstruct an engine instance from that doc when the local
+# worker has no record.
+#
+# Rehydration is safe ONLY for engines that are PAUSED (waiting on a
+# user action like AWAITING_CONFIRMATION / PAUSED_FOR_USER). If a
+# loop is mid-execution on worker A and worker B tries to rehydrate,
+# we'd end up with two engines racing against each other — explicit
+# guard below.
+async def lookup_or_rehydrate(
+    db, loop_id: str,
+) -> Optional["LoopEngine"]:
+    """Local lookup first; fall back to rebuilding the engine from
+    the Mongo session doc when the loop is in a PAUSED state.
+
+    Returns None if no session exists OR the persisted state is
+    mid-execution (caller gets a clean 404 instead of a stale split-
+    brain rehydration).
+    """
+    eng = _LIVE.get(loop_id)
+    if eng is not None:
+        return eng
+    if db is None:
+        return None
+    doc = await load_session(db, loop_id)
+    if not doc:
+        return None
+    persisted_state = doc.get("state")
+    # Only rehydrate PAUSED loops — these are safe because no
+    # pipeline task is running anywhere right now (the engine on
+    # worker A finished its current phase, persisted, and exited
+    # _run_pipeline waiting for a queue event we will never put).
+    _PAUSED_STATES = {
+        LoopState.AWAITING_CONFIRMATION.value,
+        LoopState.PAUSED_FOR_USER.value,
+    }
+    if persisted_state not in _PAUSED_STATES:
+        logger.warning(
+            "[loop %s] refused rehydration in state %s "
+            "(not paused); caller will get 404",
+            loop_id, persisted_state,
+        )
+        return None
+    eng = LoopEngine(
+        db=db, loop_id=loop_id,
+        user_id=doc.get("user_id") or "",
+        project_id=doc.get("project_id"),
+        user_message=(doc.get("context") or {}).get(
+            "original_request", "",
+        ),
+    )
+    # Restore state machine + accreted context.
+    try:
+        eng.state = LoopState(persisted_state)
+    except ValueError:
+        eng.state = LoopState.AWAITING_CONFIRMATION
+    eng.phase = doc.get("phase") or "plan"
+    if doc.get("context"):
+        eng.context = doc["context"]
+    register(eng)
+    logger.info(
+        "[loop %s] REHYDRATED from Mongo (state=%s phase=%s) "
+        "in worker pid=%s",
+        loop_id, eng.state.value, eng.phase, _PID,
+    )
+    return eng
 
 
 # Defensive shutdown hook for tests.

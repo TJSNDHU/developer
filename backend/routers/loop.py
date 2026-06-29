@@ -195,7 +195,12 @@ async def get_active_loop(
 async def confirm_loop(loop_id: str, body: ConfirmBody,
                        authorization: Optional[str] = Header(None)) -> dict:
     user = await current_dev(authorization)
-    engine = eng.lookup(loop_id)
+    # Iter 212m-144 — cross-worker rehydration. With multiple uvicorn
+    # workers in PROD, the start() request may have created the engine
+    # on worker A while confirm() lands on worker B — `lookup()` would
+    # return None even though Mongo has the persisted session. Try
+    # rehydration before 404'ing.
+    engine = await eng.lookup_or_rehydrate(get_db(), loop_id)
     if engine is None:
         raise HTTPException(404, "Loop not found or already finished")
     if engine.user_id != user["user_id"]:
@@ -219,7 +224,8 @@ async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
     `approved=false` cancels the ship (loop → ABORTED, nothing
     pushed). Founder spec: NO auto-ship — always manual."""
     user = await current_dev(authorization)
-    engine = eng.lookup(loop_id)
+    # Iter 212m-144 — cross-worker rehydration (same reason as confirm).
+    engine = await eng.lookup_or_rehydrate(get_db(), loop_id)
     if engine is None:
         raise HTTPException(404, "Loop not found or already finished")
     if engine.user_id != user["user_id"]:
@@ -244,7 +250,8 @@ async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
 async def pause_response(loop_id: str, body: PauseResponseBody,
                          authorization: Optional[str] = Header(None)) -> dict:
     user = await current_dev(authorization)
-    engine = eng.lookup(loop_id)
+    # Iter 212m-144 — cross-worker rehydration.
+    engine = await eng.lookup_or_rehydrate(get_db(), loop_id)
     if engine is None:
         raise HTTPException(404, "Loop not found")
     if engine.user_id != user["user_id"]:
@@ -270,7 +277,8 @@ async def submit_files(loop_id: str, body: SubmitFilesBody,
     should lint + self-heal.  Called by the chat orchestrator or the
     front-end after Step 2 finishes writing."""
     user = await current_dev(authorization)
-    engine = eng.lookup(loop_id)
+    # Iter 212m-144 — cross-worker rehydration.
+    engine = await eng.lookup_or_rehydrate(get_db(), loop_id)
     if engine is None:
         raise HTTPException(404, "Loop not found")
     if engine.user_id != user["user_id"]:
@@ -339,10 +347,21 @@ async def loop_stream(loop_id: str,
 async def cancel_loop(loop_id: str,
                       authorization: Optional[str] = Header(None)) -> dict:
     user = await current_dev(authorization)
+    # Iter 212m-144 — try local lookup first for liveness, then
+    # rehydrate from Mongo so cancel works cross-worker.
     engine = eng.lookup(loop_id)
     if engine is None:
-        # Already finished or never existed — try Mongo lookup so we
-        # can mark it aborted persistently.
+        engine = await eng.lookup_or_rehydrate(get_db(), loop_id)
+    if engine is None:
+        # Iter 212m-145 — Fallback path for loops that are neither
+        # live in _LIVE nor rehydratable (state already FAILED/ABORTED
+        # or unknown). Without this, the `loop_locks` collection still
+        # holds a stale lock entry from the original run and the user
+        # gets "loop_already_running" forever on the next /start.
+        #
+        # ROOT FIX: persist `state=aborted` to `loop_sessions` AND
+        # release the lock + record a no-op failure in the safety
+        # circuit so retries work immediately.
         db = get_db()
         if db is not None:
             doc = await eng.load_session(db, loop_id)
@@ -351,9 +370,85 @@ async def cancel_loop(loop_id: str,
                     {"loop_id": loop_id},
                     {"$set": {"state": "aborted"}},
                 )
-                return {"loop_id": loop_id, "state": "aborted"}
+                # Free the concurrent-loop lock so the project isn't
+                # held captive by a ghost loop. Pulls owner out of the
+                # persisted doc — _no_project for legacy / no-project
+                # runs.
+                try:
+                    from services.loop_safety import release_loop_lock
+                    proj_key = doc.get("project_id") or "_no_project"
+                    await release_loop_lock(
+                        db, proj_key, doc.get("user_id") or user["user_id"],
+                        loop_id,
+                    )
+                except Exception as e:                          # noqa: BLE001
+                    logger.debug(
+                        "loop %s — fallback release_loop_lock failed: %r",
+                        loop_id, e,
+                    )
+                return {"loop_id": loop_id, "state": "aborted",
+                        "lock_released": True}
         raise HTTPException(404, "Loop not found")
     if engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
     await engine.cancel()
     return {"loop_id": loop_id, "state": engine.state.value}
+
+
+# ── Iter 212m-146 — Force-release loop lock (safety hatch) ───────────
+#
+# A loop lock can theoretically be held even after `cancel()` /
+# `/cancel` fallback / Iter 212m-145 auto-sweep all fail (e.g. Mongo
+# write contention during the cancel write, multi-worker race, etc.).
+# This endpoint is the founder-grade escape hatch: it deletes the
+# lock for (project_id, caller's user_id) AND marks any session row
+# with that loop_id as aborted. Founder-only to prevent accidental
+# user abuse — but founders can use it on their own projects.
+class ForceReleaseBody(BaseModel):
+    project_id: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/force-release-lock")
+async def force_release_lock(
+    body: ForceReleaseBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Founder-gated. Forcibly delete the loop_lock entry for the
+    caller's (project_id, user_id) and mark any associated session
+    row as aborted. Returns the deleted lock's `loop_id` (if any) so
+    the caller has audit trail."""
+    user = await current_dev(authorization)
+    if not (user.get("is_admin")
+            or user.get("is_unlimited")
+            or (user.get("tier") or "").lower() == "founder"):
+        raise HTTPException(403, "founder access required")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB unavailable")
+    existing = await db.loop_locks.find_one(
+        {"project_id": body.project_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not existing:
+        return {"ok": True, "released_loop_id": None,
+                "message": "no lock held"}
+    deleted_loop_id = existing.get("loop_id")
+    await db.loop_locks.delete_one(
+        {"project_id": body.project_id, "user_id": user["user_id"]},
+    )
+    if deleted_loop_id:
+        try:
+            await db.loop_sessions.update_one(
+                {"loop_id": deleted_loop_id},
+                {"$set": {"state": "aborted"}},
+            )
+        except Exception as e:                                # noqa: BLE001
+            logger.debug(
+                "force-release: session state update failed: %r", e,
+            )
+    logger.info(
+        "[loop_safety] founder %s force-released lock for project %s "
+        "(was loop_id=%s)",
+        user.get("user_id"), body.project_id, deleted_loop_id,
+    )
+    return {"ok": True, "released_loop_id": deleted_loop_id}
