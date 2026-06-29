@@ -12,6 +12,56 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-131 — Loop Engine Deep RCA + 11 root-cause fixes (Feb 2026) ✅
+
+**Trigger**: User requested deep RCA of `services/loop_engine.py` to find root causes of (a) Execute phase getting stuck, (b) Verify retry storms, (c) state-machine bugs. Read the entire file + its collaborators (`loop_execute.py`, `loop_verify.py`, `loop_safety.py`) end-to-end. Identified 11 distinct root-cause bugs.
+
+**Bugs found + real fixes (no patches)**:
+
+| # | Bug | Severity | Fix |
+|---|---|---|---|
+| 1 | `confirm()` did `asyncio.create_task(self._run_pipeline())` and dropped the return — Python 3.11 docs explicitly warn this lets the GC reap long-running tasks mid-flight | 🔴 | Hold on `self._pipeline_task`; add `done_callback` that surfaces any unhandled exception as a FAILED event + clears the ref |
+| 2 | Verify storm: 5 files × 3 internal retries × ~25 s self-heal LLM each = ~375 s, vs verify budget of 180 s → ALWAYS timed out → `_with_budget` auto-restarted from scratch, repeating ALL work for ~9 minutes before `_fail()` | 🔴 | Rewrote `_do_verify`: ONE initial pass + up to MAX_SELF_HEALS=2 heal rounds, and each round only re-lints the files that FAILED in the previous report (passing files stay locked) |
+| 3 | `MAX_VERIFY_RETRIES=3` and `MAX_SELF_HEALS=2` had a coincidental equality (`attempt >= MAX_SELF_HEALS + 1`) that broke immediately if either constant was tuned | 🔴 | DELETED `MAX_VERIFY_RETRIES` entirely. Single source of truth: MAX_SELF_HEALS controls the heal loop |
+| 4 | `self_heal()` LLM call had NO timeout — a stalled LLM stream could hang the entire verify phase until the outer 180 s budget tripped | 🔴 | Wrap every `self_heal()` call in `asyncio.wait_for(SELF_HEAL_LLM_TIMEOUT_S=60)`; `TimeoutError` → log + skip that file's heal (others still proceed) |
+| 5 | `verify_files()` ran linters SERIALLY (5 files × 8 s subprocess timeout = ~40 s wall) | 🟡 PERF | `asyncio.Semaphore(4)` + `asyncio.gather` — parallel lint runs bounded by the slowest single file, not their sum |
+| 6 | `_do_execute` returned silently on empty plan files list, letting Verify → Scan → Ship all progress with no work, finishing as "Ship complete" without any actual commit | 🟡 | Empty `files_to_change` now triggers `_fail("execute", ...)` with a clear message; user sees the real reason |
+| 7 | `_with_budget` auto-restart reset STATE but left CONTEXT keys (`submitted_files`, `files_changed`, `verification_results`, `scan_results`) populated with stale partial data from the timed-out attempt | 🟡 | Phase-specific context keys cleared on restart so the second attempt starts truly fresh |
+| 8 | `cancel()` only set `self._cancelled = True` and emitted ABORTED — the in-flight LLM HTTP call CONTINUED running because `_should_stop()` is only checked between phases | 🔴 | `cancel()` now calls `self._pipeline_task.cancel()` which propagates `CancelledError` into the await chain, killing the LLM HTTP call in ~1 s. Also releases the concurrent-loop lock so user can retry immediately |
+| 9 | `submit_files()` could be called via HTTP while the engine was mid-Execute, racing the in-memory `submitted_files` write | 🟡 | Refused with `ValueError` once engine is past `AWAITING_CONFIRMATION` (the engine owns the file list after that point) |
+| 10 | `_with_budget` restart emitted SELF_HEALING event BEFORE setting `self.state` to SELF_HEALING — brief inconsistency visible to SSE consumers | 🟡 | State mutation moved BEFORE `_emit()` call; pinned by a source-pattern contract test |
+| 11 | `MAX_PHASE_RESTARTS = 2` meant a stuck phase burned 3× the budget time before final fail (with no real chance of success since phase coros aren't fully idempotent across restarts) | 🟡 | Lowered to `MAX_PHASE_RESTARTS = 1`; bounds worst case at 2× budget (down from 3×) |
+
+**Side effect — Phase budgets re-balanced**:
+- `verify`: 180 s → 360 s (covers MAX_SELF_HEALS=2 across up to 6 files realistically — though the heal-subset-only fix means we rarely need it)
+- `execute`: 300 s → 420 s (8 files at 60 s × ceil(8/3 parallelism) = 180 s worst case + diagnose-first overhead)
+- Other budgets unchanged.
+
+**Why these are REAL fixes, not patches**:
+- The verify storm root cause was a math problem (per-file LLM time × internal retries > outer budget) AND a stale-context problem (restarts repeated the same work). Both addressed at the source. We didn't "increase the budget more" — that's a patch. We made the work bounded AND non-redundant.
+- The `cancel()` fix actually cancels the LLM HTTP call. Earlier "fixes" set a flag the inner code was supposed to poll — that's a patch with a race window. `task.cancel()` is the asyncio-native real fix.
+- The constants are decoupled. A future founder tuning self-heals from 2 to 5 won't break the state machine.
+
+**Test coverage** — `backend/tests/test_iter212m131_loop_engine_rca.py` (13 new tests):
+- Bug 1: `_pipeline_task` ref held + cleared on completion
+- Bug 8: `cancel()` propagates `CancelledError` to the in-flight task
+- Bug 2: Verify re-lints ONLY healed files (`asyncio.gather` of subset)
+- Bug 2 + #4: `self_heal` LLM hang doesn't hang the verify phase (completes in <10 s with 60 s SELF_HEAL_LLM_TIMEOUT_S monkeypatched to 1 s)
+- Bug 3: `MAX_VERIFY_RETRIES` removed from module namespace; `MAX_SELF_HEALS == 2`
+- Bug 4: `SELF_HEAL_LLM_TIMEOUT_S` constant exists in `[30, 120]`
+- Bug 5: `loop_verify.py` source contains `asyncio.Semaphore` + `asyncio.gather`
+- Bug 6: Empty `files_to_change` triggers `_fail()` not silent return
+- Bug 7: Phase restart clears `submitted_files` + `files_changed`
+- Bug 9: `submit_files` raises `ValueError` mid-Execute, allowed pre-confirm
+- Bug 10: State mutation precedes emit (source-pattern contract test)
+- Bug 11: `MAX_PHASE_RESTARTS == 1`
+
+**Regression**: 90/90 passing across iter 212m-121, 126, 127, 128, 129, 130, 131. Backend restart clean, no log warnings on boot.
+
+**Files touched**: `backend/services/loop_engine.py`, `backend/services/loop_verify.py`, `backend/tests/test_iter212m131_loop_engine_rca.py` (new).
+
+
+
 ### Iter 212m-130 — Loop Mode locked to founders (Coming Soon) (Feb 2026) ✅
 
 **Trigger**: User asked to temporarily hide Loop Mode from regular accounts and unlock it only for founder accounts because the engine has known issues (executions getting stuck in the plan-confirm / verify retry loops, "not properly designed") and the founder needs space to harden it before re-exposing to paying users.

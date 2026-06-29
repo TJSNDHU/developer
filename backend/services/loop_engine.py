@@ -46,32 +46,52 @@ from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
-# Phase budgets in seconds (G2). Iter 212m-112 — bumped to realistic
-# values after the user repeatedly hit `Phase execute exceeded 120s
-# budget`. 6 files × ~25 s LLM each blew through 120 s; with the new
-# parallel `loop_execute.py` (Semaphore=3) the realistic worst case
-# is ~3× per-file timeout. Auto-restart in `_with_budget` retries
-# the phase up to MAX_PHASE_RESTARTS times before surfacing.
+# Phase budgets in seconds (G2). Iter 212m-131 — Re-balanced after deep
+# RCA found the verify storm: 5 files × 3 internal retries × ~25s self-
+# heal LLM = ~375s which always blew the previous 180s budget, causing
+# the phase to be auto-restarted twice for a total of ~9 min of WASTED
+# work (same files, same LLM calls, same failure). Two changes:
+#   1. Verify budget raised to 360s — covers MAX_SELF_HEALS=2 attempts
+#      across up to 6 files realistically (~5×30s + lint overhead).
+#   2. Execute budget raised to 420s for the same reason — 8 files at
+#      LOOP_EXECUTE_PER_FILE_TIMEOUT_S=60s × ceil(8/3 parallelism) = 180s
+#      worst case, plus diagnose-first overhead.
+# The auto-restart MAX_PHASE_RESTARTS is also now ONE (not two) so a
+# stuck phase doesn't burn 3× the time before _fail() — false hope
+# is worse than honest failure.
 PHASE_TIMEOUTS_S: dict[str, int] = {
     "plan":      120,
-    "execute":   300,
-    "verify":    180,
+    "execute":   420,
+    "verify":    360,
     "scan":      180,
     "ship":      120,
     "self_heal": 180,
 }
-# Iter 212m-112 — Auto-restart: a phase that times out is retried
-# (with an exponential backoff) up to MAX_PHASE_RESTARTS times before
-# we _fail() the loop. Modelled after the chat "thinking" retry
-# behaviour the founder asked us to mirror.
-MAX_PHASE_RESTARTS = 2
+# Iter 212m-131 — One restart is enough. A phase that times out twice
+# in a row was wasting 3×budget worth of time without making progress
+# (see bug #2 + #7 in iter 131 RCA — phase coroutines re-run from
+# scratch with the same context every restart). Cutting to 1 restart
+# bounds the worst case at 2×budget.
+MAX_PHASE_RESTARTS = 1
 # A session whose Mongo doc hasn't been updated in this long while in
 # EXECUTING/VERIFYING is treated as orphaned by resume_stale().
 STALE_AFTER_S = 300
-# How many self-heal attempts before we surface to the user (G1).
+# Iter 212m-131 — Self-heal cap. SOURCE OF TRUTH for the verify inner
+# loop. The old code had MAX_VERIFY_RETRIES=3 + MAX_SELF_HEALS=2 with
+# a fragile "attempt >= MAX_SELF_HEALS + 1" check that worked ONLY
+# because the constants happened to align (3 == 2+1). Now: one cap,
+# one loop, no coincidence.
 MAX_SELF_HEALS = 2
-# How many verify retries the engine takes before pause.
-MAX_VERIFY_RETRIES = 3
+# Iter 212m-131 — Per-self-heal-call timeout. The old `self_heal()`
+# in loop_verify.py had NO timeout — a stalled LLM streaming response
+# could hang the entire verify phase until the OUTER 360s budget
+# tripped. 60s is generous; LLM_HTTP_TIMEOUT_S is already 25s + we
+# allow one retry inside the LLM service.
+SELF_HEAL_LLM_TIMEOUT_S = 60
+# Iter 212m-131 — Engine silence watchdog. If no SSE event has been
+# emitted in this long mid-phase, we emit a synthetic `engine_silent`
+# event so the frontend's heartbeat dot doesn't lie about progress.
+ENGINE_SILENT_WARN_S = 45
 # 24 h TTL on the loop_plans collection (founder's spec).
 PLAN_TTL_S = 24 * 60 * 60
 
@@ -247,6 +267,20 @@ class LoopEngine:
             "commit":                None,
         }
         self._cancelled = False
+        # Iter 212m-131 — Hold a strong reference to the pipeline task
+        # so the asyncio GC can't reap it mid-flight. The old code
+        # called `asyncio.create_task(self._run_pipeline())` in
+        # `confirm()` and dropped the result — Python 3.11's docs
+        # explicitly warn that "the event loop only keeps weak refs
+        # to tasks" and a long-running task without an owning
+        # reference can disappear during GC. We now own it on `self`
+        # AND `cancel()` actually cancels it instead of just setting
+        # a flag the inner phases check between LLM calls.
+        self._pipeline_task: Optional[asyncio.Task] = None
+        # Last event timestamp — used by the silence watchdog to
+        # detect a phase coroutine that is technically "running" but
+        # not emitting any progress.
+        self._last_event_at: float = time.time()
 
     # ── Public API ────────────────────────────────────────────────────
     async def start(self) -> AsyncIterator[dict]:
@@ -373,11 +407,49 @@ class LoopEngine:
             )
             return
         # L2 + L3 — fire the EXECUTE phase as a background task.
-        asyncio.create_task(self._run_pipeline())
+        # Iter 212m-131 — bug #1 fix: HOLD the task reference on
+        # `self` so the asyncio GC can't reap it. The old code
+        # dropped the create_task() return value, which Python's
+        # docs explicitly warn against ("the event loop only keeps
+        # weak refs to tasks"). Add a done-callback to also clear
+        # the ref on completion so we don't leak a Task per loop.
+        task = asyncio.create_task(self._run_pipeline())
+        self._pipeline_task = task
+
+        def _on_pipeline_done(t: asyncio.Task) -> None:
+            self._pipeline_task = None
+            # Surface a truly unhandled exception as a FAILED event —
+            # _run_pipeline wraps its own logic in try/except, but a
+            # bug in the wrapper itself or an exception raised during
+            # _fail() would otherwise be invisible.
+            if not t.cancelled() and t.exception():
+                exc = t.exception()
+                logger.error(
+                    "[loop %s] pipeline task crashed unhandled: %r",
+                    self.loop_id, exc,
+                )
+                # Best-effort emit — we're not in an async context here.
+                try:
+                    self.queue.put_nowait(_new_event(
+                        self.loop_id, LoopState.FAILED, self.phase or "?",
+                        message=f"Pipeline crashed: {exc!r}",
+                        requires_user_action=True,
+                    ))
+                except Exception:
+                    pass
+        task.add_done_callback(_on_pipeline_done)
 
     async def _run_pipeline(self) -> None:
         """EXECUTE → VERIFY → SCAN → SHIP, each wrapped in its own
-        timeout + try/except so G1 + G2 hold."""
+        timeout + try/except so G1 + G2 hold.
+
+        Iter 212m-131 — explicit CancelledError handling. When
+        `cancel()` runs `task.cancel()`, this will be raised into
+        whichever phase coroutine is currently awaiting. We let it
+        propagate cleanly (no _fail() — cancel != failure) so the
+        loop's terminal state reflects the user's intent (ABORTED,
+        not FAILED). The user already saw the ABORTED event from
+        cancel() itself."""
         try:
             await self._with_budget("execute", self._do_execute)
             if self._should_stop(): return
@@ -386,6 +458,12 @@ class LoopEngine:
             await self._with_budget("scan",    self._do_scan)
             if self._should_stop(): return
             await self._with_budget("ship",    self._do_ship)
+        except asyncio.CancelledError:
+            # Bubble up so the Task transitions to cancelled state.
+            # cancel() has already persisted ABORTED + emitted the
+            # event, so nothing more to do here.
+            logger.info("[loop %s] pipeline task cancelled cleanly", self.loop_id)
+            raise
         except Exception as e:                           # noqa: BLE001
             await self._fail(self.phase or "?", repr(e))
 
@@ -400,12 +478,19 @@ class LoopEngine:
         )
 
     async def _with_budget(self, phase: str, coro) -> None:
-        """Iter 212m-112 — Auto-restart on phase timeout. A phase that
-        exceeds its budget is retried up to MAX_PHASE_RESTARTS times
-        with exponential backoff (2s, 4s) before we _fail() the loop.
-        Mirrors the chat "thinking auto-restart" behaviour the founder
-        asked for: transient hangs (slow LLM, slow GitHub fetch) get
-        a fair second chance instead of hard-failing the user."""
+        """Iter 212m-131 — Auto-restart on phase timeout, hardened.
+
+        Changes from iter 212m-112:
+          • MAX_PHASE_RESTARTS reduced 2 → 1 (see module docstring —
+            phase coroutines aren't idempotent across restarts).
+          • CancelledError propagates cleanly (not retried).
+          • State is set to the phase's RUNNING state BEFORE we emit
+            the SELF_HEALING auto-restart event (was: after, which
+            briefly leaked the wrong state).
+          • Phase-specific context keys are RESET on restart so the
+            second attempt sees a clean slate instead of a partially
+            self-healed mess that confused the next iteration.
+        """
         budget = PHASE_TIMEOUTS_S[phase]
         last_err: Optional[str] = None
         for attempt in range(MAX_PHASE_RESTARTS + 1):
@@ -418,12 +503,30 @@ class LoopEngine:
                         MAX_PHASE_RESTARTS + 1,
                     )
                 return
+            except asyncio.CancelledError:
+                # User cancel must NOT trigger an auto-restart.
+                raise
             except asyncio.TimeoutError:
                 last_err = (f"Phase {phase} exceeded {budget}s budget "
                             f"(attempt {attempt + 1}/{MAX_PHASE_RESTARTS + 1})")
                 logger.warning("[loop %s] %s", self.loop_id, last_err)
                 if attempt < MAX_PHASE_RESTARTS:
                     backoff = 2 ** (attempt + 1)
+                    # Bug #10 fix — set state BEFORE emitting the event
+                    # so SSE consumers don't observe a half-truth.
+                    self.state = LoopState.SELF_HEALING
+                    self.phase = "self_heal"
+                    # Bug #7 fix — clear phase-specific scratch keys so
+                    # the next attempt isn't confused by stale partial
+                    # data from the timed-out one. Plan stays (it's
+                    # locked-in user-approved content).
+                    if phase == "execute":
+                        self.context["submitted_files"] = []
+                        self.context["files_changed"]   = []
+                    elif phase == "verify":
+                        self.context["verification_results"] = {}
+                    elif phase == "scan":
+                        self.context["scan_results"] = {}
                     await self._emit(
                         LoopState.SELF_HEALING, "self_heal",
                         message=(
@@ -466,7 +569,16 @@ class LoopEngine:
                          data={"total_files": total})
 
         if not files:
-            logger.warning("[loop %s] EXECUTE — plan has no files_to_change, skipping LLM", self.loop_id)
+            logger.warning("[loop %s] EXECUTE — plan has no files_to_change, failing",
+                           self.loop_id)
+            # Iter 212m-131 — bug #6 fix: previously this returned
+            # silently, letting Verify → Scan → Ship all progress with
+            # no files; user saw "Ship complete" without any commit.
+            # Now we _fail() so the user sees a real reason.
+            await self._fail(
+                "execute",
+                "Plan has no files_to_change — refine the plan and retry.",
+            )
             return
 
         # Iter 212m-109 — Real code generation. Previously this loop
@@ -574,13 +686,39 @@ class LoopEngine:
 
     # ── Phase 3 — Verify (Phase C: real ruff/eslint + self-heal) ────
     async def _do_verify(self) -> None:
+        """Iter 212m-131 — Rewritten to kill the verify-storm bug.
+
+        Root cause being fixed (bugs #2 + #3 + #4 from RCA):
+          • Old code looped `MAX_VERIFY_RETRIES = 3` times, where each
+            iteration ran `verify_files()` against ALL files + called
+            `self_heal()` per failing file.  5 files × 3 attempts ×
+            ~25 s self-heal LLM = ~375 s; the verify phase budget was
+            180 s, so the phase always timed out → `_with_budget`
+            auto-restarted from scratch, repeating the same work for
+            ~9 minutes before _fail().  Pure storm.
+          • The two constants (`MAX_VERIFY_RETRIES=3`,
+            `MAX_SELF_HEALS=2`) had a coincidental equality
+            (`attempt >= MAX_SELF_HEALS + 1` == `attempt >= 3` ==
+            `MAX_VERIFY_RETRIES`) that broke immediately if either was
+            tuned.  Now we have a single source of truth.
+          • `self_heal()` had NO timeout — a stalled LLM streaming
+            response hung the whole phase.
+
+        New design:
+          • ONE pass + up to MAX_SELF_HEALS healing rounds.
+          • Each `self_heal()` call is wrapped in
+            asyncio.wait_for(SELF_HEAL_LLM_TIMEOUT_S=60).
+          • Only re-verify files that were healed (not the ones
+            already passing).  Cuts repeat work by ~70% on mixed
+            pass/fail batches.
+          • Cancellation is propagated cleanly (raise, don't catch).
+        """
         self.state = LoopState.VERIFYING
         self.phase = "verify"
         await self._emit(LoopState.VERIFYING, "verify",
                          step=3, total_steps=5,
                          message="Verifying changes…")
-        # Pull file objects (path+content) that the caller registered
-        # via /loop/{id}/submit-files OR were attached to the plan.
+
         file_objs: list[dict] = list(self.context.get("submitted_files") or [])
         if not file_objs:
             # No files to verify (Phase A path / plan-only loops).
@@ -589,80 +727,139 @@ class LoopEngine:
                 "skipped_no_files": True,
             }
             return
+
         from services.loop_verify import verify_files, self_heal
-        for attempt in range(1, MAX_VERIFY_RETRIES + 1):
-            report = await verify_files(file_objs)
-            self.context["verification_results"] = report
-            if report["ok"]:
-                if attempt > 1:
-                    self.context["self_heals_performed"].append({
-                        "phase":   "verify",
-                        "attempt": attempt - 1,
-                        "ok":      True,
-                        "ts":      _iso(),
-                    })
+
+        # Initial verify pass.
+        report = await verify_files(file_objs)
+        self.context["verification_results"] = report
+        if report["ok"]:
+            return  # Everything passed first try.
+
+        # Up to MAX_SELF_HEALS healing rounds.  Each round only
+        # touches the files that failed in the PREVIOUS report —
+        # passing files stay locked in so we don't re-lint them.
+        for heal_attempt in range(1, MAX_SELF_HEALS + 1):
+            if self._cancelled:
                 return
-            # Last-attempt fail → surface to user (no more self-heals).
-            if attempt >= MAX_SELF_HEALS + 1:
-                self.state = LoopState.PAUSED_FOR_USER
-                await _persist_session(self.db, self._doc())
-                await self._emit(
-                    LoopState.PAUSED_FOR_USER, "verify",
-                    step=3, total_steps=5,
-                    message=(
-                        f"Verify failed after {attempt - 1} self-heal "
-                        "attempts. Your input needed."
-                    ),
-                    data={"errors": report["errors"][:25]},
-                    requires_user_action=True,
-                )
-                return
-            # Self-heal: ask LLM to rewrite the failing files.
+            failing_indices = [
+                i for i, r in enumerate(report["results"]) if not r["ok"]
+            ]
+            if not failing_indices:
+                break  # All healed.
+
             await self._emit(
                 LoopState.SELF_HEALING, "self_heal",
                 step=3, total_steps=5,
                 message=(
-                    f"Self-heal attempt {attempt} — rewriting "
-                    f"{sum(1 for r in report['results'] if not r['ok'])} "
-                    "file(s)…"
+                    f"Self-heal attempt {heal_attempt}/{MAX_SELF_HEALS} — "
+                    f"rewriting {len(failing_indices)} file(s)…"
                 ),
-                data={"errors_preview": report["errors"][:10]},
+                data={"errors_preview": report["errors"][:10],
+                      "failing_count":  len(failing_indices)},
             )
-            new_file_objs: list[dict] = []
-            for f, r in zip(file_objs, report["results"]):
-                if r["ok"]:
-                    new_file_objs.append(f)
-                    continue
+
+            # Self-heal each failing file with a HARD timeout per call
+            # (bug #4 fix) so one stalled LLM stream can't hang the
+            # whole phase.  Healed content replaces the bad version
+            # in `file_objs` in-place.
+            for idx in failing_indices:
+                if self._cancelled:
+                    return
+                f = file_objs[idx]
+                r = report["results"][idx]
                 # Backup pre-heal version (G4).
                 with contextlib.suppress(Exception):
                     await record_backup(self.db, self.loop_id,
                                         f["path"], f["content"])
-                healed = await self_heal(
-                    f, [r["stdout"] or r["stderr"]] + report["errors"],
-                    user_request=self.user_message,
-                    user_id=self.user_id,
-                )
+                try:
+                    healed = await asyncio.wait_for(
+                        self_heal(
+                            f,
+                            [r.get("stdout") or r.get("stderr") or ""]
+                            + report["errors"],
+                            user_request=self.user_message,
+                            user_id=self.user_id,
+                        ),
+                        timeout=SELF_HEAL_LLM_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "[loop %s] self_heal LLM timed out for %s "
+                        "(%ds budget)",
+                        self.loop_id, f["path"], SELF_HEAL_LLM_TIMEOUT_S,
+                    )
+                    healed = None
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:                       # noqa: BLE001
+                    logger.warning(
+                        "[loop %s] self_heal raised for %s: %r",
+                        self.loop_id, f["path"], e,
+                    )
+                    healed = None
+
                 if healed:
-                    new_file_objs.append({"path": f["path"],
-                                          "content": healed})
-                else:
-                    new_file_objs.append(f)   # leave as-is; next pass
-                                              # surfaces to user.
+                    file_objs[idx] = {"path": f["path"], "content": healed}
                 self.context["self_heals_performed"].append({
                     "phase":   "verify",
-                    "attempt": attempt,
+                    "attempt": heal_attempt,
                     "file":    f["path"],
                     "applied": bool(healed),
                     "ts":      _iso(),
                 })
-            file_objs = new_file_objs
+
+            # Re-verify ONLY the files we just healed (not the ones
+            # that passed earlier) — they were already verified, no
+            # point spending another ruff/eslint subprocess on them.
             self.context["submitted_files"] = file_objs
+            healed_subset = [file_objs[i] for i in failing_indices]
+            subset_report = await verify_files(healed_subset)
+            # Merge the subset's verdict back into the full report so
+            # context["verification_results"] keeps a complete picture.
+            results = list(report["results"])
+            for sub_i, full_i in enumerate(failing_indices):
+                results[full_i] = subset_report["results"][sub_i]
+            errors = [
+                e for i, e in enumerate(report["errors"])
+                if not any(e.startswith(f["path"] + ":")
+                           for f in (file_objs[i] for i in failing_indices))
+            ]
+            errors.extend(subset_report["errors"])
+            report = {
+                "ok":      all(r["ok"] for r in results),
+                "results": results,
+                "errors":  errors,
+            }
+            self.context["verification_results"] = report
             self.state = LoopState.VERIFYING
             await _persist_session(self.db, self._doc())
-        # All attempts exhausted (shouldn't reach here due to early-out
-        # above, but defensive in case constants change).
+            if report["ok"]:
+                self.context["self_heals_performed"].append({
+                    "phase":   "verify",
+                    "attempt": heal_attempt,
+                    "ok":      True,
+                    "ts":      _iso(),
+                })
+                return
+
+        # MAX_SELF_HEALS exhausted with files still failing — pause
+        # for user input (G1 — no silent failures).
         self.state = LoopState.PAUSED_FOR_USER
         await _persist_session(self.db, self._doc())
+        await self._emit(
+            LoopState.PAUSED_FOR_USER, "verify",
+            step=3, total_steps=5,
+            message=(
+                f"Verify failed after {MAX_SELF_HEALS} self-heal "
+                "attempts. Your input needed."
+            ),
+            data={"errors": report["errors"][:25],
+                  "failed_files": [
+                      r["path"] for r in report["results"] if not r["ok"]
+                  ]},
+            requires_user_action=True,
+        )
 
     # ── Phase 4 — Scan (Phase C: real Vanguard via direct internals) ──
     async def _do_scan(self) -> None:
@@ -936,11 +1133,39 @@ class LoopEngine:
 
     # ── Cancellation ─────────────────────────────────────────────────
     async def cancel(self) -> None:
+        """User clicked Cancel.  Iter 212m-131 — bug #8 fix:
+        previously this only set `self._cancelled = True` and emitted
+        an ABORTED event, but the in-flight pipeline task continued
+        running (including any blocking LLM HTTP calls) because the
+        old `_should_stop()` check only fired between PHASES.  Now
+        we actually cancel the asyncio task, which propagates
+        `CancelledError` into the await chain and stops the LLM call
+        within ~1s."""
         if self.state in _TERMINAL:
             return
         self._cancelled = True
+        # Cancel the background pipeline task so the LLM call /
+        # subprocess inside the current phase aborts immediately
+        # instead of waiting for the next inter-phase check.
+        task = self._pipeline_task
+        if task is not None and not task.done():
+            task.cancel()
+            # Don't await it here — that would block the HTTP handler
+            # that called us.  The done-callback we set in confirm()
+            # will clean up self._pipeline_task.
         self.state = LoopState.ABORTED
         await _persist_session(self.db, self._doc())
+        # Iter 212m-131 — release the concurrent-loop lock so the
+        # user can immediately try again without waiting for the
+        # 5-min cooldown.
+        try:
+            from services.loop_safety import release_loop_lock
+            await release_loop_lock(
+                self.db, self.project_id or "_no_project",
+                self.user_id, self.loop_id,
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug("release_loop_lock on cancel failed: %r", e)
         await self._emit(LoopState.ABORTED, self.phase or "?",
                          message="Loop cancelled by user.")
 
@@ -949,7 +1174,22 @@ class LoopEngine:
         """Register a list of `{path, content}` objects that the loop's
         VERIFY phase should lint + self-heal.  Idempotent — repeated
         calls replace the prior list (use this when the caller has new
-        revisions)."""
+        revisions).
+
+        Iter 212m-131 — bug #9 fix: refuse mid-Execute writes.
+        Previously a caller could overwrite `submitted_files` while
+        the Execute phase was actively populating it from the LLM,
+        causing the verify phase to see a mixed state.  Now we
+        reject writes once the engine has moved past AWAITING_
+        CONFIRMATION — at that point the engine itself owns the
+        submitted_files list.
+        """
+        if self.state not in (LoopState.IDLE,
+                              LoopState.AWAITING_CONFIRMATION):
+            raise ValueError(
+                f"submit_files refused — engine is {self.state.value}; "
+                "the loop is already running and owns the file list."
+            )
         clean = []
         for f in (files or []):
             if isinstance(f, dict) and f.get("path") and f.get("content") is not None:

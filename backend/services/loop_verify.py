@@ -90,61 +90,77 @@ def contextlib_suppress():
 async def verify_files(files: list[dict]) -> dict:
     """Lint each file in a sandboxed temp dir.  Each file gets its own
     subdir so eslint/ruff can't cross-contaminate.  Returns a structured
-    report — never raises."""
+    report — never raises.
+
+    Iter 212m-131 — Bug #5 fix: linters now run CONCURRENTLY behind a
+    semaphore (default cap = 4) instead of one file at a time.  Old
+    serial loop took up to ~40 s on a 5-file batch (subprocess timeout
+    8 s each); new parallel path is bounded by the slowest single file.
+    The `_run()` subprocess call already has its own timeout so a hung
+    linter can't take down the whole batch.
+    """
     files = [f for f in (files or [])
              if isinstance(f, dict) and f.get("path") and f.get("content") is not None]
-    results: list[dict] = []
-    errors:  list[str]  = []
     if not files:
         return {"ok": True, "results": [], "errors": []}
 
     sandbox = tempfile.mkdtemp(prefix="loop_verify_")
-    try:
-        for f in files:
-            rel = f["path"]
-            ext = _ext(rel)
-            linter = _LINTERS.get(ext)
-            if not linter:
-                results.append({
-                    "path":   rel,
-                    "ok":     True,
-                    "linter": "skip",
-                    "stdout": "",
-                    "stderr": f"no linter mapping for {ext or '(no ext)'}",
-                })
-                continue
-            tool, flags = linter
-            # Write the file into a per-file subdir so paths stay clean
-            # in the error output.
-            safe_rel = rel.replace("..", "_").lstrip("/")
-            file_dir = os.path.join(sandbox, os.path.dirname(safe_rel) or ".")
-            os.makedirs(file_dir, exist_ok=True)
-            disk_path = os.path.join(sandbox, safe_rel)
-            try:
-                with open(disk_path, "w", encoding="utf-8") as fh:
-                    fh.write(f["content"])
-            except OSError as e:
-                results.append({"path": rel, "ok": False, "linter": tool,
-                                "stdout": "",
-                                "stderr": f"write failed: {e}"})
-                errors.append(f"{rel}: write failed: {e}")
-                continue
+    # Cap concurrent linter subprocesses.  4 is generous for our pod
+    # sizes while still cutting wall-clock dramatically on bigger
+    # batches; one stuck linter only blocks itself, not its siblings.
+    sem = asyncio.Semaphore(4)
 
+    async def _lint_one(f: dict) -> tuple[dict, Optional[str]]:
+        """Returns (result_row, error_line_or_None)."""
+        rel = f["path"]
+        ext = _ext(rel)
+        linter = _LINTERS.get(ext)
+        if not linter:
+            return ({
+                "path":   rel,
+                "ok":     True,
+                "linter": "skip",
+                "stdout": "",
+                "stderr": f"no linter mapping for {ext or '(no ext)'}",
+            }, None)
+        tool, flags = linter
+        safe_rel = rel.replace("..", "_").lstrip("/")
+        file_dir = os.path.join(sandbox, os.path.dirname(safe_rel) or ".")
+        os.makedirs(file_dir, exist_ok=True)
+        disk_path = os.path.join(sandbox, safe_rel)
+        try:
+            with open(disk_path, "w", encoding="utf-8") as fh:
+                fh.write(f["content"])
+        except OSError as e:
+            return ({"path": rel, "ok": False, "linter": tool,
+                     "stdout": "",
+                     "stderr": f"write failed: {e}"},
+                    f"{rel}: write failed: {e}")
+        async with sem:
             rc, so, se = await _run([tool, *flags, disk_path], cwd=sandbox)
-            ok = (rc == 0)
-            stdout = so.decode(errors="ignore")
-            stderr = se.decode(errors="ignore")
-            # Replace the sandbox prefix with the original path so user-
-            # facing errors don't leak our /tmp dir name.
-            stdout = stdout.replace(disk_path, rel).replace(sandbox + "/", "")
-            stderr = stderr.replace(disk_path, rel).replace(sandbox + "/", "")
-            results.append({"path": rel, "ok": ok, "linter": tool,
-                            "stdout": stdout, "stderr": stderr})
-            if not ok:
-                msg = (stdout or stderr).strip().splitlines()
-                # Cap each file's error list to keep payloads tight.
-                for line in msg[:5]:
-                    errors.append(f"{rel}: {line}")
+        ok = (rc == 0)
+        stdout = so.decode(errors="ignore")
+        stderr = se.decode(errors="ignore")
+        stdout = stdout.replace(disk_path, rel).replace(sandbox + "/", "")
+        stderr = stderr.replace(disk_path, rel).replace(sandbox + "/", "")
+        row = {"path": rel, "ok": ok, "linter": tool,
+               "stdout": stdout, "stderr": stderr}
+        if ok:
+            return (row, None)
+        # First non-empty diagnostic line — keeps the aggregated
+        # error list tight even on noisy linters.
+        first_err = ""
+        for line in (stdout or stderr).strip().splitlines():
+            line = line.strip()
+            if line:
+                first_err = line
+                break
+        return (row, f"{rel}: {first_err}" if first_err else None)
+
+    try:
+        rows = await asyncio.gather(*(_lint_one(f) for f in files))
+        results = [r for r, _ in rows]
+        errors  = [e for _, e in rows if e]
     finally:
         try:
             shutil.rmtree(sandbox, ignore_errors=True)
