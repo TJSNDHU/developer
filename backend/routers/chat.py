@@ -2119,6 +2119,22 @@ async def chat_stream(
                             project_id=body.project_id,
                             shipped_task_id=handoff_task_id)
 
+        # Iter 212m-154 — non-blocking quality scoring.  Fire-and-forget
+        # AFTER the user has seen their reply.  Writes to quality_scores
+        # collection and raises drift alerts when avg drops sharply.
+        # Never propagates errors — wrapped in try/except inside.
+        try:
+            from core.quality_monitor import QualityMonitor as _QM
+            asyncio.create_task(_QM(db=get_db()).score_async(
+                response=content or "",
+                user_message=body.prompt or "",
+                tier=result.get("tier") or "agentic",
+                session_id=body.session_id or "",
+                tenant_id=user_id,
+            ))
+        except Exception:
+            pass    # quality monitor never blocks the user flow
+
         # Iter 145 — ORA shadow-learning. For ALL users, detect
         # low-confidence AUREM replies and fire a background ORA call
         # whose output is logged (never shown) so ORA can learn

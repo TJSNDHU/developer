@@ -87,6 +87,11 @@ def _score_output(output: str, *, task_type: str = "code_fix",
         return 0.0
     if len(text) < expected_min_chars:
         return 0.2
+    # Iter 212m-155 — task-type-aware scoring.
+    if task_type == "analysis":
+        return _score_analysis(text)
+    if task_type == "writing":
+        return _score_writing(text)
     if task_type == "code_fix":
         markers = ("def ", "class ", "import ", "function ", "const ",
                    "let ", "return ", "{", "}", "from ", "export ")
@@ -99,6 +104,61 @@ def _score_output(output: str, *, task_type: str = "code_fix",
             return 0.60
         return 0.30
     return 0.65
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Iter 212m-155 — structural scoring for Council B (analysis) and
+#  Council C (writing).  Returns a 0.0-1.0 float on the same scale as
+#  the code scorer so the CEO can compare apples-to-apples.
+# ─────────────────────────────────────────────────────────────────────
+
+_NUMBER_RX = re.compile(r"\d+\.?\d*%?")
+
+
+def _score_analysis(text: str) -> float:
+    """Score analysis output by structural quality, not correctness."""
+    score = 0.60
+    # Has numbers / data points → +0.15
+    if _NUMBER_RX.search(text):
+        score += 0.15
+    # Has clear structure (markdown headers or numbered lists or bullets)
+    if any(tok in text for tok in ("## ", "1.", "2.", "- ")):
+        score += 0.10
+    # Length sanity.
+    words = len(text.split())
+    if words < 50:
+        score -= 0.20
+    elif words > 500:
+        score -= 0.10
+    # Has actionable conclusion.
+    action_signals = ("recommend", "suggest", "should",
+                      "consider", "next step", "action")
+    if any(s in text.lower() for s in action_signals):
+        score += 0.15
+    return max(0.0, min(1.0, score))
+
+
+def _score_writing(text: str) -> float:
+    """Score writing/copy output by structural quality."""
+    score = 0.60
+    words = len(text.split())
+    if 30 <= words <= 200:
+        score += 0.15
+    elif words > 300:
+        score -= 0.15
+    elif words < 20:
+        score -= 0.20
+    cta_signals = ("reply", "click", "schedule", "book", "call",
+                   "reach out", "let me know", "interested", "response")
+    if any(s in text.lower() for s in cta_signals):
+        score += 0.15
+    # Weak opening: starting with "I " bleeds the reader-focus.
+    if text.lstrip().startswith("I "):
+        score -= 0.10
+    personal_signals = ("you", "your", "you're")
+    if any(s in text.lower() for s in personal_signals):
+        score += 0.10
+    return max(0.0, min(1.0, score))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -399,26 +459,80 @@ class CouncilA(_Council):
     ]
 
 
-class CouncilB(_Council):
-    """Placeholder — will be wired for product/UX tasks."""
-    name = "B"
-    members = []  # not yet implemented per the founder spec
+_COUNCIL_B_PERSONAS = (
+    # 0.3 — precise data analyst
+    "You are a data analyst.  Be precise, cite specific numbers when "
+    "available.  Structure: key finding → supporting data → "
+    "implication.  Return analysis only — no commentary about the task.",
+    # 0.4 — strategic advisor
+    "You are a strategic advisor.  Think about long-term implications "
+    "and second-order effects.  Structure: situation → options → "
+    "recommendation.  Return analysis only.",
+    # 0.5 — skeptical reviewer
+    "You are a skeptical reviewer.  Find gaps, risks, and what's "
+    "missing.  Challenge assumptions.  Structure: what's claimed → "
+    "what's missing → what could go wrong.  Return analysis only.",
+)
 
-    async def vote(self, *, task: str, context: dict) -> list[dict]:
-        logger.warning("Council B invoked but is not implemented yet — "
-                       "falling back to Council A")
-        return await CouncilA().vote(task=task, context=context)
+
+class CouncilB(_Council):
+    """Iter 212m-155 — analysis / advisory tasks.
+
+    Three members with progressively higher temperatures to balance
+    rigour (analyst) vs strategy (advisor) vs adversarial review
+    (skeptic).  Scoring uses a structural heuristic — analysis has no
+    binary pass/fail like code tests, so we credit numbers, structure,
+    appropriate length, and the presence of an actionable conclusion.
+    """
+    name = "B"
+    members = [
+        _CouncilMember(name="B1-analyst",
+                       temperature=0.3, persona=_COUNCIL_B_PERSONAS[0],
+                       mode="chat", max_tokens=1200),
+        _CouncilMember(name="B2-advisor",
+                       temperature=0.4, persona=_COUNCIL_B_PERSONAS[1],
+                       mode="chat", max_tokens=1200),
+        _CouncilMember(name="B3-skeptic",
+                       temperature=0.5, persona=_COUNCIL_B_PERSONAS[2],
+                       mode="chat", max_tokens=1200),
+    ]
+
+
+_COUNCIL_C_PERSONAS = (
+    # 0.5 — direct copywriter
+    "You are a direct copywriter.  Short sentences.  Active voice.  "
+    "One clear call-to-action at the end.  No fluff.  Return the "
+    "final copy only.",
+    # 0.6 — relationship builder
+    "You are a relationship builder.  Warm, personal, shows you "
+    "understand the recipient's situation.  Build trust before "
+    "asking.  Return the final copy only.",
+    # 0.7 — data-driven marketer
+    "You are a data-driven marketer.  Lead with a specific proof "
+    "point or number.  Connect it to the recipient's problem.  Then "
+    "ask.  Return the final copy only.",
+)
 
 
 class CouncilC(_Council):
-    """Placeholder — will be wired for ops/infra tasks."""
-    name = "C"
-    members = []  # not yet implemented per the founder spec
+    """Iter 212m-155 — writing tasks (emails, outreach, copy).
 
-    async def vote(self, *, task: str, context: dict) -> list[dict]:
-        logger.warning("Council C invoked but is not implemented yet — "
-                       "falling back to Council A")
-        return await CouncilA().vote(task=task, context=context)
+    Three voices: direct copy / relationship / data-led.  Scoring
+    favours appropriate length, presence of a CTA, personalisation,
+    and avoids the weak "I"-led opening anti-pattern.
+    """
+    name = "C"
+    members = [
+        _CouncilMember(name="C1-direct",
+                       temperature=0.5, persona=_COUNCIL_C_PERSONAS[0],
+                       mode="chat", max_tokens=600),
+        _CouncilMember(name="C2-warm",
+                       temperature=0.6, persona=_COUNCIL_C_PERSONAS[1],
+                       mode="chat", max_tokens=600),
+        _CouncilMember(name="C3-data",
+                       temperature=0.7, persona=_COUNCIL_C_PERSONAS[2],
+                       mode="chat", max_tokens=600),
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────────
