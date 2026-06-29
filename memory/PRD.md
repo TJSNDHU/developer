@@ -12,6 +12,165 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-138 — Vanguard CI ingest status endpoint + setup doc (Feb 2026) ✅
+
+The CI ingest pipeline (Iter 212m-120) was code-complete but invisible: the
+dashboard couldn't tell whether the empty `runs:[]` came from "no CI run yet"
+vs "AUREM_CI_INGEST_TOKEN never set so the endpoint is hard-closed".
+
+**Fix**:
+- `routers/vanguard_ci.py` — new `GET /api/aurem-dev/vanguard/ci-ingest-status`
+  (founder/admin gated). Returns `{ready, token_set, run_count, last_run,
+  setup_steps[]}`. The `setup_steps` array gives an actionable 1-line path
+  to readiness — no guessing required.
+- `docs/vanguard_ci_setup.md` — 5-minute activation guide: generate the
+  random secret, add to backend `.env`, mirror to GitHub repo secrets,
+  push a commit to fire the workflow.
+
+Verified live on preview: `token_set: false` → returned setup steps;
+`token_set: true` after env update → the founder dashboard / settings page
+can now show a "Wire your CI scanner" CTA when needed.
+
+**Files touched**: `backend/routers/vanguard_ci.py`, `docs/vanguard_ci_setup.md` (new).
+
+
+
+### Iter 212m-137 — Phase-2 recall layer for ORA Fix-Learning (Feb 2026) ✅
+
+Phase 1 (Iter 212m-129) wrote every fix attempt to `ora_fix_learning` and
+stopped there.  Phase 2 closes the loop: before the LLM rewrites a file for
+a finding, past SUCCESSFUL fixes for the same `rule_id` are queried (with a
+caller + file-extension boost) and injected into the prompt as a
+**PAST SUCCESSFUL FIXES** precedent block.
+
+**Architecture choice** — keyword recall over Mongo aggregation instead of
+mem0 / pgvector / embeddings. Justification:
+- Dominant similarity signal for a fix is `rule_id` (exact match).
+- Secondary signal is file extension (`.py` vs `.tsx` patches diverge).
+- Tertiary is owner-user (a founder's fix style matches their other fixes).
+- All three are indexed keys → Mongo aggregation is sufficient at the
+  current dataset scale. The interface is stable; we can swap in pgvector
+  later without touching the caller.
+
+**New module functions** in `backend/services/ora_fix_learning.py`:
+- `_file_token_for_recall(path)` — reduces a file path to its extension
+  (`backend/main.py` → `.py`). Empty string for paths without an extension.
+- `recall_similar_fixes(db, *, rule_id, file_path, user_id, limit=3)` —
+  tiered query:
+  1. `user_id` + same file ext  → `match_class="user+ext"`
+  2. `user_id` only             → `match_class="user"`
+  3. file ext only              → `match_class="ext"`
+  4. global precedent (rule_id) → `match_class="global"`
+  Dedupes across tiers by `commit_sha`. Soft-fails on Mongo error.
+- `format_recall_block(recalled)` — renders the list as a tight prompt
+  block prefixed `--- PAST SUCCESSFUL FIXES FOR THIS RULE (precedent) ---`
+  with a tail guard rail telling the LLM to use it as STYLE GUIDANCE only,
+  not copy-paste code. Returns `""` on empty input so callers concat without
+  guards.
+
+**Wiring** — `backend/services/finding_fix_applier.py`:
+- `_generate_patched_content(...)` gains a `db=None` kwarg; queries recall
+  when db is present + rule_id is real; prepends the precedent block ahead
+  of `FILE: {path}` in the user prompt. Try/except so recall failures never
+  block a real fix.
+- `apply_finding_fix(...)` threads `db=db` into `_generate_patched_content`.
+
+**Test coverage** — `backend/tests/test_iter212m137_ora_fix_recall.py`
+(12 new tests):
+- File-token reducer (extension extraction)
+- Empty-db / empty-rule short-circuits → `[]`
+- Tier preference (user+ext outranks user, outranks ext, outranks global)
+- Fall-through to global when no user matches exist
+- Cross-tier dedupe (same commit_sha never appears twice)
+- Limit honoured
+- Mongo failure soft-fails to `[]`
+- `format_recall_block`: empty input → empty string
+- `format_recall_block`: rendered output contains rule, file, sev, commit
+- Source-pattern contract: `db=db` threaded into the call site
+- Source-pattern contract: recall_block precedes FILE: in the prompt
+
+**Regression**: 177/177 passing across all iter 212m-126 → 137 tests
+(includes 8 cleanup tests from iter 212m-136 + 12 recall tests + others).
+
+**What this unlocks**: every future bulk-fix prompt now carries up to 3
+past successful patches for the same rule as precedent. The LLM converges
+faster on the idiomatic shape (e.g. for `sql_string_format`, the LLM
+will see the user's last 3 successful `?`-parameterised commits as
+precedent rather than re-deriving the pattern from scratch). Expect
+~10-20 % faster + more consistent fixes once the dataset has >100 success
+rows per rule.
+
+**Files touched**: `backend/services/ora_fix_learning.py`,
+`backend/services/finding_fix_applier.py`,
+`backend/tests/test_iter212m137_ora_fix_recall.py` (new).
+
+
+
+### Iter 212m-136 — Repo cleanup banner + bulk-delete pipeline (Feb 2026) ✅
+
+Closes the P1 gap surfaced by the Iter 212m-134 production QA: the sidebar
+showed a red dot for orphaned repos (Iter 212m-133 deep-link), but there
+was no one-click bulk-cleanup path. Users with 5 disconnected projects had
+to delete each one individually via Settings.
+
+**Backend** (`backend/routers/repo_status.py`):
+- `GET /api/aurem-dev/cto/projects/cleanup-summary` — returns
+  `{count, broken: [{project_id, name, owner, repo, branch, error,
+  http_code}]}`. Uses the same `connection_status` pipeline as the
+  sidebar so the broken set is always fresh + consistent. Filters to
+  PERSISTENT failures only (`repo_not_found`, `github_rejected`,
+  `repo_not_set`, `no_token`). Transient failures (`network:*`) are
+  excluded because `repo_heal.py` retries them automatically.
+- `POST /api/aurem-dev/cto/projects/cleanup-delete` body
+  `{project_ids: [...]}` — bulk-delete with a re-verification gate:
+  each submitted id is checked against the FRESH connection-status
+  before deletion, so a stale UI submitting an id the user just
+  re-linked in another tab gets the SKIP path, not a silent
+  destructive delete. Writes a `repo_cleanup_audit` Mongo row per
+  batch with the full project snapshot (PATs scrubbed) for traceability.
+  Pops the deleted ids from the connection-status `_CACHE` so the
+  sidebar doesn't render a stale red row on the next 30 s poll.
+- 50-project hard cap per batch. Strict `project_ids` type validation.
+
+**Frontend** (new component `frontend/src/components/RepoCleanupBanner.jsx`,
+mounted in `pages/Dashboard.jsx` above `ConnectRepoBanner`):
+- Auto-hides when `count === 0`. No empty-state noise.
+- Amber pill banner: `⚠ N projects point to deleted or unreachable
+  repos — click to clean up`.
+- Click → modal listing each broken project (label, slug, error reason
+  in human language) with a pre-checked checkbox per row. User can
+  untick anything to keep + re-link manually later.
+- Confirm → POSTs to `/cleanup-delete`, fires
+  `aurem:projects-changed` + `aurem:repo-status-refresh` events so the
+  sidebar + Projects page drop the deleted rows immediately, shows a
+  success toast, and refreshes the banner state.
+- 5-min auto refresh via `setInterval` so users who leave the tab open
+  get fresh state without a manual reload.
+
+**Test coverage** — `backend/tests/test_iter212m136_repo_cleanup.py`
+(8 new tests):
+- `cleanup-summary` returns only persistent failures (transient `network:*`
+  excluded).
+- Banner-UI hydration: name / owner / repo / error all present.
+- `cleanup-delete` validation: empty list → 400, > 50 → 400, non-string
+  ids → 400.
+- Re-verification gate: a healthy id in the submitted list is SKIPPED,
+  not deleted.
+- Audit row written with full snapshot, no encrypted PATs.
+- `_CACHE` cleared for deleted projects.
+
+**Live preview proof**: hit `/cleanup-summary` → returns 1 broken
+project (`p_norepotest · demo-app · repo_not_set`). UI smoke: banner
+renders at top of dashboard, click → modal opens with the project
+checked, "Delete 1 project" red button ready. Cancel path verified.
+
+**Files touched**: `backend/routers/repo_status.py`,
+`frontend/src/components/RepoCleanupBanner.jsx` (new),
+`frontend/src/pages/Dashboard.jsx`,
+`backend/tests/test_iter212m136_repo_cleanup.py` (new).
+
+
+
 ### Iter 212m-135 — Composer padding parity with messages column (Feb 2026) ✅
 
 **Follow-up to Iter 212m-134.** Founder asked to extend the same Claude-style

@@ -103,6 +103,7 @@ async def _generate_patched_content(
     current_content: str,
     finding: dict,
     user_id: Optional[str],
+    db=None,
 ) -> tuple[str, Optional[str]]:
     """Calls the LLM. Returns (new_content, error)."""
     from services.llm import call_llm_with_meta
@@ -114,7 +115,27 @@ async def _generate_patched_content(
     message   = finding.get("message") or ""
     snippet   = finding.get("snippet") or finding.get("code") or ""
 
+    # Iter 212m-137 — Phase-2 recall: prepend past successful fixes for
+    # the same rule_id (boosted by file extension + caller) so the LLM
+    # has precedent. Best-effort: any recall failure soft-fails to no
+    # precedent block (we never want recall to block a real fix).
+    recall_block = ""
+    try:
+        if db is not None and rule_id and rule_id != "unknown":
+            from services.ora_fix_learning import (
+                recall_similar_fixes, format_recall_block,
+            )
+            recalled = await recall_similar_fixes(
+                db, rule_id=rule_id, file_path=path,
+                user_id=user_id, limit=3,
+            )
+            recall_block = format_recall_block(recalled)
+    except Exception as e:                                # noqa: BLE001
+        logger.warning("recall_similar_fixes soft-failed: %r", e)
+        recall_block = ""
+
     user_prompt = (
+        f"{recall_block}"
         f"FILE: {path}\n"
         f"FINDING:\n"
         f"  • rule_id: {rule_id}\n"
@@ -236,9 +257,11 @@ async def apply_finding_fix(
     if not content:
         return {"ok": False, "error": "file_empty_or_missing", "file": path}
 
-    # Step 2: LLM patch
+    # Step 2: LLM patch (with Phase-2 recall — past successful fixes
+    # for this rule are injected as precedent if `db` is available).
     patched, llm_err = await _generate_patched_content(
         path=path, current_content=content, finding=finding, user_id=user_id,
+        db=db,
     )
     if llm_err:
         return {"ok": False, "error": llm_err, "file": path}

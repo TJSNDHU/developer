@@ -42,6 +42,7 @@ import {
 } from "../components/TabBar";
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
+import RepoCleanupBanner from "../components/RepoCleanupBanner";
 import ShipConfirmModal from "../components/ShipConfirmModal";
 import ShipStreakWidget from "../components/ShipStreakWidget";
 import SecretScanCard from "../components/SecretScanCard";
@@ -411,6 +412,11 @@ function DashboardV2Body() {
           {/* Empty-state banner above ChatPanel */}
           <div style={{ flex: 1, minHeight: 0, display: "flex",
                         flexDirection: "column", overflow: "hidden" }}>
+            {/* Iter 212m-136 — orphan-repo cleanup banner. Auto-hides
+                when no projects are broken. Renders ABOVE
+                ConnectRepoBanner so the user is reminded to clean up
+                stale rows BEFORE we nudge them to connect a new repo. */}
+            <RepoCleanupBanner />
             {projectCount === 0 && (
               <ConnectRepoBanner onConnect={openWizardFromBanner} />
             )}

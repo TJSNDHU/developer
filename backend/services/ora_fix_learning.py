@@ -310,3 +310,170 @@ async def ensure_indexes(db) -> None:
         )
     except Exception as e:                                    # noqa: BLE001
         logger.warning("ora_fix_learning ensure_indexes failed: %r", e)
+
+
+# ─── Iter 212m-137 — Phase-2 recall layer ────────────────────────────
+#
+# Phase 1 logged every fix attempt to `ora_fix_learning` and stopped
+# there.  Phase 2 closes the loop: before the LLM rewrites a file for
+# a finding, we query past SUCCESSFUL fixes for the same rule_id (with
+# a file-similarity boost) and inject the metadata into the prompt as
+# a "PAST SUCCESSFUL FIXES" block.  This is the keyword-based variant
+# of mem0/pgvector retrieval — same architectural goal (give the LLM
+# precedent so it doesn't reinvent the patch shape every time), simpler
+# implementation, zero new infra.
+#
+# Why keyword-based instead of vector-based:
+#   • The dominant similarity signal for a fix is rule_id (e.g.
+#     `eval_usage`, `sql_string_format`) — already exact-match.
+#   • Secondary signal is file extension (.py vs .js patches diverge).
+#   • Tertiary is owner-user (a founder's fix style probably matches
+#     their other fixes more than a random user's).
+#   All three are exact-match keys → Mongo aggregation is enough.
+#
+# When/if the dataset grows beyond ~50k fix rows we can revisit with
+# a real vector store; the recall interface stays the same.
+
+
+def _file_token_for_recall(path: str) -> str:
+    """Reduces a file path to a coarse similarity token.
+
+    Returns the file extension (e.g. `.py`, `.tsx`, `.jsx`).  Empty
+    string for paths without an extension so we don't match dotfiles
+    against each other accidentally.
+    """
+    if not path:
+        return ""
+    base = path.rsplit("/", 1)[-1]
+    if "." not in base:
+        return ""
+    ext = base.rsplit(".", 1)[-1].lower()
+    return f".{ext}" if ext else ""
+
+
+async def recall_similar_fixes(
+    db,
+    *,
+    rule_id: str,
+    file_path: Optional[str] = None,
+    user_id: Optional[str] = None,
+    limit: int = 3,
+) -> list[dict]:
+    """Return the top-N most-recent SUCCESSFUL past fixes for the given
+    rule_id, ranked by relevance to the current target file + caller.
+
+    Relevance ordering:
+      1. Same user_id AND same file extension  → highest
+      2. Same user_id only                     → second
+      3. Same file extension only              → third
+      4. Just same rule_id (global precedent)  → fallback
+
+    Returns a list of dicts shaped like:
+      {
+        "rule_id":      str,
+        "file":         str,
+        "severity":     str,
+        "commit_sha":   str,
+        "html_url":     str,
+        "scanner":      str,
+        "title":        str,
+        "created_at":   float,
+        "match_class":  "user+ext"|"user"|"ext"|"global",
+      }
+
+    Best-effort: never raises.  Returns `[]` when db is None, rule_id
+    is empty, or any Mongo error trips.
+    """
+    if db is None or not rule_id:
+        return []
+
+    ext = _file_token_for_recall(file_path or "")
+    base_filter = {"rule_id": rule_id, "outcome": "success"}
+
+    async def _q(filt: dict, k: int) -> list[dict]:
+        try:
+            cur = (
+                db.ora_fix_learning
+                .find(filt, {"_id": 0,
+                             "rule_id": 1, "file": 1, "severity": 1,
+                             "commit_sha": 1, "html_url": 1, "title": 1,
+                             "scanner": 1, "created_at": 1})
+                .sort("created_at", -1).limit(k)
+            )
+            return [doc async for doc in cur]
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("recall_similar_fixes query failed: %r", e)
+            return []
+
+    seen: set[str] = set()
+    out: list[dict] = []
+
+    async def _accumulate(filt: dict, match_class: str, k: int) -> None:
+        if len(out) >= limit:
+            return
+        for row in await _q(filt, k):
+            key = (row.get("commit_sha")
+                   or f"{row.get('file', '')}::{row.get('created_at', 0)}")
+            if key in seen:
+                continue
+            seen.add(key)
+            row["match_class"] = match_class
+            out.append(row)
+            if len(out) >= limit:
+                return
+
+    # Tier 1 — caller + same file ext.
+    if user_id and ext:
+        await _accumulate(
+            {**base_filter, "user_id": user_id,
+             "file": {"$regex": f"\\{ext}$", "$options": "i"}},
+            "user+ext", limit * 2,
+        )
+    # Tier 2 — caller only.
+    if user_id and len(out) < limit:
+        await _accumulate(
+            {**base_filter, "user_id": user_id},
+            "user", limit * 2,
+        )
+    # Tier 3 — file ext only.
+    if ext and len(out) < limit:
+        await _accumulate(
+            {**base_filter,
+             "file": {"$regex": f"\\{ext}$", "$options": "i"}},
+            "ext", limit * 2,
+        )
+    # Tier 4 — global precedent.
+    if len(out) < limit:
+        await _accumulate(base_filter, "global", limit * 2)
+
+    return out[:limit]
+
+
+def format_recall_block(recalled: list[dict]) -> str:
+    """Render the list of past-fix records as a tight prompt block.
+
+    Returns an empty string when `recalled` is empty so the caller can
+    just concatenate without an `if` guard.
+    """
+    if not recalled:
+        return ""
+    lines = ["--- PAST SUCCESSFUL FIXES FOR THIS RULE (precedent) ---"]
+    for i, r in enumerate(recalled, 1):
+        ts  = r.get("created_at") or 0
+        sev = r.get("severity") or "?"
+        sha = (r.get("commit_sha") or "")[:8]
+        f   = r.get("file") or "?"
+        url = r.get("html_url") or ""
+        cls = r.get("match_class") or "global"
+        url_part = f" — {url}" if url else ""
+        lines.append(
+            f"  {i}. [{cls}] {f}  ·  sev={sev}  ·  commit={sha}{url_part}"
+        )
+    lines.append("--- END PRECEDENT ---")
+    lines.append(
+        "Use the precedent above as STYLE GUIDANCE only — fix the "
+        "current finding in the same idiomatic shape that previously "
+        "worked, but do NOT copy code from those commits verbatim. The "
+        "current file may be structurally different."
+    )
+    return "\n".join(lines) + "\n\n"

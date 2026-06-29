@@ -206,3 +206,150 @@ async def connection_status(authorization: str = Header(None)) -> dict:
         logger.warning("auto-heal scheduling soft-failed: %r", e)
 
     return {"ok": True, "statuses": ordered, "checked_at": now}
+
+
+# ── Iter 212m-136 — Repo cleanup pipeline ────────────────────────────
+#
+# When a project's GitHub repo is deleted/renamed, /connection-status
+# correctly flags it red with `error: "repo_not_found"`. The user has
+# always had a per-row Settings deep-link (Iter 212m-133) but no
+# bulk path. /cleanup-summary + /cleanup-delete close that gap:
+#
+#   GET  /cto/projects/cleanup-summary
+#        → {count, broken: [{project_id, name, owner, repo, error}]}
+#   POST /cto/projects/cleanup-delete  body: {project_ids: [...]}
+#        → {deleted: int, audit_id: str}
+#
+# Each delete writes an audit row to `repo_cleanup_audit` so a future
+# undo / report path has the data. Both endpoints reuse the same
+# connection-status logic so the "broken" set is always fresh.
+
+_BROKEN_REASONS = {"repo_not_found", "github_rejected", "repo_not_set", "no_token"}
+
+
+@router.get("/cleanup-summary")
+async def cleanup_summary(authorization: str = Header(None)) -> dict:
+    """Return projects with persistent connection failures so the
+    dashboard banner can offer a one-click bulk-cleanup path.
+
+    Uses the same connection-status pipeline as the sidebar so the
+    "broken" set is always fresh and consistent with the red dots.
+    """
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+
+    status_resp = await connection_status(authorization)
+    statuses = status_resp.get("statuses", [])
+    broken_ids = [
+        s for s in statuses
+        if s.get("status") == "disconnected"
+        and s.get("error") in _BROKEN_REASONS
+    ]
+    if not broken_ids:
+        return {"ok": True, "count": 0, "broken": []}
+
+    # Hydrate label + branch from the project rows for the banner UI.
+    pids = [s["project_id"] for s in broken_ids]
+    rows = await db.cto_projects.find(
+        {"user_id": user["user_id"], "project_id": {"$in": pids}},
+        {"_id": 0, "project_id": 1, "name": 1, "label": 1,
+         "github_owner": 1, "github_repo": 1, "branch": 1},
+    ).to_list(100)
+    by_pid = {r["project_id"]: r for r in rows}
+
+    broken = []
+    for s in broken_ids:
+        pid = s["project_id"]
+        row = by_pid.get(pid) or {}
+        broken.append({
+            "project_id": pid,
+            "name": row.get("label") or row.get("name") or pid,
+            "owner": row.get("github_owner") or s.get("owner") or "",
+            "repo": row.get("github_repo") or s.get("repo") or "",
+            "branch": row.get("branch") or "",
+            "error": s.get("error"),
+            "http_code": s.get("http_code"),
+        })
+
+    return {"ok": True, "count": len(broken), "broken": broken}
+
+
+@router.post("/cleanup-delete")
+async def cleanup_delete(
+    body: dict,
+    authorization: str = Header(None),
+) -> dict:
+    """Bulk-delete the caller's broken projects after re-verifying each
+    is still broken (defence against a stale UI submitting a working
+    project_id by mistake).
+
+    Returns count of rows deleted + an audit_id stamped into the
+    `repo_cleanup_audit` collection for traceability.
+    """
+    user = await current_dev(authorization)
+    user_id = user["user_id"]
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+
+    project_ids = body.get("project_ids") or []
+    if not isinstance(project_ids, list) or not project_ids:
+        raise HTTPException(400, "project_ids must be a non-empty list")
+    if len(project_ids) > 50:
+        raise HTTPException(400, "max 50 projects per cleanup batch")
+    if not all(isinstance(pid, str) and pid.strip() for pid in project_ids):
+        raise HTTPException(400, "project_ids must be non-empty strings")
+
+    # Re-verify each is actually broken so a stale UI can't bulk-delete
+    # a project the user just successfully re-linked in another tab.
+    fresh = await connection_status(authorization)
+    broken_now = {
+        s["project_id"]
+        for s in fresh.get("statuses", [])
+        if s.get("status") == "disconnected"
+        and s.get("error") in _BROKEN_REASONS
+    }
+    confirmed = [pid for pid in project_ids if pid in broken_now]
+    if not confirmed:
+        return {"ok": True, "deleted": 0, "skipped": len(project_ids),
+                "reason": "no projects in submitted list are still broken"}
+
+    # Snapshot the rows we're about to delete (for the audit trail).
+    snap = await db.cto_projects.find(
+        {"user_id": user_id, "project_id": {"$in": confirmed}},
+        {"_id": 0},
+    ).to_list(50)
+    # Scrub the encrypted PAT before persisting to the audit.
+    for r in snap:
+        r.pop("github_token", None)
+
+    audit_id = f"cleanup_{int(time.time())}_{user_id[:8]}"
+    try:
+        await db.repo_cleanup_audit.insert_one({
+            "audit_id": audit_id,
+            "user_id": user_id,
+            "deleted_at": time.time(),
+            "project_ids": confirmed,
+            "snapshot": snap,
+            "reason_set": list(_BROKEN_REASONS),
+        })
+    except Exception as e:                                # noqa: BLE001
+        logger.warning("repo_cleanup_audit insert soft-failed: %r", e)
+
+    r = await db.cto_projects.delete_many(
+        {"user_id": user_id, "project_id": {"$in": confirmed}},
+    )
+
+    # Clear the connection-status cache for the deleted rows so the
+    # sidebar doesn't carry stale "red" entries.
+    for pid in confirmed:
+        _CACHE.pop(pid, None)
+
+    return {
+        "ok": True,
+        "deleted": r.deleted_count,
+        "skipped": len(project_ids) - len(confirmed),
+        "audit_id": audit_id,
+    }

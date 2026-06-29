@@ -248,3 +248,80 @@ async def list_ci_findings(
         runs.append(d)
 
     return {"ok": True, "runs": runs}
+
+
+# ── Iter 212m-138 — CI ingest setup status (admin/founder only) ──────
+#
+# /vanguard/ci-findings returns runs:[] in two distinct cases:
+#   1. The user has a connected repo but no CI run has fired yet.
+#   2. AUREM_CI_INGEST_TOKEN is not set, so the ingest endpoint is
+#      hard-closed and no CI run can EVER fire until someone wires
+#      the env var + repo secret.
+#
+# Without this status endpoint, both look identical from the dashboard
+# and the founder ends up debugging the wrong layer. This endpoint
+# exposes the truth so the cleanup banner / settings page can show
+# a one-line "wire your CI scanner" CTA when needed.
+@router.get("/ci-ingest-status")
+async def ci_ingest_status(authorization: str = Header(None)) -> dict:
+    """Admin/founder-only. Reports whether the CI ingest pipeline is
+    configured + ready.
+
+    Returns:
+      ready:      bool  — token set AND >=1 run ingested ever
+      token_set:  bool  — AUREM_CI_INGEST_TOKEN configured on the backend
+      run_count:  int   — total runs in vanguard_ci_findings (admin view)
+      last_run:   dict|None — most-recent run summary, if any
+      setup_steps: list of strings — actionable next steps when not ready
+    """
+    user = await current_dev(authorization)
+    if not (user.get("is_admin")
+            or user.get("is_unlimited")
+            or (user.get("tier") or "").lower() == "founder"):
+        raise HTTPException(403, "founder access required")
+
+    token_set = bool(_shared_secret())
+    db = get_db()
+    run_count = 0
+    last_run = None
+    if db is not None:
+        try:
+            run_count = await db.vanguard_ci_findings.count_documents({})
+            cursor = (
+                db.vanguard_ci_findings
+                  .find({}, {"_id": 0, "repo": 1, "commit": 1,
+                             "scanner": 1, "created_at": 1,
+                             "summary": 1})
+                  .sort("created_at", -1).limit(1)
+            )
+            async for r in cursor:
+                last_run = r
+                break
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("ci_ingest_status DB probe failed: %r", e)
+
+    ready = token_set and run_count > 0
+    setup_steps: list[str] = []
+    if not token_set:
+        setup_steps.append(
+            "Set AUREM_CI_INGEST_TOKEN on the backend "
+            "(any 32+ char random string)."
+        )
+        setup_steps.append(
+            "Add the SAME value as a GitHub repo Secret called "
+            "AUREM_CI_INGEST_TOKEN on your project repo."
+        )
+    if token_set and run_count == 0:
+        setup_steps.append(
+            "Push a commit to `main` so .github/workflows/ci.yml "
+            "fires the secret-scan job and POSTs to /vanguard/ci-findings."
+        )
+
+    return {
+        "ok": True,
+        "ready": ready,
+        "token_set": token_set,
+        "run_count": run_count,
+        "last_run": last_run,
+        "setup_steps": setup_steps,
+    }
