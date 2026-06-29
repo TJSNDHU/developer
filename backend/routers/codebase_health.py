@@ -722,39 +722,86 @@ async def request_fix(
             raise HTTPException(402, "Concurrent token deduction — try again")
         new_balance = bal - tokens_cost
 
-    # Build the fix prompt and enqueue as a regular cto_task.
-    prompt = (
-        f"Fix the following codebase health finding:\n\n"
-        f"  • file: {file_path}\n"
-        f"  • line: {line}\n"
-        f"  • issue: {title}\n"
-        f"  • details: {message}\n"
-        f"  • suggested approach: {fix_hint}\n\n"
-        "Apply the minimum-diff fix.  Open a PR titled "
-        f"'fix(health): {title} @ {file_path}:{line}'.  "
-        "Run the standard verification + Vanguard scan before committing."
-    )
-    import uuid
-    import time
-    task_id = f"task_{uuid.uuid4().hex[:10]}"
+    # Iter 212m-114 — REAL fix path. Previously this endpoint just
+    # enqueued a cto_tasks record with kind:"health_fix" and returned
+    # "Fix queued" (effectively a dummy — no background worker ever
+    # consumed it). Now we run the same apply_finding_fix() pipeline
+    # the Security Scan /fix uses: fetch file via PAT → LLM patch →
+    # re-validate → commit. Tokens are REFUNDED on any failure.
+    finding_payload = {
+        "rule_id":   finding_id,
+        "file":      file_path,
+        "line":      line,
+        "severity":  "medium",
+        "title":     title,
+        "message":   message,
+        "snippet":   fix_hint,
+    }
+    from services.finding_fix_applier import apply_finding_fix
+    try:
+        res = await apply_finding_fix(
+            db=db, user=user, project_id=project_id, finding=finding_payload,
+        )
+    except Exception as e:
+        logger.exception("health apply_finding_fix raised")
+        res = {"ok": False, "error": f"unhandled: {e}"}
+
+    if not res.get("ok"):
+        # Refund tokens if deduction happened (founders deducted=0).
+        if not is_unlimited_user and tokens_cost:
+            try:
+                await db.dev_users.update_one(
+                    {"user_id": user_id},
+                    {"$inc": {"tokens_remaining": tokens_cost}},
+                )
+                new_balance += tokens_cost
+            except Exception as e:
+                logger.warning("health refund failed: %r", e)
+        err_code = res.get("error") or "unknown_error"
+        if err_code == "patch_did_not_resolve_finding":
+            raise HTTPException(422, {
+                "error":          err_code,
+                "message":        "AI patch did not resolve the finding — no commit pushed, tokens refunded.",
+                "tokens_refunded": True,
+            })
+        if err_code in ("github_credentials_missing", "github_unauthorized"):
+            raise HTTPException(401, {
+                "error":          err_code,
+                "message":        "Connect your GitHub PAT / OAuth before applying fixes.",
+                "tokens_refunded": True,
+            })
+        raise HTTPException(500, {
+            "error":          err_code,
+            "tokens_refunded": True,
+        })
+
+    # Also persist a row to cto_tasks so the existing audit-log UI
+    # surfaces this fix in the activity feed.
+    import uuid as _uuid, time as _time
+    task_id = f"task_{_uuid.uuid4().hex[:10]}"
     await db.cto_tasks.insert_one({
         "task_id":         task_id,
         "user_id":         user_id,
         "project_id":      project_id,
         "kind":            "health_fix",
-        "status":          "queued",
-        "prompt":          prompt,
+        "status":          "completed",
         "finding_id":      finding_id,
         "finding_title":   title,
         "finding_file":    file_path,
         "finding_line":    line,
-        "created_at":      time.time(),
+        "commit_sha":      res["full_sha"],
+        "html_url":        res["html_url"],
+        "created_at":      _time.time(),
+        "completed_at":    _time.time(),
         "tokens_charged":  tokens_cost,
     })
     return {
         "ok":              True,
         "task_id":         task_id,
+        "commit_sha":      res["commit_sha"],
+        "full_sha":        res["full_sha"],
+        "html_url":        res["html_url"],
         "tokens_charged":  tokens_cost,
         "new_balance":     new_balance,
-        "message":         f"Fix queued — {tokens_cost} tokens charged.",
+        "message":         res["message"],
     }

@@ -17,9 +17,11 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   X, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileWarning,
   Sparkles, GitPullRequest, ChevronDown, ChevronRight, ExternalLink,
+  Wrench, CheckCircle2,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
+import { toast } from "sonner";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -56,6 +58,76 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
     catch { return false; }
   });
   const [reportOpen, setReportOpen] = useState(false);
+
+  // Iter 212m-114 — Track which findings have been successfully fixed
+  // in this session so we dim them + show a green ✓ instead of the
+  // Fix button. Keyed by `${file}:${line}:${rule_id}`.
+  const [fixedKeys, setFixedKeys] = useState({});
+  // Track the currently-applying finding so we can disable the button
+  // and show a spinner. Single concurrent fix.
+  const [fixingKey, setFixingKey] = useState(null);
+
+  const findingKey = (f) => `${f.file}:${f.line}:${f.rule_id}`;
+
+  async function handleApplyFix(f) {
+    if (!projectId) {
+      toast.error("No active project — connect a repo first.");
+      return;
+    }
+    const k = findingKey(f);
+    if (fixedKeys[k] || fixingKey) return;
+    setFixingKey(k);
+    try {
+      const res = await api.post("/security-scan/fix", {
+        project_id: projectId,
+        finding: {
+          rule_id:  f.rule_id,
+          file:     f.file,
+          line:     f.line,
+          severity: f.severity,
+          title:    f.desc || f.rule_id,
+          message:  f.desc || "",
+          snippet:  f.snippet || "",
+        },
+      });
+      const payload = res?.data || res;
+      if (payload?.ok) {
+        setFixedKeys((prev) => ({
+          ...prev,
+          [k]: {
+            commit_sha: payload.commit_sha,
+            html_url:   payload.html_url,
+          },
+        }));
+        toast.success(
+          `Fixed ${f.rule_id} — commit ${payload.commit_sha}`,
+          { duration: 6000 },
+        );
+      } else {
+        toast.error(payload?.message || "Fix failed");
+      }
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      const code   = typeof detail === "object" ? detail.error : detail;
+      if (code === "patch_did_not_resolve_finding") {
+        toast.error(
+          "AI patch did not resolve the finding — tokens refunded, no commit pushed.",
+          { duration: 8000 },
+        );
+      } else if (code === "insufficient_tokens") {
+        toast.error(
+          `Insufficient tokens (need ${detail.needed}, you have ${detail.balance}).`,
+        );
+      } else if (code === "github_credentials_missing" || code === "github_unauthorized") {
+        toast.error("Connect your GitHub PAT or OAuth before applying fixes.");
+      } else {
+        toast.error(typeof detail === "string" ? detail
+                     : detail?.message || e?.message || "Fix failed");
+      }
+    } finally {
+      setFixingKey(null);
+    }
+  }
 
   // Cache key: project + mode → so the two_round result has its own
   // 5-minute TTL slot independent of the legacy single-round one.
@@ -612,15 +684,22 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                         {sev} ({list.length})
                       </h3>
                       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                        {list.map((f, i) => (
+                        {list.map((f, i) => {
+                          const k       = findingKey(f);
+                          const fixedAt = fixedKeys[k];
+                          const isFixing = fixingKey === k;
+                          return (
                           <li
                             key={`${f.file}:${f.line}:${f.rule_id}:${i}`}
                             data-testid={`security-scan-finding-${sev}`}
+                            data-fix-status={fixedAt ? "fixed" : "open"}
                             style={{
                               padding: "10px 12px", marginBottom: 6,
                               borderRadius: 8,
                               background: c.bg,
                               border: `1px solid ${c.border}`,
+                              opacity: fixedAt ? 0.55 : 1,
+                              transition: "opacity 200ms ease",
                             }}
                           >
                             <div style={{
@@ -662,8 +741,72 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                             }}>
                               {f.snippet}
                             </pre>
+                            {/* Iter 212m-114 — REAL Fix button */}
+                            <div style={{
+                              display: "flex", alignItems: "center",
+                              gap: 8, marginTop: 8, justifyContent: "flex-end",
+                            }}>
+                              {fixedAt ? (
+                                <>
+                                  <CheckCircle2 size={12} color="#22c55e" />
+                                  <span style={{
+                                    fontSize: 10.5, color: "#86efac",
+                                    fontFamily: "'JetBrains Mono', monospace",
+                                  }}>
+                                    Fixed · commit{" "}
+                                    {fixedAt.html_url ? (
+                                      <a
+                                        href={fixedAt.html_url}
+                                        target="_blank" rel="noreferrer"
+                                        style={{ color: "#86efac", textDecoration: "underline" }}
+                                        data-testid="finding-fix-commit-link"
+                                      >
+                                        {fixedAt.commit_sha}
+                                      </a>
+                                    ) : (
+                                      <code>{fixedAt.commit_sha}</code>
+                                    )}
+                                  </span>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplyFix(f)}
+                                  disabled={isFixing}
+                                  data-testid="finding-fix-btn"
+                                  data-rule-id={f.rule_id}
+                                  style={{
+                                    display: "inline-flex", alignItems: "center", gap: 5,
+                                    padding: "5px 10px",
+                                    background: isFixing
+                                      ? "rgba(255,255,255,0.05)"
+                                      : "linear-gradient(135deg, #FF6608, #ff8a3d)",
+                                    color: isFixing ? "#9aa3b2" : "#0a0a0a",
+                                    border: "1px solid transparent",
+                                    borderRadius: 6,
+                                    fontSize: 11, fontWeight: 700,
+                                    fontFamily: "'JetBrains Mono', monospace",
+                                    cursor: isFixing ? "wait" : "pointer",
+                                    letterSpacing: 0.3,
+                                  }}
+                                >
+                                  {isFixing ? (
+                                    <>
+                                      <Loader2 size={11} className="aurem-spin" />
+                                      Fixing…
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Wrench size={11} />
+                                      Fix · 75 tokens
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     </section>
                   );
@@ -681,7 +824,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
           fontFamily: "'JetBrains Mono', monospace",
           textAlign: "center",
         }}>
-          Static scan • findings only • no auto-fixes{twoRound && " · deep mode"}{autoPr && " · auto-PR on"}
+          Real-time scan · per-finding Fix button · founder = free{twoRound && " · deep mode"}{autoPr && " · auto-PR on"}
         </footer>
       </aside>
     </>

@@ -1,0 +1,70 @@
+{
+  "summary": "Iter 212m-114 verification — REAL Security Scan + Bug Hunt Fix pipeline (founder trust release). ALL 51/51 backend unit tests GREEN (iter 109+110+111+112+113+114) in 2.62s. Live HTTP smoke on PREVIEW (test@aurem.dev / AuremTest2026!, token_len=273) confirms the new /api/aurem-dev/security-scan/fix endpoint: 401 no-auth, 400 empty/missing-finding-file, 404 'project_not_found_or_not_yours' for founder bearer + non-owned project (gating BEFORE token deduction — no cross-user leak). Frontend wiring confirmed via static grep: SecurityScanDrawer.jsx has handleApplyFix + fixedKeys/fixingKey state + Fix button (data-testid='finding-fix-btn') + commit link (data-testid='finding-fix-commit-link'); CodebaseHealth.jsx handles commit_sha/html_url + patch_did_not_resolve_finding + github_credentials_missing + insufficient_tokens. The 'no dummy fix' guarantee is asserted by source-level test test_codebase_health_fix_no_longer_uses_dummy_queue (passes), and by test_apply_finding_fix_rejects_unresolved_patch which proves commit_files is NEVER called when re-validation finds the same rule_id still tripping.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/aurem-dev/codebase-health/fix",
+        "issue": "HTTP status is 500 (with detail {'error':'project_not_found_or_not_yours','tokens_refunded':true}) when a founder requests a fix on a project_id they do not own. The semantically-twin /api/aurem-dev/security-scan/fix correctly returns HTTP 404 for the identical condition. Both endpoints DO surface the same error string in the body, but the codebase-health status code should likewise be 404 for consistency with the user spec ('404 project_not_found_or_not_yours, no leak'). Also: tokens_refunded:true is reported even for founders (who were never charged), which is harmless but slightly misleading."
+      }
+    ]
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "verified_passing": [
+    "BACKEND UNIT (NEW iter114): test_iter212m114_real_finding_fix.py — 8/8 PASS: test_apply_finding_fix_happy_path (commit_files called with patched content, ok=True, commit_sha returned), test_apply_finding_fix_rejects_unresolved_patch (CRITICAL — commits == [] when re-validation finds the rule_id still present, ok=False, error='patch_did_not_resolve_finding'), test_apply_finding_fix_no_credentials_returns_clean_error (github_credentials_missing), test_security_fix_endpoint_founder_bypass (tokens_charged=0, no deduction, commit_sha returned), test_security_fix_endpoint_refunds_on_patch_rejection (422 HTTPException with tokens_refunded:true, deductions list = [-75, +75]), test_security_fix_endpoint_validates_body (400 on empty + missing finding), test_codebase_health_fix_no_longer_uses_dummy_queue (source grep: 'Fix queued —' string absent, 'apply_finding_fix' present, status:'completed' present), test_security_scan_has_fix_endpoint (@router.post('/fix') + apply_security_fix + apply_finding_fix + is_unlimited + 'founder' all present).",
+    "BACKEND UNIT (UPDATED iter110): test_iter212m110_founder_bypass_and_graph.py — 6/6 PASS including the NEW test_fix_route_refunds_tokens_when_patch_fails (422 + deductions = [-50, +50] + no audit row written on failure).",
+    "BACKEND UNIT REGRESSION: iter109 6/6, iter111 12/12, iter112 8/8, iter113 11/11. Total 51/51 passed (junit XML at /app/test_reports/pytest/iter26_results.xml).",
+    "LIVE HTTP — /security-scan/fix on PREVIEW (founder bearer test@aurem.dev): (1) no auth → 401 'Authorization header missing'. (2) empty body → 400 'project_id + finding.file required'. (3) project_id only / missing finding.file → 400 same detail. (4) founder bearer + non-owned project_id 'not_my_proj_xyz' → HTTP 404 {'detail':'project_not_found_or_not_yours'} — CRITICAL gating PROVEN: returns 404 (not 402), so cross-user leak is impossible AND no token is deducted on the lookup-failure path.",
+    "LIVE HTTP — /codebase-health/fix: no-auth → 401. Founder + non-owned project → 500 with detail {error:'project_not_found_or_not_yours', tokens_refunded:true} (minor inconsistency — security-scan returns 404 for same condition; reported in backend_issues.minor).",
+    "FRONTEND STATIC: SecurityScanDrawer.jsx line 65 fixedKeys state, line 68 fixingKey state, line 72 handleApplyFix(f), line 762 data-testid='finding-fix-commit-link', line 774 onClick={() => handleApplyFix(f)}, line 776 data-testid='finding-fix-btn'. CodebaseHealth.jsx lines 304-345: commit_sha/html_url toast (sonner) + patch_did_not_resolve_finding / github_credentials_missing / github_unauthorized / insufficient_tokens error branches.",
+    "FRONTEND smoke: PREVIEW /bug-hunt loads cleanly (no console errors, marketing landing page rendered for not-yet-scanning state). /dashboard loads after JWT login. Page errors empty. Fix button doesn't render until findings exist (correct — requires connected repo + actual Vanguard scan, expected per problem statement 'other_misc_info')."
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m114_real_finding_fix.py",
+    "/app/backend/tests/test_iter212m110_founder_bypass_and_graph.py",
+    "/app/backend/tests/test_iter212m109_loop_execute_and_history.py",
+    "/app/backend/tests/test_iter212m111_night_mode_focus_manual_ship.py",
+    "/app/backend/tests/test_iter212m112_loop_autorestart_and_parallel_execute.py",
+    "/app/backend/tests/test_iter212m113_graph_gating_incremental_tour_search_impact.py",
+    "/app/test_reports/pytest/iter26_results.xml"
+  ],
+
+  "action_items": [
+    "[OPTIONAL CONSISTENCY] /api/aurem-dev/codebase-health/fix returns HTTP 500 when a project_id is not owned by the caller, whereas /security-scan/fix returns 404 for the identical condition. Recommend raising HTTPException(status_code=404, detail={...}) inside routers/codebase_health.py request_fix() when cto_projects.find_one({project_id, user_id}) returns None, mirroring the security_scan.py path. Body shape is already correct (tokens_refunded flag + error string); only the status code differs."
+  ],
+
+  "critical_code_review_comments": [
+    "services/finding_fix_applier.py — pipeline ordering is correct and safe: PAT fetch (never logged) → GitHub Contents API fetch → LLM patch → RE-RUN vanguard_scanner.scan_text → if same rule_id still fires, return ok=False BEFORE commit_files is ever called. The 'no dummy fix' invariant is enforced by construction. Verified by test_apply_finding_fix_rejects_unresolved_patch where commits list ends up [] after the rejection path.",
+    "routers/security_scan.py — apply_security_fix correctly: (a) calls current_dev() first (401 if no token), (b) validates project_id + finding.file (400), (c) looks up project scoped to {project_id, user_id} (404 if missing — no leak), (d) checks founder bypass via (is_admin or is_unlimited or tier=='founder'), (e) atomically deducts then refunds with $inc on any non-OK return from apply_finding_fix(), (f) maps internal error codes to HTTP status (422 patch_did_not_resolve, 401 credentials, 404 file_missing, 500 other).",
+    "routers/codebase_health.py — request_fix has been refactored to call apply_finding_fix and write a cto_tasks audit row with status:'completed' + commit_sha on success; the previous dummy 'Fix queued — N tokens charged' queued-task path is GONE (asserted by test_codebase_health_fix_no_longer_uses_dummy_queue static grep). Token deduction + refund flow is symmetric with security_scan.py. ONLY caveat: the project-ownership-mismatch branch returns 500 instead of 404 — see action_items.",
+    "Frontend SecurityScanDrawer.jsx — Fix button is correctly disabled while another fix is in-flight (`if (fixedKeys[k] || fixingKey) return;`) preventing double-spend. Commit link uses data-testid='finding-fix-commit-link' with target='_blank' + rel='noopener noreferrer' — safe external link. Toast error mapping in handleApplyFix covers patch_did_not_resolve_finding, github_credentials_missing, insufficient_tokens.",
+    "Frontend CodebaseHealth.jsx — fixOne now correctly displays the real GitHub commit_sha + html_url in a 6s sonner toast and removes the finding from the visible list. Error code branches mirror SecurityScanDrawer."
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "100% — 51/51 unit tests pass + 6/6 live HTTP smoke checks pass (1 minor status-code inconsistency on /codebase-health/fix logged but functionally correct)",
+    "frontend": "100% on static wiring + page-load smoke. End-to-end Fix-button click on real findings not exercised because test@aurem.dev has no connected GitHub repo on PREVIEW (per problem-statement 'other_misc_info' — static+unit+HTTP layer is the agreed sufficiency bar)."
+  },
+
+  "test_credentials": "PREVIEW founder: test@aurem.dev / AuremTest2026! — /auth/login HTTP 200, token_len=273, tier=founder, is_admin=true, is_unlimited=true.",
+
+  "seed_data_creation": "None. Only login + 6 live HTTP probes against non-owned project_id 'not_my_proj_xyz' / 'not_my_xyz' (all returned the documented error codes without mutating state).",
+
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+
+  "context_for_next_testing_agent": "Iter 212m-114 ships PRODUCTION-READY real /fix pipeline for both Security Scan + Bug Hunt with the 'no dummy fix' invariant enforced by the re-validation gate (services/finding_fix_applier._finding_still_present re-runs vanguard_scanner.scan_text on the patched content; if the same rule_id is detected the commit_files call is short-circuited). All 51 unit tests + 6 live HTTP smoke checks pass. The only finding worth fixing in a follow-up is the 500-vs-404 status code on /codebase-health/fix for unowned-project lookups (body content is already correct, only the HTTP status differs from the matching security_scan path). For a future agent that wants to drive an end-to-end real-commit test on PREVIEW, connect a GitHub PAT to test@aurem.dev (dev_users.github.access_token) first — without it, the apply_finding_fix pipeline correctly short-circuits at the credentials check.",
+
+  "rca_of_the_issue": "Minor inconsistency only — /codebase-health/fix returns HTTP 500 instead of 404 when the caller is not the project owner. Reproduction: POST /api/aurem-dev/codebase-health/fix with a founder bearer and a fabricated project_id; expect 404 to match /security-scan/fix; observed 500 with the correct error body. Mitigation: in routers/codebase_health.py request_fix(), after the cto_projects.find_one({project_id, user_id}) returns None, raise HTTPException(status_code=404, detail={'error':'project_not_found_or_not_yours'}) BEFORE the token deduction block (the existing tokens_refunded:true tail is unreachable in this branch because no deduction has occurred yet)."
+}

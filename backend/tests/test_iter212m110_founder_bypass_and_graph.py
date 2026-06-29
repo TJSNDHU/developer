@@ -55,7 +55,11 @@ def test_scan_route_treats_founder_as_admin():
 @pytest.mark.asyncio
 async def test_fix_route_skips_token_deduction_for_founder(monkeypatch):
     """Founders / admins / unlimited users get tokens_charged=0 from
-    POST /codebase-health/fix and no $inc on dev_users.tokens_remaining."""
+    POST /codebase-health/fix and no $inc on dev_users.tokens_remaining.
+
+    Iter 212m-114: /fix now runs the REAL apply pipeline. We monkeypatch
+    apply_finding_fix to return a successful commit so we can isolate
+    the founder-bypass logic from the actual LLM+GitHub call."""
     from routers import codebase_health as ch
 
     deductions: list[dict] = []
@@ -85,8 +89,19 @@ async def test_fix_route_skips_token_deduction_for_founder(monkeypatch):
             "tier":         "founder",
         }
 
+    async def fake_apply(*, db, user, project_id, finding):
+        return {
+            "ok": True, "commit_sha": "abc1234",
+            "full_sha": "abc1234deadbeef",
+            "html_url": "https://github.com/o/r/commit/abc1234",
+            "file": finding["file"], "rule_id": finding["rule_id"],
+            "message": "Fixed abc1234",
+        }
+
     monkeypatch.setattr(ch, "current_dev", fake_current_dev)
     monkeypatch.setattr(ch, "get_db", lambda: _DB())
+    import services.finding_fix_applier as ffa
+    monkeypatch.setattr(ffa, "apply_finding_fix", fake_apply)
 
     body = {
         "project_id": "proj_1",
@@ -103,16 +118,21 @@ async def test_fix_route_skips_token_deduction_for_founder(monkeypatch):
     assert res["ok"] is True
     assert res["tokens_charged"] == 0
     assert res["new_balance"] == 0
-    # No token deduction occurred.
+    assert res["commit_sha"] == "abc1234"
+    # No token deduction occurred (founder bypass).
     assert deductions == [], "Founders must not be charged tokens on /fix"
-    # The task was still queued.
+    # The audit log record was still written.
     assert inserted and inserted[0]["kind"] == "health_fix"
-    assert inserted[0]["tokens_charged"] == 0
+    assert inserted[0]["status"] == "completed"
+    assert inserted[0]["commit_sha"] == "abc1234deadbeef"
 
 
 @pytest.mark.asyncio
 async def test_fix_route_still_charges_non_founder(monkeypatch):
-    """Non-founder users still hit the standard token deduction path."""
+    """Non-founder users still hit the standard token deduction path.
+
+    Iter 212m-114: with the REAL apply pipeline mocked to success, the
+    deduction must happen once + 1000-50=950 balance + audit row."""
     from routers import codebase_health as ch
 
     deductions: list[dict] = []
@@ -140,8 +160,19 @@ async def test_fix_route_still_charges_non_founder(monkeypatch):
             "tier":    "free",
         }
 
+    async def fake_apply(*, db, user, project_id, finding):
+        return {
+            "ok": True, "commit_sha": "deadbee",
+            "full_sha": "deadbeef" * 5,
+            "html_url": "https://github.com/o/r/commit/deadbee",
+            "file": finding["file"], "rule_id": finding["rule_id"],
+            "message": "Fixed deadbee",
+        }
+
     monkeypatch.setattr(ch, "current_dev", fake_current_dev)
     monkeypatch.setattr(ch, "get_db", lambda: _DB())
+    import services.finding_fix_applier as ffa
+    monkeypatch.setattr(ffa, "apply_finding_fix", fake_apply)
 
     body = {
         "project_id": "proj_1",
@@ -156,6 +187,63 @@ async def test_fix_route_still_charges_non_founder(monkeypatch):
     res = await ch.request_fix(body=body, authorization="Bearer x")
     assert res["tokens_charged"] == 50
     assert res["new_balance"] == 950
+    assert res["commit_sha"] == "deadbee"
     assert len(deductions) == 1
     assert deductions[0]["u"] == {"$inc": {"tokens_remaining": -50}}
+    assert inserted[0]["status"] == "completed"
     assert inserted[0]["tokens_charged"] == 50
+
+
+@pytest.mark.asyncio
+async def test_fix_route_refunds_tokens_when_patch_fails(monkeypatch):
+    """Iter 212m-114 — if apply_finding_fix returns ok=False (patch
+    rejected by re-validation, etc.), the deducted tokens MUST be
+    refunded atomically and NO audit row is written."""
+    from routers import codebase_health as ch
+    from fastapi import HTTPException
+
+    deductions: list[dict] = []
+    inserted: list[dict] = []
+
+    class _Users:
+        async def find_one(self, q, proj=None):
+            return {"tokens_remaining": 1000}
+        async def update_one(self, q, u):
+            deductions.append({"q": q, "u": u})
+            return type("R", (), {"modified_count": 1})()
+
+    class _Tasks:
+        async def insert_one(self, doc):
+            inserted.append(doc)
+
+    class _DB:
+        dev_users = _Users()
+        cto_tasks = _Tasks()
+
+    async def fake_current_dev(authorization=None):
+        return {"user_id": "free_1", "tier": "free"}
+
+    async def fake_apply(*, db, user, project_id, finding):
+        return {"ok": False, "error": "patch_did_not_resolve_finding"}
+
+    monkeypatch.setattr(ch, "current_dev", fake_current_dev)
+    monkeypatch.setattr(ch, "get_db", lambda: _DB())
+    import services.finding_fix_applier as ffa
+    monkeypatch.setattr(ffa, "apply_finding_fix", fake_apply)
+
+    with pytest.raises(HTTPException) as exc:
+        await ch.request_fix(body={
+            "project_id": "proj_1", "finding_id": "f1",
+            "file": "app.py", "line": 10, "title": "x",
+            "message": "x", "fix_hint": "x", "tokens": 50,
+        }, authorization="Bearer x")
+    assert exc.value.status_code == 422
+    detail = exc.value.detail
+    assert detail["error"] == "patch_did_not_resolve_finding"
+    assert detail["tokens_refunded"] is True
+    # Two deductions: -50 on entry, +50 refund.
+    assert len(deductions) == 2
+    assert deductions[0]["u"] == {"$inc": {"tokens_remaining": -50}}
+    assert deductions[1]["u"] == {"$inc": {"tokens_remaining": 50}}
+    # NO audit row should be written for a failed fix.
+    assert inserted == []

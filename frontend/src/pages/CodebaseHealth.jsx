@@ -301,13 +301,23 @@ export default function CodebaseHealth() {
         message: f.message, fix_hint: f.fix_hint, tokens: f.fix_tokens || 5,
       });
       const payload = r?.data || r;
-      // animate the token deduction
+      // Iter 212m-114 — /fix now returns a REAL commit_sha + html_url
+      // because the patch was applied to the user's repo. Surface it.
       const charged = payload?.tokens_charged ?? (f.fix_tokens || 5);
       setTokenFloat(`-${charged}`);
       setTimeout(() => setTokenFloat(null), 1400);
       if (typeof payload?.new_balance === "number") {
         setTokens(payload.new_balance);
         localStorage.setItem("aurem_tokens", String(payload.new_balance));
+      }
+      if (payload?.commit_sha) {
+        setError(null);
+        const url = payload?.html_url;
+        const note = url
+          ? `Fix shipped — commit ${payload.commit_sha}. Open: ${url}`
+          : `Fix shipped — commit ${payload.commit_sha}.`;
+        try { (await import("sonner")).toast.success(note, { duration: 6000 }); }
+        catch { console.log(note); }
       }
       // remove the fixed finding from the visible list
       setData((d) => {
@@ -323,7 +333,19 @@ export default function CodebaseHealth() {
           score: Math.min(100, (d.score || 0) + 2) };
       });
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || "Fix failed");
+      // Iter 212m-114 — Map specific error codes to user-friendly text.
+      const detail = e?.response?.data?.detail;
+      const code   = typeof detail === "object" ? detail.error : detail;
+      if (code === "patch_did_not_resolve_finding") {
+        setError("AI patch did not resolve the finding — tokens refunded, no commit pushed.");
+      } else if (code === "github_credentials_missing" || code === "github_unauthorized") {
+        setError("Connect your GitHub PAT or OAuth before applying fixes.");
+      } else if (code === "insufficient_tokens") {
+        setError(`Insufficient tokens (need ${detail.needed}, have ${detail.balance}).`);
+      } else {
+        setError(typeof detail === "string" ? detail
+                 : detail?.message || e?.message || "Fix failed");
+      }
     } finally {
       setBusyIds((s) => { const n = new Set(s); n.delete(f.id); return n; });
     }
