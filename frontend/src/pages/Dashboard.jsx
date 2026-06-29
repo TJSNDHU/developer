@@ -100,7 +100,7 @@ function DashboardV2Body() {
       }));
     } catch { /* ignore */ }
   };
-  const [sidebarPinned,    setSidebarPinned]    = useState(true);
+  const [sidebarPinned,    setSidebarPinned]    = useState(false);
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
@@ -223,16 +223,23 @@ function DashboardV2Body() {
   // again when the cursor lands near the right edge (last 32 px). The
   // existing AskAdvisor toggle button keeps working — this just adds
   // a hover-reveal complement so users don't have to chase the toggle.
+  // Iter 212m-112 — Effect deps are intentionally limited to
+  // `chatActive` (not `advisorCollapsed`) so the hover-reveal path on
+  // the mousemove listener below doesn't get instantly reverted by
+  // this effect re-firing on advisorCollapsed flips.
   const advisorAutoRef = useRef(false);
   useEffect(() => {
-    if (chatActive && !advisorCollapsed) {
-      advisorAutoRef.current = true;
-      setAdvisorCollapsed(true);
-    } else if (!chatActive && advisorAutoRef.current) {
+    if (chatActive) {
+      // Auto-collapse ONCE per chatActive=true transition.
+      if (!advisorAutoRef.current) {
+        advisorAutoRef.current = true;
+        setAdvisorCollapsed(true);
+      }
+    } else if (advisorAutoRef.current) {
       advisorAutoRef.current = false;
       setAdvisorCollapsed(false);
     }
-  }, [chatActive, advisorCollapsed]);
+  }, [chatActive]);
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const onMove = (e) => {

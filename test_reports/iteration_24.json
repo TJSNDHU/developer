@@ -1,0 +1,67 @@
+{
+  "summary": "Iter 212m-112 verification — Auto-restart on phase timeout + Realistic phase budgets + Parallel execute fan-out + Two iter_23 frontend regressions. ALL 31 backend unit tests GREEN (8 new iter112 + 12 iter111 + 6 iter109 + 5 iter110). LIVE HTTP smoke test of POST /api/aurem-dev/loop/start succeeded — returned 200 with loop_id, state='awaiting_confirmation', and a non-empty plan {title, bullets[5], files_to_change[3]}. FRONTEND regressions BOTH FIXED: (a) Sidebar auto-collapses to 48px on chatActive without manual unpin (new sidebarPinned=false default), (b) Advisor right-edge hover-reveal sticks ≥1s (295px @200ms → 300px @1100ms — effect deps now [chatActive] only). TopBar collapses to 1px on focus, data-theme='dark' locked.",
+
+  "backend_issues": { "critical": [], "minor": [] },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "verified_passing": [
+    "BACKEND UNIT: /app/backend/tests/test_iter212m112_loop_autorestart_and_parallel_execute.py — 8/8 PASS: test_phase_budgets_realistic (execute≥200, verify≥120, scan≥120, ship≥60, plan≥60), test_max_phase_restarts_is_at_least_2, test_with_budget_retries_on_timeout_then_succeeds (2 attempts, no fail, phase_auto_restart event emitted), test_with_budget_fails_after_exhausting_restarts (3 attempts, _fail called once with 'budget' in reason), test_loop_execute_uses_semaphore_and_per_file_timeout (Semaphore + gather + wait_for + PER_FILE_TIMEOUT_S + MAX_PARALLEL_GENS + 'return None' all present), test_generate_files_parallelism_under_timeout (6 files × 0.4s LLM finished in <2.0s wall clock proving fan-out), test_generate_files_one_slow_file_doesnt_kill_batch (slow.py dropped, fast1+fast2 succeeded), test_loop_engine_with_budget_emits_auto_restart_event.",
+    "BACKEND UNIT: test_iter212m111_night_mode_focus_manual_ship.py — 12/12 PASS (re-verified, no regression).",
+    "BACKEND UNIT: test_iter212m109_loop_execute_and_history.py — 6/6 PASS (re-verified).",
+    "BACKEND UNIT: test_iter212m110_founder_bypass_and_graph.py — 5/5 PASS (re-verified).",
+    "TOTAL backend unit tests: 31/31 PASS in 2.55s (junit XML at /app/test_reports/pytest/iter24_results.xml).",
+    "LIVE HTTP: POST https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/start with founder bearer + body {project_id:null, user_message:'Add an /api/aurem-dev/status endpoint that returns version + uptime'} → 200 OK in <90s. Response: {loop_id:'loop_9e485cc5dde145', state:'awaiting_confirmation', phase:'plan', plan:{title:'Add aurem-dev status endpoint', files_to_change:['src/routes/status.js','src/app.js','package.json'], bullets:[5 numbered steps], estimated_time:'~5 minutes'}, requires_user_action:true}. Real LLM plan generation works end-to-end.",
+    "FRONTEND iter_23 regression #1 FIXED — Sidebar auto-collapse on chatActive: [data-testid='ds2-sidebar'] bbox width = 48px both on fresh load (sidebarPinned default now false) and while typing in [data-testid='chat-input']. No manual unpin needed. Confirmed via playwright on PREVIEW with test@aurem.dev.",
+    "FRONTEND iter_23 regression #2 FIXED — Advisor right-edge hover-reveal stickiness: with chatActive=true, mouse.move(1910, 540) caused [data-testid='ds2-advisor-real'] to expand from 0px → 295px @ t=200ms → 300px @ t=1100ms. Effect deps now correctly limited to [chatActive] in Dashboard.jsx lines 231-242 with advisorAutoRef gate so hover-reveal is no longer reverted on advisorCollapsed flips.",
+    "FRONTEND smoke (focus mode visuals): data-theme='dark' on [data-testid='dashboard-v2-root'] (Permanent Night Mode locked). [data-testid='ds2-topbar'] collapses to bbox.height=1px (top=-1) on chat focus. Sidebar at 48px shows icon-only column. Advisor edge tab visible when collapsed."
+  ],
+
+  "could_not_directly_test": [
+    "Full Loop e2e through Execute → Verify → Scan → Ship phases on PREVIEW — no GitHub repo is connected on the test@aurem.dev account, so confirming the plan would only proceed to Execute and then fail on the GitHub fetch_file step. Auto-restart behaviour on a REAL timeout in production is covered by the unit tests (which use monkeypatched 0.05s/0.1s budgets and assert the full _with_budget retry loop including event emission and final _fail).",
+    "Live observation of a phase_auto_restart SSE event in the browser — would require triggering a real 300s+ timeout in the Execute phase, which requires a connected repo with 6+ files. Unit test_with_budget_retries_on_timeout_then_succeeds asserts the emit contract (data.kind=='phase_auto_restart')."
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m112_loop_autorestart_and_parallel_execute.py",
+    "/app/backend/tests/test_iter212m111_night_mode_focus_manual_ship.py",
+    "/app/backend/tests/test_iter212m109_loop_execute_and_history.py",
+    "/app/backend/tests/test_iter212m110_founder_bypass_and_graph.py",
+    "/app/test_reports/pytest/iter24_results.xml"
+  ],
+
+  "action_items": [
+    "[NONE — all green] No action items. Both iter_23 frontend regressions are confirmed fixed on PREVIEW. All 31 backend unit tests pass. Live /loop/start HTTP smoke succeeds with a real LLM-generated plan."
+  ],
+
+  "critical_code_review_comments": [
+    "loop_engine.py _with_budget — clean retry loop: tracks attempt count, emits phase_auto_restart SELF_HEALING event with data.kind, exponential backoff via asyncio.sleep(2**attempt), calls _fail() once after MAX_PHASE_RESTARTS exhaustion with reason containing 'budget'. Unit-test verified both happy retry and final-fail paths.",
+    "loop_execute.py — Semaphore(MAX_PARALLEL_GENS=3) correctly bounds fan-out. asyncio.wait_for(PER_FILE_TIMEOUT_S=60) per file ensures one hang can't blow the parent execute budget. _generate_one returns None on per-file failure and the gather pipeline filters None — partial success preserved.",
+    "Dashboard.jsx line 103 — sidebarPinned default changed to useState(false). Direct consequence: chatActive-driven sidebar collapse on line 286 (chatActive && !sidebarPinned && !sidebarHovered) now fires immediately on chat focus. Confirmed live: width 220→48px.",
+    "Dashboard.jsx lines 231-242 — advisor auto-collapse useEffect now depends ONLY on [chatActive] with advisorAutoRef as a once-per-transition gate. The complementary mousemove listener (lines 243+) sets advisorCollapsed=false on the right-edge hover and the effect no longer reverts it. Confirmed live: hover-expanded width is 295-300px stable across a 900ms gap.",
+    "PHASE_TIMEOUTS_S now {plan:60, execute:300, verify:180, scan:180, ship:60, ...} — direct fix for the user's 'Phase execute exceeded 120s budget' report. Combined with MAX_PHASE_RESTARTS=2, worst-case effective budget for execute is 300×3=900s before terminal failure."
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "100% — 31/31 unit tests pass + live /loop/start returns valid plan",
+    "frontend": "100% — both iter_23 regressions confirmed fixed, focus mode visuals intact"
+  },
+
+  "test_credentials": "PREVIEW founder: test@aurem.dev / AuremTest2026! — login API returned 200 with token (length 273).",
+
+  "seed_data_creation": "None — login + 1 loop start (left in awaiting_confirmation, no DB writes beyond the loop row itself).",
+
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": false,
+
+  "context_for_next_testing_agent": "Iter 212m-112 is GREEN across the board. Backend: 31/31 unit + 1/1 live smoke pass. Frontend: both iter_23 MEDIUM bugs (sidebarPinned default + advisor hover-reveal effect-deps) are confirmed fixed via playwright on PREVIEW. The execute-phase '120s budget' user-reported bug is mitigated by (a) 300s budget, (b) parallel LLM fan-out (Semaphore(3)+wait_for(60s)), (c) up to 2 auto-restarts. For any future iter testing the Loop, note that PREVIEW's test@aurem.dev has no connected GitHub repo, so e2e Execute/Verify/Scan/Ship cannot be exercised live — but the unit tests in test_iter212m112_loop_autorestart_and_parallel_execute.py cover the full state machine with mocked LLM + fetch_file.",
+
+  "rca_of_the_issue": "Both iter_23 regressions had clear single-line fixes: (1) Dashboard.jsx line 103 was useState(true) for sidebarPinned, short-circuiting the chatActive sidebar collapse — now useState(false). (2) Dashboard.jsx advisor useEffect (lines 226-235 in iter_23) had [chatActive, advisorCollapsed] as deps, causing hover-reveal to instantly revert. Now restricted to [chatActive] with advisorAutoRef.current as the once-per-transition gate. Both verified live: sidebar 48px on focus, advisor 300px stable after hover."
+}

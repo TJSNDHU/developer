@@ -46,18 +46,28 @@ from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
-# Phase budgets in seconds (G2).  Hard caps — exceed and we pause.
+# Phase budgets in seconds (G2). Iter 212m-112 — bumped to realistic
+# values after the user repeatedly hit `Phase execute exceeded 120s
+# budget`. 6 files × ~25 s LLM each blew through 120 s; with the new
+# parallel `loop_execute.py` (Semaphore=3) the realistic worst case
+# is ~3× per-file timeout. Auto-restart in `_with_budget` retries
+# the phase up to MAX_PHASE_RESTARTS times before surfacing.
 PHASE_TIMEOUTS_S: dict[str, int] = {
-    "plan":      60,
-    "execute":   120,
-    "verify":    90,
-    "scan":      120,
-    "ship":      60,
-    "self_heal": 120,
+    "plan":      120,
+    "execute":   300,
+    "verify":    180,
+    "scan":      180,
+    "ship":      120,
+    "self_heal": 180,
 }
+# Iter 212m-112 — Auto-restart: a phase that times out is retried
+# (with an exponential backoff) up to MAX_PHASE_RESTARTS times before
+# we _fail() the loop. Modelled after the chat "thinking" retry
+# behaviour the founder asked us to mirror.
+MAX_PHASE_RESTARTS = 2
 # A session whose Mongo doc hasn't been updated in this long while in
 # EXECUTING/VERIFYING is treated as orphaned by resume_stale().
-STALE_AFTER_S = 120
+STALE_AFTER_S = 300
 # How many self-heal attempts before we surface to the user (G1).
 MAX_SELF_HEALS = 2
 # How many verify retries the engine takes before pause.
@@ -321,11 +331,57 @@ class LoopEngine:
         )
 
     async def _with_budget(self, phase: str, coro) -> None:
-        try:
-            await asyncio.wait_for(coro(), timeout=PHASE_TIMEOUTS_S[phase])
-        except asyncio.TimeoutError:
-            await self._fail(phase, f"Phase {phase} exceeded "
-                                    f"{PHASE_TIMEOUTS_S[phase]}s budget.")
+        """Iter 212m-112 — Auto-restart on phase timeout. A phase that
+        exceeds its budget is retried up to MAX_PHASE_RESTARTS times
+        with exponential backoff (2s, 4s) before we _fail() the loop.
+        Mirrors the chat "thinking auto-restart" behaviour the founder
+        asked for: transient hangs (slow LLM, slow GitHub fetch) get
+        a fair second chance instead of hard-failing the user."""
+        budget = PHASE_TIMEOUTS_S[phase]
+        last_err: Optional[str] = None
+        for attempt in range(MAX_PHASE_RESTARTS + 1):
+            try:
+                await asyncio.wait_for(coro(), timeout=budget)
+                if attempt > 0:
+                    logger.info(
+                        "[loop %s] phase=%s recovered on attempt %d/%d",
+                        self.loop_id, phase, attempt + 1,
+                        MAX_PHASE_RESTARTS + 1,
+                    )
+                return
+            except asyncio.TimeoutError:
+                last_err = (f"Phase {phase} exceeded {budget}s budget "
+                            f"(attempt {attempt + 1}/{MAX_PHASE_RESTARTS + 1})")
+                logger.warning("[loop %s] %s", self.loop_id, last_err)
+                if attempt < MAX_PHASE_RESTARTS:
+                    backoff = 2 ** (attempt + 1)
+                    await self._emit(
+                        LoopState.SELF_HEALING, "self_heal",
+                        message=(
+                            f"Phase {phase} timed out — auto-restarting "
+                            f"(attempt {attempt + 2}/{MAX_PHASE_RESTARTS + 1}) "
+                            f"in {backoff}s…"
+                        ),
+                        data={"phase": phase, "attempt": attempt + 1,
+                              "max":   MAX_PHASE_RESTARTS + 1,
+                              "kind":  "phase_auto_restart"},
+                    )
+                    await asyncio.sleep(backoff)
+                    # Reset state to the phase's running state so the
+                    # next attempt looks like a fresh run to the
+                    # frontend's LoopStepBar.
+                    self.state = {
+                        "plan":    LoopState.PLANNING,
+                        "execute": LoopState.EXECUTING,
+                        "verify":  LoopState.VERIFYING,
+                        "scan":    LoopState.SCANNING,
+                        "ship":    LoopState.SHIPPING,
+                    }.get(phase, self.state)
+                    continue
+                # Exhausted — surface to user.
+                await self._fail(phase, last_err or
+                                 f"Phase {phase} exceeded {budget}s budget.")
+                return
 
     # ── Phase 2 — Execute (LLM generates file content) ─────────────
     async def _do_execute(self) -> None:
