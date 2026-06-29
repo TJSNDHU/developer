@@ -67,6 +67,16 @@ router = APIRouter(prefix="/fix-pipeline", tags=["Fix Pipeline"])
 
 # ─── Cost model ────────────────────────────────────────────────────────
 TOKEN_USD_RATE = 0.0001         # 1 token = $0.0001 → 10 000 tokens = $1
+# Iter 212m-127 — Batched bulk-fix execution.  Findings are
+# processed in chunks of _BULK_BATCH_SIZE, each chunk interleaved
+# across severity buckets so the user sees a critical, a high,
+# a medium and a low fix landing in every batch rather than the
+# scanner's natural critical-first ordering.  Between batches the
+# worker awaits a small breather to let GitHub's branch indexer
+# catch up — keeps PR creation reliable.
+_BULK_BATCH_SIZE          = 10
+_INTER_BATCH_BREATHE_S    = 1.5
+_SEVERITY_BUCKET_ORDER    = ("critical", "high", "medium", "low")
 # Token cost per category — must stay in sync with the CATS array in
 # frontend/src/pages/CodebaseHealth.jsx.
 _CATEGORY_TOKEN_COST = {
@@ -160,10 +170,14 @@ async def start_bulk_fix(body: dict,
         raise HTTPException(400, "project_id required")
     if not findings:
         raise HTTPException(400, "findings is empty")
-    if len(findings) > 50:
-        # Hard cap so a single click can't burn through 1000 fixes
-        # by accident.  50 is enough for an entire category.
-        raise HTTPException(400, "max 50 findings per bulk fix")
+    if len(findings) > 500:
+        # Iter 212m-127 — Raised cap from 50 to 500.  Findings now
+        # process in interleaved batches of 10 (see _interleave_by_
+        # severity + _BULK_BATCH_SIZE) so the user gets a mix of
+        # critical / high / medium / low fixes shipping every batch
+        # instead of "50 criticals then nothing".  Hard ceiling of
+        # 500 still protects against pathological bulk clicks.
+        raise HTTPException(400, "max 500 findings per bulk fix")
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -199,92 +213,148 @@ async def start_bulk_fix(body: dict,
 
 async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                         findings: list[dict], is_unlim: bool) -> None:
-    """The actual worker.  Iterates findings sequentially so commits
-    stack on the same branch without Git conflicts.  Every emit goes
-    straight to the SSE queue."""
+    """The actual worker.  Findings are first interleaved by severity
+    so each batch carries a mix of critical/high/medium/low fixes,
+    then processed in chunks of _BULK_BATCH_SIZE.  Within a chunk we
+    run sequentially (no Git conflicts on the same branch); between
+    chunks we pause briefly so GitHub's branch indexer catches up.
+    Every event is emitted onto the same job_id queue so the SSE
+    drawer keeps streaming uninterrupted."""
     user_id = user["user_id"]
-    fjm.emit(job_id, "job-start", count=len(findings),
+    ordered = _interleave_by_severity(findings)
+    batches = [ordered[i : i + _BULK_BATCH_SIZE]
+               for i in range(0, len(ordered), _BULK_BATCH_SIZE)]
+    fjm.emit(job_id, "job-start", count=len(ordered),
+             batches=len(batches), batch_size=_BULK_BATCH_SIZE,
              is_unlimited=is_unlim, project_id=project_id)
     total_charged = 0
     total_ok = 0
-    for idx, finding in enumerate(findings):
-        finding_id = (finding.get("id") or finding.get("rule_id")
-                      or f"f_{idx}")
-        rule_id    = finding.get("rule_id") or finding.get("rule") or ""
-        path       = finding.get("file") or finding.get("path") or ""
-        cost       = _token_cost_for_finding(finding)
+    global_idx = 0
+    for batch_no, batch in enumerate(batches, start=1):
+        fjm.emit(job_id, "batch-start",
+                 batch=batch_no, of=len(batches), size=len(batch),
+                 severities=[f.get("severity") or "" for f in batch])
+        for finding in batch:
+            global_idx += 1
+            finding_id = (finding.get("id") or finding.get("rule_id")
+                          or f"f_{global_idx}")
+            rule_id    = finding.get("rule_id") or finding.get("rule") or ""
+            path       = finding.get("file") or finding.get("path") or ""
+            severity   = finding.get("severity") or ""
+            cost       = _token_cost_for_finding(finding)
 
-        fjm.emit(job_id, "queued",
-                 index=idx + 1, finding_id=finding_id,
-                 rule_id=rule_id, file=path)
+            fjm.emit(job_id, "queued",
+                     index=global_idx, batch=batch_no,
+                     finding_id=finding_id, rule_id=rule_id,
+                     severity=severity, file=path)
 
-        # Token deduction is BEST-EFFORT per finding so a mid-batch
-        # 402 doesn't leak a partial commit.  Founders skip entirely.
-        if not is_unlim and cost > 0:
-            upd = await db.dev_users.update_one(
-                {"user_id": user_id, "tokens_remaining": {"$gte": cost}},
-                {"$inc": {"tokens_remaining": -cost}},
-            )
-            if upd.modified_count == 0:
+            # Token deduction is BEST-EFFORT per finding so a mid-batch
+            # 402 doesn't leak a partial commit.  Founders skip entirely.
+            if not is_unlim and cost > 0:
+                upd = await db.dev_users.update_one(
+                    {"user_id": user_id, "tokens_remaining": {"$gte": cost}},
+                    {"$inc": {"tokens_remaining": -cost}},
+                )
+                if upd.modified_count == 0:
+                    fjm.emit(job_id, "fix-done",
+                             ok=False, finding_id=finding_id,
+                             error="insufficient_tokens_midbatch",
+                             file=path, rule_id=rule_id)
+                    continue
+                total_charged += cost
+
+            fjm.emit(job_id, "reading", finding_id=finding_id, file=path)
+            # NOTE: apply_finding_fix already runs read → llm patch →
+            # re-validate → commit → draft PR in sequence.  We bracket
+            # the call with phase markers so the UI can show staged
+            # progress; the actual sub-steps are opaque inside the fn.
+            try:
+                res = await apply_finding_fix(
+                    db=db, user=user, project_id=project_id, finding=finding,
+                )
+            except Exception as e:                                # noqa: BLE001
+                logger.exception("bulk fix raised for finding=%s", finding_id)
+                res = {"ok": False, "error": f"unhandled: {e}"}
+
+            if not res.get("ok"):
+                # Refund the per-finding deduction on failure.
+                if not is_unlim and cost > 0:
+                    try:
+                        await db.dev_users.update_one(
+                            {"user_id": user_id},
+                            {"$inc": {"tokens_remaining": cost}},
+                        )
+                        total_charged -= cost
+                    except Exception:
+                        pass
                 fjm.emit(job_id, "fix-done",
                          ok=False, finding_id=finding_id,
-                         error="insufficient_tokens_midbatch",
+                         error=res.get("error") or "unknown",
                          file=path, rule_id=rule_id)
                 continue
-            total_charged += cost
 
-        fjm.emit(job_id, "reading", finding_id=finding_id, file=path)
-        # NOTE: apply_finding_fix already runs read → llm patch →
-        # re-validate → commit → draft PR in sequence.  We bracket
-        # the call with phase markers so the UI can show staged
-        # progress; the actual sub-steps are opaque inside the fn.
-        try:
-            res = await apply_finding_fix(
-                db=db, user=user, project_id=project_id, finding=finding,
+            # Real GitHub verification — confirm the commit exists.
+            fjm.emit(job_id, "verifying",
+                     finding_id=finding_id, commit_sha=res.get("commit_sha"))
+            verified = await _verify_commit_exists(
+                db=db, user=user, project_id=project_id,
+                full_sha=res.get("full_sha"),
             )
-        except Exception as e:                                # noqa: BLE001
-            logger.exception("bulk fix raised for finding=%s", finding_id)
-            res = {"ok": False, "error": f"unhandled: {e}"}
-
-        if not res.get("ok"):
-            # Refund the per-finding deduction on failure.
-            if not is_unlim and cost > 0:
-                try:
-                    await db.dev_users.update_one(
-                        {"user_id": user_id},
-                        {"$inc": {"tokens_remaining": cost}},
-                    )
-                    total_charged -= cost
-                except Exception:
-                    pass
             fjm.emit(job_id, "fix-done",
-                     ok=False, finding_id=finding_id,
-                     error=res.get("error") or "unknown",
-                     file=path, rule_id=rule_id)
-            continue
+                     ok=True, finding_id=finding_id,
+                     commit_sha=res.get("commit_sha"),
+                     full_sha=res.get("full_sha"),
+                     html_url=res.get("html_url"),
+                     pr_url=res.get("pr_url"),
+                     branch=res.get("branch"),
+                     file=res.get("file"),
+                     rule_id=res.get("rule_id"),
+                     verified=verified)
+            total_ok += 1
 
-        # Real GitHub verification — confirm the commit exists.
-        fjm.emit(job_id, "verifying",
-                 finding_id=finding_id, commit_sha=res.get("commit_sha"))
-        verified = await _verify_commit_exists(
-            db=db, user=user, project_id=project_id,
-            full_sha=res.get("full_sha"),
-        )
-        fjm.emit(job_id, "fix-done",
-                 ok=True, finding_id=finding_id,
-                 commit_sha=res.get("commit_sha"),
-                 full_sha=res.get("full_sha"),
-                 html_url=res.get("html_url"),
-                 pr_url=res.get("pr_url"),
-                 branch=res.get("branch"),
-                 file=res.get("file"),
-                 rule_id=res.get("rule_id"),
-                 verified=verified)
-        total_ok += 1
+        # End of batch — emit a summary event the UI uses for the
+        # progress-bar tick + take a short breather before the next
+        # batch so GitHub's branch indexer catches up.
+        fjm.emit(job_id, "batch-end",
+                 batch=batch_no, of=len(batches),
+                 fixed_so_far=total_ok)
+        if batch_no < len(batches):
+            await asyncio.sleep(_INTER_BATCH_BREATHE_S)
 
     fjm.close(job_id, ok=True,
-              message=f"Fixed {total_ok}/{len(findings)} "
-                      f"({total_charged} tokens charged)")
+              message=f"Fixed {total_ok}/{len(ordered)} "
+                      f"({total_charged} tokens charged · "
+                      f"{len(batches)} batches of {_BULK_BATCH_SIZE})")
+
+
+def _interleave_by_severity(findings: list[dict]) -> list[dict]:
+    """Sort findings into severity buckets (critical→high→medium→low,
+    unknown trailing) and round-robin them so the output contains a
+    mix of severities at every position.  Order within a bucket is
+    preserved so the original scanner ordering still wins ties.
+
+    Example with [C, C, C, H, H, M, M, L] →
+       [C, H, M, L, C, H, M, C].  Each batch of 10 will therefore
+    contain at least one critical AND at least one high/medium/low
+    whenever the source list has them, giving the founder a visible
+    mix of fixes shipping per batch instead of 'critical first'.
+    """
+    buckets: dict[str, list[dict]] = {k: [] for k in _SEVERITY_BUCKET_ORDER}
+    trailing: list[dict] = []
+    for f in findings:
+        sev = (f.get("severity") or "").lower()
+        if sev in buckets:
+            buckets[sev].append(f)
+        else:
+            trailing.append(f)
+
+    out: list[dict] = []
+    while any(buckets[k] for k in _SEVERITY_BUCKET_ORDER):
+        for k in _SEVERITY_BUCKET_ORDER:
+            if buckets[k]:
+                out.append(buckets[k].pop(0))
+    out.extend(trailing)
+    return out
 
 
 async def _verify_commit_exists(*, db, user: dict, project_id: str,

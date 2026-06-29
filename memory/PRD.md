@@ -12,6 +12,37 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-127 — Batched bulk fix with severity interleave (Feb 2026) ✅
+
+**What changed**: The old hard cap of 50 findings per bulk fix is gone. Bulk fix now accepts up to 500 findings, server-side chunks them into batches of 10, and interleaves severities so every batch carries a mix of critical / high / medium / low fixes — exactly per founder spec.
+
+**Backend** — `routers/fix_pipeline.py`:
+- Cap raised from 50 → 500 findings per bulk job.
+- New module-level constants:
+  - `_BULK_BATCH_SIZE = 10`
+  - `_INTER_BATCH_BREATHE_S = 1.5` (pause between batches so GitHub's branch indexer catches up before the next PR opens)
+  - `_SEVERITY_BUCKET_ORDER = ("critical", "high", "medium", "low")`
+- New helper `_interleave_by_severity()` — sorts findings into buckets, then round-robin pops one from each bucket per iteration. Unknown severities ("info" / "") sink to the end. Bucket-internal order preserved (scanner ordering still wins ties).
+- `_run_bulk_job()` now iterates batches: emits `job-start {batches, batch_size}`, then per batch emits `batch-start {batch, of, size, severities[]}` + the existing per-finding `queued → reading → committing → verifying → fix-done`, then `batch-end {fixed_so_far}`, then `asyncio.sleep(1.5)` before the next batch.
+- Token deduction + refund logic indented inside the new nested loop — no semantic change.
+
+**Frontend** — no change needed. `BulkFixConfirmModal` still POSTs the full findings array; backend chunks transparently. The SSE drawer (`FixProgressDrawer`) already streams the same event types — `batch-start`/`batch-end` are extra phases the rows simply pass through without rendering changes.
+
+**Tests** — `tests/test_iter212m121_fix_pipeline.py` extended:
+- `test_bulk_hard_cap_at_500` replaces the old 50-cap test (501 findings → 400 with "max 500" message).
+- NEW `test_interleave_by_severity_mixes_buckets` — feeds 4 crits + 3 highs + 2 mediums + 1 low + 1 unknown:
+  - Verifies the first 4 positions hit one of each known severity (mix guarantee).
+  - Verifies unknown severity sinks to the last position.
+  - Verifies bucket-internal order preserved (c0, c1, c2, c3 in that order).
+- 11/11 pytest GREEN.
+
+**Live preview probe**: posted 12-finding bulk (3 crit / 2 high / 3 medium / 4 low) — backend accepted with `count: 12`, returned a `job_id`, summary endpoint streamed real results. Failure reasons honest (`github_credentials_missing`) since preview has no PAT.
+
+**Files touched**
+- MODIFIED: `backend/routers/fix_pipeline.py`, `backend/tests/test_iter212m121_fix_pipeline.py`
+
+
+
 ### Iter 212m-126 — Auto-heal disconnected repos in backend (Feb 2026) ✅
 
 **What changed**: The moment a repo flips to red on the sidebar, a fire-and-forget heal task runs inside the backend, attempts to fix the root cause, mutates the project row + clears the status cache, and the next sidebar poll turns the dot green — all without a single click from the user.

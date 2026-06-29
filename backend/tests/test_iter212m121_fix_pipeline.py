@@ -229,14 +229,37 @@ def test_bulk_rejects_no_project(client_founder):
     assert r.status_code == 400
 
 
-def test_bulk_hard_cap_at_50(client_founder):
+def test_bulk_hard_cap_at_500(client_founder):
     c, _ = client_founder
     too_many = [{"id": f"f{i}", "rule_id": "x", "file": "a.py",
-                 "category": "vanguard"} for i in range(51)]
+                 "category": "vanguard"} for i in range(501)]
     r = c.post("/api/aurem-dev/fix-pipeline/bulk",
                json={"project_id": "p1", "findings": too_many})
     assert r.status_code == 400
-    assert "max 50" in r.json()["detail"].lower()
+    assert "max 500" in r.json()["detail"].lower()
+
+
+def test_interleave_by_severity_mixes_buckets():
+    """Verify the round-robin shuffler produces a mix of severities
+    at every position rather than 'all criticals first'."""
+    from routers.fix_pipeline import _interleave_by_severity
+    raw = (
+        [{"id": f"c{i}", "severity": "critical"} for i in range(4)] +
+        [{"id": f"h{i}", "severity": "high"}     for i in range(3)] +
+        [{"id": f"m{i}", "severity": "medium"}   for i in range(2)] +
+        [{"id": f"l{i}", "severity": "low"}      for i in range(1)] +
+        [{"id": "u0",  "severity": "info"}]     # trailing unknown
+    )
+    out = _interleave_by_severity(raw)
+    assert len(out) == len(raw)
+    # First batch of 4 must contain one of each known severity.
+    first4 = [x["severity"] for x in out[:4]]
+    assert set(first4) == {"critical", "high", "medium", "low"}
+    # Unknown severity sinks to the end.
+    assert out[-1]["id"] == "u0"
+    # Bucket-internal order preserved (c0 appears before c1).
+    crits = [x["id"] for x in out if x["severity"] == "critical"]
+    assert crits == ["c0", "c1", "c2", "c3"]
 
 
 def test_bulk_paying_user_insufficient_tokens(client_paying):
