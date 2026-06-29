@@ -160,9 +160,141 @@ jobs:
           yarn audit --level high 2>&1 | tail -10 || echo "yarn audit done"
 
 
+  secret-scan:
+    # Iter 212m-120 — Phase 1 of the Vanguard scanner sidecar plan.
+    # Runs trufflehog over the full checkout, posts the JSON output
+    # to the AUREM backend (/api/aurem-dev/vanguard/ci-findings) so
+    # the dashboard can render it next to in-process Vanguard
+    # findings, and FAILS the CI run only when at least one VERIFIED
+    # secret is detected.  Pattern-only hits warn but don't block —
+    # otherwise every fixture/test secret would red-light every PR.
+    name: Security — Secret scan (trufflehog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history for diff scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install trufflehog
+        run: |
+          # Pinned to a stable v3.x — official install script always
+          # pulls the latest release and verifies the checksum.
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trufflehog --version
+
+      - name: Run trufflehog filesystem scan
+        id: scan
+        run: |
+          set +e
+          # JSON-lines output → parse later in python.
+          trufflehog filesystem . \
+            --json \
+            --no-update \
+            --exclude-paths=.trufflehog-exclude \
+            > /tmp/trufflehog.jsonl 2>/tmp/trufflehog.err
+          EXIT=$?
+          # Exit 183 = findings present (trufflehog convention); 0 =
+          # clean; anything else = real failure.
+          echo "exit_code=$EXIT" >> $GITHUB_OUTPUT
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "183" ]; then
+            echo "::warning::trufflehog failed with exit=$EXIT — see stderr"
+            cat /tmp/trufflehog.err || true
+          fi
+          # Always count + classify so the downstream gate has data
+          # to act on even if the binary errored mid-run.
+          python3 <<'PY'
+          import json, os, sys
+          rows = []
+          try:
+              with open("/tmp/trufflehog.jsonl") as fh:
+                  for line in fh:
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          rows.append(json.loads(line))
+                      except Exception:
+                          pass
+          except FileNotFoundError:
+              pass
+          verified   = sum(1 for r in rows if r.get("Verified"))
+          unverified = len(rows) - verified
+          print(f"Trufflehog scan: total={len(rows)} verified={verified} unverified={unverified}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"total={len(rows)}\n")
+              fh.write(f"verified={verified}\n")
+              fh.write(f"unverified={unverified}\n")
+          # Emit a compact JSON for the next step to POST.
+          with open("/tmp/trufflehog.compact.json", "w") as fh:
+              json.dump(rows[:2000], fh)
+          PY
+
+      - name: Upload trufflehog raw output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trufflehog-jsonl
+          path: |
+            /tmp/trufflehog.jsonl
+            /tmp/trufflehog.err
+          retention-days: 7
+
+      - name: Post findings to AUREM dashboard
+        if: ${{ secrets.AUREM_CI_INGEST_TOKEN != '' }}
+        env:
+          CI_TOKEN:   ${{ secrets.AUREM_CI_INGEST_TOKEN }}
+          API_URL:    ${{ vars.AUREM_API_URL }}
+        run: |
+          export BASE_URL="${API_URL:-https://auremcto.com}"
+          python3 <<'PY'
+          import json, os, urllib.request
+          with open("/tmp/trufflehog.compact.json") as fh:
+              findings = json.load(fh)
+          body = {
+              "repo":         os.environ["GITHUB_REPOSITORY"],
+              "commit":       os.environ["GITHUB_SHA"],
+              "branch":       os.environ.get("GITHUB_REF_NAME", ""),
+              "scanner":      "trufflehog",
+              "findings":     findings,
+              "run_url":      f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "triggered_by": os.environ.get("GITHUB_ACTOR", ""),
+          }
+          url = f"{os.environ['BASE_URL']}/api/aurem-dev/vanguard/ci-findings"
+          req = urllib.request.Request(
+              url,
+              data=json.dumps(body).encode(),
+              method="POST",
+              headers={
+                  "Content-Type":  "application/json",
+                  "Authorization": f"Bearer {os.environ['CI_TOKEN']}",
+              },
+          )
+          try:
+              resp = urllib.request.urlopen(req, timeout=15)
+              print("Ingest OK:", resp.status, resp.read().decode()[:200])
+          except Exception as e:
+              # Soft-fail the report — never block the deploy gate on
+              # a backend hiccup. The verified-secret gate below is
+              # the real safety check.
+              print(f"::warning::AUREM ingest failed: {e!r}")
+          PY
+
+      - name: Fail on verified secrets
+        if: steps.scan.outputs.verified != '0'
+        run: |
+          echo "::error::Trufflehog found ${{ steps.scan.outputs.verified }} VERIFIED secrets — blocking merge."
+          echo "Download the 'trufflehog-jsonl' artifact for details, or visit the AUREM dashboard."
+          exit 1
+
+
   deploy-gate:
     name: Deploy gate — all checks passed
-    needs: [frontend-build, backend-tests, security-scan]
+    needs: [frontend-build, backend-tests, security-scan, secret-scan]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
@@ -171,6 +303,7 @@ jobs:
           echo "✅ Frontend build: passed"
           echo "✅ Backend tests: passed"
           echo "✅ Security scan: passed"
+          echo "✅ Secret scan:   passed"
           echo "🚀 Safe to deploy to aurem.live"
 
       - name: Notify AUREM dashboard

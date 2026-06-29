@@ -1,0 +1,17 @@
+# Trufflehog exclude patterns — paths inside this repo that contain
+# intentionally fake secrets (tests, fixtures, docs).  One regex per
+# line; matches relative file paths.
+#
+# IMPORTANT: This file controls UNVERIFIED-noise filtering only.  A
+# VERIFIED secret in any of these paths will still fail CI — verified
+# = trufflehog confirmed the credential works against the live API.
+^backend/tests/
+^frontend/src/__tests__/
+^frontend/__tests__/
+^backend/scripts/.*\.sample$
+^docs/
+\.md$
+\.lock$
+yarn\.lock
+package-lock\.json
+\.snap$

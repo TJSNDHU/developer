@@ -1,0 +1,62 @@
+{
+  "summary": "Iter 212m-120 Phase 1 — Vanguard CI ingest endpoint (trufflehog) backend-only verification. ALL 11/11 tests GREEN: 6/6 unit tests in test_iter212m120_vanguard_ci_ingest.py (1.11s) + 5/5 NEW live HTTP smoke tests in test_iter212m120_vanguard_ci_live_http.py against the public preview URL (1.21s). Verified fail-closed default (503 when AUREM_CI_INGEST_TOKEN unset — confirmed in backend/.env that the live env var IS unset and the live POST returns 503 with detail 'CI ingest disabled — AUREM_CI_INGEST_TOKEN not configured'), wrong-bearer 401 (in fixture with token set), missing/empty field 400, unsupported-scanner 400, redaction (raw 'AKIAIOSFODNN7EXAMPLE' → 'AKIA…LE' stored, never persisted whole), verified/unverified count split + severity mapping (verified→critical, unverified→high), upsert idempotency on (repo, commit, scanner), and JWT-protected GET (401 no-auth, 200 with founder bearer returning {ok:true, runs:[]}). Router correctly mounted at /api/aurem-dev/vanguard/ci-findings (main.py:57 import, main.py:1171 include_router).",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "verified_passing": [
+    "UNIT 6/6 PASS (1.11s): test_ingest_rejects_without_token (503 fail-closed), test_ingest_rejects_wrong_token (401), test_ingest_persists_and_redacts (raw secret never in stored doc; aws_f['redacted'] startswith 'AKIA' + endswith 'LE'; verified=true→severity=critical, verified=false→severity=high; file/line preserved; verified_count=1, total_count=2), test_ingest_upserts_same_commit (two POSTs with same (repo,commit,scanner) → exactly one row), test_ingest_rejects_unknown_scanner (400 'unsupported scanner: trivy'), test_ingest_rejects_missing_fields (empty repo/commit → 400).",
+    "LIVE HTTP 5/5 PASS (1.21s) against https://launch-pad-237.preview.emergentagent.com: test_live_post_no_auth_returns_503_or_401 (POST without Authorization → 503 with detail 'CI ingest disabled — AUREM_CI_INGEST_TOKEN not configured'), test_live_post_with_wrong_bearer_still_503_when_token_unset (token unset → bearer ignored, 503), test_live_get_requires_jwt (GET without bearer → 401), test_live_get_with_invalid_jwt_rejected (bogus JWT → 401), test_live_get_with_valid_jwt_returns_runs_list (founder test@aurem.dev login OK, GET returns {ok:true, runs:[]} HTTP 200 — collection currently empty on preview, expected since no CI run has posted yet).",
+    "Backend .env confirmed: AUREM_CI_INGEST_TOKEN= (empty) — fail-closed is the active live behaviour, exactly as required by the user spec.",
+    "Router wiring confirmed: main.py:57 'from routers.vanguard_ci import router as vanguard_ci_router' and main.py:1171 'app.include_router(vanguard_ci_router, prefix=\"/api/aurem-dev\")'."
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m120_vanguard_ci_ingest.py",
+    "/app/backend/tests/test_iter212m120_vanguard_ci_live_http.py",
+    "/app/test_reports/pytest/iter212m120_results.xml",
+    "/app/test_reports/pytest/iter212m120_live_http.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "routers/vanguard_ci.py — Auth model is correct: hmac.compare_digest (constant-time) used for the shared-secret check, fail-closed when env var empty (HTTPException 503 BEFORE bearer parse), and explicit 'Bearer ' format validation. Cannot be tricked by length-difference timing attacks or malformed Authorization headers.",
+    "routers/vanguard_ci.py:_normalise_trufflehog — Defensive: rejects non-dict findings rows silently, coerces every field to str with length caps (detector 64, file 512, redacted 32, branch 128, commit 64, repo 256, run_url 512, triggered_by 128). Hard cap _MAX_FINDINGS=2000 prevents a runaway scan from bloating Mongo. Redaction logic is correct: >8 chars → first4…last2, 1-8 chars → '…', empty → ''. Original raw secret is NEVER written to the persisted doc (verified by `assert 'AKIAIOSFODNN7EXAMPLE' not in str(stored)`).",
+    "routers/vanguard_ci.py:ingest_ci_findings — Upsert is correctly keyed on (repo, commit, scanner) so re-runs of the same SHA do not stack duplicate rows. The verified_count is computed from the normalised list (post-validation), not from the raw input, so a malicious payload claiming verified=true on every row is bounded by trufflehog detector parsing.",
+    "routers/vanguard_ci.py:list_ci_findings — Scoped read: pulls own_repos from cto_projects via {user_id:current_user.user_id} projection (excludes _id correctly), enforces {repo:?} ∈ own_repos OR is_admin=true for explicit repo queries (403 cross-tenant block), defaults to {repo:{$in:own_repos}} for the list view, returns empty list for non-admin users with no projects. Findings array on the wire is capped at _MAX_FINDINGS_RESPONSE=200 with a 'truncated' flag to signal client-side pagination need. _id stripped from results via projection {_id:0}.",
+    "main.py:1171 — Router included with prefix '/api/aurem-dev', combined with router's own prefix='/vanguard' yields the final path /api/aurem-dev/vanguard/ci-findings exactly as specified in the GitHub Actions workflow.",
+    "ci.yml integration NOTE — Not testable in this env (runs in GH Actions), but the backend ingest contract is symmetric with the documented Phase 1 payload shape (repo, commit, branch, scanner='trufflehog', findings=jsonl rows, run_url, triggered_by) and the response shape (ok, stored, verified_count, total_count, upserted) is suitable for the workflow's 'fail CI only on VERIFIED secrets' gate (caller checks response.verified_count > 0).",
+    "MINOR — list_ci_findings authorization param declared as `authorization: str = Header(None)` but default value is None; type should be Optional[str] for strict mypy. Not a runtime bug — FastAPI handles None gracefully and current_dev() raises 401 cleanly. Cosmetic only.",
+    "MINOR — _normalise_trufflehog does `int(fs.get('line') or f.get('line') or 0)`; if a hostile payload supplies a non-numeric 'line' value the int() will raise ValueError 500. Not exploitable (caller must already hold the shared secret) but a try/except wrapper would harden it. Optional follow-up only."
+  ],
+
+  "updated_files": [
+    "/app/backend/tests/test_iter212m120_vanguard_ci_live_http.py (NEW — 5 live HTTP smoke tests against preview URL)"
+  ],
+
+  "success_rate": {
+    "backend": "100% — 11/11 tests pass (6 unit + 5 live HTTP)",
+    "frontend": "n/a — backend-only testing per problem statement"
+  },
+
+  "test_credentials": "Preview founder test@aurem.dev / AuremTest2026! used in test_live_get_with_valid_jwt_returns_runs_list — /auth/login HTTP 200, runs list returned empty as expected (no CI runs have posted to preview Mongo yet).",
+
+  "seed_data_creation": "None. Live HTTP probes only exercised read paths and fail-closed write paths (no state mutation on the live preview DB because POST always returned 503 due to AUREM_CI_INGEST_TOKEN being unset).",
+
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+
+  "context_for_next_testing_agent": "Phase 1 CI ingest endpoint is PRODUCTION-READY. The live preview backend has AUREM_CI_INGEST_TOKEN intentionally unset, which is the documented fail-closed default. To exercise the live happy-path POST against preview Mongo, the operator would need to: (1) set AUREM_CI_INGEST_TOKEN in backend/.env, (2) sudo supervisorctl restart backend, (3) POST with matching bearer. The 6 unit tests in test_iter212m120_vanguard_ci_ingest.py already cover the full happy-path against an in-memory fake Mongo, so live-DB verification is not strictly required. Phase 2 (Trivy + Semgrep sidecar containers via docker-compose) is documented in PRD.md but NOT shipped — do NOT test those features.",
+
+  "rca_of_the_issue": "No bugs found. Code review surfaced two cosmetic-only observations (Optional[str] type annotation on the GET endpoint's authorization Header, and a try/except wrapper around int(line) parsing for hostile payloads after auth) — both are non-exploitable and optional hardening only."
+}
