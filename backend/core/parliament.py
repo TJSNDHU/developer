@@ -39,6 +39,8 @@ import uuid
 from collections import deque
 from typing import Any, Optional
 
+from .observability import trace_llm  # Iter 212m-153 — safe Langfuse wrapper
+
 logger = logging.getLogger("aurem-dev.parliament")
 
 
@@ -316,47 +318,87 @@ class TaskRouter:
 async def _llm_call_protected(*, system: str, user: str, max_tokens: int,
                               mode: str, review_mode: str,
                               user_id: Optional[str] = None,
-                              temperature: float = 0.1) -> tuple[str, float, Optional[str]]:
+                              temperature: float = 0.1,
+                              trace_name: str = "parliament.llm_call",
+                              trace_metadata: Optional[dict] = None,
+                              ) -> tuple[str, float, Optional[str]]:
     """Make a single LLM call wrapped by the global semaphore + the
     circuit breaker's hard per-call timeout.
 
     Returns (content, latency_ms, error_str).  `error_str` is None on
     success, a short tag on failure (`"timeout"`, `"refused"`, or the
-    exception class name)."""
+    exception class name).
+
+    Iter 212m-153 — Every call is wrapped by a Langfuse generation
+    observation.  Silent no-op when Langfuse keys are not configured.
+    """
     from services.llm import call_llm_with_meta
     t0 = time.monotonic()
-    async with _GLOBAL_LLM_SEM:
-        try:
-            kwargs = dict(
-                system=system, user=user, max_tokens=max_tokens,
-                mode=mode, user_id=user_id, review_mode=review_mode,
-            )
+    md = {
+        "mode":        mode,
+        "review_mode": review_mode,
+        "temperature": temperature,
+        "max_tokens":  max_tokens,
+    }
+    if trace_metadata:
+        md.update(trace_metadata)
+    # Truncate the input for safety — Langfuse handles long strings
+    # but we don't need to ship 6 KB of self-heal context every time.
+    trace_input = {
+        "system_preview": (system or "")[:240],
+        "user_preview":   (user or "")[:1200],
+    }
+    with trace_llm(trace_name, input=trace_input, metadata=md) as span:
+        async with _GLOBAL_LLM_SEM:
             try:
-                meta = await asyncio.wait_for(
-                    call_llm_with_meta(temperature=temperature, **kwargs),
-                    timeout=ParliamentCircuitBreaker.TIMEOUT_PER_CALL,
+                kwargs = dict(
+                    system=system, user=user, max_tokens=max_tokens,
+                    mode=mode, user_id=user_id, review_mode=review_mode,
                 )
-            except TypeError:
-                # Older signature without temperature kwarg.
-                meta = await asyncio.wait_for(
-                    call_llm_with_meta(**kwargs),
-                    timeout=ParliamentCircuitBreaker.TIMEOUT_PER_CALL,
-                )
-        except asyncio.TimeoutError:
-            latency_ms = round((time.monotonic() - t0) * 1000, 1)
-            _GLOBAL_BREAKER.record_failure(latency_ms, kind="timeout")
-            return "", latency_ms, "timeout"
-        except Exception as e:                          # noqa: BLE001
-            latency_ms = round((time.monotonic() - t0) * 1000, 1)
-            _GLOBAL_BREAKER.record_failure(latency_ms, kind=type(e).__name__)
-            return "", latency_ms, f"{type(e).__name__}: {str(e)[:120]}"
-    latency_ms = round((time.monotonic() - t0) * 1000, 1)
-    content = (meta or {}).get("content", "") or ""
-    if not content.strip():
-        _GLOBAL_BREAKER.record_failure(latency_ms, kind="empty")
-        return "", latency_ms, "empty"
-    _GLOBAL_BREAKER.record_success(latency_ms)
-    return content, latency_ms, None
+                try:
+                    meta = await asyncio.wait_for(
+                        call_llm_with_meta(temperature=temperature, **kwargs),
+                        timeout=ParliamentCircuitBreaker.TIMEOUT_PER_CALL,
+                    )
+                except TypeError:
+                    # Older signature without temperature kwarg.
+                    meta = await asyncio.wait_for(
+                        call_llm_with_meta(**kwargs),
+                        timeout=ParliamentCircuitBreaker.TIMEOUT_PER_CALL,
+                    )
+            except asyncio.TimeoutError:
+                latency_ms = round((time.monotonic() - t0) * 1000, 1)
+                _GLOBAL_BREAKER.record_failure(latency_ms, kind="timeout")
+                span.set_metadata({"latency_ms": latency_ms, "error": "timeout"})
+                span.record_error("timeout")
+                return "", latency_ms, "timeout"
+            except Exception as e:                          # noqa: BLE001
+                latency_ms = round((time.monotonic() - t0) * 1000, 1)
+                _GLOBAL_BREAKER.record_failure(latency_ms, kind=type(e).__name__)
+                err_tag = f"{type(e).__name__}: {str(e)[:120]}"
+                span.set_metadata({"latency_ms": latency_ms, "error": err_tag})
+                span.record_error(e)
+                return "", latency_ms, err_tag
+        latency_ms = round((time.monotonic() - t0) * 1000, 1)
+        content = (meta or {}).get("content", "") or ""
+        if not content.strip():
+            _GLOBAL_BREAKER.record_failure(latency_ms, kind="empty")
+            span.set_metadata({"latency_ms": latency_ms, "error": "empty"})
+            span.record_error("empty_response")
+            return "", latency_ms, "empty"
+        _GLOBAL_BREAKER.record_success(latency_ms)
+        # Capture output + token usage (when llm meta provides it).
+        span.set_output(content[:2000])
+        usage_md = {"latency_ms": latency_ms}
+        try:
+            for k in ("input_tokens", "output_tokens", "total_tokens",
+                      "provider", "model"):
+                if isinstance(meta, dict) and meta.get(k) is not None:
+                    usage_md[k] = meta[k]
+        except Exception:
+            pass
+        span.set_metadata(usage_md)
+        return content, latency_ms, None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -386,6 +428,15 @@ class _CouncilMember:
             review_mode=self.review_mode,
             user_id=context.get("user_id"),
             temperature=self.temperature,
+            trace_name=f"parliament.council.{context.get('council', '?')}.{self.name}",
+            trace_metadata={
+                "trace_id":     context.get("parliament_trace_id"),
+                "council":      context.get("council"),
+                "member":       self.name,
+                "task_type":    context.get("task_type"),
+                "user_id":      context.get("user_id"),
+                "file_path":    context.get("file_path"),
+            },
         )
         if err:
             return {
@@ -709,6 +760,13 @@ class CEO:
             review_mode="swift",
             user_id=context.get("user_id"),
             temperature=temperature,
+            trace_name="parliament.ceo.judge",
+            trace_metadata={
+                "trace_id":   context.get("parliament_trace_id"),
+                "council":    context.get("council"),
+                "n_candidates": len(candidates),
+                "task_type":  context.get("task_type"),
+            },
         )
         if err:
             logger.warning("CEO judge LLM error: %s", err)
@@ -810,6 +868,12 @@ class SelfHeal:
             system=self.SYS_PROMPT, user=user_msg,
             max_tokens=2500, mode="code", review_mode="pro",
             temperature=temp,
+            trace_name="parliament.selfheal",
+            trace_metadata={
+                "round_num":   round_num,
+                "max_rounds":  max_rounds,
+                "temp":        temp,
+            },
         )
         if err:
             return {
@@ -869,6 +933,46 @@ class Parliament:
         trace_id = str(uuid.uuid4())[:8]
         ctx["parliament_trace_id"] = trace_id
 
+        # Iter 212m-153 — top-level Langfuse span so every child LLM
+        # observation (council members, CEO judge, self-heal, fallback)
+        # rolls up into a single trace per Parliament.run().  Silent
+        # no-op when Langfuse is disabled.
+        parent_meta = {
+            "trace_id":        trace_id,
+            "task_type":       ctx.get("task_type"),
+            "user_id":         ctx.get("user_id"),
+            "tenant_id":       ctx.get("tenant_id"),
+            "loop_session_id": ctx.get("loop_session_id"),
+            "file_path":       ctx.get("file_path"),
+        }
+        with trace_llm(
+            "parliament.run",
+            input={"task_preview": (task or "")[:600]},
+            metadata=parent_meta,
+            as_type="chain",
+        ) as parent_span:
+            decision = await self._run_inner(task, ctx, t0, trace_id)
+            try:
+                parent_span.set_output({
+                    "status":      decision.get("status"),
+                    "winner":      decision.get("winner"),
+                    "council":     decision.get("council"),
+                    "ceo_picked":  decision.get("ceo_picked"),
+                })
+                parent_span.set_metadata({
+                    "gateway_ms":               decision.get("gateway_ms"),
+                    "ceo_temp_key":             decision.get("ceo_temp_key"),
+                    "circuit_breaker_state":    decision.get("circuit_breaker_state"),
+                    "circuit_breaker_fallback": decision.get("circuit_breaker_fallback"),
+                })
+            except Exception:
+                pass
+            return decision
+
+    async def _run_inner(self, task: str, ctx: dict, t0: float,
+                          trace_id: str) -> dict:
+        """Inner pipeline kept separate from the Langfuse parent span
+        wrapper so the existing logic stays untouched and testable."""
         council_name = self.router.route(task, ctx)
         ctx["council"] = council_name
         self._log_event("route", trace_id, ctx, {
@@ -950,6 +1054,13 @@ class Parliament:
             max_tokens=4000, mode="code", review_mode="pro",
             user_id=context.get("user_id"),
             temperature=0.1,
+            trace_name="parliament.fallback_single",
+            trace_metadata={
+                "trace_id":   trace_id,
+                "reason":     "circuit_breaker_open",
+                "council":    context.get("council"),
+                "task_type":  context.get("task_type"),
+            },
         )
         gateway_ms = round((time.monotonic() - started) * 1000, 1)
         if err or not content.strip():

@@ -54,6 +54,7 @@ const AdminOverview     = lazy(() => import("./pages/AdminOverview"));
 const AdminIntegrations = lazy(() => import("./pages/AdminIntegrations"));
 const AdminFinancials   = lazy(() => import("./pages/AdminFinancials"));
 const AdminVanguard     = lazy(() => import("./pages/AdminVanguard"));
+const SystemStatsPage   = lazy(() => import("./pages/SystemStatsPage"));   // Iter 212m-153
 const FeatureWindow     = lazy(() => import("./pages/FeatureWindow"));  // Iter 212m-64
 const CodebaseHealth    = lazy(() => import("./pages/CodebaseHealth"));  // Iter 212m-72
 const BugHunt           = lazy(() => import("./pages/BugHunt"));        // Iter 212m-75
@@ -161,6 +162,8 @@ export default function App() {
           <Route path="/admin/integrations" element={<AdminIntegrations />} />
           <Route path="/admin/financials"   element={<AdminFinancials />} />
           <Route path="/admin/vanguard"     element={<AdminVanguard />} />
+          <Route path="/admin/system-stats" element={<SystemStatsPage />} />
+          <Route path="/admin/observability" element={<SystemStatsPage />} />
           <Route path="/feature-window"     element={<FeatureWindow />} />
           <Route path="/admin/system-map"   element={<FeatureWindow />} />
           <Route path="/codebase-health"    element={<CodebaseHealth />} />

@@ -338,19 +338,21 @@ _BACKEND = Path(__file__).resolve().parent.parent
 
 
 def test_parliament_wired_only_in_loop_engine_iter151():
-    hits = []
+    """Iter 212m-153 — same strict rule, but observability.py and
+    admin.py are read-only mentioners (the wrapper + the /system-stats
+    endpoint); only loop_engine.py may IMPORT Parliament."""
+    importers = []
     for p in _BACKEND.rglob("*.py"):
         try:
             text = p.read_text()
         except Exception:
             continue
-        if "parliament" in text.lower() or "Parliament" in text:
-            hits.append(p.relative_to(_BACKEND).as_posix())
-    hits = [h for h in hits if not h.startswith("tests/")]
-    assert sorted(hits) == [
-        "core/parliament.py",
+        if "from core.parliament import" in text or "from core import parliament" in text:
+            importers.append(p.relative_to(_BACKEND).as_posix())
+    importers = [h for h in importers if not h.startswith("tests/")]
+    assert sorted(importers) == [
         "services/loop_engine.py",
-    ], f"Parliament leaked into other modules: {hits}"
+    ], f"Parliament was imported outside loop_engine: {importers}"
 
 
 def test_phase_budgets_preserved():

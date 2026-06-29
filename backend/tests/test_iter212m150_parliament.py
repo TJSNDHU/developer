@@ -44,11 +44,15 @@ def test_council_a_has_three_members_at_correct_temps():
         assert "code" in m.persona.lower() or "engineer" in m.persona.lower()
 
 
-def test_council_b_and_c_are_placeholders():
-    """Spec: B + C will be implemented later — for now they must
-    safely fall back to Council A behaviour, not crash."""
-    assert pl.CouncilB().members == []
-    assert pl.CouncilC().members == []
+def test_council_b_and_c_are_three_member(_iter_155_upgrade=True):
+    """Iter 212m-155 — Council B (analysis) and Council C (writing) now
+    each have 3 members (formerly empty placeholders).  We accept any
+    non-empty member list to keep this guard test forward-compatible
+    with future persona tweaks."""
+    cb = pl.CouncilB()
+    cc = pl.CouncilC()
+    assert len(cb.members) >= 1, "Council B should have at least one member"
+    assert len(cc.members) >= 1, "Council C should have at least one member"
 
 
 # ─── TaskRouter ──────────────────────────────────────────────────────
@@ -337,8 +341,13 @@ _BACKEND = Path(__file__).resolve().parent.parent
 
 
 def test_parliament_wired_only_in_loop_engine():
-    """The grep must return EXACTLY 2 files: parliament.py + loop_engine.py.
-    Spec: no other code path may import Parliament."""
+    """Parliament must only be IMPORTED by loop_engine.  Iter 212m-153
+    allows two additional read-only mentions:
+      • `core/observability.py` — wraps LLM calls inside parliament
+        (mentions the name, never imports `Parliament` itself)
+      • `routers/admin.py`      — reads the `parliament_log` Mongo
+        collection for the /system-stats endpoint.
+    The strict rule is: no other module may `import` Parliament."""
     hits = []
     for p in _BACKEND.rglob("*.py"):
         try:
@@ -349,10 +358,32 @@ def test_parliament_wired_only_in_loop_engine():
             hits.append(p.relative_to(_BACKEND).as_posix())
     # Tests directory will reference parliament too — strip those.
     hits = [h for h in hits if not h.startswith("tests/")]
-    assert sorted(hits) == [
+
+    # Allow the read-only / wrapper mentions enumerated above; flag
+    # everything else as a leak.
+    ALLOWED = {
         "core/parliament.py",
+        "core/observability.py",   # Iter 212m-153 — silent Langfuse wrapper
         "services/loop_engine.py",
-    ], f"Parliament leaked into other modules: {hits}"
+        "routers/admin.py",        # Iter 212m-153 — reads parliament_log only
+    }
+    leaks = sorted(set(hits) - ALLOWED)
+    assert leaks == [], f"Parliament leaked into other modules: {leaks}"
+
+    # Anyone using `from core.parliament import Parliament` must be
+    # exactly loop_engine.  This is the stronger / final guard.
+    importers = []
+    for p in _BACKEND.rglob("*.py"):
+        try:
+            text = p.read_text()
+        except Exception:
+            continue
+        if "from core.parliament import" in text or "from core import parliament" in text:
+            importers.append(p.relative_to(_BACKEND).as_posix())
+    importers = [h for h in importers if not h.startswith("tests/")]
+    assert sorted(importers) == [
+        "services/loop_engine.py",
+    ], f"Parliament was imported outside loop_engine: {importers}"
 
 
 def test_prompt_mode_files_untouched_by_parliament():

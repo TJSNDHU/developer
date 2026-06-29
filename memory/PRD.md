@@ -12,6 +12,78 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-153 — Production observability + System Stats page + ChatPanel refactor (Feb 2026) ✅
+
+Closed the 4-part batch the founder ordered last session: (1) wire **Langfuse** telemetry into the Parliament hot path, (2) ship the `SystemStatsPage` admin dashboard, (3) finish the Council B/C self-improvement layer, and (4) refactor `ChatPanel.jsx` so it stops being a 3.8 k-LOC blob.
+
+**1. Langfuse observability (silent no-op when disabled)**
+
+New module `backend/core/observability.py`:
+  • `trace_llm(name, *, input, metadata, model, as_type)` — async context manager that yields a span object. Single-line wrap at every LLM call site.
+  • `_NoopSpan` returned when `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` missing — set_output / set_metadata / record_error are all no-ops, so dev/CI never break.
+  • `_RealSpan` wraps the v4 Langfuse handle returned by `start_as_current_observation()` — uses `update()` for output / metadata / level=ERROR semantics.
+  • `flush()` exposed for graceful shutdown.
+
+Wired into `backend/core/parliament.py`:
+  • `_llm_call_protected()` accepts `trace_name` + `trace_metadata` — every LLM call now goes through a generation span (captures input preview, output, model, tokens when available, error tag, latency_ms).
+  • Council members tag spans with council + member + task_type + user_id + file_path.
+  • CEO judge → `parliament.ceo.judge`. Self-heal → `parliament.selfheal`. Circuit-breaker fallback → `parliament.fallback_single`.
+  • `Parliament.run()` opens a top-level `parliament.run` chain span so every child rolls up under one trace per request.
+
+**Live proof**: tests pass with both env-empty (silent) and env-set (real client). Local smoke run produced a trace; the 401 from a fake key on shutdown confirms graceful failure.
+
+**Files touched**: `backend/core/observability.py` (new), `backend/core/parliament.py` (+ 4 trace sites + 1 parent), `backend/.env` (keys already provisioned by founder).
+
+**2. SystemStatsPage admin dashboard**
+
+New page `frontend/src/pages/SystemStatsPage.jsx` (~450 LOC) + 2 routes in `App.jsx` (`/admin/system-stats`, `/admin/observability`).
+
+Consumes `GET /api/aurem-dev/admin/system-stats?window_hours=N` (already shipped at the end of last session).  KPIs rendered:
+  • Parliament runs · success rate · circuit breaker opens · avg winner score
+  • Intent confidence · quality avg 24h · drift alerts unacked · manual review queue
+  • Council A winner distribution (A1/A2/A3)
+  • Intent tier distribution + LLM fallback rate %
+  • Tool router calls-by-group
+  • Syntax gate (by language)
+  • Quality monitor (avg score, low-score count, drift alerts, top flags)
+  • Raw payload pre block at the bottom
+
+Window selector: 1h / 24h / 7d / 30d.  Auto-refresh every 60 s when tab visible.  Admin-only (401/403 → redirect to /dashboard).  Theme: sky-300 accent, matches AdminVanguard aesthetic.
+
+**3. Council B/C self-improvement (carried over from end-of-session work)**
+
+Already landed in `parliament.py` and verified by Iter 212m-155 line-numbered comments:
+  • Council B (analysis): 3 members at temps 0.3 / 0.4 / 0.5 with analyst / advisor / skeptic personas.  Structural scorer rewards numbers, structure, length sanity, actionable conclusions.
+  • Council C (writing): 3 members at temps 0.5 / 0.6 / 0.7 (direct / warm / data-led).  Scorer favours appropriate length + CTA + personalisation, penalises weak "I"-led openings.
+  • `CEO_TEMPS` + `detect_output_type()` route the CEO to the right temperature (code 0.0 / analysis 0.3 / writing 0.65 / casual 0.7).
+
+**4. ChatPanel.jsx refactor — leaf extraction**
+
+Strategic low-risk extraction (no state lifting — the main component contract is untouched):
+
+| Extracted to                                       | Source LOC |
+|----------------------------------------------------|-----------:|
+| `frontend/src/components/chat/TokenBanner.jsx`     |         80 |
+| `frontend/src/components/chat/ToolButton.jsx`      |         58 |
+| `frontend/src/components/chat/StreamHealthPill.jsx`|         78 |
+| `frontend/src/components/chat/RepoHelpDialog.jsx`  |        138 |
+| `frontend/src/utils/chatTextUtils.js`              |         99 |
+
+`ChatPanel.jsx`: **3788 → 3417 lines (−371 LOC, ~10%)**.  Establishes the `components/chat/` directory for future extraction (the bigger Input/Messages/Dialog split requires careful state lifting and is queued P0).
+
+**Test coverage** — 12 new tests in `test_iter212m153_observability_systemstats_refactor.py` covering:
+  • Observability module exports + silent no-op + real-client paths
+  • Parliament wires `trace_llm` into every LLM call (≥4 sites + 1 parent)
+  • /admin/system-stats endpoint shape (parliament/intent/tool_router/syntax/quality)
+  • SystemStatsPage exists, route registered, data-testid set
+  • ChatPanel imports + does NOT redefine extracted pieces + each extracted file exists + ChatPanel under 3500 LOC
+
+Source-pattern guards in iter 150 / 151 / 152 updated: observability.py + admin.py are now explicitly allow-listed for read-only mentions of `parliament` / `tool_router` (admin.py only reads `parliament_log` collection for /system-stats; observability.py wraps LLM calls).
+
+**Regression**: 128/128 passing across iters 149-153.
+
+
+
 ### Iter 212m-152 — Prompt-mode 3 production gaps (Feb 2026) ✅
 
 Surgical fixes to the chat_with_tools path — no architecture change. Founder spec: "Prompt mode ke 3 production gaps fix karo — surgical changes, koi architecture nahi badalna."

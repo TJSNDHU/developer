@@ -289,8 +289,11 @@ def test_orchestrator_wires_trim_call_after_iter_two():
 # ─── No-regression — only the three expected files were touched ──────
 
 def test_only_expected_files_mention_tool_router():
-    """grep -rln tool_router /app/backend should return EXACTLY
-    core/tool_router.py + services/orchestrator.py."""
+    """tool_router must live in core/tool_router.py and be wired into
+    services/orchestrator.py.  Iter 212m-153 adds a read-only mention
+    inside routers/admin.py — the /system-stats endpoint reports a
+    derived tool-router-per-group distribution but never imports the
+    module."""
     hits = []
     for p in _BACKEND.rglob("*.py"):
         try:
@@ -301,10 +304,27 @@ def test_only_expected_files_mention_tool_router():
             hits.append(p.relative_to(_BACKEND).as_posix())
     # Tests directory references tool_router too — strip those.
     hits = [h for h in hits if not h.startswith("tests/")]
-    assert sorted(hits) == [
+    ALLOWED = {
         "core/tool_router.py",
         "services/orchestrator.py",
-    ], f"tool_router leaked into other modules: {hits}"
+        "routers/admin.py",   # Iter 212m-153 — read-only mention in /system-stats
+    }
+    leaks = sorted(set(hits) - ALLOWED)
+    assert leaks == [], f"tool_router leaked into other modules: {leaks}"
+
+    # Anyone importing tool_router must be exactly orchestrator.py.
+    importers = []
+    for p in _BACKEND.rglob("*.py"):
+        try:
+            text = p.read_text()
+        except Exception:
+            continue
+        if "from core.tool_router import" in text or "from core import tool_router" in text:
+            importers.append(p.relative_to(_BACKEND).as_posix())
+    importers = [h for h in importers if not h.startswith("tests/")]
+    assert sorted(importers) == [
+        "services/orchestrator.py",
+    ], f"tool_router imported outside orchestrator: {importers}"
 
 
 def test_intent_gateway_untouched_by_iter_152():
