@@ -44,6 +44,22 @@ export default function FixProgressDrawer() {
   const [phase,      setPhase]      = useState(null);  // last event
   const [terminal,   setTerminal]   = useState(null);
   const [error,      setError]      = useState(null);
+  // Iter 212m-128 — Live "proof of life" — keeps the user calm
+  // during long bulk fixes.
+  //   • startedAt    → drives the running mm:ss timer
+  //   • now          → ticks every second to re-render the timer
+  //   • lastEventAt  → millis since the last SSE phase event;
+  //                    drives a pulse dot.  If >5 s with no event
+  //                    we show a yellow "still working…" hint, if
+  //                    >30 s we surface a "connection slow" warning
+  //                    so the user knows we noticed.
+  //   • eventCount   → total SSE events received this job, displayed
+  //                    next to the clock as "127 events" so even a
+  //                    silent retry feels alive.
+  const [startedAt,   setStartedAt]   = useState(null);
+  const [now,         setNow]         = useState(() => Date.now());
+  const [lastEventAt, setLastEventAt] = useState(null);
+  const [eventCount,  setEventCount]  = useState(0);
   const esRef = useRef(null);
 
   // Listen for the global open event.
@@ -51,6 +67,7 @@ export default function FixProgressDrawer() {
     const onOpen = (e) => {
       const { job_id, total: t } = e.detail || {};
       if (!job_id) return;
+      const t0 = Date.now();
       setOpen(true);
       setJobId(job_id);
       setTotal(t || 1);
@@ -58,10 +75,24 @@ export default function FixProgressDrawer() {
       setPhase(null);
       setTerminal(null);
       setError(null);
+      setStartedAt(t0);
+      setLastEventAt(t0);
+      setEventCount(0);
+      setNow(t0);
     };
     window.addEventListener("aurem:open-fix-progress", onOpen);
     return () => window.removeEventListener("aurem:open-fix-progress", onOpen);
   }, []);
+
+  // Iter 212m-128 — One-second tick while the drawer is open so the
+  // running clock & "last event Xs ago" indicator update smoothly.
+  // Stops after the job hits a terminal state to avoid wasted
+  // renders on a static screen.
+  useEffect(() => {
+    if (!open || terminal) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [open, terminal]);
 
   // Wire SSE when a job_id is set.
   useEffect(() => {
@@ -87,6 +118,8 @@ export default function FixProgressDrawer() {
       try { data = JSON.parse(ev.data); }
       catch { return; }
       setPhase(data);
+      setLastEventAt(Date.now());
+      setEventCount((c) => c + 1);
       const fid = data.finding_id;
       if (fid && data.phase !== "done" && data.phase !== "job-start"
           && data.phase !== "heartbeat" && data.phase !== "gone") {
@@ -95,11 +128,35 @@ export default function FixProgressDrawer() {
           [fid]: {
             ...(s[fid] || {}),
             ...data,
+            // Track the retry counter separately so the row can show
+            // "Retry 2/3 …" — apply the latest attempt number from
+            // the retrying event without losing the original rule.
+            attempt:  data.phase === "retrying" ? data.attempt : (s[fid]?.attempt),
+            attempts_of: data.of ?? s[fid]?.attempts_of,
+            last_error:  data.phase === "retrying" ? data.last_error : (s[fid]?.last_error),
             // Track the most-advanced phase per finding so a stale
             // event can't regress the row.
             phase: data.phase,
           },
         }));
+      }
+      // Iter 212m-128 — Fan out a global event the moment a fix
+      // succeeds so the source list (CodebaseHealth page, Security
+      // drawer) can drop the finding + decrement its total
+      // immediately.  Parent listeners filter by finding_id, so
+      // this is safe even when multiple drawers are mounted.
+      if (data.phase === "fix-done" && data.ok === true) {
+        try {
+          window.dispatchEvent(new CustomEvent("aurem:finding-fixed", {
+            detail: {
+              finding_id: data.finding_id,
+              rule_id:    data.rule_id,
+              commit_sha: data.commit_sha,
+              html_url:   data.html_url,
+              file:       data.file,
+            },
+          }));
+        } catch { /* ignore */ }
       }
       if (data.phase === "done") {
         setTerminal(data);
@@ -127,6 +184,24 @@ export default function FixProgressDrawer() {
   const completed = terminal?.completed ?? rows.filter((r) => r.phase === "fix-done").length;
   const failed    = terminal?.failed    ?? rows.filter((r) => r.phase === "fix-done" && r.ok === false).length;
   const pct = total ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+
+  // Iter 212m-128 — Live proof-of-life metrics derived from clock+state.
+  const elapsedMs   = startedAt ? now - startedAt : 0;
+  const elapsedStr  = (() => {
+    const s = Math.floor(elapsedMs / 1000);
+    const m = Math.floor(s / 60);
+    return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  })();
+  const idleMs      = lastEventAt ? now - lastEventAt : 0;
+  // Pulse goes through green (<2 s ago) → amber (2-30 s) → red (>30 s)
+  // so the user can glance at the dot and instantly know if we're
+  // alive, slow, or stuck.
+  const pulseTone = (() => {
+    if (terminal) return "done";
+    if (idleMs < 2000)  return "alive";
+    if (idleMs < 30000) return "slow";
+    return "stuck";
+  })();
 
   return (
     <>
@@ -177,15 +252,58 @@ export default function FixProgressDrawer() {
                           : <ShieldCheck size={18} color="#86efac" />)
             : <Loader2 size={18} color="#fdba74" className="anim-spin" />}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>
-              {terminal ? "Fix complete" : "Fix in progress"}
+            <div style={{ fontSize: 14, fontWeight: 700,
+                          display: "flex", alignItems: "center", gap: 10 }}>
+              <span>{terminal ? "Fix complete" : "Fix in progress"}</span>
+              {/* Iter 212m-128 — Heartbeat pulse dot.  Greens while
+                  events flow in <2 s, amber while idle 2-30 s, red
+                  past 30 s of silence.  Always visible so the user
+                  can glance and see the system is working. */}
+              <span
+                data-testid={`fix-progress-pulse-${pulseTone}`}
+                style={{
+                  width: 8, height: 8, borderRadius: 999,
+                  background: pulseTone === "alive" ? "#86efac"
+                            : pulseTone === "slow"  ? "#fde68a"
+                            : pulseTone === "stuck" ? "#fca5a5"
+                            : "#475569",
+                  boxShadow: pulseTone === "alive"
+                    ? "0 0 0 0 rgba(134,239,172,0.7)"
+                    : "none",
+                  animation: pulseTone === "alive"
+                    ? "pulseDot 1.0s infinite" : (
+                    pulseTone === "slow"  ? "pulseDot 2.0s infinite" : "none"
+                  ),
+                }}
+              />
             </div>
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2,
-                          fontFamily: "'JetBrains Mono', monospace" }}>
-              {terminal
-                ? `${completed - failed} fixed · ${failed} failed · ${total} total`
-                : `${completed}/${total} ${total === 1 ? "finding" : "findings"}`}
-              <span style={{ marginLeft: 8 }}>job <code>{jobId?.slice(0, 10)}</code></span>
+                          fontFamily: "'JetBrains Mono', monospace",
+                          display: "flex", alignItems: "center", gap: 10,
+                          flexWrap: "wrap" }}>
+              <span>
+                {terminal
+                  ? `${completed - failed} fixed · ${failed} failed · ${total} total`
+                  : `${completed}/${total} ${total === 1 ? "finding" : "findings"}`}
+              </span>
+              {/* Running mm:ss clock — proof the job is actually
+                  running, not silently dead. */}
+              <span data-testid="fix-progress-clock"
+                    style={{ color: terminal ? "#94a3b8" : "#fdba74" }}>
+                ⏱ {elapsedStr}
+              </span>
+              <span data-testid="fix-progress-events">
+                {eventCount} events
+              </span>
+              {!terminal && pulseTone === "slow" && (
+                <span style={{ color: "#fde68a" }}>still working…</span>
+              )}
+              {!terminal && pulseTone === "stuck" && (
+                <span style={{ color: "#fca5a5" }}>
+                  connection slow — {Math.floor(idleMs / 1000)}s idle
+                </span>
+              )}
+              <span>job <code>{jobId?.slice(0, 10)}</code></span>
             </div>
           </div>
           <button
@@ -237,7 +355,7 @@ export default function FixProgressDrawer() {
             const meta = PHASE_META[r.phase] || PHASE_META.queued;
             const Icon = meta.Icon;
             const isDone = r.phase === "fix-done";
-            const ok = r.ok !== false && (r.commit_sha || isDone);
+            const isRetrying = r.phase === "retrying";
             return (
               <div
                 key={r.finding_id || r.index}
@@ -246,11 +364,11 @@ export default function FixProgressDrawer() {
                   padding: 12, marginBottom: 8, borderRadius: 8,
                   background: isDone
                     ? (r.ok === false ? "rgba(239,68,68,0.06)" : "rgba(34,197,94,0.06)")
-                    : "rgba(255,255,255,0.02)",
+                    : (isRetrying ? "rgba(250,204,21,0.06)" : "rgba(255,255,255,0.02)"),
                   border: `1px solid ${
                     isDone
                       ? (r.ok === false ? "rgba(239,68,68,0.25)" : "rgba(34,197,94,0.30)")
-                      : "rgba(255,255,255,0.06)"}`,
+                      : (isRetrying ? "rgba(250,204,21,0.35)" : "rgba(255,255,255,0.06)")}`,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8,
@@ -266,15 +384,39 @@ export default function FixProgressDrawer() {
                   <span style={{
                     color: isDone
                       ? (r.ok === false ? "#fca5a5" : "#86efac")
-                      : meta.color,
+                      : (isRetrying ? "#fde68a" : meta.color),
                     fontWeight: 600,
                   }}>
                     {isDone
                       ? (r.ok === false ? "Failed" : "Fixed")
-                      : meta.label}
+                      : (isRetrying
+                          ? `Retry ${r.attempt}/${r.attempts_of || 3}`
+                          : meta.label)}
                   </span>
                   <span style={{ color: "#94a3b8" }}>·</span>
                   <code style={{ color: "#cbd5e1" }}>{r.rule_id}</code>
+                  {/* Iter 212m-128 — Retry counter badge.  Shown
+                      while the row is mid-retry; reveals the last
+                      error so the user understands why we tried
+                      again instead of trusting that "Retry 2/3" is
+                      enough. */}
+                  {isRetrying && r.last_error && (
+                    <span
+                      data-testid={`fix-row-retry-error-${r.finding_id}`}
+                      style={{
+                        marginLeft: "auto", fontSize: 10,
+                        padding: "1px 6px", borderRadius: 999,
+                        background: "rgba(250,204,21,0.10)",
+                        color: "#fde68a",
+                        border: "1px solid rgba(250,204,21,0.30)",
+                        maxWidth: 220, overflow: "hidden",
+                        whiteSpace: "nowrap", textOverflow: "ellipsis",
+                      }}
+                      title={r.last_error}
+                    >
+                      {r.last_error.slice(0, 32)}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: "#94a3b8",
                               fontFamily: "'JetBrains Mono', monospace" }}>

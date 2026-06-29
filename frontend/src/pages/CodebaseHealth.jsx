@@ -308,6 +308,45 @@ export default function CodebaseHealth() {
     })();
   }, []);
 
+  // Iter 212m-128 — Listen for the global `aurem:finding-fixed`
+  // event fired by FixProgressDrawer the moment a real GitHub
+  // commit lands.  We drop the matching finding from the
+  // breakdown + decrement the total + nudge the health score
+  // upward so the page shows live forward progress without
+  // waiting for a re-scan.  Idempotent — re-firing for the same
+  // finding_id is a no-op because it's already gone.
+  useEffect(() => {
+    function onFixed(e) {
+      const fid = e?.detail?.finding_id;
+      if (!fid) return;
+      setData((d) => {
+        if (!d) return d;
+        const nb = { ...(d.breakdown || {}) };
+        let dropped = false;
+        for (const cat of Object.keys(nb)) {
+          const before = (nb[cat].findings || []).length;
+          const after = (nb[cat].findings || []).filter((x) => x.id !== fid);
+          if (after.length === before) continue;
+          dropped = true;
+          // Re-derive the per-severity counters so the section
+          // labels (e.g. "🔴 CRITICAL (5)") stay accurate.
+          const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+          for (const f of after) counts[f.severity] = (counts[f.severity] || 0) + 1;
+          nb[cat] = { ...nb[cat],
+            findings: after,
+            total: Math.max(0, after.length),
+            counts };
+        }
+        if (!dropped) return d;
+        return { ...d, breakdown: nb,
+          total: Math.max(0, (d.total || 0) - 1),
+          score: Math.min(100, (d.score || 0) + 2) };
+      });
+    }
+    window.addEventListener("aurem:finding-fixed", onFixed);
+    return () => window.removeEventListener("aurem:finding-fixed", onFixed);
+  }, []);
+
   async function runScan(categories) {
     if (!projectId) {
       setError("Connect a project first from the dashboard.");
@@ -350,22 +389,12 @@ export default function CodebaseHealth() {
           detail: { job_id: payload.job_id, total: 1 },
         }));
         setError(null);
-        // Optimistically dim the row; the drawer surfaces the real
-        // outcome (commit URL on success, error message on fail).
-        setTimeout(() => {
-          setData((d) => {
-            if (!d) return d;
-            const nb = { ...d.breakdown };
-            for (const cat of Object.keys(nb)) {
-              nb[cat] = { ...nb[cat],
-                findings: (nb[cat].findings || []).filter((x) => x.id !== f.id),
-                total: Math.max(0, (nb[cat].total || 0) - 1) };
-            }
-            return { ...d, breakdown: nb,
-              total: Math.max(0, (d.total || 0) - 1),
-              score: Math.min(100, (d.score || 0) + 2) };
-          });
-        }, 800);
+        // Iter 212m-128 — The optimistic 800 ms removeFromList()
+        // here was REMOVED.  Live decrement now happens via the
+        // global `aurem:finding-fixed` event listener above which
+        // fires only on REAL successful commit (driven by SSE
+        // `fix-done ok:true`).  Failed/retried fixes correctly
+        // stay in the list until they actually succeed.
       } else {
         setError("No job_id returned");
       }

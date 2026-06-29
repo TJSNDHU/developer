@@ -33,6 +33,11 @@ const SEV_COLORS = {
   high:     { bg: "rgba(249,115,22,0.10)", fg: "#fdba74", border: "rgba(249,115,22,0.45)" },
   medium:   { bg: "rgba(250,204,21,0.10)", fg: "#fde68a", border: "rgba(250,204,21,0.42)" },
   low:      { bg: "rgba(125,211,252,0.10)", fg: "#bae6fd", border: "rgba(125,211,252,0.42)" },
+  // Iter 212m-129 — "Other" tile catches findings whose severity is
+  // null / unset / not one of the 4 standard buckets (e.g. info,
+  // unknown, '').  Without this the per-severity tiles total can
+  // come up short of `Fix all N →` button count.
+  other:    { bg: "rgba(148,163,184,0.08)", fg: "#cbd5e1", border: "rgba(148,163,184,0.30)" },
 };
 
 // Pill chip style used by the two-round stats strip (Iter 212m-66).
@@ -196,6 +201,43 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
       fetchScan(false);
     }
   }, [open, projectId, fetchScan]);
+
+  // Iter 212m-128 — Listen for the global `aurem:finding-fixed`
+  // event fired by FixProgressDrawer when a real commit lands.
+  // Drop the matching finding + decrement the summary counters
+  // live so the user sees the bug count tick down without waiting
+  // for a re-scan.  By-severity and by-vuln aggregates are
+  // re-derived from the surviving rows.
+  useEffect(() => {
+    function onFixed(e) {
+      const fid = e?.detail?.finding_id;
+      if (!fid) return;
+      setData((d) => {
+        if (!d) return d;
+        const before = d.findings || [];
+        const after = before.filter((x) => (x.id || x.rule_id) !== fid);
+        if (after.length === before.length) return d;
+        const by_severity = {};
+        const by_vuln     = {};
+        for (const f of after) {
+          by_severity[f.severity] = (by_severity[f.severity] || 0) + 1;
+          if (f.vuln) by_vuln[f.vuln] = (by_vuln[f.vuln] || 0) + 1;
+        }
+        return {
+          ...d,
+          findings: after,
+          summary: {
+            ...(d.summary || {}),
+            total:       after.length,
+            by_severity,
+            by_vuln,
+          },
+        };
+      });
+    }
+    window.addEventListener("aurem:finding-fixed", onFixed);
+    return () => window.removeEventListener("aurem:finding-fixed", onFixed);
+  }, []);
 
   if (!open) return null;
 
@@ -438,38 +480,61 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                   ⚡ Fix all {(data.findings || []).length} →
                 </button>
               )}
-              {/* Summary tiles */}
-              <div
-                data-testid="security-scan-summary"
-                style={{
-                  display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: 8, marginBottom: 16,
-                }}
-              >
-                {SEV_ORDER.map((sev) => {
-                  const n = summary.by_severity?.[sev] || 0;
-                  const c = SEV_COLORS[sev];
-                  return (
-                    <div
-                      key={sev}
-                      data-testid={`security-scan-tile-${sev}`}
-                      style={{
-                        padding: "10px 8px", borderRadius: 8,
-                        background: c.bg, border: `1px solid ${c.border}`,
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: 18, fontWeight: 700, color: c.fg }}>{n}</div>
-                      <div style={{
-                        fontSize: 10, color: c.fg, opacity: 0.85,
-                        textTransform: "uppercase", letterSpacing: 0.6, marginTop: 2,
-                      }}>
-                        {sev}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {/* Summary tiles.  Iter 212m-129: a fifth "Other"
+                  tile renders ONLY when the total of the 4 known
+                  severities is short of `findings.length` — this
+                  guarantees the tile totals always equal the `Fix
+                  all N →` button count, surfacing the gap instead
+                  of hiding it. */}
+              {(() => {
+                const total4 = SEV_ORDER.reduce(
+                  (n, s) => n + (summary.by_severity?.[s] || 0), 0,
+                );
+                const totalAll = (data.findings || []).length;
+                const otherCount = Math.max(0, totalAll - total4);
+                const tiles = otherCount > 0
+                  ? [...SEV_ORDER, "other"]
+                  : SEV_ORDER;
+                return (
+                  <div
+                    data-testid="security-scan-summary"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${tiles.length}, 1fr)`,
+                      gap: 8, marginBottom: 16,
+                    }}
+                  >
+                    {tiles.map((sev) => {
+                      const n = sev === "other"
+                        ? otherCount
+                        : (summary.by_severity?.[sev] || 0);
+                      const c = SEV_COLORS[sev];
+                      return (
+                        <div
+                          key={sev}
+                          data-testid={`security-scan-tile-${sev}`}
+                          title={sev === "other"
+                            ? `${otherCount} findings without a critical/high/medium/low severity (info, unknown, or null). Included in 'Fix all'.`
+                            : undefined}
+                          style={{
+                            padding: "10px 8px", borderRadius: 8,
+                            background: c.bg, border: `1px solid ${c.border}`,
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 18, fontWeight: 700, color: c.fg }}>{n}</div>
+                          <div style={{
+                            fontSize: 10, color: c.fg, opacity: 0.85,
+                            textTransform: "uppercase", letterSpacing: 0.6, marginTop: 2,
+                          }}>
+                            {sev}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Meta strip */}
               <div style={{

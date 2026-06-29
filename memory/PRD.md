@@ -12,6 +12,45 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-128 / 129 — Live "proof of life" + tile-count parity (Feb 2026) ✅
+
+Two operational fixes shipped in one pass:
+
+**128 — Auto-restart on per-finding failure + live UI proof**
+
+Backend `routers/fix_pipeline.py`:
+- New constants `_MAX_FIX_ATTEMPTS = 3`, backoffs `(1.0, 2.5, 5.0) s`, and `_TERMINAL_ERROR_CODES = {github_credentials_missing, github_unauthorized, insufficient_tokens, insufficient_tokens_midbatch, file_too_large}` — terminal codes skip the retry loop because retrying won't help.
+- `_run_bulk_job` per-finding loop now wraps `apply_finding_fix` in a `for attempt in range(1, _MAX_FIX_ATTEMPTS + 1)` block. On non-terminal failure: emits `retrying {attempt, of, last_error, backoff_s}`, sleeps with backoff, retries. Surface attempts count on final `fix-done` event.
+
+Frontend `components/FixProgressDrawer.jsx`:
+- **Running clock** — `⏱ 02:14` mm:ss timer, orange while running, dim after terminal. Drives a 1-second `setInterval` only while the job is in-flight.
+- **Heartbeat pulse dot** — small dot in the header that's green/pulsing while events stream in (idle < 2 s), amber/slower-pulsing while idle 2–30 s with "still working…" hint, red while idle > 30 s with "connection slow — Ns idle" warning. Tone driven by `Date.now() - lastEventAt`.
+- **Event counter** — `127 events` next to the clock so even a silent retry feels alive.
+- **Retry counter on rows** — when a row is `retrying`, it renders `Retry 2/3 · {first 32 chars of last_error}` as an amber pill with a `title=` tooltip showing the full error string.
+- Row background flips amber during a retry, green on `fix-done ok`, red on `fix-done !ok`.
+
+**Bug count decrement on real success**
+
+New global event `aurem:finding-fixed {finding_id, rule_id, commit_sha, html_url, file}` fired from the SSE drawer the moment a real GitHub commit lands (`fix-done ok:true`).
+- `pages/CodebaseHealth.jsx` listens and drops the finding from `data.breakdown`, recomputes per-severity counters per category, decrements `data.total`, nudges `data.score` upward.
+- `components/SecurityScanDrawer.jsx` listens and drops the finding from `data.findings`, recomputes `summary.by_severity` + `summary.by_vuln`, updates `summary.total`.
+- The old brittle `setTimeout(800ms)` optimistic remove in `fixOne()` was deleted — live decrement is now driven by REAL success only. Failed/retried fixes correctly stay in the list until they succeed.
+
+**129 — "Other" severity tile (tile-count parity)**
+
+When `critical + high + medium + low < findings.length` (e.g. Trufflehog scan showed `Fix all 172` but 55+15+47+0=117), `SecurityScanDrawer` now renders a 5th **"OTHER"** tile (gray) showing the gap (`172 - 117 = 55`). Tile grid auto-switches from `repeat(4,1fr)` → `repeat(5,1fr)`. Tooltip explains: *"55 findings without a critical/high/medium/low severity (info, unknown, or null). Included in 'Fix all'."*
+
+The 4-tile grid is preserved when there are no unknown-severity findings.
+
+**Live preview probe**: Bulk job of 2 findings → drawer rendered with `⏱ 00:00 · 10 events` + green pulse dot during run, transitioned to gray dot + `Fix complete` summary `0 fixed · 2 failed · 2 total · 1 batches of 10` once done. Failures = honest `github_credentials_missing` (terminal, no retries). Lint green across all 5 touched files.
+
+**Tests**: 22/22 backend pytest GREEN — covers `test_iter212m121_fix_pipeline.py` (11), `test_iter212m125_repo_status.py` (5), `test_iter212m126_repo_heal.py` (6).
+
+**Files touched**
+- MODIFIED: `backend/routers/fix_pipeline.py`, `frontend/src/components/FixProgressDrawer.jsx`, `frontend/src/components/SecurityScanDrawer.jsx`, `frontend/src/pages/CodebaseHealth.jsx`
+
+
+
 ### Iter 212m-127 — Batched bulk fix with severity interleave (Feb 2026) ✅
 
 **What changed**: The old hard cap of 50 findings per bulk fix is gone. Bulk fix now accepts up to 500 findings, server-side chunks them into batches of 10, and interleaves severities so every batch carries a mix of critical / high / medium / low fixes — exactly per founder spec.

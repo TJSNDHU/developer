@@ -77,6 +77,26 @@ TOKEN_USD_RATE = 0.0001         # 1 token = $0.0001 → 10 000 tokens = $1
 _BULK_BATCH_SIZE          = 10
 _INTER_BATCH_BREATHE_S    = 1.5
 _SEVERITY_BUCKET_ORDER    = ("critical", "high", "medium", "low")
+
+# Iter 212m-128 — Auto-restart on per-finding failure.  We attempt
+# each finding up to _MAX_FIX_ATTEMPTS times with exponential
+# backoff between attempts.  Certain error codes are TERMINAL and
+# bypass the retry loop because no amount of retrying will help:
+#   • github_credentials_missing — no token to push with
+#   • github_unauthorized        — token is bad, won't auto-fix here
+#   • insufficient_tokens*       — wallet empty, retry won't help
+#   • file_too_large             — won't fit in the LLM context
+# Everything else (LLM hallucinated a no-op patch, network blip,
+# unhandled exception, transient GitHub 5xx) IS retried.
+_MAX_FIX_ATTEMPTS         = 3
+_RETRY_BACKOFFS_S         = (1.0, 2.5, 5.0)
+_TERMINAL_ERROR_CODES     = frozenset({
+    "github_credentials_missing",
+    "github_unauthorized",
+    "insufficient_tokens",
+    "insufficient_tokens_midbatch",
+    "file_too_large",
+})
 # Token cost per category — must stay in sync with the CATS array in
 # frontend/src/pages/CodebaseHealth.jsx.
 _CATEGORY_TOKEN_COST = {
@@ -264,17 +284,40 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 total_charged += cost
 
             fjm.emit(job_id, "reading", finding_id=finding_id, file=path)
-            # NOTE: apply_finding_fix already runs read → llm patch →
-            # re-validate → commit → draft PR in sequence.  We bracket
-            # the call with phase markers so the UI can show staged
-            # progress; the actual sub-steps are opaque inside the fn.
-            try:
-                res = await apply_finding_fix(
-                    db=db, user=user, project_id=project_id, finding=finding,
-                )
-            except Exception as e:                                # noqa: BLE001
-                logger.exception("bulk fix raised for finding=%s", finding_id)
-                res = {"ok": False, "error": f"unhandled: {e}"}
+            # Iter 212m-128 — Per-finding auto-retry.  We loop up to
+            # _MAX_FIX_ATTEMPTS times, bailing early on terminal
+            # error codes (see _TERMINAL_ERROR_CODES) where retrying
+            # is pointless.  Each retry emits a `retrying` SSE event
+            # so the drawer renders the attempt counter and the UI
+            # never feels stuck on a hung step.
+            res = None
+            last_err = None
+            for attempt in range(1, _MAX_FIX_ATTEMPTS + 1):
+                try:
+                    res = await apply_finding_fix(
+                        db=db, user=user, project_id=project_id, finding=finding,
+                    )
+                except Exception as e:                            # noqa: BLE001
+                    logger.exception("bulk fix raised for finding=%s "
+                                     "attempt=%d", finding_id, attempt)
+                    res = {"ok": False, "error": f"unhandled: {e}"}
+                if res.get("ok"):
+                    break
+                last_err = res.get("error") or "unknown"
+                if last_err in _TERMINAL_ERROR_CODES:
+                    # No point retrying — surface the real reason.
+                    break
+                if attempt >= _MAX_FIX_ATTEMPTS:
+                    break
+                # Emit a retry event so the UI shows "Retry 2/3 …"
+                # and the user has visible proof the system is still
+                # working (instead of silently hanging on a fail).
+                backoff = _RETRY_BACKOFFS_S[min(attempt - 1, len(_RETRY_BACKOFFS_S) - 1)]
+                fjm.emit(job_id, "retrying",
+                         finding_id=finding_id, attempt=attempt + 1,
+                         of=_MAX_FIX_ATTEMPTS, last_error=last_err,
+                         backoff_s=backoff, file=path, rule_id=rule_id)
+                await asyncio.sleep(backoff)
 
             if not res.get("ok"):
                 # Refund the per-finding deduction on failure.
@@ -290,6 +333,7 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 fjm.emit(job_id, "fix-done",
                          ok=False, finding_id=finding_id,
                          error=res.get("error") or "unknown",
+                         attempts=_MAX_FIX_ATTEMPTS,
                          file=path, rule_id=rule_id)
                 continue
 
