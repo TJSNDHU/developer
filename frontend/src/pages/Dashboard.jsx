@@ -76,6 +76,13 @@ function DashboardV2Body() {
   // v2 chrome state ----------------------------------------------------
   const [projects,         setProjects]         = useState([]);
   const [tab,              setTab]              = useState("Chat");
+  // Iter 212m-143 — Track preview window state so the topbar "Preview"
+  // tab can TOGGLE: click once → open, click again → close. Previously
+  // every click hard-set `open: true` so a second click was a no-op.
+  // ChatPanel broadcasts `aurem:preview-state-changed` on every state
+  // flip (incl. auto-open when a code reply lands), so we just mirror
+  // that here as the source of truth for the button's effective state.
+  const [previewOpen,      setPreviewOpen]      = useState(false);
   // Iter 212m-97 — mode pill state is now SHARED with ChatPanel via a
   // custom event bridge. Default reads from localStorage so we land on
   // the same value the chat composer sees on first paint.
@@ -314,9 +321,35 @@ function DashboardV2Body() {
     window.dispatchEvent(new CustomEvent("aurem:chat-session-reset"));
   }, []);
   const handleTogglePreview = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
-      detail: { open: true },
-    }));
+    // Iter 212m-143 — flip the state instead of hard-setting open:true
+    // so consecutive clicks on the topbar Preview tab actually toggle
+    // the panel open/closed (Claude-style behaviour).
+    setPreviewOpen((cur) => {
+      const next = !cur;
+      window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
+        detail: { open: next },
+      }));
+      // When closing the preview we should also re-select the Chat tab
+      // so the topbar's "active" highlight follows the visible state.
+      if (!next) setTab("Chat");
+      return next;
+    });
+  }, []);
+
+  // Iter 212m-143 — keep our local `previewOpen` mirror in sync with
+  // ChatPanel's authoritative state (which can flip on its own when a
+  // code reply lands, when a project with `preview_url` is selected,
+  // or when the user hits the Hide button inside the preview panel).
+  useEffect(() => {
+    const onState = (e) => {
+      const open = !!e?.detail?.open;
+      setPreviewOpen(open);
+      // If the panel closed for any reason, the Preview tab shouldn't
+      // stay highlighted as "active".
+      if (!open) setTab((cur) => (cur === "Preview" ? "Chat" : cur));
+    };
+    window.addEventListener("aurem:preview-state-changed", onState);
+    return () => window.removeEventListener("aurem:preview-state-changed", onState);
   }, []);
 
   // Iter 212m-124 — Two sidebar states now:
@@ -368,8 +401,18 @@ function DashboardV2Body() {
           <TopBar
             tab={tab}
             onTabChange={(next) => {
+              // Iter 212m-143 — if user clicks the Preview tab while
+              // the preview is ALREADY visible, treat that as "hide"
+              // (Claude-style toggle). Otherwise: open it.
+              if (next === "Preview") {
+                handleTogglePreview();
+                // If the preview was already open, the toggle will
+                // close it and reset tab → "Chat" inside the callback.
+                // Don't double-write tab here.
+                if (!previewOpen) setTab("Preview");
+                return;
+              }
               setTab(next);
-              if (next === "Preview") handleTogglePreview();
               if (next === "Graph") {
                 // Iter 212m-106 — opens the existing GraphPanel drawer
                 // (force-directed nodes of the active project's repo).

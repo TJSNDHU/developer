@@ -12,6 +12,38 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-143 — Topbar Preview tab toggle behaviour (Feb 2026) ✅
+
+**Founder spec**: clicking the topbar **Preview** tab should TOGGLE the preview window — first click opens, second click closes. Previously every click dispatched `aurem:toggle-preview { open: true }`, so a second click was a no-op (user had to use the `Hide` button inside the panel itself).
+
+**Fix** in `pages/Dashboard.jsx`:
+- New `previewOpen` state (mirrors ChatPanel's authoritative `previewOpen` via the existing `aurem:preview-state-changed` broadcast).
+- `handleTogglePreview` now flips state instead of hard-setting open. Dispatches the computed `next` value as the event payload.
+- Tab click handler routes "Preview" through `handleTogglePreview` — so clicking the tab while preview is open closes it (and resets the tab highlight to "Chat").
+- `useEffect` listens to `aurem:preview-state-changed` so the topbar's tab-highlight follows the real panel state even when ChatPanel auto-opens preview (e.g. when a code reply lands).
+
+**Live E2E verification** on preview env (DOM probe counting `LIVE PREVIEW` occurrences):
+
+| Click | Count | Expected |
+|---|---|---|
+| Initial | 0 | ✅ closed |
+| Click 1 (open) | 1 | ✅ opens |
+| Click 2 (close) | 0 | ✅ closes |
+| Click 3 (reopen) | 1 | ✅ reopens |
+
+**Test coverage** — `backend/tests/test_iter212m143_preview_toggle.py` (5 new contract tests):
+- `previewOpen` state exists in Dashboard
+- `handleTogglePreview` uses `setPreviewOpen((cur) => !cur)` flip (NOT hard-coded `true`)
+- Old `detail: { open: true }` payload is gone
+- `aurem:preview-state-changed` listener wired (sync source of truth from ChatPanel)
+- ChatPanel's existing event listener contract unchanged
+
+**Regression**: 5/5 GREEN.
+
+**Files touched**: `frontend/src/pages/Dashboard.jsx`, `backend/tests/test_iter212m143_preview_toggle.py` (new).
+
+
+
 ### Iter 212m-142 — Loop Execute wrong-files CRITICAL bug fix (Feb 2026) 🚨✅
 
 **Live PROD reproduction during founder QA**:
