@@ -106,6 +106,38 @@ async def confirm_loop(loop_id: str, body: ConfirmBody,
     }
 
 
+@router.post("/{loop_id}/confirm-ship")
+async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
+                                authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 212m-111 — Manual Ship gate. The engine pauses at
+    PAUSED_FOR_USER/phase=ship with data.kind='awaiting_ship' once
+    Execute/Verify/Scan are clean. The frontend then renders the
+    "Ship to GitHub" button; clicking it POSTs here with
+    approved=true and the engine runs the actual GitHub commit.
+    `approved=false` cancels the ship (loop → ABORTED, nothing
+    pushed). Founder spec: NO auto-ship — always manual."""
+    user = await current_dev(authorization)
+    engine = eng.lookup(loop_id)
+    if engine is None:
+        raise HTTPException(404, "Loop not found or already finished")
+    if engine.user_id != user["user_id"]:
+        raise HTTPException(403, "Not your loop")
+    try:
+        # Run as a background task so the HTTP response doesn't block
+        # on the GitHub commit (which can take 3-10s). The SSE stream
+        # already delivers the COMPLETED / FAILED event to the UI.
+        import asyncio as _asyncio
+        _asyncio.create_task(engine.confirm_ship(body.approved))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {
+        "loop_id":  loop_id,
+        "approved": body.approved,
+        "state":    engine.state.value,
+        "phase":    engine.phase,
+    }
+
+
 @router.post("/{loop_id}/pause-response")
 async def pause_response(loop_id: str, body: PauseResponseBody,
                          authorization: Optional[str] = Header(None)) -> dict:

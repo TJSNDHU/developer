@@ -32,7 +32,7 @@
  *     right is the real Ask Advisor — fires aurem:ora-open)
  *   • Mock Ship modal (real ship flow lives inside ChatPanel)
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Shell, { useChatSession } from "../components/Shell";
 import ChatPanel from "../components/ChatPanel";
@@ -106,44 +106,11 @@ function DashboardV2Body() {
   const [healthScore,      setHealthScore]      = useState(null);
   const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
 
-  // Iter 212m-99 — Theme cycle (dark/light/auto). The TopBar button
-  // dispatches `aurem:theme-changed`; we apply `data-theme` on the
-  // .ds2-root container. For "auto" we resolve to the OS preference
-  // live via matchMedia.
-  const [theme, setTheme] = useState(() => {
-    try {
-      const v = localStorage.getItem("aurem_theme");
-      return ["dark", "light", "auto"].includes(v) ? v : "dark";
-    } catch { return "dark"; }
-  });
-  useEffect(() => {
-    const onChanged = (e) => {
-      const t = e?.detail?.theme;
-      if (["dark", "light", "auto"].includes(t)) setTheme(t);
-    };
-    window.addEventListener("aurem:theme-changed", onChanged);
-    return () => window.removeEventListener("aurem:theme-changed", onChanged);
-  }, []);
-  const [systemPrefersLight, setSystemPrefersLight] = useState(() => {
-    try {
-      return typeof window !== "undefined"
-        && window.matchMedia?.("(prefers-color-scheme: light)")?.matches === true;
-    } catch { return false; }
-  });
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    const onChange = (e) => setSystemPrefersLight(e.matches);
-    try { mq.addEventListener("change", onChange); }
-    catch { mq.addListener?.(onChange); }
-    return () => {
-      try { mq.removeEventListener("change", onChange); }
-      catch { mq.removeListener?.(onChange); }
-    };
-  }, []);
-  const effectiveTheme = theme === "auto"
-    ? (systemPrefersLight ? "light" : "dark")
-    : theme;
+  // Iter 212m-111 — Theme is permanently locked to NIGHT (dark). The
+  // user-facing day/night toggle has been removed per founder spec.
+  // The data-theme attribute below is hard-coded to "dark" so any
+  // CSS variable scoped to [data-theme="dark"] resolves correctly.
+  const effectiveTheme = "dark";
 
   // ── Real /cto/projects/list load + refresh ────────────────────────
   // Iter 212m-104 — Instant render: read localStorage cache synchronously
@@ -233,16 +200,51 @@ function DashboardV2Body() {
 
   // Track when ChatPanel reports streaming started/ended, so the
   // sidebar auto-collapses (v0 design's "in-chat" behaviour).
+  // Iter 212m-111 — Focus Mode: any user activity inside the chat
+  // pane (typing in composer, scrolling history, clicking inside
+  // chat) also flips chatActive=true so the sidebar / topbar / Ask
+  // Advisor all fade away. They reappear on hover near their
+  // respective edges (handled in their own mousemove listeners).
   useEffect(() => {
     const onStart = () => setChatActive(true);
     const onReset = () => setChatActive(false);
+    const onFocus = () => setChatActive(true);
     window.addEventListener("aurem:chat-session-started", onStart);
     window.addEventListener("aurem:chat-session-reset", onReset);
+    window.addEventListener("aurem:chat-focus", onFocus);
     return () => {
       window.removeEventListener("aurem:chat-session-started", onStart);
       window.removeEventListener("aurem:chat-session-reset", onReset);
+      window.removeEventListener("aurem:chat-focus", onFocus);
     };
   }, []);
+
+  // Iter 212m-111 — Auto-collapse Ask Advisor on chat focus; expand
+  // again when the cursor lands near the right edge (last 32 px). The
+  // existing AskAdvisor toggle button keeps working — this just adds
+  // a hover-reveal complement so users don't have to chase the toggle.
+  const advisorAutoRef = useRef(false);
+  useEffect(() => {
+    if (chatActive && !advisorCollapsed) {
+      advisorAutoRef.current = true;
+      setAdvisorCollapsed(true);
+    } else if (!chatActive && advisorAutoRef.current) {
+      advisorAutoRef.current = false;
+      setAdvisorCollapsed(false);
+    }
+  }, [chatActive, advisorCollapsed]);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onMove = (e) => {
+      const x = e.clientX;
+      const w = window.innerWidth || 0;
+      if (w - x <= 32 && advisorCollapsed && chatActive) {
+        setAdvisorCollapsed(false);
+      }
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [advisorCollapsed, chatActive]);
 
   // Try to pull the real health score for the active repo. Falls back
   // silently — the ring just hides if there's no scan yet.

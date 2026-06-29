@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
-import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus, Moon, Sun, Laptop } from "lucide-react";
+import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus } from "lucide-react";
 
 const TABS = [
   { id: "Chat",    icon: MessagesSquare },
@@ -64,42 +64,34 @@ export function TopBar({
     const onMouseMove = (e) => {
       if (e.clientY <= 20) setAutoHidden(false);
     };
+    // Iter 212m-111 — Focus Mode: dispatched by ChatPanel when user
+    // is typing / interacting in the chat. Hide the topbar so it
+    // doesn't compete for attention. The existing mouse-at-top
+    // listener reveals it again on hover.
+    const onChatFocus = () => setAutoHidden(true);
     // Attach broadly — chat scroll lives inside the chat pane, not window.
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("mousemove", onMouseMove, { passive: true });
+    window.addEventListener("aurem:chat-focus", onChatFocus);
     return () => {
       window.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("aurem:chat-focus", onChatFocus);
     };
   }, []);
-  // Iter 212m-99 — 3-state theme cycle (dark → light → auto → dark…)
-  // Persisted in localStorage; applies `data-theme` on .ds2-root via a
-  // CustomEvent that Dashboard.jsx listens to. Defaults to "dark".
-  const THEME_ORDER = ["dark", "light", "auto"];
-  const [theme, setTheme] = useState(() => {
-    try {
-      const v = localStorage.getItem("aurem_theme");
-      return THEME_ORDER.includes(v) ? v : "dark";
-    } catch { return "dark"; }
-  });
+  // Iter 212m-111 — Theme is permanently locked to NIGHT (dark). The
+  // 3-state cycle (dark/light/auto) + toggle button were removed per
+  // founder spec: app must run dark-only, no user-facing toggle. We
+  // still dispatch `aurem:theme-changed: "dark"` on mount so any
+  // legacy listener (Dashboard data-theme attribute) stays in sync.
   useEffect(() => {
     try {
+      localStorage.setItem("aurem_theme", "dark");
       window.dispatchEvent(new CustomEvent("aurem:theme-changed", {
-        detail: { theme },
+        detail: { theme: "dark" },
       }));
     } catch { /* ignore */ }
-  }, [theme]);
-  const cycleTheme = () => {
-    setTheme((cur) => {
-      const next = THEME_ORDER[(THEME_ORDER.indexOf(cur) + 1) % THEME_ORDER.length];
-      try { localStorage.setItem("aurem_theme", next); } catch { /* ignore */ }
-      return next;
-    });
-  };
-  const ThemeIcon = theme === "light" ? Sun : theme === "auto" ? Laptop : Moon;
-  const themeLabel = theme === "light" ? "Day (click for Night)"
-                     : theme === "auto" ? "Auto — follow system (click for Day)"
-                     : "Night (click for Auto)";
+  }, []);
 
   const effectiveHidden = hidden || autoHidden;
 
@@ -155,17 +147,6 @@ export function TopBar({
         <button onClick={onNewRun} data-testid="ds2-new-run"
           className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-[6px] text-[12px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:scale-95">
           <Plus className="size-3 shrink-0" strokeWidth={3} /> New run
-        </button>
-
-        <button
-          aria-label={`Theme: ${theme}`}
-          title={themeLabel}
-          onClick={cycleTheme}
-          data-testid="ds2-theme-toggle"
-          data-theme-state={theme}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        >
-          <ThemeIcon className="size-[14px]" strokeWidth={2} />
         </button>
       </div>
 

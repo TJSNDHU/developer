@@ -46,6 +46,21 @@ export async function cancelLoop(loopId) {
 }
 
 /**
+ * Iter 212m-111 — Manual Ship gate. Once the engine reaches
+ * PAUSED_FOR_USER/phase=ship with data.kind="awaiting_ship", the user
+ * sees a "Ship to GitHub" button. Clicking it calls this helper with
+ * approved=true; cancelling calls it with approved=false (loop
+ * aborts). The actual GitHub commit happens server-side after the
+ * call returns; the SSE stream then delivers the COMPLETED event.
+ */
+export async function confirmShip(loopId, approved) {
+  const r = await api.post(`/loop/${loopId}/confirm-ship`, {
+    approved, feedback: null,
+  });
+  return r?.data || r;
+}
+
+/**
  * Open the SSE stream and dispatch events.
  *
  * @param {string} loopId

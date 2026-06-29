@@ -56,8 +56,13 @@ def test_loop_execute_helper_module_exists():
 
 def test_loop_ship_has_attempt_and_result_logs():
     src = _read_be("services/loop_engine.py")
-    # Per user instruction: SHIP ATTEMPT + SHIP RESULT prints/logs.
-    assert "SHIP ATTEMPT" in src
+    # Per user instruction: SHIP ATTEMPT / SHIP RESULT prints/logs.
+    # Iter 212m-111 — manual ship gate split the attempt into a
+    # "SHIP PAUSED" preparation log + a "SHIP CONFIRMED" log when the
+    # user clicks the Ship to GitHub button. Both must be present so
+    # ops can diagnose hangs at either side of the manual gate.
+    assert "SHIP PAUSED" in src
+    assert "SHIP CONFIRMED" in src
     assert "SHIP RESULT" in src
 
 

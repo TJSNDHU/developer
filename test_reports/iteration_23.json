@@ -1,0 +1,81 @@
+{
+  "summary": "Iter 212m-111 testing — Permanent Night Mode + Focus Mode + Manual Ship gate. Backend: 23/23 unit tests GREEN (12 new iter111 + 6 iter109 + 5 iter110). Live HTTP confirm-ship endpoint: 404 unknown loop OK, 401 no-auth OK. Frontend smoke on PREVIEW (test@aurem.dev): theme toggle removed (dashboard data-theme='dark', localStorage.aurem_theme='dark', no Sun/Laptop icon in TopBar), TopBar auto-hides on chat-focus (gets -translate-y-full → top:-1px), and reveals on mouse-top (clientY<=20 → translate-y-0). Ask Advisor auto-collapses on chat focus. ShipPendingCard component & testids verified by static + unit tests; live SSE awaiting_ship not driven (no real GitHub repo on PREVIEW account). TWO MINOR FOCUS-MODE BUGS FOUND — see frontend_issues.",
+
+  "backend_issues": { "critical": [], "minor": [] },
+
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dashboard.jsx (advisor auto-collapse effect, lines 226-235)",
+        "issue": "When the user hovers within 32px of the right edge to RE-EXPAND the Ask Advisor (setAdvisorCollapsed(false)), the very next render fires the auto-collapse useEffect again because advisorCollapsed is in its dependency array → it immediately re-runs setAdvisorCollapsed(true) and the panel snaps shut. Effect should depend on chatActive transitions only (or guard with advisorAutoRef.current already-true) so hover-expand sticks until the user leaves the edge.",
+        "selector": "[data-testid='ds2-advisor-real'] (width stays at 0 even after mousemove to clientX=1919, clientY=540 with chatActive=true & advisorCollapsed=true)",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Dashboard.jsx (sidebar auto-collapse, line 286)",
+        "issue": "sidebarPinned defaults to true (line 103: useState(true)). So `sidebarCollapsed = chatActive && !sidebarPinned && !sidebarHovered` is ALWAYS false on a fresh load → sidebar NEVER auto-collapses when chatActive becomes true. The review-request explicitly states 'Sidebar already auto-collapses when chatActive becomes true' but in practice the user has to manually unpin the sidebar first. Suggest defaulting sidebarPinned to false OR ignoring the pinned flag during focus-mode (chatActive).",
+        "selector": "[data-testid='ds2-sidebar'] (width stays 220px while typing in chat-input)",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "verified_passing": [
+    "BACKEND UNIT: /app/backend/tests/test_iter212m111_night_mode_focus_manual_ship.py — 12/12 PASS (topbar toggle removed, dashboard hardcodes dark, chat-focus event dispatched, topbar listens for chat-focus, dashboard auto-collapses advisor on chatActive, loop_engine has confirm_ship + pause path, /confirm-ship router endpoint registered, confirm_ship(True) runs commit & emits completed with sha, confirm_ship(False) aborts & wipes token, ShipPendingCard component exists with required testids, ChatPanel renders card on awaiting_ship + calls confirmShip helper, loopApi exposes confirmShip helper).",
+    "BACKEND UNIT: /app/backend/tests/test_iter212m109_loop_execute_and_history.py — 6/6 PASS (incl. SHIP PAUSED / SHIP CONFIRMED log assertion).",
+    "BACKEND UNIT: /app/backend/tests/test_iter212m110_founder_bypass_and_graph.py — 5/5 PASS.",
+    "LIVE HTTP: POST /api/aurem-dev/loop/nonexistent_loop/confirm-ship with valid Bearer → 404 'Loop not found or already finished'. No auth → 401. Endpoint wiring confirmed.",
+    "FRONTEND (Permanent Night Mode): dashboard-v2-root has data-theme='dark', localStorage.aurem_theme='dark', ds2-theme-toggle is NOT in DOM, TopBar svgs only contain non-theme icons (chevron-right, zap, gauge, crown, plus, messages-square, monitor-play, workflow — no Sun/Laptop).",
+    "FRONTEND (Focus Mode partial): After focusing [data-testid='chat-input'] and typing, [data-testid='ds2-topbar'] gets className containing '-translate-y-full' and rect.top=-1, height=1 → effectively hidden. Mouse-move to clientY=5 reverts to 'translate-y-0' and top=0 → TopBar revealed. Ask Advisor real panel auto-collapses to width=0 with the rotated 'ADVISOR' tab + ds2-advisor-open toggle visible on the right edge.",
+    "FRONTEND (Manual Ship card — static): ShipPendingCard.jsx renders [data-testid='ship-pending-card'], [data-testid='ship-to-github-btn'], [data-testid='ship-cancel-btn'], [data-testid='ship-pending-commit-msg'], [data-testid='ship-pending-files-toggle']. ChatPanel imports ShipPendingCard, intercepts data.kind==='awaiting_ship' in handleLoopEvent, wires handleShipConfirm/handleShipCancel → confirmShip(loopId, approved). loopApi.js exports confirmShip helper POSTing to /loop/{id}/confirm-ship."
+  ],
+
+  "could_not_directly_test": [
+    "End-to-end Manual Ship via a real Loop on PREVIEW — test@aurem.dev's demo-app project has no functional GitHub repo connection on PREVIEW, so the SSE awaiting_ship event can't be driven through the real LoopEngine pipeline. Backend unit test test_confirm_ship_approved_runs_commit_and_emits_completed already monkeypatches commit_files() and asserts the full state machine, so the contract is covered.",
+    "/api/aurem-dev/loop/{id}/confirm-ship 403/409 paths against a real paused loop — would require an active LoopEngine session in PAUSED_FOR_USER@ship state which can't be set up on PREVIEW. The 404 + 401 paths were exercised live."
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m111_night_mode_focus_manual_ship.py",
+    "/app/backend/tests/test_iter212m109_loop_execute_and_history.py",
+    "/app/backend/tests/test_iter212m110_founder_bypass_and_graph.py",
+    "/app/test_reports/pytest/iter23_results.xml"
+  ],
+
+  "action_items": [
+    "[MEDIUM] Dashboard.jsx advisor auto-collapse useEffect (lines 226-235) — drop `advisorCollapsed` from the dependency array OR add a guard `if (chatActive && !advisorCollapsed && !advisorAutoRef.current)` so the hover-reveal path is not immediately reverted. Recommended fix: split into two effects — one watching only `chatActive` to do the auto-collapse, another watching only `chatActive` going false to undo it.",
+    "[MEDIUM] Dashboard.jsx sidebarPinned default (line 103) — `useState(true)` means the existing chatActive-driven sidebar collapse never fires. Either default to false during the focus-mode rollout or change the formula on line 286 to `chatActive && !sidebarHovered` (i.e. ignore pinned flag while focus-mode is engaged).",
+    "[NONE] Backend manual-ship gate is rock solid — 23/23 tests green and live endpoint responds correctly."
+  ],
+
+  "critical_code_review_comments": [
+    "loop_engine.py confirm_ship — correctly wipes `ship_pending` (which contains the GitHub token) after both approve and reject paths. Good security hygiene; unit test asserts the deletion.",
+    "ShipPendingCard.jsx — clean component, expand/collapse files works via local state, all required testids present, orange-accent design matches AUREM brand palette. No issues.",
+    "ChatPanel.jsx handleLoopEvent → shipPending wiring — confirmed via grep `data.kind === \"awaiting_ship\"` is the sole gate; aligns with the unit test's confirm_ship_approved_runs_commit_and_emits_completed.",
+    "TopBar.jsx — theme toggle, cycleTheme and THEME_ORDER fully removed; aurem:theme-changed still dispatched with theme:'dark' so any downstream listener sees a stable value. Auto-hide listener on aurem:chat-focus + clientY<=20 reveal is implemented cleanly.",
+    "Dashboard.jsx — effectiveTheme is hardcoded to 'dark' and the legacy aurem:theme-changed listener has been removed (asserted by test_dashboard_hardcodes_dark_theme). Good.",
+    "BUG (logic): Dashboard.jsx advisor auto-collapse useEffect re-runs on advisorCollapsed change, which means the hover-reveal complement to the AskAdvisor toggle button — described in the review request as the key focus-mode UX — does not actually stay revealed. The toggle button still works (verified) so the feature is partially usable, but the documented hover-reveal is broken.",
+    "BUG (state default): Dashboard.jsx sidebarPinned=true default conflicts with the review-request expectation that the sidebar auto-collapses on chatActive. Either the documentation is outdated or the default is wrong. Recommend fixing the default to align with the documented UX."
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "100% — 23/23 unit tests + 2/2 live HTTP smoke tests pass",
+    "frontend": "~85% — Permanent Night Mode 100% verified, Manual Ship static checks 100%, Focus Mode TopBar+Advisor-auto-collapse work but Sidebar auto-collapse + Advisor right-edge hover-reveal are broken"
+  },
+
+  "test_credentials": "PREVIEW founder: test@aurem.dev / AuremTest2026! — auto-promoted to tier=founder/is_admin/is_unlimited via env vars. Login API returns 200 with token (length 273).",
+
+  "seed_data_creation": "None — no DB writes during this iteration.",
+
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "main_agent_can_self_test": true,
+
+  "context_for_next_testing_agent": "All 23 backend pytests for iter 212m-111 pass locally. Live /api/aurem-dev/loop/{id}/confirm-ship endpoint is wired (404/401 verified). Permanent Night Mode is fully locked (no toggle, hardcoded dark). Two Focus-Mode regressions remain — see action_items[0] (advisor hover-reveal effect-deps bug) and action_items[1] (sidebarPinned default). Both are isolated to /app/frontend/src/pages/Dashboard.jsx and require minimal fixes. After main agent fixes, retest by: (a) login test@aurem.dev, (b) focus chat-input + type, (c) move mouse to clientX=1919 → ds2-advisor-real should reach width>0 AND stay >0 for at least 500ms, (d) verify ds2-sidebar width shrinks (or hides) while chatActive=true & cursor not in left 32px.",
+
+  "rca_of_the_issue": "Advisor hover-reveal bug RCA: the useEffect on lines 226-235 of Dashboard.jsx has both `chatActive` and `advisorCollapsed` in its dependency array. The intent is 'collapse once when chatActive becomes true'. But because `advisorCollapsed` is also a dep, the effect fires every time advisorCollapsed flips. So when the mousemove listener (lines 236-247) does setAdvisorCollapsed(false) on right-edge hover, the dep change re-runs the collapse effect, which sees chatActive=true && !advisorCollapsed and immediately calls setAdvisorCollapsed(true) again. Net effect: hover-reveal is instantly reverted. Reproduction: login → focus chat → type → move mouse to far right → observe ds2-advisor-real width remains 0. Fix: remove advisorCollapsed from the deps (eslint-disable-next-line) OR add a guard checking advisorAutoRef.current to ensure the auto-collapse only fires once per chatActive transition. Sidebar bug RCA: sidebarPinned defaults to true, so the chatActive-driven collapse logic on line 286 is short-circuited."
+}

@@ -44,8 +44,10 @@ import PlanApprovalCard from "./PlanApprovalCard";
 // Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
 // User Action card (powered by the real /loop/* SSE stream).
 import { SelfHealIndicator, UserActionCard } from "./LoopActionCards";
+import ShipPendingCard from "./ShipPendingCard";
 import {
   startLoop, confirmLoop, pauseResponse, cancelLoop, streamLoopEvents,
+  confirmShip,
 } from "../lib/loopApi";
 import { getChatBgTint } from "../utils/chatBgTint";        // Iter 212m-30 PR-2
 // Iter 140 — extracted chat hooks. ChatPanel.jsx grew past 1500 lines;
@@ -490,6 +492,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [selfHeal, setSelfHeal] = useState({ visible: false, attempt: 1, max: 3, errorPreview: "" });
   const [userAction, setUserAction] = useState(null);
   const [userActionBusy, setUserActionBusy] = useState(false);
+  // Iter 212m-111 — Manual Ship gate. Populated when the engine emits
+  // a paused_for_user event with data.kind === "awaiting_ship".
+  // `{owner, repo, branch, files, file_count, commit_message}`.
+  const [shipPending, setShipPending] = useState(null);
+  const [shipBusy, setShipBusy] = useState(false);
   const loopAbortRef = useRef(null);
   // Iter 212m-58 — chatMode hard-pinned to Pro when loop is active
   // (Swift disabled per spec). We persist that nudge on toggle so a
@@ -2001,21 +2008,43 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
     // User Action Card (paused-for-user).
     if (state === "paused_for_user" && requiresAction) {
-      const errors = Array.isArray(data.errors)
-        ? data.errors.map((e) => typeof e === "string" ? e : JSON.stringify(e))
-        : (Array.isArray(data.findings)
-            ? data.findings.map((f) => `${f.severity}: ${f.path || ""} — ${f.title || f.message || ""}`)
-            : []);
-      setUserAction({
-        phase,
-        message: ev.message || "Loop paused — your input needed.",
-        errors,
-      });
+      // Iter 212m-111 — Manual Ship gate. Awaiting-ship pauses get a
+      // dedicated ShipPendingCard with a green "Ship to GitHub" button
+      // — NOT the generic retry/skip/abort UserActionCard.
+      if (data && data.kind === "awaiting_ship") {
+        setShipPending({
+          owner:           data.owner,
+          repo:            data.repo,
+          branch:          data.branch,
+          files:           data.files || [],
+          file_count:      data.file_count || (data.files || []).length,
+          commit_message:  data.commit_message || "",
+          message:         ev.message || "Ready to ship.",
+        });
+        setUserAction(null);
+      } else {
+        const errors = Array.isArray(data.errors)
+          ? data.errors.map((e) => typeof e === "string" ? e : JSON.stringify(e))
+          : (Array.isArray(data.findings)
+              ? data.findings.map((f) => `${f.severity}: ${f.path || ""} — ${f.title || f.message || ""}`)
+              : []);
+        setUserAction({
+          phase,
+          message: ev.message || "Loop paused — your input needed.",
+          errors,
+        });
+      }
     } else if (!requiresAction && state !== "paused_for_user") {
       // Clear any prior action card the moment the engine moves on.
       if (state === "executing" || state === "verifying" || state === "scanning"
           || state === "shipping" || state === "completed") {
         setUserAction(null);
+        // Iter 212m-111 — also clear the ship-pending card once the
+        // engine resumes (user clicked Ship → engine moves to
+        // SHIPPING → COMPLETED, or user cancelled → ABORTED).
+        if (state === "shipping" || state === "completed") {
+          setShipPending(null);
+        }
       }
     }
 
@@ -2120,6 +2149,36 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       toast(e?.response?.data?.detail || e?.message || "Pause-response failed");
     } finally {
       setUserActionBusy(false);
+    }
+  }
+
+  // Iter 212m-111 — Manual Ship gate handlers.
+  async function handleShipConfirm() {
+    if (!loopId || shipBusy) return;
+    setShipBusy(true);
+    try {
+      await confirmShip(loopId, true);
+      // SSE will deliver SHIPPING → COMPLETED. Clear the card now to
+      // give immediate feedback; the LoopStepBar shows progress.
+      setShipPending(null);
+      setBusy(true);
+    } catch (e) {
+      toast(e?.response?.data?.detail || e?.message || "Ship failed to start");
+    } finally {
+      setShipBusy(false);
+    }
+  }
+  async function handleShipCancel() {
+    if (!loopId || shipBusy) return;
+    setShipBusy(true);
+    try {
+      await confirmShip(loopId, false);
+      setShipPending(null);
+      setLoopPhase("idle");
+    } catch (e) {
+      toast(e?.response?.data?.detail || e?.message || "Cancel failed");
+    } finally {
+      setShipBusy(false);
     }
   }
 
@@ -2777,6 +2836,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           onAction={handlePauseAction}
         />
       )}
+      {shipPending && (
+        <ShipPendingCard
+          pending={shipPending}
+          busy={shipBusy}
+          onConfirm={(approved) => approved ? handleShipConfirm() : handleShipCancel()}
+        />
+      )}
 
       {/* Iter 212m-35 — Founder Offer attached to the TOP of the
           composer. Rounded top corners flow visually into the form
@@ -2938,6 +3004,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             const v = e.target.value;
             setInput(v);
             setDetectedMode(detectMode(v));
+            // Iter 212m-111 — Focus Mode: any keystroke in the composer
+            // signals "user is working in chat" so Dashboard collapses
+            // the sidebar / topbar / Ask Advisor chrome away.
+            if (v.length > 0) {
+              try { window.dispatchEvent(new CustomEvent("aurem:chat-focus")); }
+              catch { /* ignore */ }
+            }
+          }}
+          onFocus={() => {
+            try { window.dispatchEvent(new CustomEvent("aurem:chat-focus")); }
+            catch { /* ignore */ }
           }}
           onKeyDown={onKeyDown}
           onPaste={(e) => {

@@ -554,6 +554,16 @@ class LoopEngine:
         Now calls services.github_api_writer.commit_files() with the
         files the Execute/Verify phases produced and only marks the
         loop COMPLETED after the GitHub API returns a real commit_sha.
+
+        Iter 212m-111 — Manual Ship gate (founder spec: "always before
+        ship codes in repo our system must show button and ship to
+        github hard save only mannual no auto ship"). The phase now
+        PREPARES the commit (validates files, resolves credentials,
+        builds the commit message) and then PAUSES the loop with a
+        `paused_for_user` event carrying `data.kind="awaiting_ship"`.
+        The frontend renders a big "Ship to GitHub" button; the actual
+        `commit_files()` push happens only after the user POSTs to
+        `/loop/{loop_id}/confirm-ship`, which calls `confirm_ship()`.
         """
         self.state = LoopState.SHIPPING
         self.phase = "ship"
@@ -618,13 +628,79 @@ class LoopEngine:
             return
 
         commit_message = _commit_message(self.user_message)
-        logger.info("[loop %s] SHIP ATTEMPT — %s/%s@%s with %d file(s), msg=%r",
-                    self.loop_id, owner, repo, branch,
-                    len(files_dict), commit_message)
+
+        # Iter 212m-111 — PAUSE for manual ship confirmation. The actual
+        # `commit_files()` call now lives in `confirm_ship()` which is
+        # triggered by POST /loop/{loop_id}/confirm-ship.
+        self.context["ship_pending"] = {
+            "owner":          owner,
+            "repo":           repo,
+            "branch":         branch,
+            "token":          token,
+            "files":          files_dict,
+            "commit_message": commit_message,
+        }
+        self.state = LoopState.PAUSED_FOR_USER
+        await _persist_session(self.db, self._doc())
+        logger.info("[loop %s] SHIP PAUSED for manual confirmation — "
+                    "%s/%s@%s with %d file(s)",
+                    self.loop_id, owner, repo, branch, len(files_dict))
+        await self._emit(
+            LoopState.PAUSED_FOR_USER, "ship",
+            step=5, total_steps=5,
+            message=f"Ready to ship {len(files_dict)} file(s) to "
+                    f"{owner}/{repo}@{branch}. Click 'Ship to GitHub' to commit.",
+            data={
+                "kind":           "awaiting_ship",
+                "reason":         "awaiting_ship_confirmation",
+                "owner":          owner,
+                "repo":           repo,
+                "branch":         branch,
+                "files":          list(files_dict.keys()),
+                "file_count":     len(files_dict),
+                "commit_message": commit_message,
+            },
+            requires_user_action=True,
+        )
+
+    async def confirm_ship(self, approved: bool) -> None:
+        """Iter 212m-111 — User clicked the manual "Ship to GitHub"
+        button (approved=True) or "Cancel" (approved=False) on the
+        awaiting_ship_confirmation pause card."""
+        if self.state != LoopState.PAUSED_FOR_USER or self.phase != "ship":
+            raise ValueError(
+                f"cannot confirm ship in state {self.state.value}/{self.phase}"
+            )
+        pending = self.context.get("ship_pending") or {}
+        if not pending:
+            await self._fail_ship("Ship state lost — re-run the loop.")
+            return
+        if not approved:
+            # User cancelled the ship — abort the loop cleanly.
+            self.state = LoopState.ABORTED
+            self.context.pop("ship_pending", None)
+            await _persist_session(self.db, self._doc())
+            await self._emit(
+                LoopState.ABORTED, "ship",
+                step=5, total_steps=5,
+                message="Ship cancelled by user — no commit pushed.",
+            )
+            return
+
+        # Resume — push the commit for real.
+        self.state = LoopState.SHIPPING
+        self.phase = "ship"
+        owner   = pending["owner"]
+        repo    = pending["repo"]
+        branch  = pending["branch"]
+        token   = pending["token"]
+        files_dict      = pending["files"]
+        commit_message  = pending["commit_message"]
+        logger.info("[loop %s] SHIP CONFIRMED — pushing %s/%s@%s with %d file(s)",
+                    self.loop_id, owner, repo, branch, len(files_dict))
         await self._emit(LoopState.SHIPPING, "ship",
                          step=5, total_steps=5,
                          message=f"Committing {len(files_dict)} file(s) to {owner}/{repo}@{branch}…")
-
         try:
             from services.github_api_writer import commit_files
             res = await commit_files(
@@ -651,6 +727,8 @@ class LoopEngine:
             "html_url":  html_url,
             "files":     list(files_dict.keys()),
         }
+        # Clear the pending payload (contains the GitHub token).
+        self.context.pop("ship_pending", None)
         self.state = LoopState.COMPLETED
         await _persist_session(self.db, self._doc())
         await self._emit(LoopState.COMPLETED, "ship",
