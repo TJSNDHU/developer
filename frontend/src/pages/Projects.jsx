@@ -70,17 +70,47 @@ function Body() {
   // `?add=1`. We auto-open the Add Project dialog AND deselect any
   // currently-active project so the user always lands in a fresh
   // "create new" flow (never accidentally edits an existing one).
+  //
+  // Iter 212m-133 — `?edit=<project_id>` deep-link from a red
+  // sidebar dot. Opens the Edit Project modal for the broken
+  // project so the user can re-link to a new repo or delete it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const gh = params.get("github");
     const wantsAdd = params.get("add") === "1";
     const patId = params.get("pat");
-    if (!gh && !wantsAdd && !patId) return;
+    const editId = params.get("edit");
+    if (!gh && !wantsAdd && !patId && !editId) return;
 
     if (wantsAdd) {
       setActive(null);
       setShowAdd(true);
       window.history.replaceState({}, "", "/projects");
+      return;
+    }
+    if (editId) {
+      // Resolve the project then open the edit modal. Wait for
+      // projects list to populate if needed.
+      const findAndOpen = () => {
+        const p = (projects || []).find((x) => x.project_id === editId);
+        if (p) {
+          setActive(p);
+          setEditingProject(p);
+          window.history.replaceState({}, "", "/projects");
+        }
+      };
+      if (projects.length) {
+        findAndOpen();
+      } else {
+        api.get("/cto/projects/list").then((r) => {
+          const p = (r.data?.projects || []).find((x) => x.project_id === editId);
+          if (p) {
+            setActive(p);
+            setEditingProject(p);
+            window.history.replaceState({}, "", "/projects");
+          }
+        }).catch(() => { /* silent */ });
+      }
       return;
     }
     // Iter 206 — `?pat=<projectId>` opens the PatModal directly for that

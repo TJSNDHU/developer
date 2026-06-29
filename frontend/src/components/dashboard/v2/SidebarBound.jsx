@@ -115,7 +115,7 @@ export default function SidebarBound({
   const navigate = useNavigate();
 
   // Iter 212m-125 — Live GitHub connection status per repo.
-  //   liveStatus[project_id] = "connected" | "disconnected" | "checking"
+  //   liveStatus[project_id] = { status, error?, http_code? }
   // Initial state for every repo: "checking" (yellow pulsing dot) so
   // the user sees activity the moment the sidebar paints; the first
   // poll resolves within ~1 s and recolours each row.
@@ -123,6 +123,11 @@ export default function SidebarBound({
   // tab is hidden (Page Visibility API) to save GitHub rate-limit
   // budget.  In-flight check is also marked "checking" so the dot
   // breathes back to yellow on every refresh.
+  //
+  // Iter 212m-133 — Surface the `error` reason from the backend so a
+  // red dot is actionable (e.g. "repo_not_found" → "Repo deleted on
+  // GitHub — click to edit/re-link").  Without this the user just
+  // saw red with no path to fix.
   const [liveStatus, setLiveStatus] = useState({});
   useEffect(() => {
     if (!repos?.length) return undefined;
@@ -134,7 +139,7 @@ export default function SidebarBound({
         setLiveStatus((prev) => {
           const next = { ...prev };
           for (const r of repos) {
-            if (!next[r.id]) next[r.id] = "checking";
+            if (!next[r.id]) next[r.id] = { status: "checking" };
           }
           return next;
         });
@@ -149,8 +154,11 @@ export default function SidebarBound({
         if (cancelled) return;
         const map = {};
         for (const s of (j.statuses || [])) {
-          map[s.project_id] = s.status === "connected"
-            ? "connected" : "disconnected";
+          map[s.project_id] = {
+            status: s.status === "connected" ? "connected" : "disconnected",
+            error: s.error || null,
+            http_code: s.http_code || null,
+          };
         }
         setLiveStatus((prev) => ({ ...prev, ...map }));
       } catch {
@@ -189,16 +197,33 @@ export default function SidebarBound({
     // updates (that would cause an infinite poll loop).
   }, [(repos || []).map((r) => r.id).join("|")]);
 
-  // Map a live status → dot tone used by the renderer below.  We
-  // intentionally DO NOT use the historical "orange = active" dot
-  // here — connection truth is more important than active-row hint
-  // (the active row is already underscored via background colour).
+  // Iter 212m-125 — `liveStatus[id]` is now an object `{ status, error, http_code }`.
+  // `liveDot` only needs the status colour; `liveError` exposes the reason for
+  // the actionable inline hint we render next to red repos (iter 212m-133).
   function liveDot(repo) {
-    const s = liveStatus[repo.id];
+    const s = liveStatus[repo.id]?.status;
     if (s === "connected")    return "green";
     if (s === "disconnected") return "red";
     if (s === "checking")     return "yellow";
     return "gray";              // pre-first-poll (~1 s window)
+  }
+
+  function liveError(repo) {
+    return liveStatus[repo.id]?.error || null;
+  }
+
+  // Iter 212m-133 — Human-friendly reason text for the tooltip on a
+  // red repo. Keep these strings short so the tooltip is scannable.
+  function liveReasonLabel(code) {
+    switch (code) {
+      case "repo_not_found":       return "Repo deleted or renamed on GitHub";
+      case "invalid_token":        return "Token revoked — re-connect GitHub";
+      case "missing_scope":        return "Token missing 'repo' scope";
+      case "github_unauthorized":  return "GitHub rejected the auth";
+      case "github_rate_limited":  return "GitHub rate-limited — wait ~60s";
+      case "network_error":        return "Network glitch — will retry";
+      default:                     return code ? `Disconnected (${code})` : "Disconnected";
+    }
   }
 
   const initials = (() => {
@@ -332,10 +357,28 @@ export default function SidebarBound({
               const label = repo.owner ? `${repo.owner}/${repo.name}` : repo.name;
               const slug = (repo.id || repo.name || "")
                 .replace(/[^a-z0-9]/gi, "-").toLowerCase();
+              // Iter 212m-133 — Surface the disconnected reason inline so a
+              // red dot is actionable.  Click the "!" icon (or right-click
+              // the row) to land on /projects?edit=<id> where the user can
+              // re-link the repo or delete the project.
+              const dot = liveDot(repo);
+              const err = liveError(repo);
+              const isRed = dot === "red";
+              const tooltipText = isRed
+                ? `${label} · ${repo.branch} · ${liveReasonLabel(err)}`
+                : `${label} · ${repo.branch} · ${liveStatus[repo.id]?.status || "checking"}`;
+              const goFix = (e) => {
+                e?.stopPropagation();
+                e?.preventDefault();
+                navigate(`/projects?edit=${encodeURIComponent(repo.id)}`);
+              };
               const button = (
                 <button
                   data-testid={`ds2-sidebar-repo-${slug}`}
+                  data-status={dot}
+                  data-error={err || ""}
                   onClick={() => onSelectRepo?.(repo)}
+                  onContextMenu={isRed ? goFix : undefined}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-md transition-colors",
                     repo.active
@@ -343,18 +386,40 @@ export default function SidebarBound({
                       : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
                     isCollapsed ? "h-9 w-12 justify-center" : "px-4 py-[6px]",
                   )}>
-                  <Dot tone={liveDot(repo)} />
+                  <Dot tone={dot} />
                   {!isCollapsed && (
                     <div className="min-w-0 flex-1 text-left">
                       <p className="truncate text-[12px] font-medium leading-none">{label}</p>
-                      <p className="mt-[3px] font-mono text-[10px] leading-none text-muted-foreground truncate">{repo.branch}</p>
+                      <p className={cn(
+                        "mt-[3px] font-mono text-[10px] leading-none truncate",
+                        isRed ? "text-red-400/80" : "text-muted-foreground",
+                      )}>
+                        {isRed ? liveReasonLabel(err) : repo.branch}
+                      </p>
                     </div>
+                  )}
+                  {isRed && !isCollapsed && (
+                    <span
+                      role="button"
+                      data-testid={`ds2-sidebar-repo-${slug}-fix`}
+                      onClick={goFix}
+                      title="Edit project / re-link repo"
+                      className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded
+                                 border border-red-500/40 bg-red-500/10 text-red-300
+                                 hover:bg-red-500/25 hover:text-red-100 transition-colors"
+                    >
+                      <Settings className="size-3" strokeWidth={2.5} />
+                    </span>
                   )}
                 </button>
               );
               return (
                 <li key={repo.id || label}>
-                  {isCollapsed ? <Tooltip label={`${label} · ${repo.branch} · ${liveStatus[repo.id] || "checking"}`}>{button}</Tooltip> : button}
+                  {isCollapsed
+                    ? <Tooltip label={tooltipText}>{button}</Tooltip>
+                    : (isRed
+                        ? <Tooltip label={`${tooltipText} · right-click or click ⚙ to fix`}>{button}</Tooltip>
+                        : button)}
                 </li>
               );
             })}
