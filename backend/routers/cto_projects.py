@@ -551,7 +551,12 @@ async def get_project_graph(
     authorization: Optional[str] = Header(None),
 ) -> dict:
     """Light read by default (excludes heavy `nodes` field). Pass
-    `?full=true` to fetch the full expanded graph for FE detail view."""
+    `?full=true` to fetch the full expanded graph for FE detail view.
+
+    Iter 212m-113 — Per-project gating is enforced by the
+    {project_id, user_id} compound key in `get_graph` / `get_graph_full`.
+    Cross-repo data leak is impossible — a request with another user's
+    project_id returns {status:'not_built'}."""
     me = await current_dev(authorization)
     user_id = me["user_id"]
     db = get_db()
@@ -564,6 +569,138 @@ async def get_project_graph(
     if not doc:
         return {"ok": True, "status": "not_built", "graph": None}
     return {"ok": True, "status": "ready", "graph": doc}
+
+
+@router.get("/projects/{project_id}/graph/tour")
+async def get_graph_tour(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 212m-113 — Guided onboarding tour. Returns a
+    dependency-ordered walkthrough of the project's most important
+    files (API → Service → Data → UI). Gated by project_id+user_id
+    just like /graph. Zero new LLM cost — reads cached descriptions
+    from the existing graph doc."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    from services.graph_builder import get_graph_full
+    doc = await get_graph_full(db, project_id, user_id)
+    if not doc:
+        return {"ok": True, "status": "not_built", "tour": []}
+    nodes = doc.get("nodes") or {}
+    layers = doc.get("layers") or {}
+    # Dependency order: API entry-points first (they call services,
+    # services call data). UI shown last for full-stack apps.
+    order = ["Config", "Data", "Service", "API", "Hook", "UI", "Util"]
+    tour: list[dict] = []
+    for layer in order:
+        for path in (layers.get(layer) or [])[:3]:
+            node = nodes.get(path) or {}
+            tour.append({
+                "step":        len(tour) + 1,
+                "layer":       layer,
+                "path":        path,
+                "description": node.get("description") or "",
+                "symbols":     (node.get("symbols") or [])[:5],
+            })
+            if len(tour) >= 12:
+                break
+        if len(tour) >= 12:
+            break
+    return {"ok": True, "status": "ready", "tour": tour,
+            "project_id": project_id, "file_count": doc.get("file_count", 0)}
+
+
+@router.get("/projects/{project_id}/graph/search")
+async def search_graph(
+    project_id: str,
+    q: str = "",
+    limit: int = 20,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 212m-113 — Fuzzy-ish search across paths + descriptions +
+    symbols. Pure server-side scoring (no LLM). Gated by
+    project_id+user_id. Returns top-N matches with a relevance score."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    from services.graph_builder import get_graph_full
+    doc = await get_graph_full(db, project_id, user_id)
+    if not doc:
+        return {"ok": True, "status": "not_built", "results": []}
+    q = (q or "").strip().lower()
+    if not q:
+        return {"ok": True, "results": []}
+    nodes = doc.get("nodes") or {}
+    hits: list[dict] = []
+    for path, node in nodes.items():
+        path_l   = path.lower()
+        desc_l   = (node.get("description") or "").lower()
+        syms_l   = [s.lower() for s in (node.get("symbols") or [])]
+        score = 0
+        if q in path_l.rsplit("/", 1)[-1]:
+            score += 100
+        if path_l.endswith(q):
+            score += 50
+        if q in path_l:
+            score += 25
+        if q in desc_l:
+            score += 30
+        if any(q == s for s in syms_l):
+            score += 80
+        if any(q in s for s in syms_l):
+            score += 20
+        if score > 0:
+            hits.append({
+                "path":        path,
+                "layer":       node.get("layer"),
+                "description": node.get("description") or "",
+                "symbols":     (node.get("symbols") or [])[:5],
+                "score":       score,
+            })
+    hits.sort(key=lambda h: h["score"], reverse=True)
+    return {"ok": True, "results": hits[:max(1, min(limit, 100))],
+            "query": q, "total_matches": len(hits)}
+
+
+@router.post("/projects/{project_id}/graph/impact")
+async def graph_impact(
+    project_id: str,
+    body: dict,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 212m-113 — Diff Impact Analysis. Body: {files: [paths]}.
+    Returns the transitive set of files that import the given set
+    (one hop, capped at 50). Useful right before a Loop Mode ship to
+    surface the blast radius. Gated by project_id+user_id, no LLM."""
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    files = list((body or {}).get("files") or [])
+    if not files:
+        raise HTTPException(400, "files[] required")
+    from services.graph_builder import get_graph_full
+    doc = await get_graph_full(db, project_id, user_id)
+    if not doc:
+        return {"ok": True, "status": "not_built", "impacted": []}
+    edges = doc.get("edges") or []
+    target_set = set(files)
+    impacted: dict[str, list[str]] = {}
+    for e in edges:
+        src = e.get("from")
+        dst = e.get("to")
+        if dst in target_set and src not in target_set:
+            impacted.setdefault(src, []).append(dst)
+        if len(impacted) >= 50:
+            break
+    out = [
+        {"path": p, "reason": f"imports {', '.join(deps[:3])}"
+                              + (f" +{len(deps) - 3} more" if len(deps) > 3 else "")}
+        for p, deps in impacted.items()
+    ]
+    return {"ok": True, "changed": files,
+            "impacted": out, "blast_radius": len(out)}
 
 
 

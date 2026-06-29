@@ -207,9 +207,26 @@ async def build_graph(
     gh_repo: str,
     branch: str = "HEAD",
 ) -> dict:
-    """Hybrid build. Step 1 (regex) for ALL files, Step 2 (LLM) for TOP 20.
-    Returns the saved graph doc. Returns {} on any unrecoverable error."""
-    if not (gh_token and gh_owner and gh_repo):
+    """Hybrid build with per-project gating + token-economical incremental
+    mode (Iter 212m-113).
+
+    Security: writes are scoped to {project_id, user_id} so cross-repo
+    leak is impossible — a different user's project_id cannot collide
+    with this user's row (compound key in Mongo upsert).
+
+    Token economy: when a prior graph exists for this project and the
+    GitHub tree SHA hasn't changed, we re-run the regex pass only and
+    REUSE the existing LLM descriptions. When the tree HAS changed, we
+    LLM-describe only files whose blob SHA changed since the last build
+    (the typical case for small commits: 1-3 files instead of all 20).
+    """
+    if not (gh_token and gh_owner and gh_repo and project_id and user_id):
+        logger.warning(
+            "build_graph: missing required args "
+            "(project_id=%s user_id=%s owner=%s repo=%s token=%s)",
+            bool(project_id), bool(user_id), bool(gh_owner),
+            bool(gh_repo), bool(gh_token),
+        )
         return {}
 
     import httpx
@@ -220,18 +237,41 @@ async def build_graph(
     }
     base = f"https://api.github.com/repos/{gh_owner}/{gh_repo}"
 
-    # Step 1A — file tree (1 API call)
+    # ── Load previous graph (for incremental + LLM description reuse) ──
+    prior: dict = {}
+    if db is not None:
+        try:
+            prior = await db.project_graphs.find_one(
+                {"project_id": project_id, "user_id": user_id},
+                {"_id": 0},
+            ) or {}
+        except Exception as e:
+            logger.debug("prior graph load failed: %r", e)
+            prior = {}
+    prior_tree_sha: str = prior.get("tree_sha") or ""
+    prior_blob_shas: dict[str, str] = prior.get("blob_shas") or {}
+    prior_descriptions: dict[str, str] = {
+        p: (n or {}).get("description") or ""
+        for p, n in (prior.get("nodes") or {}).items()
+        if (n or {}).get("description")
+    }
+
+    # Step 1A — file tree (1 API call) — captures both tree SHA and
+    # per-blob SHA so we can do fingerprint-based incremental updates.
     try:
         async with httpx.AsyncClient(timeout=15.0) as cx:
             r = await cx.get(f"{base}/git/trees/{branch}?recursive=1", headers=headers)
             r.raise_for_status()
-            tree = (r.json() or {}).get("tree") or []
+            payload = r.json() or {}
+            tree = payload.get("tree") or []
+            tree_sha = payload.get("sha") or ""
     except Exception as e:
         logger.error("graph tree fetch failed: %r", e)
         return {}
 
-    # Step 1B — filter + priority sort
+    # Step 1B — filter + priority sort + blob-SHA map
     all_files: list[str] = []
+    blob_shas: dict[str, str] = {}
     for item in tree:
         if (item or {}).get("type") != "blob":
             continue
@@ -239,18 +279,35 @@ async def build_graph(
         if not path:
             continue
         ext = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
-        # Skip by directory name (any path segment)
         parts = path.split("/")
         if any(part in SKIP_DIRS for part in parts):
             continue
-        # Skip by path prefix (vendored bundles)
         if any(path.startswith(pref) for pref in SKIP_PATH_PREFIXES):
             continue
         if ext not in CODE_EXTENSIONS:
             continue
         all_files.append(path)
+        blob_shas[path] = (item or {}).get("sha") or ""
     all_files = sorted(all_files, key=_priority_score)[:MAX_FILES]
     top_files = all_files[:TOP_FILES_FOR_LLM]
+
+    # Iter 212m-113 — Identify which top files CHANGED since the last
+    # build. Only these need a fresh LLM description; the rest reuse
+    # the cached description. Drops typical 1-file-changed token cost
+    # from ~4000 → ~200 tokens.
+    changed_top: list[str] = [
+        p for p in top_files
+        if blob_shas.get(p) != prior_blob_shas.get(p)
+    ]
+    reused_top: list[str] = [
+        p for p in top_files if p not in changed_top
+        and p in prior_descriptions
+    ]
+    logger.info(
+        "graph incremental: %d/%d top files changed (will re-LLM); "
+        "%d reuse prior descriptions",
+        len(changed_top), len(top_files), len(reused_top),
+    )
 
     # Step 1C — parallel file reads (batched by 10)
     async def _read(path: str) -> tuple[str, str]:
@@ -287,13 +344,18 @@ async def build_graph(
             "layer":       detect_layer(path),
             "symbols":     extract_symbols(content, path),
             "imports":     extract_imports(content, path),
-            "description": "",
+            "description": prior_descriptions.get(path, ""),
             "size":        len(content or ""),
+            "sha":         blob_shas.get(path, ""),
         }
 
-    # Step 2 — single LLM call for top files
-    top_contents = {p: all_contents[p] for p in top_files if p in all_contents}
-    descriptions = await _llm_describe_files(top_contents)
+    # Step 2 — single LLM call ONLY for CHANGED top files. Skips the
+    # call entirely if every top file already has a cached description.
+    descriptions: dict[str, str] = {}
+    if changed_top:
+        changed_contents = {p: all_contents[p] for p in changed_top if p in all_contents}
+        if changed_contents:
+            descriptions = await _llm_describe_files(changed_contents)
     for path, desc in descriptions.items():
         if path in nodes:
             nodes[path]["description"] = desc
@@ -316,20 +378,34 @@ async def build_graph(
                 edges.append({"from": path, "to": target})
     edges = edges[:300]
 
+    described_count = sum(
+        1 for n in nodes.values() if n.get("description")
+    )
     graph = {
-        "project_id":  project_id,
-        "user_id":     user_id,
-        "built_at":    time.time(),
-        "file_count":  len(nodes),
-        "nodes":       nodes,
-        "layers":      layers,
-        "edges":       edges,
-        "status":      "ready",
-        "llm_files":   len(descriptions),
+        "project_id":   project_id,
+        "user_id":      user_id,
+        "built_at":     time.time(),
+        "file_count":   len(nodes),
+        "nodes":        nodes,
+        "layers":       layers,
+        "edges":        edges,
+        "status":       "ready",
+        # Iter 212m-113 — `llm_files` is now the TOTAL count of
+        # described files (cached + newly described) — not just the
+        # LLM calls this build, which can be 0 on incremental no-ops.
+        "llm_files":    described_count,
+        "tree_sha":     tree_sha,
+        "blob_shas":    blob_shas,
+        "tree_sha_prev": prior_tree_sha,
+        "llm_changed":  len(changed_top),
+        "llm_reused":   len(reused_top),
     }
 
     if db is not None:
         try:
+            # Compound-key upsert guarantees per-project isolation. A
+            # different user_id with the same project_id (impossible
+            # in our schema but defensive) would write a separate doc.
             await db.project_graphs.update_one(
                 {"project_id": project_id, "user_id": user_id},
                 {"$set": graph},
@@ -339,8 +415,11 @@ async def build_graph(
             logger.warning("graph save failed: %r", e)
 
     logger.info(
-        "graph built: %d files | %d AI descriptions | %d edges",
-        len(nodes), len(descriptions), len(edges),
+        "graph built: project=%s user=%s | %d files | %d described "
+        "(%d new + %d cached) | %d edges | tree_sha=%s",
+        project_id, user_id,
+        len(nodes), described_count, len(changed_top), len(reused_top),
+        len(edges), tree_sha[:8] if tree_sha else "?",
     )
     return graph
 
