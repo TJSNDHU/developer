@@ -1075,6 +1075,52 @@ async def healthz():
     return {"ok": True}
 
 
+# Iter 212m-147 — ORA stack health probe. Makes a SHORT real LLM call
+# with a hard 8 s timeout so monitors can distinguish "backend up but
+# LLM provider hanging" from a generic outage. Founder + admin only —
+# we don't want anonymous callers burning tokens.
+@app.get("/api/aurem-dev/health/ora")
+async def health_ora(authorization: Optional[str] = Header(None)):
+    from cto_services.auth import current_dev
+    user = await current_dev(authorization)
+    if not (bool(user.get("is_admin")) or bool(user.get("is_unlimited"))
+            or user.get("tier") == "founder"):
+        raise HTTPException(403, "ORA health probe is admin-only")
+    import asyncio as _asyncio
+    import time as _t
+    from services.llm import call_llm
+    t0 = _t.monotonic()
+    status = "ok"
+    error  = None
+    text   = ""
+    try:
+        text = await _asyncio.wait_for(
+            call_llm(
+                [{"role": "user", "content": "Reply with exactly: OK"}],
+                system="You are a healthcheck probe. Reply with a single token: OK",
+                max_tokens=4, temperature=0.0,
+            ),
+            timeout=8.0,
+        )
+        if not text or "ok" not in text.lower():
+            status = "degraded"
+            error  = f"unexpected_response: {(text or '')[:80]}"
+    except _asyncio.TimeoutError:
+        status = "degraded"
+        error  = "llm_timeout_8s"
+    except Exception as e:
+        status = "degraded"
+        error  = f"{type(e).__name__}: {str(e)[:120]}"
+    latency_ms = round((_t.monotonic() - t0) * 1000, 1)
+    return {
+        "ok":         status == "ok",
+        "status":     status,
+        "latency_ms": latency_ms,
+        "error":      error,
+        "reply":      (text or "")[:40],
+    }
+
+
 # Iter 189 — Mirror the fast healthz at the prefix-less paths
 # Kubernetes liveness/readiness probes hit by default when configured
 # against the pod directly (bypassing ingress). Emergent's pod-level

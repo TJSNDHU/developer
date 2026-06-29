@@ -675,6 +675,15 @@ async def last_scan(
     if not doc:
         # Empty state — 200 with `score: null` instead of 404 noise.
         return {"ok": True, "score": None}
+    # Iter 212m-147 — Defensive guard: a persisted (score=0, total=0)
+    # row is logically impossible from a real scan (0 findings yields
+    # score=100), so it can only come from a legacy bad write or a
+    # crashed scan. Treat it as "no scan yet" so the top-bar ring
+    # stays hidden instead of misleading the user with a red "0".
+    _score = doc.get("score")
+    _total = doc.get("total")
+    if _score == 0 and (not _total or _total == 0):
+        return {"ok": True, "score": None}
     return {
         "ok":            True,
         "score":         doc.get("score"),

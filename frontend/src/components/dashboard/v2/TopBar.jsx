@@ -20,15 +20,48 @@ function HealthRing({ score = 87 }) {
   const r = 13;
   const c = 2 * Math.PI * r;
   const offset = c * (1 - score / 100);
+  // Iter 212m-147 — Colour the ring by score band (was always orange).
+  //   80-100 → green (healthy)
+  //   50-79  → orange (needs attention)
+  //   0-49   → red (critical)
+  const ringColor =
+    score >= 80 ? "#22c55e"
+    : score >= 50 ? "#FF6608"
+    : "#ef4444";
   return (
-    <div className="flex items-center gap-1.5" title={`Codebase health · ${score}/100`}>
+    <div className="flex items-center gap-1.5"
+         data-testid="topbar-health-ring"
+         data-health-score={score}
+         title={`Codebase health · ${score}/100`}>
       <div className="relative size-9 shrink-0">
         <svg viewBox="0 0 36 36" className="size-9 -rotate-90">
           <circle cx="18" cy="18" r={r} fill="none" stroke="#222222" strokeWidth="3" />
-          <circle cx="18" cy="18" r={r} fill="none" stroke="#FF6608" strokeWidth="3"
+          <circle cx="18" cy="18" r={r} fill="none" stroke={ringColor} strokeWidth="3"
             strokeLinecap="round" strokeDasharray={c} strokeDashoffset={offset} />
         </svg>
         <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums text-foreground">{score}</span>
+      </div>
+      <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Health</span>
+    </div>
+  );
+}
+
+/* Iter 212m-147 — Skeleton ring shown while the score is being fetched.
+ * Prevents the "ring vanishes → ring re-appears with 0" flash on repo
+ * switch. Renders a muted ring with `--` instead of a number. */
+function HealthRingSkeleton() {
+  const r = 13;
+  return (
+    <div className="flex items-center gap-1.5"
+         data-testid="topbar-health-ring-skeleton"
+         title="Loading health score…">
+      <div className="relative size-9 shrink-0">
+        <svg viewBox="0 0 36 36" className="size-9 -rotate-90">
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#222222" strokeWidth="3" />
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#404040" strokeWidth="3"
+            strokeLinecap="round" strokeDasharray="6 4" />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums text-muted-foreground">--</span>
       </div>
       <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Health</span>
     </div>
@@ -41,6 +74,8 @@ export function TopBar({
   // Iter 212m-82 — live breadcrumb + healthScore (null → ring hidden)
   breadcrumb = { owner: "TJSNDHU", repo: "Aurem", branch: "main" },
   healthScore = null,
+  // Iter 212m-147 — loading flag → render skeleton ring instead of nothing.
+  healthScoreLoading = false,
   // Iter 212m-89 — optional slot for the ShipStreakWidget chip
   streakSlot = null,
 }) {
@@ -116,12 +151,17 @@ export function TopBar({
           ))}
         </div>
 
-        {typeof healthScore === "number" && (
+        {typeof healthScore === "number" ? (
           <>
             <HealthRing score={healthScore} />
             <div className="h-5 w-px bg-border" />
           </>
-        )}
+        ) : healthScoreLoading ? (
+          <>
+            <HealthRingSkeleton />
+            <div className="h-5 w-px bg-border" />
+          </>
+        ) : null}
 
         {streakSlot && (
           <>

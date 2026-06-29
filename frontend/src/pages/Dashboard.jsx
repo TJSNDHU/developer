@@ -118,6 +118,15 @@ function DashboardV2Body() {
   const [sidebarEdgeReveal, setSidebarEdgeReveal] = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
+  // Iter 212m-147 — Health ring UX hardening:
+  //   • `healthScoreLoading` drives a "--" skeleton ring so the user
+  //     never sees a flash of nothing → "0" when switching repos.
+  //   • `_healthScoreCacheRef` keeps per-project last-known scores
+  //     so a repo switch can show the cached value INSTANTLY while
+  //     a background fetch refreshes.  Solves the "shows the previous
+  //     repo's score for ~600ms" race.
+  const [healthScoreLoading, setHealthScoreLoading] = useState(false);
+  const _healthScoreCacheRef = useRef(new Map());
   const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
 
   // Iter 212m-124 — Left-edge reveal trigger.  Per founder spec:
@@ -289,14 +298,42 @@ function DashboardV2Body() {
   // been intentionally removed — it surprised the user mid-typing
   // and broke the focus-mode contract.
 
-  // Try to pull the real health score for the active repo. Falls back
-  // silently — the ring just hides if there's no scan yet.
+  // Iter 212m-147 — Per-repo health score:
+  //   1. Switch repo → instantly show cached score (no 0/flash).
+  //   2. Show "--" skeleton if no cache (loading: true).
+  //   3. Background-refetch and update cache + state.
+  //   4. Stale-while-revalidate: cached score stays until fresh
+  //      arrives, so the user never sees their score drop to 0
+  //      mid-switch.
   useEffect(() => {
-    if (!activeProject?.project_id) { setHealthScore(null); return; }
+    const pid = activeProject?.project_id;
+    if (!pid) { setHealthScore(null); setHealthScoreLoading(false); return; }
+    // 1) Instant-show cached value if we have one.
+    const cached = _healthScoreCacheRef.current.get(pid);
+    if (cached !== undefined) {
+      setHealthScore(cached);
+      setHealthScoreLoading(false);
+    } else {
+      setHealthScore(null);
+      setHealthScoreLoading(true);
+    }
+    // 2) Always refetch in the background so the cache stays warm.
     let cancelled = false;
-    api.get(`/codebase-health/last?project_id=${activeProject.project_id}`)
-      .then((r) => { if (!cancelled) setHealthScore(r.data?.score ?? null); })
-      .catch(() => { /* endpoint may not exist yet — silent */ });
+    api.get(`/codebase-health/last?project_id=${pid}`)
+      .then((r) => {
+        if (cancelled) return;
+        const raw = r.data?.score;
+        // Distinguish "no scan yet" (null/undefined → hide ring) from
+        // a real "score: 0" (legitimately critical → show red ring).
+        const normalised = typeof raw === "number" ? raw : null;
+        _healthScoreCacheRef.current.set(pid, normalised);
+        setHealthScore(normalised);
+        setHealthScoreLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHealthScoreLoading(false);
+      });
     return () => { cancelled = true; };
   }, [activeProject?.project_id]);
 
@@ -440,6 +477,7 @@ function DashboardV2Body() {
               branch: activeProject?.branch       || "main",
             }}
             healthScore={healthScore}
+            healthScoreLoading={healthScoreLoading}
             streakSlot={
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <ShipStreakWidget />

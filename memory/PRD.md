@@ -12,6 +12,55 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-147 — Bulk Fix Drawer real-time diff streaming + Health ring per-repo + /health/ora (Feb 2026) ✅
+
+Three coordinated improvements shipped together:
+
+**A) Bulk Fix Drawer UI rewrite (`frontend/src/components/FixProgressDrawer.jsx`)**:
+
+Backend (already shipped) emits `fix-diff` SSE event with `diff: [{type, line}]` payload BEFORE `fix-committing`. UI was still rendering the v1 row list. Full rewrite:
+
+- **Active Fix Card** — top-of-body card highlighting the current finding with rule_id, file path, severity-tinted stage badge (READING / GENERATING / PATCH READY / COMMITTING / VERIFYING / RETRY), and an embedded animated diff block.
+- **DiffBlock component** — dark code block (`#06080d`) showing `+`/`-`/hunk/context lines. Each line fades + slides in via `animation-delay: ${idx * 40}ms` for the Claude-style staggered reveal. Green (#86efac) for add, red (#fca5a5) for remove, blue (#7dd3fc) for hunk markers. Header strip shows the add/remove counts.
+- **Committing footer strip** — amber pill with spinner + "Pushing commit to GitHub… {shortSha}" while the GitHub write is in flight; flips to "Verifying commit lands on GitHub…" during the verify step.
+- **Completed Fixes List** — collapsible rows for every fix-done event with rule_id, file, commit SHA pill (links to GitHub), "GitHub verified ✓" chip, and failure reason for ok:false rows. Each row expands to re-show the diff if the user clicks the chevron.
+- **Final Summary Card** — appears on `done` event, replaces the active card. Green/red theme by failure count, large icon, full counter (`N fixed · M failed · X total · ⏱ MM:SS`), backend's terminal message, job id.
+- **Animated progress bar** with shine effect while running, color-flips green/red on terminal.
+
+PRESERVED from earlier iters: localStorage hydration on page refresh, restart button + endpoint wiring (Iter 212m-128), retry counter + last_error badge, heartbeat pulse dot, running mm:ss clock, event counter, `aurem:finding-fixed` fan-out event.
+
+**Live verified** via 4-shot screenshot proof: synthetic SSE emit demo with 3 fixes (one with 10-line auth.py diff, one with 2-line hardcoded_secret, one failure path) — drawer animates diff lines, badge transitions on committing, completed list populates with verified commits, final summary card lands cleanly with red theme for the 1-failure case.
+
+**B) Top-bar health ring — per-repo cache + skeleton + color bands**:
+
+User reported "showing 0" on PROD. Three root-cause fixes:
+
+- `frontend/src/pages/Dashboard.jsx`: New `_healthScoreCacheRef` Map keyed by `project_id` keeps the last-known score so a repo switch shows the cached value INSTANTLY instead of flashing 0 / blank. Background refetch updates the cache. `healthScoreLoading` flag drives the new skeleton ring.
+- `frontend/src/components/dashboard/v2/TopBar.jsx`: New `HealthRingSkeleton` (dashed grey ring, `--` text) shown while loading instead of hiding the ring slot. `HealthRing` now colors by score band (80+ green, 50-79 orange, 0-49 red) so a real "0" looks legitimately critical (not just a default).
+- `backend/routers/codebase_health.py` (`/last`): Defensive guard — if persisted scan has `score=0` AND `total=0` (logically impossible from a real scan — 0 findings → score=100), return null. Prevents legacy bad-write rows from misleading the ring.
+
+**C) `/api/aurem-dev/health/ora` endpoint** (`backend/main.py`):
+
+Founder-only LLM health probe. Makes a tiny `Reply with: OK` call wrapped in `asyncio.wait_for(timeout=8.0)`. Returns `{ok, status: ok|degraded, latency_ms, error, reply}`. Distinguishes "backend up but LLM hanging" from generic outage. Live-verified: returned `{"ok":true,"status":"ok","latency_ms":1638.5,"reply":"OK"}` on preview.
+
+**Test coverage** — `backend/tests/test_iter212m147_bulk_fix_drawer_diff.py` (13 new tests):
+- `_compute_diff_lines` for add-only, mixed add+remove, no-change, truncation at `_MAX_DIFF_LINES`.
+- Source-pattern contract: `fix-diff` is emitted BEFORE `fix-committing`.
+- Frontend handles `fix-diff` / `fix-committing` / `verifying` / `hydrated` / `done` phases.
+- 40 ms stagger animation + `@keyframes diffLineIn` present.
+- Active card + completed list + final summary data-testids exist.
+- localStorage + restart endpoint preserved.
+- `/health/ora` endpoint exists + founder-gated + 8 s timeout.
+- `(score=0, total=0)` normalised to null in `/last`.
+- Dashboard uses per-repo cache + loading flag.
+- TopBar renders skeleton + colour bands.
+
+**Regression**: 37/37 passing across iter 212m-121, 128, 134, 147.
+
+**Files touched**: `frontend/src/components/FixProgressDrawer.jsx` (rewritten), `frontend/src/pages/Dashboard.jsx`, `frontend/src/components/dashboard/v2/TopBar.jsx`, `backend/routers/codebase_health.py`, `backend/main.py`, `backend/tests/test_iter212m147_bulk_fix_drawer_diff.py` (new).
+
+
+
 ### Iter 212m-144 / 145 / 146 — Loop cross-worker robustness + safety hatches (Feb 2026) ✅
 
 Three back-to-back fixes shipped to make Loop Mode survive the realities of a multi-worker production cluster.
