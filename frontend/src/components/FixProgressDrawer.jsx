@@ -18,11 +18,12 @@
  * Mounted once at the App root via the global event
  * `aurem:open-fix-progress` carrying `{job_id, total}`.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   X, GitCommit, GitPullRequest, ShieldCheck, ShieldAlert, ExternalLink,
-  Loader2, FileSearch, Sparkles, UploadCloud, BadgeCheck,
+  Loader2, FileSearch, Sparkles, UploadCloud, BadgeCheck, RotateCw,
 } from "lucide-react";
+import { api } from "../lib/api";
 
 const PHASE_META = {
   queued:      { Icon: FileSearch,   color: "#94a3b8", label: "Queued" },
@@ -31,6 +32,12 @@ const PHASE_META = {
   committing:  { Icon: UploadCloud,  color: "#fbbf24", label: "Committing" },
   verifying:   { Icon: BadgeCheck,   color: "#38bdf8", label: "Verifying" },
 };
+
+// Iter 212m-128 — Persisted across page reloads so a refresh while
+// a job is in flight automatically re-opens the drawer + re-attaches
+// to the SSE stream.  Cleared once the drawer is closed manually OR
+// the job terminates.
+const LS_JOB_KEY = "aurem_fix_active_job";
 
 function shortSha(s) {
   return (s || "").slice(0, 7);
@@ -44,6 +51,19 @@ export default function FixProgressDrawer() {
   const [phase,      setPhase]      = useState(null);  // last event
   const [terminal,   setTerminal]   = useState(null);
   const [error,      setError]      = useState(null);
+  // Iter 212m-128 — Restart UX state.
+  //   • canRestart      → drawer renders a "Restart" button when the
+  //                       backend reports status:orphaned|failed and
+  //                       remaining findings can still be fixed.
+  //   • hydrated        → distinguishes a Mongo-rehydrated terminal
+  //                       view from a fresh fix-in-progress, so we
+  //                       label it "Resumed from history" instead of
+  //                       "Fix complete".
+  //   • restarting      → guards against the user double-clicking
+  //                       the Restart button mid-call.
+  const [canRestart, setCanRestart] = useState(false);
+  const [hydrated,   setHydrated]   = useState(false);
+  const [restarting, setRestarting] = useState(false);
   // Iter 212m-128 — Live "proof of life" — keeps the user calm
   // during long bulk fixes.
   //   • startedAt    → drives the running mm:ss timer
@@ -62,6 +82,82 @@ export default function FixProgressDrawer() {
   const [eventCount,  setEventCount]  = useState(0);
   const esRef = useRef(null);
 
+  // Iter 212m-128 — Restart handler. Calls POST /restart/{job_id},
+  // gets a NEW job_id back, and re-points the drawer at it (clean
+  // event stream, fresh timer).  The original job row stays in
+  // Mongo as historical audit.
+  const handleRestart = useCallback(async () => {
+    if (!jobId || restarting) return;
+    setRestarting(true);
+    setError(null);
+    try {
+      const r = await api.post(`/fix-pipeline/restart/${jobId}`);
+      const next = r.data || {};
+      if (next.nothing_to_do) {
+        setTerminal({
+          phase: "done", ok: true,
+          message: next.message || "All findings already complete.",
+        });
+        setRestarting(false);
+        try { localStorage.removeItem(LS_JOB_KEY); } catch { /* ignore */ }
+        return;
+      }
+      // Hand off to the same open-event so all our state resets.
+      const t0 = Date.now();
+      setItems({});
+      setPhase(null);
+      setTerminal(null);
+      setError(null);
+      setCanRestart(false);
+      setHydrated(false);
+      setStartedAt(t0);
+      setLastEventAt(t0);
+      setEventCount(0);
+      setNow(t0);
+      setTotal(next.remaining || 1);
+      setJobId(next.job_id);
+      try { localStorage.setItem(LS_JOB_KEY,
+        JSON.stringify({ job_id: next.job_id, total: next.remaining }));
+      } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e?.response?.data?.detail?.message
+                  || e?.response?.data?.detail
+                  || e?.message
+                  || "Restart failed";
+      setError(typeof msg === "string" ? msg : JSON.stringify(msg));
+    } finally {
+      setRestarting(false);
+    }
+  }, [jobId, restarting]);
+
+  // Iter 212m-128 — On mount, check localStorage for an in-flight
+  // job (set when the bulk fix kicked off). If present, re-open
+  // the drawer and re-attach to the SSE stream.  This is what
+  // turns a page refresh during a long bulk fix from "lost forever"
+  // into "drawer reappears and keeps streaming".
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_JOB_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.job_id) return;
+      const t0 = Date.now();
+      setOpen(true);
+      setJobId(parsed.job_id);
+      setTotal(parsed.total || 1);
+      setItems({});
+      setPhase(null);
+      setTerminal(null);
+      setError(null);
+      setCanRestart(false);
+      setHydrated(false);
+      setStartedAt(t0);
+      setLastEventAt(t0);
+      setEventCount(0);
+      setNow(t0);
+    } catch { /* corrupt cache — ignore */ }
+  }, []);
+
   // Listen for the global open event.
   useEffect(() => {
     const onOpen = (e) => {
@@ -75,10 +171,15 @@ export default function FixProgressDrawer() {
       setPhase(null);
       setTerminal(null);
       setError(null);
+      setCanRestart(false);
+      setHydrated(false);
       setStartedAt(t0);
       setLastEventAt(t0);
       setEventCount(0);
       setNow(t0);
+      try { localStorage.setItem(LS_JOB_KEY,
+        JSON.stringify({ job_id, total: t || 1 }));
+      } catch { /* ignore */ }
     };
     window.addEventListener("aurem:open-fix-progress", onOpen);
     return () => window.removeEventListener("aurem:open-fix-progress", onOpen);
@@ -160,11 +261,61 @@ export default function FixProgressDrawer() {
       }
       if (data.phase === "done") {
         setTerminal(data);
+        if (data.status && data.status !== "done") {
+          // Persisted terminal that wasn't a clean "done" — e.g.
+          // status:"failed" / "orphaned" from /restart path.  Offer
+          // restart unless the worker explicitly forbade it.
+          setCanRestart(data.can_restart !== false);
+        }
+        try { es.close(); } catch { /* ignore */ }
+        try { localStorage.removeItem(LS_JOB_KEY); } catch { /* ignore */ }
+      }
+      // Iter 212m-128 — Worker crashed mid-flight.  Stream a
+      // distinctive UI state so the user sees the real reason and
+      // a Restart button instead of "running forever".
+      if (data.phase === "job-error") {
+        setError(data.message || data.error || "Worker error");
+        setCanRestart(data.can_restart !== false);
+      }
+      // Iter 212m-128 — Hydrated event = job was rehydrated from
+      // Mongo (pod restart / multi-pod miss).  Render the partial
+      // results + offer restart.
+      if (data.phase === "hydrated") {
+        setHydrated(true);
+        setTerminal({
+          phase:     "done",
+          ok:        data.status === "done",
+          completed: data.completed || 0,
+          failed:    data.failed || 0,
+          total:     data.total || 0,
+          results:   data.results || [],
+          message:   data.message || "Resumed from history.",
+          status:    data.status,
+        });
+        // Replay any persisted results so the row list isn't empty.
+        const itemsFromResults = {};
+        (data.results || []).forEach((r, idx) => {
+          itemsFromResults[r.finding_id || `idx_${idx}`] = {
+            phase:      "fix-done",
+            finding_id: r.finding_id,
+            ok:         r.ok,
+            commit_sha: r.commit_sha,
+            html_url:   r.html_url,
+            file:       r.file,
+            rule_id:    r.rule_id,
+            error:      r.error,
+            index:      idx,
+          };
+        });
+        setItems(itemsFromResults);
+        setCanRestart(data.can_restart === true);
         try { es.close(); } catch { /* ignore */ }
       }
       if (data.phase === "gone") {
         setError(data.message || "Job not found (may have expired)");
+        setCanRestart(data.can_restart === true);
         try { es.close(); } catch { /* ignore */ }
+        try { localStorage.removeItem(LS_JOB_KEY); } catch { /* ignore */ }
       }
     });
     es.onerror = () => {
@@ -486,25 +637,98 @@ export default function FixProgressDrawer() {
         </div>
 
         {terminal && (
-          <footer style={{
+          <footer
+            data-testid="fix-progress-footer"
+            style={{
             padding: "12px 20px",
             borderTop: "1px solid rgba(255,255,255,0.06)",
             background: "rgba(255,255,255,0.015)",
             fontSize: 12, color: "#94a3b8",
             display: "flex", justifyContent: "space-between", alignItems: "center",
+            gap: 12, flexWrap: "wrap",
           }}>
-            <span data-testid="fix-progress-terminal">{terminal.message}</span>
-            <button
-              data-testid="fix-progress-done"
-              onClick={() => setOpen(false)}
-              style={{
-                padding: "6px 14px", borderRadius: 6,
-                border: "1px solid rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.04)",
-                color: "#e8ecf3", cursor: "pointer", fontSize: 12,
-              }}
-            >Done</button>
+            <span data-testid="fix-progress-terminal">
+              {hydrated && (
+                <span style={{
+                  marginRight: 8, padding: "2px 6px", borderRadius: 999,
+                  background: "rgba(56,189,248,0.10)",
+                  border: "1px solid rgba(56,189,248,0.30)",
+                  color: "#7dd3fc", fontSize: 10,
+                }}>RESUMED</span>
+              )}
+              {terminal.message}
+            </span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {canRestart && (
+                <button
+                  data-testid="fix-progress-restart"
+                  onClick={handleRestart}
+                  disabled={restarting}
+                  style={{
+                    padding: "6px 14px", borderRadius: 6,
+                    border: "1px solid rgba(251,146,60,0.40)",
+                    background: restarting
+                      ? "rgba(251,146,60,0.05)"
+                      : "rgba(251,146,60,0.12)",
+                    color: "#fdba74",
+                    cursor: restarting ? "wait" : "pointer",
+                    fontSize: 12, fontWeight: 600,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}
+                ><RotateCw size={12} className={restarting ? "anim-spin" : ""} />
+                  {restarting ? "Restarting…" : "Restart remaining"}</button>
+              )}
+              <button
+                data-testid="fix-progress-done"
+                onClick={() => {
+                  setOpen(false);
+                  try { localStorage.removeItem(LS_JOB_KEY); }
+                  catch { /* ignore */ }
+                }}
+                style={{
+                  padding: "6px 14px", borderRadius: 6,
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#e8ecf3", cursor: "pointer", fontSize: 12,
+                }}
+              >Done</button>
+            </div>
           </footer>
+        )}
+        {/* Iter 212m-128 — Inline "Restart" button rendered when the
+            stream surfaces a job-error mid-flight (no terminal yet).
+            Without this the user would have to close + re-trigger
+            the bulk fix from scratch. */}
+        {!terminal && canRestart && (
+          <div
+            data-testid="fix-progress-mid-error-restart"
+            style={{
+              padding: "10px 16px",
+              borderTop: "1px solid rgba(239,68,68,0.20)",
+              background: "rgba(239,68,68,0.05)",
+              fontSize: 12,
+              display: "flex", justifyContent: "space-between",
+              alignItems: "center", gap: 12, flexWrap: "wrap",
+            }}>
+            <span style={{ color: "#fca5a5" }}>
+              Worker crashed — restart to retry the remaining findings.
+            </span>
+            <button
+              data-testid="fix-progress-mid-error-restart-btn"
+              onClick={handleRestart}
+              disabled={restarting}
+              style={{
+                padding: "6px 12px", borderRadius: 6,
+                border: "1px solid rgba(251,146,60,0.40)",
+                background: "rgba(251,146,60,0.12)",
+                color: "#fdba74",
+                cursor: restarting ? "wait" : "pointer",
+                fontSize: 12, fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}
+            ><RotateCw size={12} className={restarting ? "anim-spin" : ""} />
+              {restarting ? "Restarting…" : "Restart"}</button>
+          </div>
         )}
       </aside>
     </>

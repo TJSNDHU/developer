@@ -12,6 +12,57 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-128 — Production-grade fix-job persistence + restart (Feb 2026) ✅
+
+**Trigger**: User shared a production video showing a bulk fix stuck for ~10 minutes — `0/9 findings`, `1 events`, `connection slow — 573s idle`, eventually red "Job not found (may have expired)". Root cause: `fix_job_manager._JOBS` was in-memory only. A Hetzner pod restart (or multi-pod load balancer re-route) wiped every in-flight bulk job, leaving the user staring at a "running forever" SSE stream with no recovery path.
+
+**Architecture overhaul**:
+
+**1) `services/fix_job_manager.py`** — Hybrid in-memory + Mongo store:
+- `create_job()` now `async` and writes the initial row to `fix_jobs` collection.
+- New `persist_event(db, job_id)` snapshots the live counters / results to Mongo. Called from `fix_pipeline._run_bulk_job` after every fix-done, batch-end, retry, terminal.
+- `close()` is now async too — final terminal row goes to Mongo with full `status` (`done` / `failed` / `orphaned` / `restarted`).
+- `subscribe()` gracefully hydrates from Mongo when the in-memory job is gone: emits a synthetic `hydrated` event carrying the persisted snapshot + a `can_restart` boolean.
+- `mark_running_orphaned(db)` — boot-time sweep that flips any leftover `status:"running"` rows to `"orphaned"`.
+- `list_jobs(db, user_id)` + `get_persisted(db, job_id, user_id)` — new helpers used by `/list` and `/restart` endpoints.
+- Terminal errors (`github_credentials_missing`, `github_unauthorized`, `insufficient_tokens*`, `file_too_large`) are now tracked in `failed_terminal_ids` so the restart path skips them (retrying won't help).
+
+**2) `routers/fix_pipeline.py`**:
+- `_run_bulk_job` wrapped in a top-level `try/except` so an unhandled exception (Mongo glitch, GitHub 5xx outside the per-finding block, programming bug) no longer silently kills the asyncio task. Now emits a `job-error` SSE event with the trimmed traceback + closes the job with `status:"failed"`.
+- Separate `asyncio.CancelledError` branch handles graceful shutdown → `status:"orphaned"`.
+- New `POST /fix-pipeline/restart/{job_id}` — reads the persisted row, subtracts completed + terminally-failed finding IDs from `all_findings`, spawns a **new** worker on the remaining set (returns the new `job_id`). Marks the original row `status:"restarted"` with `superseded_by`.
+- New `GET /fix-pipeline/list?status=&limit=` — caller's recent jobs (newest-first) for the UI's "Resume in-flight" banner.
+- `GET /stream/{job_id}` falls back to Mongo when not in memory; emits owner-safe `hydrated` events.
+- `GET /summary/{job_id}` also falls back to Mongo for multi-pod / post-restart callers.
+
+**3) `main.py` lifespan startup**:
+- New `_orphan_running_fix_jobs()` background task calls `mark_running_orphaned(db)` and logs the count. Also ensures indexes (`ix_fix_jobs_user_status_started`, `ux_fix_jobs_job_id`).
+
+**4) `frontend/src/components/FixProgressDrawer.jsx`**:
+- `localStorage.aurem_fix_active_job` persists the in-flight job ID across page reloads — on mount, the drawer auto-re-attaches.
+- New SSE phase handlers:
+  - `hydrated` → replays the persisted results into the row list with a "RESUMED" badge.
+  - `job-error` → surfaces the message + flips `canRestart` on, even mid-flight.
+  - `gone` / `done` → cleared from localStorage.
+- New **"Restart remaining"** button in the footer (terminal state) AND an inline restart strip when `job-error` arrives without a terminal. Calls `POST /fix-pipeline/restart/{job_id}`, switches the drawer to the new job ID and resets the timer.
+- Heartbeat now uses 30 s server-side keep-alive (was 120 s) so the SSE proxy can't drop "idle" streams.
+
+**Test coverage** (`backend/tests/test_iter212m128_fix_job_persistence.py` — 9 new tests):
+- `create_job` Mongo persistence
+- `persist_event` counter + terminal-error tracking
+- Boot-time orphan sweep
+- SSE hydration of orphaned jobs (with `can_restart:True`)
+- SSE `gone` event when no Mongo row
+- `list_jobs` user isolation + sort
+- `get_persisted` owner check
+- Top-level exception handler in `_run_bulk_job` closes job as `failed`
+
+**Files touched**: `backend/services/fix_job_manager.py` (rewritten), `backend/routers/fix_pipeline.py`, `backend/main.py`, `frontend/src/components/FixProgressDrawer.jsx`, `backend/tests/test_iter212m128_fix_job_persistence.py` (new), `backend/tests/test_iter212m121_fix_pipeline.py` (updated for new async signatures). 46/46 fix-pipeline tests passing.
+
+**Production impact**: After deploy, a Hetzner pod restart mid-bulk-fix will leave a recoverable `orphaned` job in Mongo. The user's next page load shows the drawer with partial results + a "Restart remaining" button. **No more 10-minute hung "Fix in progress" screens.**
+
+
+
 ### Iter 212m-127 — Production-log noise cleanup (Feb 2026) ✅
 
 **Trigger**: User ran the deployed code on `auremcto.com` and pasted the live Hetzner logs. Four distinct issues were visible in those logs even though the new fix-pipeline / heartbeat / 10-batch features were proven working (real PRs #6 on `TJSNDHU/Aurem` + #45 on `polarisbuiltinc-wq/auremdev` were committed by the new pipeline). All four fixes ship in this iter.

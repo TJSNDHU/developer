@@ -298,6 +298,34 @@ async def lifespan(app: FastAPI):
         except Exception as e:                            # noqa: BLE001
             logger.warning("loop_safety indexes failed: %r", e)
     _asyncio.create_task(_ensure_loop_safety_indexes())
+
+    # Iter 212m-128 — Orphan-detection for fix jobs.  Any `fix_jobs`
+    # row still flagged `status:"running"` was killed by the
+    # previous pod's restart and has no live asyncio task — flip to
+    # `"orphaned"` so the UI can offer Restart instead of letting
+    # the user stare at a hung "Fix in progress" forever.
+    async def _orphan_running_fix_jobs():
+        try:
+            if app.state.db is None:
+                return
+            from services.fix_job_manager import mark_running_orphaned
+            n = await mark_running_orphaned(app.state.db)
+            if n:
+                logger.info("fix_job_manager: orphaned %d running job(s) "
+                            "from prior pod", n)
+            # Also ensure the index used by /list (user_id + status +
+            # started_at) so the lookup stays fast as the collection
+            # grows.
+            await app.state.db.fix_jobs.create_index(
+                [("user_id", 1), ("status", 1), ("started_at", -1)],
+                name="ix_fix_jobs_user_status_started",
+            )
+            await app.state.db.fix_jobs.create_index(
+                [("job_id", 1)], unique=True, name="ux_fix_jobs_job_id",
+            )
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("fix_jobs orphan sweep failed: %r", e)
+    _asyncio.create_task(_orphan_running_fix_jobs())
     # Iter 212m-32 — hourly onboarding nudge cron. Sends the
     # "connect a repo" email to users 24h after signup (and again at
     # 72h if still no repo). Idempotent via the `onboarding_emails`

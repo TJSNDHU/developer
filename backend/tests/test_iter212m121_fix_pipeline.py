@@ -281,12 +281,14 @@ def test_job_manager_emit_and_subscribe():
     from services import fix_job_manager as fjm
 
     async def go():
-        job_id = fjm.create_job("u1", "single", total=1)
+        job_id = await fjm.create_job(
+            db=None, user_id="u1", kind="single", total=1,
+        )
         fjm.emit(job_id, "queued", finding_id="f1")
         fjm.emit(job_id, "reading", finding_id="f1")
         fjm.emit(job_id, "fix-done", ok=True, finding_id="f1",
                  commit_sha="abc1234", file="x.py", rule_id="r1")
-        fjm.close(job_id, ok=True)
+        await fjm.close(None, job_id, ok=True)
         events = []
         async for ev in fjm.subscribe(job_id):
             events.append(ev["phase"])
