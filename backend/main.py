@@ -1169,6 +1169,9 @@ app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
 app.include_router(codebase_health_router, prefix="/api/aurem-dev")  # Iter 212m-72 5-cat health
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
+# Iter 212m-117 — User trust-level (L1/L2/L3) for Loop Mode + Fix.
+from routers.trust_level import router as trust_level_router
+app.include_router(trust_level_router)
 app.include_router(diagram_router,        prefix="/api/aurem-dev")  # Iter 212m-61 /diagram
 app.include_router(feature_window_router, prefix="/api/aurem-dev")  # Iter 212m-64 system map
 app.include_router(mcp_router,            prefix="/api/aurem-dev")  # iter 173 — MCP server

@@ -12,6 +12,7 @@ import VercelCard from "../components/VercelCard";
 import PricingCards from "../components/PricingCards";
 import OraWrapped from "../components/OraWrapped";
 import ReferralShare from "../components/ReferralShare";
+import TrustLevelCard from "../components/TrustLevelCard";
 
 export default function Settings() {
   const [me, setMe]         = useState(getUser());
@@ -104,6 +105,11 @@ export default function Settings() {
         </section>
 
         <GitHubCard />
+
+        {/* Iter 212m-117 — Loop Trust Level (L1/L2/L3) */}
+        <section style={{ gridColumn: "1 / -1" }}>
+          <TrustLevelCard />
+        </section>
 
         {/* Iter 212m-84 — Vercel platform tools for ORA chat */}
         <section style={{ gridColumn: "1 / -1" }}>

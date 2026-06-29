@@ -498,6 +498,43 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [shipPending, setShipPending] = useState(null);
   const [shipBusy, setShipBusy] = useState(false);
   const loopAbortRef = useRef(null);
+
+  // Iter 212m-117 — Rehydrate paused-Ship state on mount. If the user
+  // had a Loop paused at the manual Ship gate and refreshed the
+  // browser, this re-populates the ShipPendingCard so they can resume
+  // without losing the work. PAT is already scrubbed server-side.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const projectId = activeProject?.project_id;
+        if (!projectId) return;
+        const r = await api.get(`/loop/active?project_id=${encodeURIComponent(projectId)}`);
+        const active = (r?.data || r)?.active;
+        if (cancelled || !active) return;
+        if (active.state === "paused_for_user" && active.phase === "ship"
+            && active.ship_pending) {
+          setLoopId(active.loop_id);
+          setShipPending({
+            owner:          active.ship_pending.owner,
+            repo:           active.ship_pending.repo,
+            branch:         active.ship_pending.branch,
+            files:          Object.keys(active.ship_pending.files || {}),
+            file_count:     Object.keys(active.ship_pending.files || {}).length,
+            commit_message: active.ship_pending.commit_message,
+            message:        "Loop resumed — ready to ship.",
+          });
+        } else if (active.state === "awaiting_confirmation" && active.plan) {
+          setLoopId(active.loop_id);
+          setLoopPlan(active.plan);
+        }
+      } catch (e) {
+        // Best-effort hydrate; never block initial render.
+        console.debug("loop/active hydrate skipped:", e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeProject?.project_id]);
   // Iter 212m-58 — chatMode hard-pinned to Pro when loop is active
   // (Swift disabled per spec). We persist that nudge on toggle so a
   // user flipping back to Prompt mode keeps their last model pick.

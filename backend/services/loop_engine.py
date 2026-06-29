@@ -341,8 +341,38 @@ class LoopEngine:
             await self._emit(LoopState.ABORTED, "plan",
                              message=f"Loop cancelled by user: {feedback}")
             return
-        # Fire EXECUTE phase as a background task; events stream via
-        # the queue so the SSE consumer keeps draining.
+        # Iter 212m-117 — Trust-level branching.
+        # L1: Plan-only — skip Execute/Verify/Scan/Ship and mark COMPLETED.
+        # L2: Standard pipeline with manual Ship gate (default).
+        # L3: Pipeline with auto-ship (skips the manual confirmation pause).
+        try:
+            from routers.trust_level import get_user_trust_level
+            level = await get_user_trust_level(self.db, self.user_id)
+        except Exception:
+            level = "L2"
+        self.context["trust_level"] = level
+        if level == "L1":
+            self.state = LoopState.COMPLETED
+            self.phase = "plan"
+            await _persist_session(self.db, self._doc())
+            try:
+                from services.loop_safety import release_loop_lock
+                await release_loop_lock(
+                    self.db, self.project_id or "_no_project",
+                    self.user_id, self.loop_id,
+                )
+            except Exception:
+                pass
+            await self._emit(
+                LoopState.COMPLETED, "plan",
+                step=1, total_steps=5,
+                message="L1 report-only mode — plan ready, no code changes will be written. "
+                        "Upgrade to L2 in Settings to execute the plan.",
+                data={"trust_level": "L1",
+                      "plan": self.context.get("plan")},
+            )
+            return
+        # L2 + L3 — fire the EXECUTE phase as a background task.
         asyncio.create_task(self._run_pipeline())
 
     async def _run_pipeline(self) -> None:
@@ -757,6 +787,8 @@ class LoopEngine:
         # Iter 212m-111 — PAUSE for manual ship confirmation. The actual
         # `commit_files()` call now lives in `confirm_ship()` which is
         # triggered by POST /loop/{loop_id}/confirm-ship.
+        # Iter 212m-117 — L3 trust-level users SKIP the manual gate
+        # (auto-ship). L1 never reaches here. L2 is the safe default.
         self.context["ship_pending"] = {
             "owner":          owner,
             "repo":           repo,
@@ -765,6 +797,11 @@ class LoopEngine:
             "files":          files_dict,
             "commit_message": commit_message,
         }
+        if self.context.get("trust_level") == "L3":
+            logger.info("[loop %s] L3 auto-ship — skipping manual gate",
+                        self.loop_id)
+            await self.confirm_ship(True)
+            return
         self.state = LoopState.PAUSED_FOR_USER
         await _persist_session(self.db, self._doc())
         logger.info("[loop %s] SHIP PAUSED for manual confirmation — "
@@ -990,11 +1027,57 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
     from services.llm import call_llm_with_meta
 
     # Inject the compact repo map if available (cheap — single DB read).
+    # Iter 212m-117 — Auto-refresh stale graphs (>30 min old) before
+    # building the map so the planner always sees the current state of
+    # the user's repo. Incremental build (iter 113) means an unchanged
+    # repo costs ZERO new LLM tokens to refresh — just a regex pass +
+    # blob_sha diff. Best-effort: a refresh failure must NOT block plan.
     repo_map_block = ""
     try:
-        from db import get_db
+        from cto_services.db import get_db
         from services.repo_map import build_repo_map
-        rm = await build_repo_map(get_db(), project_id, user_id)
+        db = get_db()
+        # Stale-check the graph; if >30 min old, rebuild silently.
+        if db is not None and project_id:
+            try:
+                from services.graph_builder import build_graph
+                import time as _time
+                prior = await db.project_graphs.find_one(
+                    {"project_id": project_id, "user_id": user_id},
+                    {"_id": 0, "built_at": 1},
+                )
+                age = _time.time() - (
+                    (prior or {}).get("built_at") or 0
+                ) if prior else float("inf")
+                if (not prior) or age > 30 * 60:
+                    proj = await db.cto_projects.find_one(
+                        {"project_id": project_id, "user_id": user_id},
+                        {"_id": 0, "github_owner": 1, "github_repo": 1,
+                         "github_branch": 1, "github_token": 1},
+                    )
+                    if proj and proj.get("github_owner") and proj.get("github_repo"):
+                        from routers.security_scan import _decrypt_pat
+                        tok = await _decrypt_pat(user_id, proj.get("github_token"))
+                        if not tok:
+                            u = await db.dev_users.find_one(
+                                {"user_id": user_id}, {"_id": 0, "github": 1},
+                            )
+                            tok = ((u or {}).get("github") or {}).get("access_token")
+                        if tok:
+                            logger.info(
+                                "[plan] graph stale (age=%.0fs) — rebuilding silently",
+                                age if age != float("inf") else -1,
+                            )
+                            await build_graph(
+                                db=db, project_id=project_id, user_id=user_id,
+                                gh_token=tok,
+                                gh_owner=proj["github_owner"],
+                                gh_repo=proj["github_repo"],
+                                branch=proj.get("github_branch") or "main",
+                            )
+            except Exception as e:                          # noqa: BLE001
+                logger.debug("[plan] silent graph refresh skipped: %r", e)
+        rm = await build_repo_map(db, project_id, user_id)
         if rm.get("has_map"):
             repo_map_block = (
                 "\n\n--- COMPACT REPO MAP ({n} files, {c} chars) ---\n"
