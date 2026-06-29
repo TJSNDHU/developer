@@ -114,6 +114,108 @@ async def _generate_one(
             return None
 
 
+async def _localize_change_target(
+    *,
+    path: str,
+    current: str,
+    plan: dict,
+    user_message: str,
+    user_id: Optional[str],
+    call_llm_with_meta,
+) -> Optional[dict]:
+    """Iter 212m-118 — DIAGNOSE-FIRST (RepairAgent pattern, ICSE 2025).
+
+    Before asking the LLM to rewrite the whole file, run a cheap
+    "where exactly does the change need to happen?" pass. Returns
+    a dict with the localized context block the rewrite LLM will
+    receive in addition to the raw file:
+
+        { line, function, snippet_start, snippet_end,
+          context_block, has_localization }
+
+    Returns None on any failure — caller falls back to full-file
+    rewrite (the legacy behaviour) so a flaky localizer never
+    breaks Execute.
+    """
+    if not current or len(current) < 100:
+        return None       # tiny / empty file — context already minimal
+
+    plan_bullets = "\n".join(
+        f"- {b}" for b in (plan.get("bullets") or [])[:8]
+    )
+    sys = (
+        "You are a code-change LOCALIZER. Given a file and a task, "
+        "identify the EXACT location (line number + function/class "
+        "name) where the change must be made. Return JSON only:\n"
+        '{"line": int, "function": str, "reason": str}\n'
+        "If the change spans multiple regions or the whole file, "
+        'return {"line": 0, "function": "ENTIRE_FILE", "reason": str}.'
+        " No fences, no commentary."
+    )
+    lines = current.splitlines()
+    numbered = "\n".join(
+        f"{i+1:4d} | {ln}" for i, ln in enumerate(lines[:400])
+    )
+    usr = (
+        f"TASK: {user_message}\n\nPLAN BULLETS:\n{plan_bullets}\n\n"
+        f"FILE: {path}\n"
+        f"CONTENT (line-numbered, first 400 lines shown):\n"
+        f"{numbered}\n\n"
+        "Where should the change happen? JSON only."
+    )
+    try:
+        meta = await call_llm_with_meta(
+            system=sys, user=usr,
+            max_tokens=300, mode="chat",
+            user_id=user_id, review_mode="swift",
+        )
+    except Exception as e:                              # noqa: BLE001
+        logger.debug("[execute] localizer LLM failed for %s: %r", path, e)
+        return None
+    raw = (meta or {}).get("content", "").strip()
+    if not raw:
+        return None
+    # Strip fences if the model added them despite the instruction.
+    if raw.startswith("```"):
+        nl = raw.find("\n")
+        raw = raw[nl + 1:] if nl != -1 else raw
+        if raw.endswith("```"):
+            raw = raw[:-3].rstrip()
+    try:
+        import json
+        data = json.loads(raw)
+    except Exception:
+        logger.debug("[execute] localizer JSON parse failed for %s: %r", path, raw[:200])
+        return None
+    line = int(data.get("line") or 0)
+    fn   = (data.get("function") or "").strip()
+    if fn == "ENTIRE_FILE" or line <= 0:
+        return None     # localizer says full rewrite — skip extra context
+    # Collect 20 lines of context around the target.
+    start = max(0, line - 11)
+    end   = min(len(lines), line + 10)
+    snippet = "\n".join(
+        f"{i+1:4d} | {lines[i]}" for i in range(start, end)
+    )
+    context_block = (
+        f"\n\n--- DIAGNOSE-FIRST LOCALIZATION ---\n"
+        f"Target function: {fn}\n"
+        f"Target line:     {line}\n"
+        f"Reason:          {(data.get('reason') or '').strip()[:200]}\n\n"
+        f"Surrounding context (line {start+1}..{end}):\n"
+        f"{snippet}\n"
+        f"--- END LOCALIZATION ---\n"
+    )
+    return {
+        "line":          line,
+        "function":      fn,
+        "snippet_start": start + 1,
+        "snippet_end":   end,
+        "context_block": context_block,
+        "has_localization": True,
+    }
+
+
 async def _generate_one_inner(
     *,
     client, idx, total, path, plan, user_message,
@@ -128,6 +230,25 @@ async def _generate_one_inner(
         logger.warning("[execute] fetch_file failed for %s: %r (treating as new file)", path, e)
         current = ""
 
+    # Iter 212m-118 — DIAGNOSE-FIRST. Cheap "where exactly?" pass before
+    # the rewrite. Best-effort; None on failure → full-file rewrite path.
+    localization_block = ""
+    try:
+        loc = await _localize_change_target(
+            path=path, current=current, plan=plan,
+            user_message=user_message, user_id=user_id,
+            call_llm_with_meta=call_llm_with_meta,
+        )
+        if loc and loc.get("has_localization"):
+            localization_block = loc["context_block"]
+            logger.info(
+                "[execute] localized %s → fn=%s line=%d (lines %d..%d)",
+                path, loc["function"], loc["line"],
+                loc["snippet_start"], loc["snippet_end"],
+            )
+    except Exception as e:                              # noqa: BLE001
+        logger.debug("[execute] diagnose-first skipped for %s: %r", path, e)
+
     sys_msg = (
         "You are ORA, an AI engineer. The user gave a task and an "
         "approved plan. Rewrite the entire file content to satisfy "
@@ -135,7 +256,9 @@ async def _generate_one_inner(
         "Do not add commentary. Do not wrap in code fences. "
         "Preserve any existing functionality that the task does NOT "
         "explicitly change. If the file is empty (new file), produce "
-        "a sensible initial version."
+        "a sensible initial version. When a DIAGNOSE-FIRST "
+        "LOCALIZATION block is provided, focus your edits on the "
+        "indicated function/line — keep the rest byte-identical."
     )
     plan_bullets = "\n".join(
         f"- {b}" for b in (plan.get("bullets") or [])[:12]
@@ -143,8 +266,9 @@ async def _generate_one_inner(
     user_msg = (
         f"USER REQUEST:\n{user_message}\n\n"
         f"APPROVED PLAN:\n{plan.get('title', '')}\n{plan_bullets}\n\n"
-        f"FILE PATH: {path}\n\n"
-        f"--- CURRENT CONTENT ({len(current)} bytes) ---\n"
+        f"FILE PATH: {path}\n"
+        f"{localization_block}"
+        f"\n--- CURRENT CONTENT ({len(current)} bytes) ---\n"
         f"{current}\n"
         f"--- END CURRENT CONTENT ---\n\n"
         "Return the complete new content for this file. No fences. "

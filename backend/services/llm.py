@@ -865,7 +865,25 @@ async def call_llm_with_meta(system: str, user: str,
     Legacy callers that don't pass `review_mode` keep the original
     behaviour. `step_hook(text, done=False)` is invoked at phase
     boundaries so the chat SSE worker can stream progress frames.
+
+    Iter 212m-118 — `LITELLM_ROUTER_ENABLED=1` short-circuits this
+    entire 4-hop chain in favour of the unified litellm.Router (see
+    services/llm_router.py). Default OFF so production behaviour is
+    unchanged; flip the env var on to migrate.
     """
+    # Iter 212m-118 — litellm router fast-path.
+    try:
+        from services.llm_router import is_enabled, call_via_router
+        if is_enabled():
+            return await call_via_router(
+                system=system, user=user,
+                max_tokens=min(max_tokens, cap_for(mode)),
+                temperature=temperature_for(mode),
+            )
+    except Exception as _e:
+        # Router failed → fall through to the legacy chain. Never
+        # block the request on a router-init error.
+        logger.warning("litellm router failed, falling back to legacy chain: %r", _e)
     temperature = temperature_for(mode)
     actual_tokens = min(max_tokens, cap_for(mode))
 

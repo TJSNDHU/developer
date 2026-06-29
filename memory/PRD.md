@@ -12,6 +12,32 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-118 — Diagnose-first repair + litellm.Router (Feb 28 2026) ✅
+
+Founder spec commit: `feat(loop): diagnose-first repair + litellm router`
+
+**1. DIAGNOSE-FIRST (RepairAgent / ICSE 2025 pattern)** in `services/loop_execute.py`:
+   - New `_localize_change_target()` runs BEFORE each file rewrite. Cheap "Swift" LLM call (~300 tokens, max_tokens=300) returns `{line, function, reason}` JSON identifying the exact change location.
+   - On success, 20 lines of context around that location are injected into the rewrite prompt as a `--- DIAGNOSE-FIRST LOCALIZATION ---` block so the rewrite LLM focuses on the right region.
+   - Fall-back paths: returns `None` for files <100 bytes, on JSON parse failure, when localizer says `ENTIRE_FILE`, or on any LLM exception. Full-file rewrite (legacy behavior) is always preserved.
+   - Effect: smaller targeted patches → fewer re-validation rejections in Vanguard fix flow.
+
+**2. LITELLM Router** — new `services/llm_router.py`:
+   - Unified `litellm.Router` with all 4 models (Claude / DeepSeek / OpenRouter / Groq) as fallback siblings.
+   - Built-in retries (2x), rate-limit wait + retry, cooldown after 3 fails, 60s cooldown window, per-model RPM caps.
+   - Activated by `LITELLM_ROUTER_ENABLED=1` env flag. Default OFF — legacy 4-hop in `services/llm.py` remains the source of truth in production until founder opts in.
+   - `services/llm.call_llm_with_meta()` gets a short-circuit at the top: if flag enabled, delegate to router. Any router init failure falls through to legacy logic (zero risk).
+   - To activate in production: `export LITELLM_ROUTER_ENABLED=1` — no code change, no redeploy needed.
+
+**Tests + proofs:**
+- 13 new tests in `test_iter212m118_diagnose_first_and_litellm_router.py` — localization happy path, ENTIRE_FILE skip, tiny-file skip, malformed JSON safety, fence-strip, rewrite prompt contains localization block, fallback when localizer crashes, router default-off, env flag enable, build_model_list with/without keys, source-level llm.py short-circuit invariant.
+- **104/104 backend unit tests GREEN** across iter 109+110+111+112+113+114+115+116+117+118.
+- Backend boots clean. Live HTTP unchanged (router still OFF by default).
+
+**No new infra needed:** `litellm` already in `backend/requirements.txt`. Activation is a single env var flip.
+
+
+
 ### Iter 212m-116 — Repo-map + Relevant-file selector (token-economical Loop) (Feb 28 2026) ✅
 
 Founder asked for 3 high-ROI improvements borrowed from Aider + Sweep reference repos. Item #3 (circuit breaker) was already shipped in iter 212m-115; this iter ships the other two.
