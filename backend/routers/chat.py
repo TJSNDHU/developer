@@ -998,6 +998,38 @@ async def chat_stream(
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 
+    # Iter 212m-139 — Ask Advisor "No repo connected" bug fix.
+    # When the frontend hasn't yet stamped an active-project tab (e.g.
+    # the user has exactly one connected repo and never had to click a
+    # tab to switch), `body.project_id` arrives as null/empty. Every
+    # downstream tool (`read_repo_files`, `get_repo_structure`, etc.)
+    # then hits `_resolve_project(..., project_id=None)` and returns
+    # "No project connected", which the LLM faithfully reports back as
+    # "no repo is connected right now" — even though the user has one
+    # in the sidebar.
+    # FIX (route level): if the caller passed no project AND the user
+    # has exactly ONE connected project (real `github_owner+repo`), we
+    # rewrite body.project_id to that project once, for the whole turn.
+    # With 2+ projects we leave it null — the LLM must disambiguate.
+    if not (body.project_id or "").strip() or (body.project_id or "").strip() == "home":
+        try:
+            _db_ai = get_db()
+            if _db_ai is not None:
+                _candidates = await _db_ai.cto_projects.find(
+                    {"user_id": user_id,
+                     "github_owner": {"$nin": [None, ""]},
+                     "github_repo":  {"$nin": [None, ""]}},
+                    {"_id": 0, "project_id": 1},
+                ).limit(2).to_list(2)
+                if len(_candidates) == 1:
+                    body.project_id = _candidates[0]["project_id"]
+                    logger.info(
+                        "chat.stream: auto-inferred sole project %s for user %s",
+                        body.project_id, user_id,
+                    )
+        except Exception as _ai_e:
+            logger.warning("chat.stream auto-infer project failed: %r", _ai_e)
+
     # Iter 38: ORA is founder-only. The ORA API key is shared across all
     # founders, so we gate at the surface to avoid customer quota burn.
     # Iter 205 — The Ask Advisor side panel (ORASidePanel) hardcodes

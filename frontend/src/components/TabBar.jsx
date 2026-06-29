@@ -33,7 +33,22 @@ export default function TabBar() {
   const refresh = useCallback(async () => {
     try {
       const r = await api.get("/cto/projects/list");
-      setProjects(r.data?.projects || []);
+      const list = r.data?.projects || [];
+      setProjects(list);
+      // Iter 212m-139 — Auto-activate when there is EXACTLY ONE
+      // connected project and no active tab is set. Previously the
+      // user had to manually click their only project to "activate"
+      // it before Ask Advisor / ChatPanel got a non-null project_id,
+      // and Advisor's tool calls returned "No repo connected" until
+      // they did. This was confusing — the sidebar showed the repo,
+      // but the chat said it wasn't connected.
+      const hasActive = !!getActiveProjectId();
+      const wired = list.filter(
+        (p) => p.github_owner && p.github_repo,
+      );
+      if (!hasActive && wired.length === 1) {
+        setActiveProjectId(wired[0].project_id);
+      }
     } catch {
       /* ignore */
     }

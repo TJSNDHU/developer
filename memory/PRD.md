@@ -12,6 +12,51 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-139 — Ask Advisor "No repo connected" route-level fix (Feb 2026) ✅
+
+**User repro**: with `TJSNDHU/Aurem` connected on PROD, Ask Advisor replied:
+
+> No repo is connected right now — I can't inspect your pipeline without one.
+> `read_repo_files → {"ok": false, "error": "No project connected or project not found"}`
+
+**Root cause** (traced through 3 layers):
+
+1. `AskAdvisorReal.jsx` passes `project_id: activeProject?.project_id || null`.
+2. `activeProject` comes from `useActiveProject()` → reads `aurem_active_project` from `localStorage`.
+3. With **exactly one** connected project, the user never had to click a tab to "switch" — so `aurem_active_project` was never written. → `activeProject = null` → Advisor sent `project_id: null` → every tool hit `_resolve_project(..., project_id=None)` which short-circuited to `return None` → tool error → LLM honestly reported "no repo connected" even though one was right there.
+
+**Real fix at route level — defence-in-depth, 3 layers** (so this bug can't sneak back):
+
+**Layer A — `backend/routers/chat.py`** (single source of truth for the WHOLE turn):
+Right after authenticating, if `body.project_id` is null/empty/"home" AND the user has EXACTLY ONE connected project (`github_owner` + `github_repo` both non-empty), rewrite `body.project_id` to that project. With 2+ connected projects we abstain — the LLM must explicitly disambiguate. With 0 we leave null. This means `repo_ctx`, `brain_ctx`, council retrieval, and EVERY tool downstream all see the right project — not just the tool-resolution path.
+
+**Layer B — `backend/services/local_tools._resolve_project`** (tool layer):
+Same inference at the tool-resolution layer, so any future caller (not just `/chat/stream`) that passes a null project_id ALSO gets the right project. Belt AND braces.
+
+**Layer C — `backend/services/dev_skills.py`** (deduplication + bonus fix):
+`dev_skills.py` had a DUPLICATE `_resolve_project` (older, missing the inference). Refactored to delegate to `local_tools._resolve_project` — single source of truth. Every dev skill (`find_symbol_usages`, `read_files`, `get_repo_structure`, etc.) now benefits from the fix automatically.
+
+**Layer D — `frontend/src/components/TabBar.jsx`** (defence-in-depth on the client):
+After `/cto/projects/list` resolves, if no active project is stamped AND exactly one connected project exists, auto-call `setActiveProjectId(...)`. Even if the backend inference somehow misses, the frontend never sends `project_id: null` to begin with.
+
+**Test coverage** — `backend/tests/test_iter212m139_ask_advisor_no_repo_fix.py` (10 new tests):
+- Null/empty/"home" project_id → inference activates → returns sole connected project
+- 2 connected projects → inference abstains (returns None — LLM must disambiguate)
+- 0 connected → returns None
+- Explicit pid → no silent swap (caller's choice wins)
+- No user_id → safe None
+- Source-pattern contract: chat.py has the Iter 212m-139 marker + writes `body.project_id`
+- Source-pattern contract: TabBar.jsx auto-activates the sole wired project
+- `dev_skills._resolve_project` delegates to `local_tools._resolve_project`
+
+**Regression**: 187/187 passing across iter 212m-126 → 139.
+
+**What this means**: the moment this lands in PROD, ANY user with exactly one connected repo who hits Ask Advisor without an active tab will get a working Advisor instead of the "No repo connected" wall. The original report scenario (TJSNDHU/Aurem on PROD) — fixed.
+
+**Files touched**: `backend/routers/chat.py`, `backend/services/local_tools.py`, `backend/services/dev_skills.py`, `frontend/src/components/TabBar.jsx`, `backend/tests/test_iter212m139_ask_advisor_no_repo_fix.py` (new).
+
+
+
 ### Iter 212m-138 — Vanguard CI ingest status endpoint + setup doc (Feb 2026) ✅
 
 The CI ingest pipeline (Iter 212m-120) was code-complete but invisible: the

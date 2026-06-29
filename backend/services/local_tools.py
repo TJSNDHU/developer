@@ -57,19 +57,56 @@ async def _resolve_project(user_id: str, project_id: str) -> dict | None:
     in-place and, when the project has no PAT (e.g. OAuth-only flow),
     fall back to the user's GitHub OAuth `access_token`.
 
+    Iter 212m-139 — Auto-infer project when caller passed null/empty:
+    Ask Advisor (and any tool turn that hits us before the frontend has
+    explicitly set an active tab) was sending `project_id=null` even when
+    the user had exactly one repo connected. The tool then returned the
+    confusing "No project connected" error and the LLM responded
+    "connect a repo" even though one was right there. We now treat a
+    missing/empty/"home" project_id as a soft hint: when the user has
+    exactly ONE connected project (i.e. `github_owner` + `github_repo`
+    both populated), we infer it. With 2+ connected projects we still
+    return None — the LLM must explicitly disambiguate.
+
     All downstream tools keep reading `proj.get("github_token")` and just
     work.
     """
-    if not user_id or not project_id or project_id == "home":
+    if not user_id:
         return None
     db = get_db()
     if db is None:
         return None
-    proj = await db.cto_projects.find_one(
-        {"project_id": project_id, "user_id": user_id}
-    )
-    if not proj:
-        return None
+
+    pid_clean = (project_id or "").strip()
+    proj = None
+    if pid_clean and pid_clean != "home":
+        proj = await db.cto_projects.find_one(
+            {"project_id": pid_clean, "user_id": user_id}
+        )
+
+    if proj is None:
+        # Iter 212m-139 — single-project auto-infer fallback.
+        # Match only projects that have a real repo wired up so we don't
+        # pick a half-created project_id row with no repo. Cap at 2 to
+        # cheaply distinguish "exactly one" from "two or more".
+        try:
+            candidates = await db.cto_projects.find(
+                {"user_id": user_id,
+                 "github_owner": {"$nin": [None, ""]},
+                 "github_repo":  {"$nin": [None, ""]}},
+            ).limit(2).to_list(2)
+        except Exception as e:                       # noqa: BLE001
+            logger.warning("local_tools._resolve_project inference failed: %r", e)
+            return None
+        if len(candidates) != 1:
+            return None
+        proj = candidates[0]
+        logger.info(
+            "local_tools._resolve_project: inferred sole project "
+            "%s for user %s (caller passed pid=%r)",
+            proj.get("project_id"), user_id, project_id,
+        )
+
     # Decrypt the per-project PAT (if present), else fall back to OAuth.
     try:
         from routers.cto_projects import _decrypt_pat, _user_gh_token
