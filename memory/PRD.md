@@ -12,6 +12,41 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-125 — Live GitHub connection-status dots in sidebar (Feb 2026) ✅
+
+**What changed**: Each repo row in the sidebar now carries a real-time coloured dot reflecting actual GitHub reachability — no more stale "status: connected" string from a months-old Mongo row.
+
+**Backend** (`routers/repo_status.py`)
+- `GET /api/aurem-dev/cto/projects/connection-status` — auth-gated.
+- For each of the user's projects, decrypts the PAT (falls back to user OAuth access_token), then calls `GET https://api.github.com/repos/{owner}/{repo}` with a 5 s timeout.
+- Fan-out is parallel via `asyncio.gather` + a semaphore (`_MAX_PARALLEL=8`) so 50 repos don't pound GitHub from a single user.
+- 8 s TTL in-memory cache (`_CACHE`) swallows duplicate polls while the user route-bounces.
+- Returns `[{project_id, status: "connected"|"disconnected", http_code, checked_at, auth: pat|oauth|none, owner, repo, error?}]`. Errors normalised: `github_rejected` (401/403), `repo_not_found` (404), `network: TimeoutException`, `no_token`, `repo_not_set`.
+
+**Frontend** (`components/dashboard/v2/SidebarBound.jsx`)
+- New `liveStatus` state map keyed by `project_id`.
+- `useEffect` triggered by repo-id-set change: pre-marks every row as `checking` (yellow), then fires the connection-status fetch. Repeats every 30 s while `document.visibilityState === "visible"`, pauses when the tab is hidden.
+- `Dot` component now renders 5 tones: `green` (connected), `red` (disconnected), `yellow` (in-flight, with `animate-pulse`), `gray` (pre-first-poll), `orange` (active row, kept for backward compat).
+- Live status overrides the static `repo.dot` prop — connection truth ranks above the active-row hint.
+- Tooltip text in collapsed mode now reads `{owner}/{repo} · {branch} · {status}`.
+
+**Visual proof on preview** (Playwright + hover-reveal sidebar):
+- Single seed project `demo-app` with no `github_owner`/`github_repo` set → backend returned `disconnected` with `error: "repo_not_set"` → sidebar rendered **red dot** next to the row.
+- API call captured in the network log: `GET /api/aurem-dev/cto/projects/connection-status` fired automatically on mount.
+
+**Tests** — `tests/test_iter212m125_repo_status.py` — 5/5 PASS:
+- Auth required (401 without bearer)
+- Mixed outcomes: connected (200 + PAT), disconnected (404), disconnected (no_repo set), connected via OAuth fallback when no PAT row
+- 401/403 → `github_rejected`
+- 8-second TTL cache coalesces back-to-back calls (3 HTTP calls fired, 0 on the second request)
+- Network timeout maps to `disconnected` with `network: TimeoutException` error label
+
+**Files touched**
+- NEW: `backend/routers/repo_status.py`, `backend/tests/test_iter212m125_repo_status.py`
+- MODIFIED: `backend/main.py` (router registration), `frontend/src/components/dashboard/v2/SidebarBound.jsx`
+
+
+
 ### Iter 212m-121 — Real Fix pipeline: SSE progress + bulk + founder bypass (Feb 2026) ✅
 
 Closes the user-reported gap: "Codebase Health Fix button not working, no live progress, no bulk fix, no cost preview". Per-finding fix was ALREADY real (iter 212m-114 — `apply_finding_fix` → `commit_files` returns real GitHub `full_sha`/`html_url`), but UX was a single blocking spinner with no feedback. This iter adds:

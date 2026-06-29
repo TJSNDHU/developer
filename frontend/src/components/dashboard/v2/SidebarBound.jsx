@@ -27,13 +27,27 @@ const TOOLS = [
 ];
 
 function Dot({ tone }) {
+  // Iter 212m-125 — Live repo connection dots.
+  //   • green   → backend GitHub ping returned 200
+  //   • red     → backend reported disconnected (bad token, 404, network)
+  //   • yellow  → check in-flight (frontend-driven, between polls)
+  //   • orange  → the historical "active project" highlight, kept so
+  //               older callers (e.g. tooltip-only collapsed mode)
+  //               still render the right colour.
+  //   • gray    → unknown / pre-first-poll.
+  const isYellow = tone === "yellow";
   return (
     <span className={cn(
       "mt-[1px] size-[6px] shrink-0 rounded-full",
       tone === "orange" && "bg-primary",
       tone === "gray"   && "bg-muted-foreground/40",
       tone === "red"    && "bg-destructive",
-    )} />
+      tone === "green"  && "bg-emerald-500",
+      isYellow          && "bg-amber-400",
+      isYellow          && "animate-pulse",        // breathe while checking
+    )}
+    data-testid={`sidebar-repo-dot-${tone || "gray"}`}
+    />
   );
 }
 
@@ -99,6 +113,93 @@ export default function SidebarBound({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Iter 212m-125 — Live GitHub connection status per repo.
+  //   liveStatus[project_id] = "connected" | "disconnected" | "checking"
+  // Initial state for every repo: "checking" (yellow pulsing dot) so
+  // the user sees activity the moment the sidebar paints; the first
+  // poll resolves within ~1 s and recolours each row.
+  // Poll cadence is 30 s while the tab is visible, paused when the
+  // tab is hidden (Page Visibility API) to save GitHub rate-limit
+  // budget.  In-flight check is also marked "checking" so the dot
+  // breathes back to yellow on every refresh.
+  const [liveStatus, setLiveStatus] = useState({});
+  useEffect(() => {
+    if (!repos?.length) return undefined;
+    let cancelled = false;
+    const fetchOnce = async () => {
+      // Mark all current repos as checking (yellow) before the call
+      // so the user always sees movement on every poll tick.
+      if (!cancelled) {
+        setLiveStatus((prev) => {
+          const next = { ...prev };
+          for (const r of repos) {
+            if (!next[r.id]) next[r.id] = "checking";
+          }
+          return next;
+        });
+      }
+      try {
+        const token = getToken();
+        const res = await fetch(`${API_BASE}/cto/projects/connection-status`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok || cancelled) return;
+        const j = await res.json();
+        if (cancelled) return;
+        const map = {};
+        for (const s of (j.statuses || [])) {
+          map[s.project_id] = s.status === "connected"
+            ? "connected" : "disconnected";
+        }
+        setLiveStatus((prev) => ({ ...prev, ...map }));
+      } catch {
+        // Network blip — leave dots in their last state rather than
+        // flicker everything to red on a transient failure.
+      }
+    };
+    // Initial fetch, then a 30 s interval while the tab is visible.
+    fetchOnce();
+    let timer = null;
+    const startPolling = () => {
+      stopPolling();
+      timer = setInterval(() => {
+        if (document.visibilityState === "visible") fetchOnce();
+      }, 30000);
+    };
+    const stopPolling = () => {
+      if (timer) { clearInterval(timer); timer = null; }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        fetchOnce();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    startPolling();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // Only re-run when the set of repo ids changes — not when status
+    // updates (that would cause an infinite poll loop).
+  }, [(repos || []).map((r) => r.id).join("|")]);
+
+  // Map a live status → dot tone used by the renderer below.  We
+  // intentionally DO NOT use the historical "orange = active" dot
+  // here — connection truth is more important than active-row hint
+  // (the active row is already underscored via background colour).
+  function liveDot(repo) {
+    const s = liveStatus[repo.id];
+    if (s === "connected")    return "green";
+    if (s === "disconnected") return "red";
+    if (s === "checking")     return "yellow";
+    return "gray";              // pre-first-poll (~1 s window)
+  }
 
   const initials = (() => {
     const name = (user?.name || user?.email || "U").trim();
@@ -242,7 +343,7 @@ export default function SidebarBound({
                       : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
                     isCollapsed ? "h-9 w-12 justify-center" : "px-4 py-[6px]",
                   )}>
-                  <Dot tone={repo.dot} />
+                  <Dot tone={liveDot(repo)} />
                   {!isCollapsed && (
                     <div className="min-w-0 flex-1 text-left">
                       <p className="truncate text-[12px] font-medium leading-none">{label}</p>
@@ -253,7 +354,7 @@ export default function SidebarBound({
               );
               return (
                 <li key={repo.id || label}>
-                  {isCollapsed ? <Tooltip label={`${label} · ${repo.branch}`}>{button}</Tooltip> : button}
+                  {isCollapsed ? <Tooltip label={`${label} · ${repo.branch} · ${liveStatus[repo.id] || "checking"}`}>{button}</Tooltip> : button}
                 </li>
               );
             })}
