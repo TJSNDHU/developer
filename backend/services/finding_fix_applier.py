@@ -394,6 +394,14 @@ async def apply_finding_fix(
         "branch":     commit_target,
         "file":       path,
         "rule_id":    rule_id,
+        # Iter 212m-147 — Expose the before/after file contents so the
+        # bulk fix worker can compute a unified diff for the SSE
+        # `diff` event the drawer renders.  These are LARGE strings —
+        # callers MUST drop them before persisting to Mongo (already
+        # the case in fix_pipeline.py which only persists summary
+        # fields via fjm.persist_event).
+        "original_content": content,
+        "patched_content":  patched,
         "message":    (
             f"Fixed {rule_id} in {path} — commit {short_sha}"
             + (f" on branch {commit_target}" if commit_target != branch else "")

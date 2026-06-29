@@ -48,6 +48,7 @@ Cost model:
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import time
@@ -64,6 +65,52 @@ from services import ora_fix_learning
 
 logger = logging.getLogger("aurem-dev.fix_pipeline")
 router = APIRouter(prefix="/fix-pipeline", tags=["Fix Pipeline"])
+
+
+# ─── Iter 212m-147 — unified-diff helper ─────────────────────────────
+#
+# Produces the SSE `diff` event payload from the before/after file
+# contents.  We use Python's stdlib `difflib.unified_diff` and strip
+# the standard `--- /+++ /@@@` chrome lines, leaving only the actual
+# `+`/`-` lines (with a small amount of `context` lines so the
+# drawer can render a sensible window).  Limits the output to
+# `_MAX_DIFF_LINES` so a 5000-line refactor doesn't blast the SSE
+# pipe; the drawer can scroll within what it gets.
+_MAX_DIFF_LINES = 80
+
+
+def _compute_diff_lines(before: str, after: str) -> list[dict]:
+    if before == after:
+        return []
+    before_lines = before.splitlines(keepends=False)
+    after_lines  = after.splitlines(keepends=False)
+    out: list[dict] = []
+    for line in difflib.unified_diff(
+        before_lines, after_lines, n=2, lineterm="",
+    ):
+        if not line:
+            continue
+        # Skip the `--- `/`+++ `/`@@` header chrome.
+        if line.startswith("--- ") or line.startswith("+++ "):
+            continue
+        if line.startswith("@@"):
+            out.append({"type": "hunk", "line": line})
+            continue
+        if line.startswith("-"):
+            out.append({"type": "remove", "line": line[1:]})
+        elif line.startswith("+"):
+            out.append({"type": "add", "line": line[1:]})
+        else:
+            # Context line (no prefix marker after the unified_diff
+            # strip).  Useful so the drawer can show a few lines of
+            # surrounding code for orientation.
+            out.append({"type": "context",
+                        "line": line[1:] if line.startswith(" ") else line})
+        if len(out) >= _MAX_DIFF_LINES:
+            out.append({"type": "context",
+                        "line": f"... diff truncated at {_MAX_DIFF_LINES} lines"})
+            break
+    return out
 
 
 # ─── Cost model ────────────────────────────────────────────────────────
@@ -257,12 +304,22 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
         ordered = _interleave_by_severity(findings)
         batches = [ordered[i : i + _BULK_BATCH_SIZE]
                    for i in range(0, len(ordered), _BULK_BATCH_SIZE)]
+        # Iter 212m-147 — `fix_total` is the canonical count of fixes
+        # the drawer's header shows ("Fixing N / fix_total"). Emit it
+        # in job-start so the drawer can size its progress bar.
         fjm.emit(job_id, "job-start", count=len(ordered),
+                 fix_total=len(ordered),
                  batches=len(batches), batch_size=_BULK_BATCH_SIZE,
                  is_unlimited=is_unlim, project_id=project_id)
         await fjm.persist_event(db, job_id)
         total_charged = 0
         total_ok = 0
+        total_failed = 0
+        total_skipped = 0
+        # Iter 212m-147 — Final-summary roll-up.  Collected per-fix so
+        # the `all-done` event can replay the whole journey for the
+        # drawer's terminal summary card.
+        fixes_summary: list[dict] = []
         global_idx = 0
         for batch_no, batch in enumerate(batches, start=1):
             fjm.emit(job_id, "batch-start",
@@ -280,7 +337,15 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 fjm.emit(job_id, "queued",
                          index=global_idx, batch=batch_no,
                          finding_id=finding_id, rule_id=rule_id,
-                         severity=severity, file=path)
+                         severity=severity, file=path,
+                         # Iter 212m-147 — fix_index/fix_total + a
+                         # human description so the drawer header
+                         # ("Fixing 3/15") and active-fix block
+                         # ("Reading file…") have all data on event 1.
+                         fix_index=global_idx, fix_total=len(ordered),
+                         description=(finding.get("title")
+                                      or finding.get("message")
+                                      or rule_id))
 
                 # Token deduction is BEST-EFFORT per finding so a mid-batch
                 # 402 doesn't leak a partial commit.  Founders skip entirely.
@@ -293,12 +358,26 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                         fjm.emit(job_id, "fix-done",
                                  ok=False, finding_id=finding_id,
                                  error="insufficient_tokens_midbatch",
-                                 file=path, rule_id=rule_id)
+                                 file=path, rule_id=rule_id,
+                                 fix_index=global_idx,
+                                 fix_total=len(ordered))
                         await fjm.persist_event(db, job_id)
+                        total_skipped += 1
+                        fixes_summary.append({
+                            "index":      global_idx,
+                            "file":       path,
+                            "rule":       rule_id,
+                            "status":     "skipped",
+                            "error":      "insufficient_tokens_midbatch",
+                            "commit_sha": None,
+                            "github_url": None,
+                        })
                         continue
                     total_charged += cost
 
-                fjm.emit(job_id, "reading", finding_id=finding_id, file=path)
+                fjm.emit(job_id, "reading", finding_id=finding_id,
+                         file=path,
+                         fix_index=global_idx, fix_total=len(ordered))
                 # Iter 212m-128 — Per-finding auto-retry.  We loop up to
                 # _MAX_FIX_ATTEMPTS times, bailing early on terminal
                 # error codes (see _TERMINAL_ERROR_CODES) where retrying
@@ -353,8 +432,20 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                              ok=False, finding_id=finding_id,
                              error=res.get("error") or "unknown",
                              attempts=_MAX_FIX_ATTEMPTS,
-                             file=path, rule_id=rule_id)
+                             file=path, rule_id=rule_id,
+                             fix_index=global_idx,
+                             fix_total=len(ordered))
                     await fjm.persist_event(db, job_id)
+                    total_failed += 1
+                    fixes_summary.append({
+                        "index":      global_idx,
+                        "file":       path,
+                        "rule":       rule_id,
+                        "status":     "failed",
+                        "error":      res.get("error") or "unknown",
+                        "commit_sha": None,
+                        "github_url": None,
+                    })
                     # Iter 212m-129 — Learning hook (failure path).
                     await ora_fix_learning.record_fix_outcome(
                         db, user_id=user_id, project_id=project_id,
@@ -366,9 +457,36 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                     )
                     continue
 
+                # Iter 212m-147 — Emit the diff BEFORE the GitHub
+                # verification call so the drawer animates `+`/`-`
+                # lines in immediately after the LLM patch lands,
+                # then transitions to the "Committing" badge while
+                # the verify call runs.  Diff is computed from the
+                # before/after contents apply_finding_fix returned.
+                _diff_lines = _compute_diff_lines(
+                    res.get("original_content") or "",
+                    res.get("patched_content")  or "",
+                )
+                if _diff_lines:
+                    fjm.emit(job_id, "fix-diff",
+                             finding_id=finding_id,
+                             fix_index=global_idx,
+                             fix_total=len(ordered),
+                             file=path, rule_id=rule_id,
+                             diff=_diff_lines)
+                fjm.emit(job_id, "fix-committing",
+                         finding_id=finding_id,
+                         fix_index=global_idx,
+                         fix_total=len(ordered),
+                         file=path, rule_id=rule_id,
+                         commit_sha=res.get("commit_sha"))
+
                 # Real GitHub verification — confirm the commit exists.
                 fjm.emit(job_id, "verifying",
-                         finding_id=finding_id, commit_sha=res.get("commit_sha"))
+                         finding_id=finding_id,
+                         commit_sha=res.get("commit_sha"),
+                         fix_index=global_idx,
+                         fix_total=len(ordered))
                 verified = await _verify_commit_exists(
                     db=db, user=user, project_id=project_id,
                     full_sha=res.get("full_sha"),
@@ -378,12 +496,25 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                          commit_sha=res.get("commit_sha"),
                          full_sha=res.get("full_sha"),
                          html_url=res.get("html_url"),
+                         github_url=res.get("html_url"),
                          pr_url=res.get("pr_url"),
                          branch=res.get("branch"),
                          file=res.get("file"),
                          rule_id=res.get("rule_id"),
+                         fix_index=global_idx,
+                         fix_total=len(ordered),
                          verified=verified)
                 await fjm.persist_event(db, job_id)
+                fixes_summary.append({
+                    "index":      global_idx,
+                    "file":       res.get("file"),
+                    "rule":       res.get("rule_id"),
+                    "status":     "ok",
+                    "commit_sha": res.get("commit_sha"),
+                    "github_url": res.get("html_url"),
+                    "pr_url":     res.get("pr_url"),
+                    "verified":   verified,
+                })
                 # Iter 212m-129 — Learning hook (success path).  The
                 # `verified` field carries the real GitHub-commit-
                 # exists check so analytics can distinguish "LLM said
