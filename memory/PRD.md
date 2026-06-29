@@ -12,6 +12,27 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-112 — Loop auto-restart on timeout + parallel execute + iter_23 focus-mode fixes (Feb 28 2026) ✅
+
+P0 founder request: "Deep scan and wire all 5 steps in loop mode … if timeout issue came it restart automatically like we build thinking restart … i don't want to see any error in future in our loop engineering". Live user report: `Step 2/5 Execute — Phase execute exceeded 120s budget`.
+
+**Root cause:** Execute phase ran LLM calls SERIALLY (6 files × ~25 s = 150 s+) but budget was hard-capped at 120 s. Single timeout → terminal FAILED.
+
+**Fix (all green, 8 new tests + live smoke):**
+- **`services/loop_engine.py`** — `PHASE_TIMEOUTS_S` bumped: execute 120→300, verify 90→180, scan 120→180, plan 60→120, ship 60→120. New `MAX_PHASE_RESTARTS=2` constant.
+- **`services/loop_engine.py`** — `_with_budget()` now auto-restarts on `asyncio.TimeoutError` up to `MAX_PHASE_RESTARTS` times with exponential backoff (2 s, 4 s). Emits a SELF_HEALING SSE event with `data.kind="phase_auto_restart"` so the frontend's existing `SelfHealIndicator` lights up. Final exhausted retry calls `_fail()`. Worst-case effective execute budget: 300 × 3 = 900 s before terminal fail.
+- **`services/loop_execute.py`** — Complete rewrite. LLM calls now fan out via `asyncio.Semaphore(MAX_PARALLEL_GENS=3)` with `asyncio.wait_for(PER_FILE_TIMEOUT_S=60)` per file. Partial success preserved — one slow file returning None doesn't abort the batch. Env-overridable: `LOOP_EXECUTE_PARALLELISM`, `LOOP_EXECUTE_PER_FILE_TIMEOUT_S`.
+- **All 5 phases REAL, no mocks/TODOs:** Plan (real LLM JSON gen) → Execute (real LLM + GitHub fetch per file, parallel) → Verify (real ruff/eslint subprocesses in sandboxed temp dir) → Scan (real Vanguard 13-rule walk of GitHub tree) → Ship (real GitHub Git Data API push via `commit_files`).
+- **`pages/Dashboard.jsx` iter_23 regression fixes:**
+  - Line 103: `sidebarPinned` default flipped `true → false` — chatActive sidebar auto-collapse now fires immediately (220 → 48 px confirmed live).
+  - Lines 226-242: Advisor auto-collapse `useEffect` deps narrowed from `[chatActive, advisorCollapsed]` → `[chatActive]` with `advisorAutoRef.current` as the once-per-transition gate. Hover-reveal on right-edge now sticks (295 → 300 px stable across 900 ms, confirmed live).
+
+**Live smoke (iter_24):** POST `/api/aurem-dev/loop/start` with founder bearer returned 200 with a real LLM-generated plan {title, 5 bullets, 3 files_to_change}. Frontend: sidebar 48 px, topbar 1 px, advisor edge tab when collapsed — all on PREVIEW.
+
+**Tests:** `/app/backend/tests/test_iter212m112_loop_autorestart_and_parallel_execute.py` — 8 tests green. Total iter_109/110/111/112 backend tests: 31/31 green.
+
+
+
 ### Iter 212m-110 — Founder Bug Hunt bypass + real Codebase Graph drawer + Preview default tab (Feb 28 2026) ✅
 
 P0 fork-resume task from previous session. Three founder-spec fixes landed in a single pass + green pytest + green testing-agent (iteration_22.json).
