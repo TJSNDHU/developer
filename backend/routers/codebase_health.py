@@ -584,6 +584,26 @@ async def scan(
         "breakdown":     breakdown,
         "scan_remaining": remaining,
     }
+    # Iter 212m-127 — Persist the scan result so the Dashboard health
+    # ring can read the most-recent score via GET /last without paying
+    # the full scan cost on every page mount.  Best-effort: a Mongo
+    # failure must NEVER block the user-visible scan response.
+    try:
+        await db.codebase_health_scans.insert_one({
+            "user_id":       user_id,
+            "project_id":    project_id,
+            "score":         overall_score,
+            "label":         label,
+            "tone":          tone,
+            "total":         total,
+            "scanned_files": len(text_cache),
+            "summary":       payload["summary"],
+            "categories":    list(categories),
+            "breakdown":     breakdown,
+            "created_at":    time.time(),
+        })
+    except Exception as e:
+        logger.debug("codebase_health_scans persist failed: %r", e)
     # Iter 212m-75 — surface remaining quota per category in a header so
     # callers can render an inline counter without parsing the body.
     headers = {
@@ -593,6 +613,51 @@ async def scan(
         ),
     }
     return JSONResponse(content=payload, headers=headers)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Iter 212m-127 — Dashboard health-ring lookup.  Returns the most recent
+# persisted scan for the active project so the ring renders instantly
+# without re-walking the GitHub tree.  Returns `score: null` (200, not
+# 404) when the user hasn't scanned the project yet — the Dashboard
+# already treats `null` as "ring hidden".
+# ──────────────────────────────────────────────────────────────────────
+@router.get("/last")
+async def last_scan(
+    project_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    if not project_id:
+        raise HTTPException(400, "project_id required")
+    user = await current_dev(authorization)
+    user_id = user["user_id"]
+    db = get_db()
+    if db is None:
+        # Don't 503 — frontend silently hides the ring on errors.
+        return {"ok": True, "score": None}
+    try:
+        doc = await db.codebase_health_scans.find_one(
+            {"user_id": user_id, "project_id": project_id},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+    except Exception as e:
+        logger.debug("codebase_health_scans read failed: %r", e)
+        return {"ok": True, "score": None}
+    if not doc:
+        # Empty state — 200 with `score: null` instead of 404 noise.
+        return {"ok": True, "score": None}
+    return {
+        "ok":            True,
+        "score":         doc.get("score"),
+        "label":         doc.get("label"),
+        "tone":          doc.get("tone"),
+        "total":         doc.get("total"),
+        "scanned_files": doc.get("scanned_files"),
+        "summary":       doc.get("summary"),
+        "categories":    doc.get("categories") or [],
+        "created_at":    doc.get("created_at"),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────

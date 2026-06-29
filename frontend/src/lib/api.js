@@ -60,26 +60,45 @@ export const healthApi = axios.create({
 // response for up to 1.5 s. The pattern is intentionally narrow
 // (`/cto/tasks/<id>` with no trailing path) so the dedup never
 // touches `submit`, `rollback`, `/scan`, etc.
-const _TASK_DETAIL_RX = /^\/cto\/tasks\/[^/?]+\/?$/;
-const _TASK_CACHE_TTL_MS = 1500;
+//
+// Iter 212m-127 — Extended to also cover `/cto/projects/list` because
+// production logs showed 16+ duplicate calls in 2 seconds during
+// dashboard mount: Dashboard.jsx, TabBar.jsx, useActiveProject hook,
+// useORAPanel, and SidebarBound each fire it independently. Project
+// list changes rarely — a 2 s coalescing window is generous AND keeps
+// the backend / Mongo from getting hammered on every page mount.
+const _TASK_DETAIL_RX   = /^\/cto\/tasks\/[^/?]+\/?$/;
+const _PROJECTS_LIST_RX = /^\/cto\/projects\/list\/?$/;
+const _TASK_CACHE_TTL_MS     = 1500;
+const _PROJECTS_CACHE_TTL_MS = 2000;
 const _taskGetCache = new Map(); // url -> { ts, promise }
+
+function _ttlFor(path) {
+  if (_TASK_DETAIL_RX.test(path))   return _TASK_CACHE_TTL_MS;
+  if (_PROJECTS_LIST_RX.test(path)) return _PROJECTS_CACHE_TTL_MS;
+  return 0;
+}
 
 const _origApiGet = api.get.bind(api);
 api.get = function dedupedGet(url, config) {
-  if (typeof url === "string" && _TASK_DETAIL_RX.test(url.split("?")[0])) {
-    // Key on full url incl. query so different `?fields=` calls don't collide
-    const cached = _taskGetCache.get(url);
-    const now = Date.now();
-    if (cached && now - cached.ts < _TASK_CACHE_TTL_MS) {
-      return cached.promise;
+  if (typeof url === "string") {
+    const path = url.split("?")[0];
+    const ttl  = _ttlFor(path);
+    if (ttl > 0) {
+      // Key on full url incl. query so different `?fields=` calls don't collide
+      const cached = _taskGetCache.get(url);
+      const now = Date.now();
+      if (cached && now - cached.ts < ttl) {
+        return cached.promise;
+      }
+      const promise = _origApiGet(url, config).catch((err) => {
+        // Evict on failure so the next caller actually retries.
+        _taskGetCache.delete(url);
+        throw err;
+      });
+      _taskGetCache.set(url, { ts: now, promise });
+      return promise;
     }
-    const promise = _origApiGet(url, config).catch((err) => {
-      // Evict on failure so the next caller actually retries.
-      _taskGetCache.delete(url);
-      throw err;
-    });
-    _taskGetCache.set(url, { ts: now, promise });
-    return promise;
   }
   return _origApiGet(url, config);
 };

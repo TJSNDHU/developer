@@ -12,6 +12,34 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-127 — Production-log noise cleanup (Feb 2026) ✅
+
+**Trigger**: User ran the deployed code on `auremcto.com` and pasted the live Hetzner logs. Four distinct issues were visible in those logs even though the new fix-pipeline / heartbeat / 10-batch features were proven working (real PRs #6 on `TJSNDHU/Aurem` + #45 on `polarisbuiltinc-wq/auremdev` were committed by the new pipeline). All four fixes ship in this iter.
+
+**1) `/cto/projects/list` request storm (16+ calls in 2 s)** — `frontend/src/lib/api.js`
+- The existing `_TASK_DETAIL_RX` dedup pattern was extended with `_PROJECTS_LIST_RX` and a 2-second coalescing TTL (vs 1.5 s for tasks).
+- Dashboard.jsx, TabBar.jsx, useActiveProject hook, useORAPanel and SidebarBound were each firing `/cto/projects/list` independently on mount. A single shared in-memory promise now serves all of them.
+
+**2) `repo_heal` doom-loop on deleted repos** — `backend/services/repo_heal.py`
+- New `_cooldown_until` dict + `_PERMANENT_FAIL_REASONS` set. When `_finalise()` lands with `repo_gone_or_no_access`, `no_oauth_to_attach`, `no_token_for_retry`, `no_token_for_lookup`, `needs_user_input`, `not_owned`, or `all_tokens_failed (…)`, the project is blocked from any heal attempt for **30 minutes** instead of the standard 5-minute cooldown.
+- Race fix: `schedule_heal()` now stamps `_last_heal_at` **synchronously** before handing off to `asyncio.create_task()`, closing the window where two simultaneous schedule calls both passed `_allowed()` and spawned duplicate heals.
+- New `clear_cooldown(project_id)` helper for the project-edit endpoints to call after a user updates their PAT / re-links a repo.
+- A subsequent successful heal automatically wipes the permanent block (`_cooldown_until.pop`).
+
+**3) Warm-start graph agent timeout (12 s → 25 s)** — `backend/routers/cto_projects.py`
+- Per-agent timeout map: `{brain:12, recent:12, structure:12, stack:12, graph:25}`. Graph agent is the only one that makes one LLM call per file in the worst case (when 20/20 top files are new); the other agents are bounded single-call paths.
+- Behaviour: brain/structure/stack still fail fast on a slow LLM, but the graph builder now has enough room to actually populate the sidebar on a first-run repo.
+
+**4) `GET /codebase-health/last` 404 noise** — `backend/routers/codebase_health.py`
+- Scan results are now persisted to a new `codebase_health_scans` Mongo collection on every `POST /scan` success. Best-effort: a Mongo failure never blocks the user-visible scan response.
+- New `GET /codebase-health/last?project_id=X` endpoint reads the most-recent persisted scan for the user+project and returns it. Empty state returns **`{ok:true, score:null}` (200)** instead of the previous 404 — Dashboard health-ring already treats `score:null` as "ring hidden".
+
+**Test coverage**: `backend/tests/test_iter212m127_log_noise_fixes.py` — 21 new tests covering the permanent-failure classifier, cooldown gating, race-fix in `schedule_heal`, transient vs permanent reason routing, `clear_cooldown` helper, `/last` empty + populated + 400 paths, and the graph timeout constant. All 21 + 6 pre-existing repo_heal tests pass.
+
+**Files touched**: `frontend/src/lib/api.js`, `backend/services/repo_heal.py`, `backend/routers/cto_projects.py`, `backend/routers/codebase_health.py`, `backend/tests/test_iter212m127_log_noise_fixes.py` (new), `backend/tests/test_iter212m126_repo_heal.py` (fixture updated to clear `_cooldown_until`).
+
+
+
 ### Iter 212m-130 — CodebaseHealth parity with SecurityScanDrawer (Feb 2026) ✅
 
 **What was broken**: Each CategoryCard header said "N issues" but only rendered **critical + high + medium** sections in the expanded body. `low` rows were never shown, and findings outside the 4 standard buckets were silently dropped. Result: a category showing "10 issues" might render only 6 rows, just like the Vanguard `Fix all 172` vs `55+15+47+0=117` mismatch fixed in iter 129.

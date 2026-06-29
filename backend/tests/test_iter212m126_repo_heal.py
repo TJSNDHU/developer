@@ -76,6 +76,8 @@ def _clear_caches(monkeypatch):
     from services import repo_heal as rh
     rh._last_heal_at.clear()
     rh._inflight.clear()
+    # Iter 212m-127 — permanent-failure cooldown dict.
+    rh._cooldown_until.clear()
 
     async def fake_decrypt(uid, ct, kind=None):
         return ct  # echo: 'enc_pat' → 'enc_pat'

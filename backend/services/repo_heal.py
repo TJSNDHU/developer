@@ -59,15 +59,59 @@ logger = logging.getLogger("aurem-dev.repo_heal")
 
 
 _HEAL_COOLDOWN_S      = 5 * 60
+# Iter 212m-127 — Permanent-failure cooldown. When the heal pipeline
+# returns a reason that won't be cured by a 30 s re-poll (e.g. the
+# GitHub repo was deleted, the user hasn't connected OAuth yet, or
+# the project simply needs user input), we extend the cooldown to
+# 30 minutes so we stop hammering GitHub + filling the logs with the
+# same "success=False" line every 30 s.  Real recovery (user
+# reconnects PAT / re-creates repo) clears the entry via
+# `clear_cooldown()` from the project-edit endpoints.
+_HEAL_PERMANENT_COOLDOWN_S = 30 * 60
+_PERMANENT_FAIL_REASONS = {
+    "repo_gone_or_no_access",   # 404 lookup exhausted — repo deleted/private
+    "no_oauth_to_attach",       # User never connected GitHub OAuth
+    "no_token_for_retry",       # No PAT and no OAuth — needs user input
+    "no_token_for_lookup",      # Same as above for 404 branch
+    "needs_user_input",         # repo_not_set
+    "not_owned",                # Project row doesn't belong to user
+    "all_tokens_failed",        # Substring match handled below
+}
 _RETRY_BACKOFFS       = (0.5, 1.0, 2.0)
 _GH_TIMEOUT_S         = 6.0
 _last_heal_at: dict[str, float] = {}      # keyed by project_id
+_cooldown_until: dict[str, float] = {}    # keyed by project_id (permanent-block)
 _inflight:     set[str]         = set()    # project_ids currently healing
+
+
+def _is_permanent_failure(reason: str) -> bool:
+    """Return True if the heal failure won't self-cure by re-polling."""
+    if not reason:
+        return False
+    if reason in _PERMANENT_FAIL_REASONS:
+        return True
+    # Some reasons are prefixed (`all_tokens_failed (tried: oauth,pat)`).
+    for prefix in _PERMANENT_FAIL_REASONS:
+        if reason.startswith(prefix):
+            return True
+    return False
+
+
+def clear_cooldown(project_id: str) -> None:
+    """Called by the project-edit endpoints (token refresh, repo
+    re-link) to immediately unblock heal attempts for a project the
+    user has just touched."""
+    _last_heal_at.pop(project_id, None)
+    _cooldown_until.pop(project_id, None)
 
 
 def _allowed(project_id: str) -> bool:
     """Cooldown + in-flight gate.  Returns True if heal can run now."""
     if project_id in _inflight:
+        return False
+    # Permanent-failure block takes precedence over the normal cooldown.
+    until = _cooldown_until.get(project_id, 0.0)
+    if until and time.time() < until:
         return False
     last = _last_heal_at.get(project_id, 0.0)
     return (time.time() - last) >= _HEAL_COOLDOWN_S
@@ -317,6 +361,15 @@ async def _finalise(db, project_id: str, *, success: bool, reason: str) -> dict:
             rs._CACHE.pop(project_id, None)
         except Exception:
             pass
+        # Successful heal also clears any prior permanent-failure block.
+        _cooldown_until.pop(project_id, None)
+    else:
+        # Iter 212m-127 — Stop the heal-spam loop for failures that
+        # can't self-cure on the next 30 s poll (deleted repos, no
+        # token at all, etc.). Normal 5 min cooldown stays in place
+        # for transient / token-rejected paths.
+        if _is_permanent_failure(reason):
+            _cooldown_until[project_id] = now + _HEAL_PERMANENT_COOLDOWN_S
     logger.info("repo_heal project=%s success=%s reason=%s",
                 project_id, success, reason)
     return {"project_id":     project_id,
@@ -331,6 +384,14 @@ def schedule_heal(*, db, user_id: str, project_id: str,
     """Fire-and-forget wrapper. Caller never awaits."""
     if not _allowed(project_id):
         return
+    # Iter 212m-127 — Mark "last heal" synchronously BEFORE handing
+    # off to the event loop. Previously `_last_heal_at` was only set
+    # inside `heal_project()` itself, so a second `schedule_heal()`
+    # call that landed before the first task started running would
+    # still see `_allowed() == True` and spawn a duplicate heal.
+    # Setting it here closes that race; `_inflight` then guards the
+    # actual run.
+    _last_heal_at[project_id] = time.time()
     try:
         asyncio.create_task(
             heal_project(db=db, user_id=user_id,

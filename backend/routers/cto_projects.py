@@ -472,19 +472,41 @@ async def _run_warm_agents(
             await _mark_done("graph")
 
     try:
-        # Iter 212m-15 — Cap every warm-start agent at 12s so a slow LLM
+        # Iter 212m-15 — Cap every warm-start agent at 12 s so a slow LLM
         # call inside the graph builder can't keep the progress bar stuck
-        # at 80% (4/5 done). `_mark_done` always fires from each agent's
+        # at 80 % (4/5 done). `_mark_done` always fires from each agent's
         # finally block; the outer wait_for here is the hard ceiling for
         # the whole job. Any agent that exceeds it is silently abandoned
         # (logged via the agent's own except path) — its data was never
         # critical for the next chat turn anyway, the brain/structure
         # agents that DID complete already populate the context cache.
+        #
+        # Iter 212m-127 — Per-agent timeout overrides. Production logs
+        # showed `warm-start graph agent: timed out after 12s` whenever
+        # all 20 top files needed re-LLM (first run for a new repo or
+        # the file set rotated entirely). 12 s is fine for the brain/
+        # structure/stack agents (single LLM call each) but the graph
+        # builder makes one call per file in the worst case. Give it
+        # 25 s; that still bounds the warm-start job but lets the
+        # first-run case actually populate the graph instead of
+        # logging a warning every time.
+        _AGENT_TIMEOUTS = {
+            "brain":     12.0,
+            "recent":    12.0,
+            "structure": 12.0,
+            "stack":     12.0,
+            "graph":     25.0,
+        }
+
         async def _bounded(coro, label: str) -> None:
+            timeout = _AGENT_TIMEOUTS.get(label, 12.0)
             try:
-                await asyncio.wait_for(coro, timeout=12.0)
+                await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("warm-start %s agent: timed out after 12s", label)
+                logger.warning(
+                    "warm-start %s agent: timed out after %.0fs",
+                    label, timeout,
+                )
                 await _mark_done(label)
             except Exception as e:
                 logger.warning("warm-start %s agent: %r", label, e)
