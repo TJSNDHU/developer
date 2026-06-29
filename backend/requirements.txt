@@ -178,3 +178,4 @@ xlsxwriter==3.2.9
 yarl==1.24.2
 youtube-transcript-api==1.0.3
 zipp==4.1.0
+langfuse==4.12.0

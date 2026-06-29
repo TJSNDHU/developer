@@ -870,7 +870,37 @@ async def call_llm_with_meta(system: str, user: str,
     entire 4-hop chain in favour of the unified litellm.Router (see
     services/llm_router.py). Default OFF so production behaviour is
     unchanged; flip the env var on to migrate.
+
+    Iter 212m-119 — Every call is auto-traced to Langfuse Cloud
+    (https://us.cloud.langfuse.com) via services.langfuse_tracing.
+    Tracing is silently disabled when LANGFUSE_*_KEY env vars are
+    missing; a Langfuse outage never breaks an LLM call.
     """
+    # Iter 212m-119 — Langfuse observability wrapper.
+    from services.langfuse_tracing import trace_llm_call
+    with trace_llm_call(
+        name="ora.llm.call_llm_with_meta",
+        mode=mode, review_mode=review_mode,
+        user_id=user_id,
+        system_prompt=system, user_prompt=user,
+        extra_metadata={"max_tokens": max_tokens},
+    ) as _lf:
+        result = await _call_llm_with_meta_inner(
+            system=system, user=user, max_tokens=max_tokens,
+            mode=mode, user_id=user_id, review_mode=review_mode,
+            step_hook=step_hook,
+        )
+        _lf["success"](result)
+        return result
+
+
+async def _call_llm_with_meta_inner(system: str, user: str,
+                                     max_tokens: int = 1500,
+                                     mode: str = "chat",
+                                     user_id: Optional[str] = None,
+                                     review_mode: Optional[str] = None,
+                                     step_hook=None) -> dict:
+    """Real body of call_llm_with_meta — Iter 212m-119 split for tracing."""
     # Iter 212m-118 — litellm router fast-path.
     try:
         from services.llm_router import is_enabled, call_via_router
