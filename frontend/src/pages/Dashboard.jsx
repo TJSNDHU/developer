@@ -237,22 +237,22 @@ function DashboardV2Body() {
         setAdvisorCollapsed(true);
       }
     } else if (advisorAutoRef.current) {
+      // Iter 212m-122 — Per founder spec: do NOT auto-re-expand the
+      // Ask Advisor when the chat becomes inactive. Once collapsed
+      // (by either focus mode or the user's manual click), the ONLY
+      // way to bring it back is to click the small ADVISOR toggle.
+      // We still flip the ref so the next chatActive=true transition
+      // can collapse again if the user re-opened it manually.
       advisorAutoRef.current = false;
-      setAdvisorCollapsed(false);
     }
   }, [chatActive]);
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const onMove = (e) => {
-      const x = e.clientX;
-      const w = window.innerWidth || 0;
-      if (w - x <= 32 && advisorCollapsed && chatActive) {
-        setAdvisorCollapsed(false);
-      }
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [advisorCollapsed, chatActive]);
+  // Iter 212m-122 — Per founder spec: once Ask Advisor auto-collapses
+  // (chat focus mode), the ONLY way to re-open it is to click the
+  // small "ADVISOR" toggle button. No hover-reveal, no edge-trigger.
+  // The previous mousemove listener that auto-expanded the panel
+  // when the cursor entered the last 32 px of the right edge has
+  // been intentionally removed — it surprised the user mid-typing
+  // and broke the focus-mode contract.
 
   // Try to pull the real health score for the active repo. Falls back
   // silently — the ring just hides if there's no scan yet.
