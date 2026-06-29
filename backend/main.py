@@ -326,6 +326,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:                            # noqa: BLE001
             logger.warning("fix_jobs orphan sweep failed: %r", e)
     _asyncio.create_task(_orphan_running_fix_jobs())
+
+    # Iter 212m-129 — ORA fix-learning indexes.  Idempotent index
+    # creation for the two new analytics collections the scan + fix
+    # pipelines now write to (`ora_fix_learning`, `ora_scan_learning`).
+    async def _ensure_ora_learning_indexes():
+        try:
+            if app.state.db is None:
+                return
+            from services.ora_fix_learning import ensure_indexes
+            await ensure_indexes(app.state.db)
+            logger.info("📚 ora_fix_learning + ora_scan_learning "
+                        "indexes ensured")
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("ora_fix_learning indexes failed: %r", e)
+    _asyncio.create_task(_ensure_ora_learning_indexes())
     # Iter 212m-32 — hourly onboarding nudge cron. Sends the
     # "connect a repo" email to users 24h after signup (and again at
     # 72h if still no repo). Idempotent via the `onboarding_emails`

@@ -12,6 +12,55 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-129 — ORA fix-learning Phase-1 logging foundation (Feb 2026) ✅
+
+**Trigger**: User asked the honest question: *"kya ora learning in sbb scans and fixes main attached hai learn kr rha hai?"*. Audit confirmed: `ora_learning.py` was wired into `routers/chat.py` only. The scan + fix pipelines were generating thousands of useful data-points (rule frequencies, fix outcomes, retry counts, validator rejections, terminal-error reasons) and dropping every single one on the floor. This iter is the foundation that fixes that.
+
+**Scope (deliberately tight — Phase 1 only)**:
+- LOG everything to Mongo. No vector DB, no embeddings, no LLM recall in fix prompts (those are Phase 2 on the backlog).
+- Best-effort writes: every learning hook is wrapped so Mongo failures cannot break a real scan or fix.
+- No PII capture: file content snippets are NOT persisted in Phase 1 (privacy-by-default — opt-in capture comes with Phase 2 recall).
+
+**New service** — `backend/services/ora_fix_learning.py`:
+- `record_fix_outcome(db, *, user_id, project_id, finding, result, attempts, duration_ms, tokens_charged, scanner)` — writes one row per fix attempt to `ora_fix_learning` collection. Captures `outcome` (success/failure), `error_code`, `retryable` (based on `_TERMINAL_ERROR_CODES`), `commit_sha`, `verified`, `attempts`, `duration_ms`, `category`, `scanner`.
+- `record_scan_run(db, *, user_id, project_id, scanner, categories, files_scanned, counts, rule_counts, duration_ms, score)` — writes one row per scan to `ora_scan_learning`. Captures the per-rule + per-severity histogram.
+- `get_rule_stats(db, *, user_id, rule_id, since, limit)` — Mongo aggregation that returns top-N rules by attempt count with success/failure breakdown and `success_rate`. Foundation for "which rules are worth fixing" analytics.
+- `ensure_indexes(db)` — idempotent index creation for `(user_id, rule_id, created_at)`, `(rule_id, outcome, created_at)`, `(project_id, created_at)` on `ora_fix_learning` and `(user_id, scanner, created_at)`, `(project_id, created_at)` on `ora_scan_learning`.
+- Vanguard vuln-class mapping: `sql_injection`, `secret_leak`, `ssti`, `redos`, `chain`, `eval_usage`, `command_injection`, `xxe`, `path_traversal`, `weak_crypto`, `open_redirect`, `deserialization` all collapse into `category="vanguard"` so analytics don't fragment.
+
+**Hook points** (4 places):
+1. `routers/fix_pipeline.py::_run_bulk_job` — both success and failure paths. Captures real `attempts_used` and `duration_ms` per finding.
+2. `routers/security_scan.py::/fix` — single-finding Vanguard fix path.
+3. `routers/codebase_health.py::/fix` — single-finding health fix path.
+4. `routers/security_scan.py::/run` and `routers/codebase_health.py::/scan` — per-scan-run logging with per-rule + per-severity histograms.
+
+**Boot hook** — `backend/main.py`:
+- `_ensure_ora_learning_indexes()` background task calls `ora_fix_learning.ensure_indexes(db)` and logs `"📚 ora_fix_learning + ora_scan_learning indexes ensured"` on startup. Confirmed live in preview logs.
+
+**Test coverage** — `backend/tests/test_iter212m129_ora_fix_learning.py` (22 new tests):
+- Success row shape — full field validation
+- Failure with non-terminal error → `retryable=True`
+- All 6 terminal error codes → `retryable=False` (parametrized)
+- Vanguard vuln-class mapping (sql_injection, ssti, redos, chain, eval_usage etc → `vanguard`)
+- `record_scan_run` row shape
+- `get_rule_stats` aggregation correctness (success_rate, sort by total desc, last_at populated)
+- `get_rule_stats` filter by user_id + rule_id
+- `ensure_indexes` creates all 5 indexes; idempotent on re-call
+- Mongo failures swallowed (broken `insert_one` → no propagation)
+- `db=None` short-circuits all 4 entry points safely
+
+**Regression**: 68/68 passing across all iter 212m-121, 126, 127, 128, 129 tests. Backend restart clean, indexes auto-created on boot.
+
+**What this UNLOCKS (without doing it yet)**:
+- Phase 2: query `get_rule_stats` to inject top-3 successful patches for similar findings into the LLM prompt → "recall layer" for the fix-applier.
+- Founder dashboard: "Most-fixed rules this week" + "Rules that fail more than they succeed" widgets.
+- Per-user severity recalibration: if a user ignores 90% of `info`-level findings, surface them less prominently next scan.
+- Vector embeddings + similarity search (mem0 / pgvector) — Phase 3, when the dataset is big enough to justify the infra.
+
+**Files touched**: `backend/services/ora_fix_learning.py` (new), `backend/routers/fix_pipeline.py`, `backend/routers/security_scan.py`, `backend/routers/codebase_health.py`, `backend/main.py`, `backend/tests/test_iter212m129_ora_fix_learning.py` (new).
+
+
+
 ### Iter 212m-128 — Production-grade fix-job persistence + restart (Feb 2026) ✅
 
 **Trigger**: User shared a production video showing a bulk fix stuck for ~10 minutes — `0/9 findings`, `1 events`, `connection slow — 573s idle`, eventually red "Job not found (may have expired)". Root cause: `fix_job_manager._JOBS` was in-memory only. A Hetzner pod restart (or multi-pod load balancer re-route) wiped every in-flight bulk job, leaving the user staring at a "running forever" SSE stream with no recovery path.

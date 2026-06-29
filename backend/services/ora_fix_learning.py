@@ -101,7 +101,19 @@ _TERMINAL_ERROR_CODES: frozenset[str] = frozenset({
 
 def _finding_category(finding: dict) -> tuple[str, str]:
     """Derive (category, scanner) from a finding dict.  Both default
-    to "unknown" so the rows still aggregate cleanly."""
+    to "unknown" so the rows still aggregate cleanly.
+
+    Vanguard scanner emits findings WITHOUT a `category` field (the
+    rule_id IS the category for them — sql_injection, secret_leak,
+    etc.).  So we also look at rule_id when the explicit category
+    fields are missing.
+    """
+    _VANGUARD_RULES = {
+        "secret_leak", "sql_injection", "nosql_injection",
+        "ssti", "lpdos", "redos", "chain", "eval_usage",
+        "command_injection", "xxe", "path_traversal",
+        "weak_crypto", "open_redirect", "deserialization",
+    }
     cat = (
         finding.get("category")
         or finding.get("scanner")
@@ -111,12 +123,14 @@ def _finding_category(finding: dict) -> tuple[str, str]:
     scanner = (
         finding.get("scanner") or finding.get("source") or cat or ""
     ).lower().strip()
+    rule_id = (finding.get("rule_id") or finding.get("rule") or "").lower()
     # Map Vanguard vuln classes to a single bucket so analytics
     # ("how often does sql_injection succeed?") don't fragment across
     # near-duplicate labels.
-    if cat in ("secret_leak", "sql_injection", "nosql_injection",
-               "ssti", "lpdos", "redos", "chain"):
+    if cat in _VANGUARD_RULES or rule_id in _VANGUARD_RULES:
         cat = "vanguard"
+        if not scanner or scanner in _VANGUARD_RULES:
+            scanner = "vanguard"
     return (cat or "unknown", scanner or "unknown")
 
 

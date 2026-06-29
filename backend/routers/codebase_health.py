@@ -604,6 +604,34 @@ async def scan(
         })
     except Exception as e:
         logger.debug("codebase_health_scans persist failed: %r", e)
+    # Iter 212m-129 — Learning hook: persist a per-rule histogram of
+    # this scan run so analytics can later answer "which rules trigger
+    # most often for this user / project / across the platform".
+    try:
+        from services import ora_fix_learning as _ofl
+        rule_counts: dict[str, int] = {}
+        sev_counts:  dict[str, int] = {
+            "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
+        }
+        for _f in all_findings:
+            _rid = (_f.get("rule_id") or _f.get("rule")
+                    or _f.get("title") or "unknown")
+            rule_counts[_rid] = rule_counts.get(_rid, 0) + 1
+            _sv = (_f.get("severity") or "").lower()
+            if _sv in sev_counts:
+                sev_counts[_sv] += 1
+        await _ofl.record_scan_run(
+            db, user_id=user_id, project_id=project_id,
+            scanner="codebase_health",
+            categories=list(categories),
+            files_scanned=len(text_cache),
+            counts=sev_counts,
+            rule_counts=rule_counts,
+            duration_ms=None,
+            score=overall_score,
+        )
+    except Exception as _e:
+        logger.debug("learning scan-run hook (health) soft-failed: %r", _e)
     # Iter 212m-75 — surface remaining quota per category in a header so
     # callers can render an inline counter without parsing the body.
     headers = {

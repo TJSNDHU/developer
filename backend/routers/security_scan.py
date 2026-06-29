@@ -415,6 +415,34 @@ async def run_security_scan(
         project_id, len(candidates), len(findings), two_round,
     )
 
+    # Iter 212m-129 — Learning hook: record per-rule + per-severity
+    # histogram for this Vanguard scan run.  Best-effort, never raises.
+    try:
+        from services import ora_fix_learning as _ofl
+        _rule_counts: dict[str, int] = {}
+        _sev_counts:  dict[str, int] = {
+            "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
+        }
+        for _f in findings:
+            _rid = (_f.get("rule_id") or _f.get("vuln")
+                    or _f.get("title") or "unknown")
+            _rule_counts[_rid] = _rule_counts.get(_rid, 0) + 1
+            _sv = (_f.get("severity") or "").lower()
+            if _sv in _sev_counts:
+                _sev_counts[_sv] += 1
+        await _ofl.record_scan_run(
+            db, user_id=user_id, project_id=project_id,
+            scanner="vanguard",
+            categories=[],
+            files_scanned=len(candidates),
+            counts=_sev_counts,
+            rule_counts=_rule_counts,
+            duration_ms=None,
+            score=None,
+        )
+    except Exception as _e:
+        logger.debug("learning scan-run hook (vanguard) soft-failed: %r", _e)
+
     response: dict = {
         "ok":              True,
         "scan_mode":       "two_round" if two_round else "single_round",
