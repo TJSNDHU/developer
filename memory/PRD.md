@@ -12,6 +12,30 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-113 — Production-ready Codebase Graph (per-project gating + incremental + tour/search/impact) (Feb 28 2026) ✅
+
+P0 founder request: borrow Understand-Anything (68.9k★) UX into AUREM's Codebase Graph with strict per-project gating (no data leak across repos), PAT-based auth, minimal tokens, real build, full E2E proof.
+
+**Backend changes:**
+- **`services/graph_builder.py`** — `build_graph()` rewritten to be **token-economical & incremental**: persists `tree_sha` + per-file `blob_shas`; loads prior graph; computes `changed_top` (only files whose blob SHA changed since last build); LLM call gated on `if changed_top:`; reuses prior descriptions for unchanged files. Unchanged repo = ZERO new LLM tokens. Defensive logging of `prior=*`, `changed=N/M`, `reused=K` on every build.
+- **`routers/cto_projects.py`** — 4 graph endpoints, all auth-gated via `current_dev()` and scoped by `{project_id, user_id}` compound key. Cross-repo leak impossible — User A's project_id cannot be read with User B's bearer (mongo find_one returns None → endpoint replies `{status:'not_built'}` without ever touching the other user's row):
+  - **GET `/cto/projects/{id}/graph?full=true`** — existing, hardened comments.
+  - **GET `/cto/projects/{id}/graph/tour`** (NEW) — dependency-ordered walkthrough (Config → Data → Service → API → Hook → UI → Util), capped 12 steps. Zero LLM cost — reads cached descriptions from graph doc.
+  - **GET `/cto/projects/{id}/graph/search?q=...&limit=20`** (NEW) — server-side fuzzy ranking (basename=100, exact symbol=80, path-endswith=50, desc=30, path-substring=25, symbol-substring=20). No LLM.
+  - **POST `/cto/projects/{id}/graph/impact` {files:[...]}** (NEW) — diff blast-radius. Returns files that import the changed set (one hop, capped 50). 400 without `files[]`. No LLM.
+
+**Tests + proofs:**
+- 11 new unit tests in `test_iter212m113_graph_gating_incremental_tour_search_impact.py` — gating, JWT enforcement, token economy, tour ordering, search ranking, impact computation. ALL GREEN.
+- Cumulative 42/42 backend unit tests green across iter 109+110+111+112+113.
+- 9 live HTTP smoke checks on PREVIEW (founder bearer): no-auth → 401, founder bearer on unowned project_id → 200 `status:'not_built'` (cross-user leak prevention CONFIRMED ON LIVE ENDPOINT), POST /impact without body → 400. Recorded in iter_25 test report.
+- Frontend E2E: TopBar `data-testid='ds2-tab-graph'` → dispatches `aurem:toggle-graph` → GraphPanel drawer (data-testid='graph-panel', bbox 460×884 right-edge) opens with active project context. Confirmed live on PREVIEW.
+
+**Token economy proof:** for a repo with unchanged top-20 files, `len(changed_top)==0` → `if changed_top:` skips the LLM describe call entirely → 0 new tokens, prior descriptions reused 1:1. For a 1-file commit: LLM only describes that 1 file (~200 tokens vs ~4000 on full rebuild — 95% reduction).
+
+**Deferred (intentional):** Wiring the new `/tour`, `/search`, `/impact` endpoints into the `GraphPanel.jsx` UI is a follow-up iter — backend contract is locked & tested. Phase-3 Persona-Adaptive UI also deferred.
+
+
+
 ### Iter 212m-112 — Loop auto-restart on timeout + parallel execute + iter_23 focus-mode fixes (Feb 28 2026) ✅
 
 P0 founder request: "Deep scan and wire all 5 steps in loop mode … if timeout issue came it restart automatically like we build thinking restart … i don't want to see any error in future in our loop engineering". Live user report: `Step 2/5 Execute — Phase execute exceeded 120s budget`.
