@@ -12,6 +12,78 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-148 — Persistent Fix Bar + global FixJob state (SSE survives panel hide) (Feb 2026) ✅
+
+**Founder spec**: "Fix job panel ko persistent banao — user kuch bhi click kare, job background mein chalta rahe. Panel sirf hide ho, kill nahi." The previous drawer owned its EventSource, so any unmount (backdrop click, route change) silently killed the in-flight bulk fix. Real fix: lift all job state into a global React Context mounted at App root, with the SSE owned by the provider — drawer becomes a pure consumer that can hide/show via CSS transform without affecting the stream.
+
+**A) New global state — `frontend/src/components/FixJobContext.jsx`**:
+
+- `FixJobProvider` wraps every route inside `<BrowserRouter>`.  Holds: `jobId, total, items, activeId, terminal, error, canRestart, hydrated, panelVisible, dismissed, startedAt, endedAt, lastEventAt, eventCount`.
+- Derived: `status` (`idle | running | done | error`), `completed`, `failed`, `remaining`, `activeRow`, `completedRows`.
+- Actions: `startJob({job_id,total})`, `showPanel/hidePanel/togglePanel` (UI only), `dismiss` (closes SSE + clears localStorage — only meaningful in terminal states), `cancel` (UI-only abort), `restart` (POST /fix-pipeline/restart).
+- **CRITICAL**: the SSE `useEffect` depends on `[jobId]` — NOT on visibility.  So toggling panelVisible never tears down the EventSource.  The cleanup runs only when jobId changes (new job started) OR on explicit dismiss.
+- LocalStorage rehydration on mount surfaces the bar WITHOUT auto-opening the panel (founder spec).
+
+**B) New persistent bar — `frontend/src/components/PersistentFixBar.jsx`**:
+
+- 44 px exact height, fixed bottom-0, full-width, z-index 1290.
+- Layout L→R: animated pulse dot · main label + sub text · count badge · chevron.
+- Colour tones: amber while running, green on done, red on error.
+- Bottom 2 px animated progress track with shine effect.
+- Click bar → `togglePanel()` — never closes the SSE.
+- Dismiss (X) button appears ONLY in terminal states; closes SSE + clears localStorage.
+- Hidden only when `status==='idle'` OR `dismissed===true`.
+
+**C) Drawer rewrite — `frontend/src/components/FixProgressDrawer.jsx`**:
+
+- Reads ALL state from `useFixJob()` — no local SSE, no local items dict.
+- Always rendered (when status !== idle); visibility driven by CSS `transform: translateX(0|110%)` with a 280 ms cubic-bezier transition.
+- `bottom: 44` anchor keeps it above the bar (bar always reachable).
+- Backdrop click + Escape key → `hidePanel()` (UI only — does NOT cancel the job).  Renames the X icon button intent from "close" to "hide" via a tooltip + chevron-down "Hide" button next to it for clarity.
+- All previous visuals preserved: animated diff block with 40 ms stagger, active fix card, completed list, final summary card, restart strip.
+
+**D) App wiring — `frontend/src/App.jsx`**:
+
+```jsx
+<BrowserRouter>
+  <Toaster />
+  <FixJobProvider>      ← NEW: owns SSE
+    <FixProgressDrawer /> ← consumes context
+    <PersistentFixBar />  ← NEW: 44 px always-visible chrome
+    <Suspense> <Routes> ... </Routes> </Suspense>
+  </FixJobProvider>
+</BrowserRouter>
+```
+
+**Live verification** (5-step e2e proof via Playwright, stub EventSource):
+- **Step 1** — Start job: drawer slides in with diff animating, bar appears amber.
+- **Step 2** — Backdrop click: `drawer_visible=false`, `bar_status=running`, `open_EventSource_count=1`.  SSE alive.  ✅
+- **Step 3** — Hidden state receives 2 more SSE events (`fix-done` + new `reading`).  ✅
+- **Step 4** — Click bar to reopen: drawer shows `1/5 · 4 remaining`, NOT reset.  ✅
+- **Step 5** — Navigate to /projects: bar persists across full route change via localStorage rehydration.  ✅
+
+**Test coverage** — `backend/tests/test_iter212m148_persistent_fix_bar.py` (13 new tests):
+- Context exists, owns SSE, cleanup tied to jobId only.
+- PersistentFixBar exists with 44 px height + 2 px progress track + correct data-testids.
+- Bar click → togglePanel (never cancel).
+- Dismiss button only renders in terminal states.
+- Drawer uses context (no own EventSource).
+- Backdrop click + Escape → hidePanel (NOT cancel).
+- Drawer uses transform (not unmount).
+- App.jsx wires provider + bar correctly.
+- Dismiss closes SSE + clears localStorage.
+- Global event hookup preserved.
+- Mount-rehydrate does NOT auto-open panel.
+- Drawer anchored above bar (`bottom: 44`).
+
+Plus updated Iter 212m-147 contract test to account for the moved `aurem_fix_active_job` localStorage key (now lives in context, not drawer).
+
+**Regression**: 45/45 passing across iter 212m-121, 128, 147, 148.
+
+**Files touched**: `frontend/src/components/FixJobContext.jsx` (new), `frontend/src/components/PersistentFixBar.jsx` (new), `frontend/src/components/FixProgressDrawer.jsx` (rewritten — context consumer), `frontend/src/App.jsx`, `backend/tests/test_iter212m148_persistent_fix_bar.py` (new), `backend/tests/test_iter212m147_bulk_fix_drawer_diff.py` (updated).
+
+
+
 ### Iter 212m-147 — Bulk Fix Drawer real-time diff streaming + Health ring per-repo + /health/ora (Feb 2026) ✅
 
 Three coordinated improvements shipped together:

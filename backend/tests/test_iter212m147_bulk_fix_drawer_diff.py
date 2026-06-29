@@ -115,12 +115,17 @@ def test_fix_progress_drawer_active_card_and_completed_list():
 
 
 def test_fix_progress_drawer_preserves_restart_and_localstorage():
-    """Preserved from Iter 212m-128: restart + localStorage persistence."""
-    src = Path(__file__).resolve().parent.parent.parent / "frontend" / "src" / "components" / "FixProgressDrawer.jsx"
-    text = src.read_text()
-    assert "aurem_fix_active_job" in text
-    assert "fix-progress-restart" in text
-    assert "/fix-pipeline/restart/" in text
+    """Preserved from Iter 212m-128, moved to Iter 212m-148 context:
+    restart + localStorage persistence now live in FixJobContext."""
+    drawer_src = Path(__file__).resolve().parent.parent.parent / "frontend" / "src" / "components" / "FixProgressDrawer.jsx"
+    ctx_src    = Path(__file__).resolve().parent.parent.parent / "frontend" / "src" / "components" / "FixJobContext.jsx"
+    drawer_text = drawer_src.read_text()
+    ctx_text    = ctx_src.read_text()
+    # localStorage persistence + restart endpoint moved to the context.
+    assert "aurem_fix_active_job" in ctx_text
+    assert "/fix-pipeline/restart/" in ctx_text
+    # Drawer still surfaces the restart action via the restart() handler.
+    assert "fix-progress-restart" in drawer_text
 
 
 def test_health_ora_endpoint_wired():

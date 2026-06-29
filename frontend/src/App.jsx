@@ -22,6 +22,8 @@ import useAutoClearConsole from "./lib/useAutoClearConsole";
 import { useEffect, lazy, Suspense } from "react";
 import Toaster from "./components/Toast";
 import FixProgressDrawer from "./components/FixProgressDrawer";
+import { FixJobProvider } from "./components/FixJobContext";
+import PersistentFixBar from "./components/PersistentFixBar";
 
 // Eager — these three are the first surfaces every visitor sees and
 // they share layout (AuthShell). Keeping them in the initial bundle
@@ -134,7 +136,13 @@ export default function App() {
     <BrowserRouter>
       <AutoClearConsoleHost />
       <Toaster />
-      <FixProgressDrawer />
+      {/* Iter 212m-148 — Global FixJob provider owns the SSE so the
+          job survives panel toggles, route changes, and backdrop
+          clicks.  PersistentFixBar is the always-visible 44px chrome;
+          FixProgressDrawer slides up from it. */}
+      <FixJobProvider>
+        <FixProgressDrawer />
+        <PersistentFixBar />
       <Suspense fallback={<RouteLoader />}>
         <Routes>
           <Route path="/"                element={<Landing />} />
@@ -187,6 +195,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      </FixJobProvider>
     </BrowserRouter>
   );
 }
