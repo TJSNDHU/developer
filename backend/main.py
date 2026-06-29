@@ -55,6 +55,7 @@ from routers.onboarding import router as onboarding_router          # Iter 212m-
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
 from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
 from routers.vanguard_ci import router as vanguard_ci_router        # Iter 212m-120 Phase 1: trufflehog CI ingest
+from routers.fix_pipeline import router as fix_pipeline_router      # Iter 212m-121 bulk + SSE fix pipeline
 from routers.codebase_health import router as codebase_health_router # Iter 212m-72 5-category health scanner
 from routers.loop          import router as loop_router             # Iter 212m-60 Loop Mode engine
 from routers.diagram       import router as diagram_router          # Iter 212m-61 /diagram
@@ -1169,6 +1170,7 @@ app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
 app.include_router(vanguard_ci_router,    prefix="/api/aurem-dev")  # Iter 212m-120 Phase 1: trufflehog CI ingest
+app.include_router(fix_pipeline_router,   prefix="/api/aurem-dev")  # Iter 212m-121 bulk + SSE fix pipeline
 app.include_router(codebase_health_router, prefix="/api/aurem-dev")  # Iter 212m-72 5-cat health
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
 # Iter 212m-117 — User trust-level (L1/L2/L3) for Loop Mode + Fix.

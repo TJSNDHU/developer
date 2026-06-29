@@ -21,6 +21,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import useAutoClearConsole from "./lib/useAutoClearConsole";
 import { useEffect, lazy, Suspense } from "react";
 import Toaster from "./components/Toast";
+import FixProgressDrawer from "./components/FixProgressDrawer";
 
 // Eager — these three are the first surfaces every visitor sees and
 // they share layout (AuthShell). Keeping them in the initial bundle
@@ -133,6 +134,7 @@ export default function App() {
     <BrowserRouter>
       <AutoClearConsoleHost />
       <Toaster />
+      <FixProgressDrawer />
       <Suspense fallback={<RouteLoader />}>
         <Routes>
           <Route path="/"                element={<Landing />} />

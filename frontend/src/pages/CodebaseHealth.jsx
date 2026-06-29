@@ -25,6 +25,7 @@ import {
   ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug,
 } from "lucide-react";
 import { api } from "../lib/api";
+import BulkFixConfirmModal from "../components/BulkFixConfirmModal";
 
 const CATS = [
   { key: "security",     label: "Security",      icon: Shield,    tone: "#ef4444", cost: 5,
@@ -141,12 +142,20 @@ function FindingRow({ f, onFix, busy, locked }) {
   );
 }
 
-function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedHigh, onUnlockHigh }) {
+function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedHigh, onUnlockHigh, onBulkFix }) {
   const Icon = cat.icon;
   const counts = data?.counts || { critical: 0, high: 0, medium: 0, low: 0 };
   const total = data?.total || 0;
   const score = data?.score ?? 100;
   const dangerous = (counts.critical || 0) + (counts.high || 0);
+  // Iter 212m-121 — Bulk fix: collect every visible finding in the
+  // category (respects the unlock gating so we never try to fix a
+  // blurred row the user hasn't unlocked).
+  const visibleFindings = (data?.findings || []).filter((f) => {
+    if (f.severity === "critical") return true;
+    if (f.severity === "high" || f.severity === "medium") return unlockedHigh;
+    return false;
+  });
   return (
     <div
       data-testid={`cat-card-${cat.key}`}
@@ -182,9 +191,34 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
       </button>
       {expanded && (
         <div style={{ padding: "0 16px 16px 16px", borderTop: `1px solid ${cat.tone}33` }}>
-          <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 12, marginBottom: 16, fontStyle: "italic" }}>
+          <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 12, marginBottom: 12, fontStyle: "italic" }}>
             “{cat.blurb}”
           </p>
+          {/* Iter 212m-121 — Bulk fix button per category. Hidden
+              when there are no visible findings; orange variant
+              for founders, blue for paying users (cost preview in
+              modal). */}
+          {visibleFindings.length > 0 && (
+            <button
+              type="button"
+              data-testid={`bulk-fix-${cat.key}`}
+              onClick={() => onBulkFix(cat, visibleFindings)}
+              style={{
+                marginBottom: 12,
+                padding: "8px 14px", borderRadius: 8,
+                background: "linear-gradient(135deg, #fb923c, #ea580c)",
+                border: "1px solid rgba(251,146,60,0.55)",
+                color: "#fff", cursor: "pointer",
+                fontSize: 12, fontWeight: 700,
+                fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: 0.3,
+                display: "inline-flex", alignItems: "center", gap: 6,
+                boxShadow: "0 4px 18px rgba(251,146,60,0.25)",
+              }}
+            >
+              ⚡ Fix all {visibleFindings.length} →
+            </button>
+          )}
           {(counts.critical || 0) > 0 && (
             <SectionLabel sev="critical" count={counts.critical} />
           )}
@@ -253,6 +287,15 @@ export default function CodebaseHealth() {
   const [busyIds, setBusyIds] = useState(new Set());
   const [unlocked, setUnlocked] = useState({});
   const [tokenFloat, setTokenFloat] = useState(null);
+  // Iter 212m-121 — Bulk fix modal state + per-fix progress drawer.
+  const [bulkModal, setBulkModal] = useState({ open: false, cat: null, findings: [] });
+
+  function openBulk(cat, findings) {
+    // Tag each finding with `category` so the backend cost preview
+    // can charge the right rate (5 vs 8 tokens etc).
+    const tagged = (findings || []).map((f) => ({ ...f, category: cat.key }));
+    setBulkModal({ open: true, cat, findings: tagged });
+  }
 
   useEffect(() => {
     document.title = "Codebase Health — ORA by Aurem CTO";
@@ -289,66 +332,65 @@ export default function CodebaseHealth() {
   }
 
   async function fixOne(f) {
-    if (tokens < (f.fix_tokens || 5)) {
-      setError("Low tokens — buy more to continue fixing.");
-      return;
-    }
+    // Iter 212m-121 — Route ALL fix clicks through the new
+    // bulk/SSE pipeline so the user always sees the live progress
+    // drawer regardless of single vs bulk.  The backend treats a
+    // findings array of length 1 identically; we get phase events
+    // + a real-commit verification chip for free.
+    if (busyIds.has(f.id)) return;
     setBusyIds((s) => new Set([...s, f.id]));
     try {
-      const r = await api.post("/codebase-health/fix", {
+      const r = await api.post("/fix-pipeline/bulk", {
         project_id: projectId,
-        finding_id: f.id, title: f.title, file: f.file, line: f.line,
-        message: f.message, fix_hint: f.fix_hint, tokens: f.fix_tokens || 5,
+        findings: [{ ...f, category: f.category || _guessCategory(f, data) }],
       });
       const payload = r?.data || r;
-      // Iter 212m-114 — /fix now returns a REAL commit_sha + html_url
-      // because the patch was applied to the user's repo. Surface it.
-      const charged = payload?.tokens_charged ?? (f.fix_tokens || 5);
-      setTokenFloat(`-${charged}`);
-      setTimeout(() => setTokenFloat(null), 1400);
-      if (typeof payload?.new_balance === "number") {
-        setTokens(payload.new_balance);
-        localStorage.setItem("aurem_tokens", String(payload.new_balance));
-      }
-      if (payload?.commit_sha) {
+      if (payload?.job_id) {
+        window.dispatchEvent(new CustomEvent("aurem:open-fix-progress", {
+          detail: { job_id: payload.job_id, total: 1 },
+        }));
         setError(null);
-        const url = payload?.html_url;
-        const note = url
-          ? `Fix shipped — commit ${payload.commit_sha}. Open: ${url}`
-          : `Fix shipped — commit ${payload.commit_sha}.`;
-        try { (await import("sonner")).toast.success(note, { duration: 6000 }); }
-        catch { console.log(note); }
+        // Optimistically dim the row; the drawer surfaces the real
+        // outcome (commit URL on success, error message on fail).
+        setTimeout(() => {
+          setData((d) => {
+            if (!d) return d;
+            const nb = { ...d.breakdown };
+            for (const cat of Object.keys(nb)) {
+              nb[cat] = { ...nb[cat],
+                findings: (nb[cat].findings || []).filter((x) => x.id !== f.id),
+                total: Math.max(0, (nb[cat].total || 0) - 1) };
+            }
+            return { ...d, breakdown: nb,
+              total: Math.max(0, (d.total || 0) - 1),
+              score: Math.min(100, (d.score || 0) + 2) };
+          });
+        }, 800);
+      } else {
+        setError("No job_id returned");
       }
-      // remove the fixed finding from the visible list
-      setData((d) => {
-        if (!d) return d;
-        const nb = { ...d.breakdown };
-        for (const cat of Object.keys(nb)) {
-          nb[cat] = { ...nb[cat],
-            findings: (nb[cat].findings || []).filter((x) => x.id !== f.id),
-            total: Math.max(0, (nb[cat].total || 0) - 1) };
-        }
-        return { ...d, breakdown: nb,
-          total: Math.max(0, (d.total || 0) - 1),
-          score: Math.min(100, (d.score || 0) + 2) };
-      });
     } catch (e) {
-      // Iter 212m-114 — Map specific error codes to user-friendly text.
       const detail = e?.response?.data?.detail;
       const code   = typeof detail === "object" ? detail.error : detail;
-      if (code === "patch_did_not_resolve_finding") {
-        setError("AI patch did not resolve the finding — tokens refunded, no commit pushed.");
-      } else if (code === "github_credentials_missing" || code === "github_unauthorized") {
-        setError("Connect your GitHub PAT or OAuth before applying fixes.");
-      } else if (code === "insufficient_tokens") {
+      if (code === "insufficient_tokens") {
         setError(`Insufficient tokens (need ${detail.needed}, have ${detail.balance}).`);
       } else {
         setError(typeof detail === "string" ? detail
-                 : detail?.message || e?.message || "Fix failed");
+                 : detail?.message || e?.message || "Fix failed to start");
       }
     } finally {
       setBusyIds((s) => { const n = new Set(s); n.delete(f.id); return n; });
     }
+  }
+
+  // Iter 212m-121 — Walk the breakdown to figure out which category
+  // a finding belongs to so the backend uses the right token rate.
+  function _guessCategory(f, d) {
+    if (!d?.breakdown) return "code_quality";
+    for (const [k, v] of Object.entries(d.breakdown)) {
+      if ((v?.findings || []).some((x) => x.id === f.id)) return k;
+    }
+    return "code_quality";
   }
 
   const showEmpty = !data && !scanning;
@@ -557,12 +599,20 @@ export default function CodebaseHealth() {
                   busyIds={busyIds}
                   unlockedHigh={!!unlocked[cat.key]}
                   onUnlockHigh={(k) => setUnlocked((u) => ({ ...u, [k]: true }))}
+                  onBulkFix={openBulk}
                 />
               );
             })}
           </>
         )}
       </div>
+      <BulkFixConfirmModal
+        open={bulkModal.open}
+        onClose={() => setBulkModal({ open: false, cat: null, findings: [] })}
+        projectId={projectId}
+        findings={bulkModal.findings}
+        category={bulkModal.cat?.label || ""}
+      />
     </div>
   );
 }

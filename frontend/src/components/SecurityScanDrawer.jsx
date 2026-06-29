@@ -23,6 +23,7 @@ import { api } from "../lib/api";
 import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
 import { toast } from "sonner";
 import SecretScanCard from "./SecretScanCard";
+import BulkFixConfirmModal from "./BulkFixConfirmModal";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -59,6 +60,8 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
     catch { return false; }
   });
   const [reportOpen, setReportOpen] = useState(false);
+  // Iter 212m-121 — bulk fix modal state
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Iter 212m-114 — Track which findings have been successfully fixed
   // in this session so we dim them + show a green ✓ instead of the
@@ -411,6 +414,30 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
 
           {data && !loading && (
             <>
+              {/* Iter 212m-121 — Bulk fix button for ALL findings.
+                  Opens the cost-preview modal; founders see ⚡ FREE. */}
+              {(data.findings || []).length > 0 && (
+                <button
+                  type="button"
+                  data-testid="security-scan-bulk-fix"
+                  onClick={() => setBulkOpen(true)}
+                  style={{
+                    marginBottom: 14, width: "100%",
+                    padding: "10px 14px", borderRadius: 8,
+                    background: "linear-gradient(135deg, #fb923c, #ea580c)",
+                    border: "1px solid rgba(251,146,60,0.55)",
+                    color: "#fff", cursor: "pointer",
+                    fontSize: 13, fontWeight: 700,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    letterSpacing: 0.3,
+                    display: "inline-flex", alignItems: "center",
+                    justifyContent: "center", gap: 8,
+                    boxShadow: "0 4px 18px rgba(251,146,60,0.25)",
+                  }}
+                >
+                  ⚡ Fix all {(data.findings || []).length} →
+                </button>
+              )}
               {/* Summary tiles */}
               <div
                 data-testid="security-scan-summary"
@@ -842,6 +869,17 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
           Real-time scan · per-finding Fix button · founder = free{twoRound && " · deep mode"}{autoPr && " · auto-PR on"}
         </footer>
       </aside>
+      {/* Iter 212m-121 — Bulk fix confirm modal. Mounted on the
+          drawer so it overlays correctly when the drawer is open. */}
+      <BulkFixConfirmModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        projectId={projectId}
+        findings={(data?.findings || []).map((f) => ({
+          ...f, category: "vanguard",
+        }))}
+        category="Vanguard"
+      />
     </>
   );
 }

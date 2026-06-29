@@ -12,6 +12,54 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-121 — Real Fix pipeline: SSE progress + bulk + founder bypass (Feb 2026) ✅
+
+Closes the user-reported gap: "Codebase Health Fix button not working, no live progress, no bulk fix, no cost preview". Per-finding fix was ALREADY real (iter 212m-114 — `apply_finding_fix` → `commit_files` returns real GitHub `full_sha`/`html_url`), but UX was a single blocking spinner with no feedback. This iter adds:
+
+**Backend** — `routers/fix_pipeline.py` + `services/fix_job_manager.py`
+- `POST /api/aurem-dev/fix-pipeline/preview` — cost calculator. Returns `{count, tokens_cost, usd_cost, is_unlimited, balance, can_proceed, shortfall}`. Token-to-USD rate = $0.0001 / token (single constant).
+- `POST /api/aurem-dev/fix-pipeline/bulk` — kicks off sequential bulk fix (hard cap 50 findings). Returns `{job_id}` immediately; worker runs in background.
+- `GET /api/aurem-dev/fix-pipeline/stream/{job_id}` — Server-Sent Events. Accepts `?token=` query param (browser EventSource can't set headers).
+- `GET /api/aurem-dev/fix-pipeline/summary/{job_id}` — polling fallback with same payload as terminal `done` event.
+- **Real commit verification**: every successful fix triggers `_verify_commit_exists()` which calls `GET https://api.github.com/repos/{owner}/{repo}/commits/{sha}` — fix only counts as verified when GitHub returns 200 + matching SHA + html_url. NO optimistic shortcuts.
+- **Founder bypass**: `is_admin OR is_unlimited OR tier=='founder'` → `tokens_cost=0`, never deducted, never checked. Preview returns `is_unlimited: true` so frontend swaps to the orange ⚡ FREE chip.
+- **Sequential execution** — bulk job processes findings one at a time to avoid Git ref conflicts on the same branch. Token deduction is per-finding atomic (`{$gte: cost}` guard); refunds on per-finding failure.
+
+**Phases streamed in order**: `job-start → queued → reading → committing → verifying → fix-done` (per finding) → `done` (terminal).
+
+**Frontend** — 2 new components
+- `components/FixProgressDrawer.jsx` — mounted globally in `App.jsx`. Opens on `aurem:open-fix-progress` event. Tails the SSE stream via `EventSource`, renders one row per finding with phase icon + spinner, transitions to green check + commit SHA + "GitHub verified ✓" chip on success, red icon + error code on failure. Progress bar at top. Draft PR link shown when present.
+- `components/BulkFixConfirmModal.jsx` — cost preview modal. Fetches `/preview` on open. Founder sees orange `Founder — FREE` chip + `⚡ Fix all — FREE` button. Paying user sees `tokens_cost + usd_cost + balance after` lines + `Fix N now` button. Insufficient-tokens path disables Confirm with shortfall hint.
+
+**Wiring**
+- `pages/CodebaseHealth.jsx`: rewired `fixOne()` to call `/fix-pipeline/bulk` with a single-finding payload so the SAME drawer opens whether the user clicks a single Fix or a category bulk button. Added `⚡ Fix all N →` button per CategoryCard (filters by unlock state). Mounted `BulkFixConfirmModal`.
+- `components/SecurityScanDrawer.jsx`: added `⚡ Fix all N →` button above summary tiles. Mounted `BulkFixConfirmModal` keyed to `category: "vanguard"` rate.
+
+**Visual proof captured (preview env, founder login)**:
+1. CodebaseHealth page renders bulk button `⚡ Fix all 2 →` inside Bug Hunt category card.
+2. Clicking it opens `BulkFixConfirmModal` showing orange `Founder — FREE` chip + `⚡ Fix all — FREE` confirm button + `2 findings · sequential commits` subtitle + `aurem/fix-* branch` explanation.
+3. Submitting the bulk POST returns `job_id=fx_ccf2f189627540`; `FixProgressDrawer` opens automatically.
+4. Drawer tails SSE in real-time, shows 2 rows: `Failed · secret_aws_key @ config.py · github_credentials_missing` + same for sql_string_format. Footer: `Fixed 0/2 (0 tokens charged)` — founder bypass working.
+5. Failure reason is honest (preview project has no connected GitHub PAT); once a PAT is connected the SAME code path lands a real commit because `services.finding_fix_applier.apply_finding_fix` → `services.github_api_writer.commit_files` returns real `full_sha`/`html_url` from the GitHub Git Data API.
+
+**Real GitHub commit caveat**: Demonstrating an end-to-end `git commit landed in TJSNDHU/Aurem` requires a valid PAT on the project row in the preview Mongo. Code path is verified clean (10/10 backend tests pass with stubbed `apply_finding_fix`); to land a live commit, connect a PAT under Settings → GitHub or pass a valid `github_token` on the `cto_projects` row.
+
+**Tests** — `tests/test_iter212m121_fix_pipeline.py` — 10/10 PASS:
+- preview paying user returns 10 tokens + $0.0010 USD
+- preview founder returns 0 cost + `is_unlimited: true`
+- preview rejects empty findings (400)
+- preview surfaces shortfall for low balance
+- bulk requires project_id (400)
+- bulk hard-caps at 50 findings (400)
+- bulk rejects paying user with insufficient tokens (402 + needed/balance)
+- bulk happy path → returns job_id → worker runs → summary shows 2 completed
+- job manager emit + subscribe + close ordering
+- cross-tenant summary read returns 403
+
+**Dependencies**: `sse-starlette==1.8.2` added (pinned to stay below the FastAPI starlette<0.39 constraint).
+
+
+
 ### Iter 212m-120b — Phase 1 frontend: Secret Scan card + dashboard pill (Feb 2026) ✅
 
 Ships the UI half of the Trufflehog CI ingest pipeline added in Iter 212m-120.
