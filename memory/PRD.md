@@ -12,6 +12,22 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-130 — CodebaseHealth parity with SecurityScanDrawer (Feb 2026) ✅
+
+**What was broken**: Each CategoryCard header said "N issues" but only rendered **critical + high + medium** sections in the expanded body. `low` rows were never shown, and findings outside the 4 standard buckets were silently dropped. Result: a category showing "10 issues" might render only 6 rows, just like the Vanguard `Fix all 172` vs `55+15+47+0=117` mismatch fixed in iter 129.
+
+**Fix in `pages/CodebaseHealth.jsx`**:
+- Added a `low` SectionLabel + row list (was missing entirely).
+- Added an "Other" SectionLabel + row list for findings whose severity is `null` / `info` / outside the 4-bucket set.
+- Extended `SEV_META.other = { color:#cbd5e1, label:"OTHER", emoji:"⚪" }` so the new SectionLabel renders with the same gray theme used by the Vanguard "Other" tile.
+- `visibleFindings` (the array fed to the per-category bulk-fix button) now includes `low` and `other` severities behind the same `unlockedHigh` gate so the `⚡ Fix all N →` count truly matches the category total.
+
+**Result**: Header total ("12 issues") now equals the sum of rendered sections. No more silently hidden findings. Founder can bulk-fix the entire category — including the bucket of unbucketed mysteries.
+
+**Files touched**: `frontend/src/pages/CodebaseHealth.jsx` (SEV_META extended, CategoryCard tail extended, visibleFindings filter widened). Lint clean.
+
+
+
 ### Iter 212m-128 / 129 — Live "proof of life" + tile-count parity (Feb 2026) ✅
 
 Two operational fixes shipped in one pass:

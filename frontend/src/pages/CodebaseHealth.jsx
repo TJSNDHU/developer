@@ -48,6 +48,11 @@ const SEV_META = {
   medium:   { color: "#fde68a", bg: "rgba(250,204,21,0.10)", br: "rgba(250,204,21,0.42)", label: "MEDIUM",   emoji: "🟡" },
   low:      { color: "#bae6fd", bg: "rgba(125,211,252,0.10)",br: "rgba(125,211,252,0.42)",label: "LOW",      emoji: "🔵" },
   info:     { color: "#cbd5e1", bg: "rgba(148,163,184,0.10)",br: "rgba(148,163,184,0.40)",label: "INFO",     emoji: "ℹ️"  },
+  // Iter 212m-130 — Catch-all bucket for findings whose severity
+  // is null / unset / outside the standard 4.  Used by both the
+  // SectionLabel and the per-category "Other" rollup so the
+  // header total ("N issues") always matches what's visible.
+  other:    { color: "#cbd5e1", bg: "rgba(148,163,184,0.08)",br: "rgba(148,163,184,0.30)",label: "OTHER",    emoji: "⚪" },
 };
 
 function HealthBadge({ score, label, tone }) {
@@ -151,10 +156,17 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
   // Iter 212m-121 — Bulk fix: collect every visible finding in the
   // category (respects the unlock gating so we never try to fix a
   // blurred row the user hasn't unlocked).
+  // Iter 212m-130 — bulk fix now picks ALL visible severities,
+  // not just critical+high+medium.  Low + Other findings are now
+  // rendered (see CategoryCard tail) so they must also be
+  // includable in the bulk fix click.  unlocked-high gates the
+  // non-critical buckets the same way the inline rows do.
   const visibleFindings = (data?.findings || []).filter((f) => {
     if (f.severity === "critical") return true;
-    if (f.severity === "high" || f.severity === "medium") return unlockedHigh;
-    return false;
+    if (["high", "medium", "low"].includes(f.severity)) return unlockedHigh;
+    // Unknown / null / info etc.  Always grouped with high+medium
+    // so a single "unlock" click reveals all of them at once.
+    return unlockedHigh;
   });
   return (
     <div
@@ -239,6 +251,38 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
           {(data?.findings || []).filter((f) => f.severity === "medium").map((f) => (
             <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} />
           ))}
+          {/* Iter 212m-130 — parity with SecurityScanDrawer.
+              We previously rendered only critical/high/medium and
+              hid low + everything outside the 4 buckets, which made
+              the per-category header total ("10 issues") not match
+              the visible row count.  Now we render low + an "Other"
+              bucket so the header count always equals what's on
+              screen (mirrors the Other tile fix from iter 129). */}
+          {(counts.low || 0) > 0 && (
+            <SectionLabel sev="low" count={counts.low} />
+          )}
+          {(data?.findings || []).filter((f) => f.severity === "low").map((f) => (
+            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} />
+          ))}
+          {(() => {
+            // Findings whose severity is null / unknown / not one
+            // of the 4 standard buckets get a gray "Other" section.
+            const knownSet = new Set(["critical", "high", "medium", "low"]);
+            const others = (data?.findings || []).filter(
+              (f) => !knownSet.has(f.severity),
+            );
+            if (others.length === 0) return null;
+            return (
+              <>
+                <SectionLabel sev="other" count={others.length} />
+                {others.map((f) => (
+                  <FindingRow key={f.id} f={f} onFix={onFix}
+                              busy={busyIds.has(f.id)}
+                              locked={!unlockedHigh} />
+                ))}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>
