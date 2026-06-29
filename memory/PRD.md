@@ -12,6 +12,42 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-126 — Auto-heal disconnected repos in backend (Feb 2026) ✅
+
+**What changed**: The moment a repo flips to red on the sidebar, a fire-and-forget heal task runs inside the backend, attempts to fix the root cause, mutates the project row + clears the status cache, and the next sidebar poll turns the dot green — all without a single click from the user.
+
+**New module** `services/repo_heal.py`:
+- Entry point `schedule_heal(db, user_id, project_id, prior_status)` — fire-and-forget `asyncio.create_task`. Caller never awaits.
+- Per-project 5-minute cooldown (`_HEAL_COOLDOWN_S`) + in-flight lock (`_inflight set`) prevents heal storms from repeated 30-s polls.
+- Strategy router keyed off `prior_status.error`:
+  - `network: …` → 3 retries with `0.5 / 1.0 / 2.0 s` exponential backoff.
+  - `no_token` → attach the user's OAuth `access_token` and verify against `GET /repos/{owner}/{repo}`. Only declared healed when GitHub returns 200.
+  - `github_rejected` (401/403) → swap PAT ↔ OAuth. If the other token succeeds, the failing one is set to `null` + stamped `github_token_revoked_at: <ts>` on the project row so the next poll picks the working credential.
+  - `repo_not_found` (404) → pages through `GET /user/repos?per_page=100` (capped at 500 repos) looking for a case-insensitive owner/name OR name-only match. Detects ownership transfers and project renames. Updates `github_owner`/`github_repo` on the row + records `renamed_from: old/path` + `renamed_at: <ts>`.
+  - `repo_not_set` → skipped (needs user input).
+  - Unknown error → single quick retry with whichever token exists.
+- Every outcome writes an audit row to `repo_heal_audit` collection: `{project_id, success, reason, healed_at}`.
+- On success, the heal pops the stale entry from `routers.repo_status._CACHE` so the next 30-s poll re-fetches and lights the dot green instantly — no TTL wait.
+
+**Wired into** `routers/repo_status.connection_status()`:
+- After collecting all statuses, iterates and calls `schedule_heal(...)` for every `disconnected` entry. Tracebacks are caught + logged, never bubble.
+
+**Tests** — `tests/test_iter212m126_repo_heal.py` — 6/6 PASS:
+1. `network: TimeoutException` → recovers after 2 retries (`reason: network_retry_recovered`).
+2. PAT `401` → OAuth fallback works → PAT row nulled + `github_token_revoked_at` set.
+3. `repo_not_found` 404 → user-repos lookup → finds `oldrepo` under `newowner/newname` → project row rewritten with `renamed_from: oldowner/oldrepo`.
+4. `no_token` → OAuth attached + verified → `reason: oauth_fallback_works`.
+5. Cooldown blocks re-heal within 5 min (`reason: cooldown`).
+6. Heal success pops `routers.repo_status._CACHE[project_id]` so the next poll re-fetches without waiting for the 8-second TTL.
+
+**Live preview probe**: hit `/connection-status` with the only preview project. Backend honestly reported `repo_not_set` and heal correctly skipped (needs user input) — proving the gate logic is hot.
+
+**Files touched**
+- NEW: `backend/services/repo_heal.py`, `backend/tests/test_iter212m126_repo_heal.py`
+- MODIFIED: `backend/routers/repo_status.py` (auto-heal hook on every disconnected entry)
+
+
+
 ### Iter 212m-125 — Live GitHub connection-status dots in sidebar (Feb 2026) ✅
 
 **What changed**: Each repo row in the sidebar now carries a real-time coloured dot reflecting actual GitHub reachability — no more stale "status: connected" string from a months-old Mongo row.

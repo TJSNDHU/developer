@@ -171,7 +171,8 @@ async def connection_status(authorization: str = Header(None)) -> dict:
         async def _runner(item):
             # Cached sleep-result entry comes back as dict directly.
             if isinstance(item, dict):
-                results.append(item); return
+                results.append(item)
+                return
             _, pid, owner, repo, token, auth = item
             async with sem:
                 r = await _check_one(
@@ -187,4 +188,21 @@ async def connection_status(authorization: str = Header(None)) -> dict:
     # rows don't shuffle every refresh.
     by_pid = {r["project_id"]: r for r in results}
     ordered = [by_pid[p["project_id"]] for p in projs if p["project_id"] in by_pid]
+
+    # Iter 212m-126 — Auto-heal hook.  Any project that came back
+    # `disconnected` immediately triggers a fire-and-forget heal
+    # task.  The next poll (≈ 30 s later) will pick up the green
+    # dot if the heal succeeded — entirely backend-driven, no UI
+    # action required from the user.
+    try:
+        from services.repo_heal import schedule_heal
+        for s in ordered:
+            if s.get("status") == "disconnected":
+                schedule_heal(
+                    db=db, user_id=user_id,
+                    project_id=s["project_id"], prior_status=s,
+                )
+    except Exception as e:                                # noqa: BLE001
+        logger.warning("auto-heal scheduling soft-failed: %r", e)
+
     return {"ok": True, "statuses": ordered, "checked_at": now}
