@@ -68,6 +68,25 @@ async def start_loop(body: StartBody,
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB unavailable")
+    # Iter 212m-130 — Loop Mode is temporarily founder-only.  We've
+    # had real reports of executions getting stuck in the
+    # plan-confirm loop / verify retry storms and the founder needs
+    # space to fix the engine before exposing it to paying users
+    # again.  Non-founders see a friendly "Coming Soon" 403 — the
+    # frontend toggle is also locked client-side so this should
+    # only ever fire for someone hand-rolling a curl request.
+    is_founder = bool(
+        user.get("is_admin") or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+    )
+    if not is_founder:
+        raise HTTPException(403, {
+            "error":   "loop_mode_locked",
+            "message": ("Loop Mode is coming soon — we're polishing the "
+                       "Plan → Execute → Verify → Scan → Ship pipeline. "
+                       "It will unlock for all developers shortly."),
+            "coming_soon": True,
+        })
     # Iter 212m-115 safety #4 — Circuit breaker: refuse new starts if
     # this {project_id, user_id} has hit 3+ failures in the last 15 min.
     # Founders bypass (so we never block our own debugging).
@@ -75,10 +94,6 @@ async def start_loop(body: StartBody,
         is_loop_circuit_open, acquire_loop_lock,
     )
     proj_key = body.project_id or "_no_project"
-    is_founder = bool(
-        user.get("is_admin") or user.get("is_unlimited")
-        or (user.get("tier") == "founder")
-    )
     if not is_founder:
         circuit_open, fail_count, retry_after = await is_loop_circuit_open(
             db, proj_key, user["user_id"],

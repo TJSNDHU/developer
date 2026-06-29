@@ -959,6 +959,20 @@ async def chat_stream(
     # here is to wrap the prompt with a system-style instruction so
     # the model knows to (a) respond plan-only on phase 1 and (b)
     # emit `[STEP X/5: NAME]` markers at every phase boundary.
+    #
+    # Iter 212m-130 — Loop Mode is temporarily founder-only (engine
+    # is being hardened — stuck-in-loop + verify retry storms). For
+    # everyone else we silently downgrade to "prompt" mode so a
+    # stale `localStorage.ora_execution_mode="loop"` on a non-
+    # founder browser doesn't trigger the contract enrichment. The
+    # dedicated `/loop/start` endpoint already returns 403 with
+    # `coming_soon:true` for the explicit kick-off path.
+    _is_founder = bool(
+        user.get("is_admin") or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+    )
+    if (body.execution_mode or "").lower() == "loop" and not _is_founder:
+        body.execution_mode = "prompt"
     if (body.execution_mode or "").lower() == "loop":
         _loop_suffix = (
             "\n\n[LOOP MODE — 5-phase pipeline]\n"

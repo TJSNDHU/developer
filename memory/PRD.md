@@ -12,6 +12,70 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-130 — Loop Mode locked to founders (Coming Soon) (Feb 2026) ✅
+
+**Trigger**: User asked to temporarily hide Loop Mode from regular accounts and unlock it only for founder accounts because the engine has known issues (executions getting stuck in the plan-confirm / verify retry loops, "not properly designed") and the founder needs space to harden it before re-exposing to paying users.
+
+**Defense-in-depth gate (3 layers)**:
+
+**1) Frontend — `LoopModeToggle.jsx`**:
+- New `locked` prop.  When true, the pill renders as a gold dashed
+  `Lock · LOOP · SOON` chip with `cursor:not-allowed` and
+  `aria-disabled:true`.  Clicking it dispatches `aurem:loop-coming-soon`
+  global event instead of toggling state.
+- `data-testid="loop-mode-toggle-locked"` for the locked variant
+  vs `loop-mode-toggle` for the unlocked one.
+
+**2) Frontend — `ChatPanel.jsx`**:
+- New `isLoopUnlockedSync()` helper reads `getUser()` and returns
+  true only when `is_admin || is_unlimited || tier === "founder"`.
+- `useState(loadExecMode)` initialiser wipes a stale
+  `localStorage.ora_execution_mode = "loop"` for non-founders
+  before it ever ships in a chat-stream body.
+- New `useEffect` listens for `aurem:loop-coming-soon` and
+  surfaces a friendly toast: *"Loop Mode — coming soon. We're
+  polishing the Plan → Execute → Verify → Scan → Ship pipeline.
+  It will unlock for all developers shortly."*
+- `<LoopModeToggle />` now receives `locked={!isLoopUnlocked}`.
+
+**3) Backend — `routers/loop.py` + `routers/chat.py`**:
+- `POST /loop/start` returns HTTP **403** with
+  `{"error":"loop_mode_locked", "coming_soon": true,
+  "message": "Loop Mode is coming soon — we're polishing the
+  Plan → Execute → Verify → Scan → Ship pipeline. It will unlock
+  for all developers shortly."}` for non-founders.  This is the
+  hard server-side gate that catches anyone hand-rolling a curl
+  request past the UI.
+- `POST /chat/stream` silently downgrades `execution_mode: "loop"`
+  → `"prompt"` for non-founders.  Prevents the prompt-enrichment
+  block from firing.  Founders pass through unchanged.
+
+**Other Loop endpoints** (`/confirm`, `/cancel`, `/stream`, `/active`,
+`/{loop_id}/...`) are NOT explicitly gated because they all check
+`engine.user_id == user["user_id"]` already — a non-founder can't
+own a loop they never started.
+
+**Tests** — `backend/tests/test_iter212m130_loop_founder_gate.py` (9 new):
+- Founder-classifier matrix (paid/free/founder/admin/unlimited).
+- `/loop/start` returns 403 + `coming_soon:true` for a paying user.
+- `/loop/start` lets a founder pass the gate (verified by
+  reaching the next safety check, `loop_already_running` 409).
+- `/chat/stream` downgrade predicate (parametrised across 6 cases).
+
+**Regression**: 66/66 passing across all iter 212m-126..130 fix + learning tests.  Backend + frontend hot-reload clean.
+
+**To re-enable Loop Mode for everyone later**: remove the
+`is_founder` check from the top of `start_loop()` in
+`routers/loop.py`, remove the same predicate from the
+`execution_mode == "loop"` downgrade in `routers/chat.py`, and
+flip `LoopModeToggle locked={false}` in `ChatPanel.jsx`.  Each
+change is isolated by an `Iter 212m-130` comment so the toggle is
+trivial.
+
+**Files touched**: `backend/routers/loop.py`, `backend/routers/chat.py`, `frontend/src/components/LoopModeToggle.jsx` (rewritten), `frontend/src/components/ChatPanel.jsx`, `backend/tests/test_iter212m130_loop_founder_gate.py` (new).
+
+
+
 ### Iter 212m-129 — ORA fix-learning Phase-1 logging foundation (Feb 2026) ✅
 
 **Trigger**: User asked the honest question: *"kya ora learning in sbb scans and fixes main attached hai learn kr rha hai?"*. Audit confirmed: `ora_learning.py` was wired into `routers/chat.py` only. The scan + fix pipelines were generating thousands of useful data-points (rule frequencies, fix outcomes, retry counts, validator rejections, terminal-error reasons) and dropping every single one on the floor. This iter is the foundation that fixes that.

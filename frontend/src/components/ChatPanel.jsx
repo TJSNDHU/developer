@@ -79,6 +79,20 @@ const HIDE_OLDER_THRESHOLD = 10;
 
 const CODE_BLOCK_RE = /```(\w+)?\n([\s\S]*?)```/g;
 
+// Iter 212m-130 — Synchronous founder-check used by the initial
+// `useState(loadExecMode)` reducer so we can wipe a stale
+// `localStorage.ora_execution_mode="loop"` value before it ever
+// hits the chat-stream body. Mirrors the memoised `isLoopUnlocked`
+// inside the component (both read from getUser()).
+function isLoopUnlockedSync() {
+  try {
+    const u = (typeof getUser === "function" && getUser()) || null;
+    return !!(u && (u.is_admin || u.is_unlimited || u.tier === "founder"));
+  } catch {
+    return false;
+  }
+}
+
 // Iter 132 — quick-reply suggestion extractor.
 //
 // ORA frequently signs off with a CTA like:
@@ -466,7 +480,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   //   • Shield badge label ("Auto" in loop)
   //   • Render of LoopStepBar + PlanApprovalCard
   //   • execution_mode body field on /chat/stream
-  const [execMode, setExecMode] = useState(loadExecMode);
+  //
+  // Iter 212m-130 — Loop Mode is temporarily locked to founder /
+  // admin / unlimited accounts. Non-founder users see the
+  // "LOOP · SOON" pill (Lock icon) and clicking it fires a toast
+  // instead of toggling. We also force any stale localStorage
+  // `loop` value back to `prompt` on mount so the chat doesn't
+  // silently send `execution_mode:"loop"` for non-founders.
+  const isLoopUnlocked = useMemo(() => {
+    const u = (typeof getUser === "function" && getUser()) || null;
+    return !!(u && (u.is_admin || u.is_unlimited || u.tier === "founder"));
+  }, []);
+  const [execMode, setExecMode] = useState(() => {
+    const m = loadExecMode();
+    if (m === EXEC_MODES.LOOP && !isLoopUnlockedSync()) {
+      try { saveExecMode(EXEC_MODES.PROMPT); } catch { /* ignore */ }
+      return EXEC_MODES.PROMPT;
+    }
+    return m;
+  });
   // Loop pipeline state. `phase` drives the LoopStepBar and decides
   // whether to render the PlanApprovalCard. `retryCount` is reserved
   // for future verify-loop auto-retry UX (max 3).
@@ -475,6 +507,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // The pending plan message id — once the user approves, we continue
   // the same session with a `LOOP_PHASE:execute` follow-up.
   const pendingPlanRef = useRef(null);
+
+  // Iter 212m-130 — "Coming Soon" toast for non-founders who click
+  // the locked LoopModeToggle pill. The toggle fires the global
+  // event; we surface a friendly explanation here instead of
+  // silently no-op'ing the click.
+  useEffect(() => {
+    if (isLoopUnlocked) return undefined;
+    const onLocked = () => {
+      try {
+        toast(
+          "Loop Mode — coming soon. We're polishing the Plan → Execute → "
+          + "Verify → Scan → Ship pipeline. It will unlock for all "
+          + "developers shortly.",
+          "info",
+        );
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("aurem:loop-coming-soon", onLocked);
+    return () => window.removeEventListener("aurem:loop-coming-soon", onLocked);
+  }, [isLoopUnlocked]);
   // ──────────────────────────────────────────────────────────────
   // Iter 212m-65 — Phase D: real LoopEngine wiring via /loop/* SSE.
   // ──────────────────────────────────────────────────────────────
@@ -3291,7 +3343,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               toolbar, immediately before the Send button. Matches v0
               screenshot: chunky orange pill ("LOOP ON") when active,
               transparent outlined ("LOOP OFF") when inactive. */}
-          <LoopModeToggle value={execMode} onChange={handleExecModeChange} />
+          <LoopModeToggle value={execMode} onChange={handleExecModeChange}
+                          locked={!isLoopUnlocked} />
 
           {busy ? (
             <button
