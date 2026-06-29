@@ -2971,7 +2971,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
         }}
         style={{
-          padding: 14,
+          // Iter 212m-135 — match the chat-messages container's 17.25%
+          // horizontal padding so the composer content (textarea + toolbar)
+          // sits in the same centered column as the messages above. The
+          // form's amber side borders + bottom-rounded corners stay edge-
+          // to-edge to keep the founder-offer banner stack flow intact.
+          padding: "14px 17.25%",
           display: "flex", flexDirection: "column", gap: 8,
           outline: dragOver ? "2px dashed var(--accent-2)" : "none",
           outlineOffset: -8,

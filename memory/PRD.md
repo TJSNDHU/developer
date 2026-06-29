@@ -12,6 +12,34 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-135 — Composer padding parity with messages column (Feb 2026) ✅
+
+**Follow-up to Iter 212m-134.** Founder asked to extend the same Claude-style
+17.25% horizontal padding to the chat *input* container so the composer
+content sits in the same centered column as the messages above.
+
+- `frontend/src/components/ChatPanel.jsx` (composer `<form>` at line ~2960):
+  `padding: 14` → `padding: "14px 17.25%"`. Top/bottom 14 px preserved
+  (vertical breathing room unchanged); left/right swap to 17.25% so the
+  textarea + toolbar align with the messages padding above. Amber side
+  borders and bottom-rounded corners stay at the form's outer edge so the
+  visual seam with `FounderOfferCard` above the composer is intact.
+- Verified live: at 1398 px chat-panel width (Ask Advisor panel docked on
+  the right), computed `paddingLeft` / `paddingRight` = `241.141 px` — exactly
+  17.25 % of the available width. Composer textarea + paperclip + send button
+  now visually align with the chat bubbles.
+
+**Test coverage**: `backend/tests/test_iter212m134_chat_messages_padding.py`
+extended with a 4th source-pattern contract test
+(`test_composer_form_uses_17_25_percent_horizontal_padding`) that pins the
+new `"14px 17.25%"` shorthand on the `glass-composer` form. 4/4 GREEN.
+
+**Files touched**: `frontend/src/components/ChatPanel.jsx`,
+`backend/tests/test_iter212m134_chat_messages_padding.py`,
+`memory/PRD.md`.
+
+
+
 ### Iter 212m-134 — Full PROD-vs-PREVIEW QA + Claude-style centered chat (Feb 2026) ✅
 
 Two work-streams in this session:

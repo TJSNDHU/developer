@@ -1,12 +1,12 @@
 """
-Iter 212m-134 — Claude-style centered chat messages.
+Iter 212m-134/135 — Claude-style centered chat layout.
 
-Founder asked: in `ChatPanel.jsx`, the messages scroll container should have
-`padding-left: 17.25%` and `padding-right: 17.25%` so the chat content sits
-in a centered column like Claude. The composer at the bottom must stay full
-width (it lives OUTSIDE the messages container).
+Founder asked: in `ChatPanel.jsx`, both the messages scroll container AND
+the composer (chat input) should have `padding-left: 17.25%` and
+`padding-right: 17.25%` so the chat content sits in a centered column
+like Claude.
 
-These tests pin the source so a future edit can't silently revert the change.
+These tests pin the source so a future edit can't silently revert.
 """
 from __future__ import annotations
 
@@ -60,19 +60,31 @@ def test_chat_messages_right_padding_preserves_live_popup_room(src: str) -> None
 def test_composer_lives_outside_chat_messages_container(src: str) -> None:
     """Sanity: the composer wrapper (`glass-composer`) must NOT be inside
     the chat-messages container — otherwise the padding would also indent
-    the composer, breaking the user requirement that 'composer stays full
-    width'."""
+    the composer twice."""
     chat_msgs_idx = src.index('data-testid="chat-messages"')
     composer_idx = src.index('className="glass-composer"')
     assert composer_idx > chat_msgs_idx, (
         "Sanity check: glass-composer should be declared AFTER chat-messages."
     )
-    # Stronger check: between chat-messages opening and glass-composer there
-    # must be a closing tag for the chat-messages div. We can't AST-parse
-    # JSX trivially, so as a heuristic, count the slice from chat-messages
-    # to glass-composer for the marker comment we left in the messages div
-    # AND require the slice to contain at least one balancing `</div>`.
     slice_ = src[chat_msgs_idx:composer_idx]
     assert "</div>" in slice_, (
         "Expected the chat-messages container to close before glass-composer."
+    )
+
+
+def test_composer_form_uses_17_25_percent_horizontal_padding(src: str) -> None:
+    """Iter 212m-135 — the composer <form data-testid="chat-form"> must use
+    `padding: "14px 17.25%"` so the textarea + toolbar inside it sit in the
+    same centered column as the messages above, matching Claude's UI."""
+    # Anchor on glass-composer className which is unique to the form.
+    m = re.search(
+        r'className="glass-composer"(?P<form>.+?)style=\{\{(?P<style>.+?)\}\}\s*>',
+        src,
+        re.DOTALL,
+    )
+    assert m, "glass-composer form with inline style not found"
+    style = m.group("style")
+    assert 'padding: "14px 17.25%"' in style, (
+        "Expected composer form padding shorthand '14px 17.25%' so the "
+        "input content is centered like Claude's chat. Got:\n" + style
     )
