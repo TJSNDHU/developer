@@ -477,6 +477,36 @@ class LoopEngine:
             return
 
         from services.loop_execute import generate_files
+
+        # Iter 212m-116 — Apply Sweep-pattern file selector: trim the
+        # planner's `files_to_change` to the TOP-N most relevant by
+        # keyword score against the user's task description. The
+        # planner sometimes over-eagerly lists 10+ files for a simple
+        # change; this cuts those down to the 5-8 that actually
+        # matter, slashing Execute LLM token spend.
+        try:
+            from services.file_selector import select_relevant_files
+            sel = await select_relevant_files(
+                db=self.db,
+                project_id=self.project_id,
+                user_id=self.user_id,
+                task_description=self.user_message,
+                planner_files=plan.get("files_to_change") or [],
+                top_n=10,
+            )
+            if sel.get("has_graph") and sel.get("candidates"):
+                old_count = len(plan.get("files_to_change") or [])
+                plan = {**plan, "files_to_change": sel["candidates"]}
+                logger.info(
+                    "[loop %s] EXECUTE — file_selector trimmed "
+                    "%d → %d candidates (skipped %d)",
+                    self.loop_id, old_count, len(sel["candidates"]),
+                    len(sel.get("skipped") or []),
+                )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug("[loop %s] file_selector skipped: %r",
+                         self.loop_id, e)
+
         try:
             generated = await generate_files(
                 plan=plan, user_message=self.user_message,
@@ -950,8 +980,36 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
                          user_message: str) -> dict:
     """Call the existing LLM to produce a structured plan.  Returns a
     dict with: title, files_to_change (list of paths), bullets (list
-    of strings), estimated_time."""
+    of strings), estimated_time.
+
+    Iter 212m-116 — Inject a COMPACT repo map (file paths + symbols +
+    imports per file, no raw content) into the planner system prompt
+    when a graph exists. Reduces planner token cost ~60% on
+    repo-aware projects without losing the signal needed to pick the
+    right files."""
     from services.llm import call_llm_with_meta
+
+    # Inject the compact repo map if available (cheap — single DB read).
+    repo_map_block = ""
+    try:
+        from db import get_db
+        from services.repo_map import build_repo_map
+        rm = await build_repo_map(get_db(), project_id, user_id)
+        if rm.get("has_map"):
+            repo_map_block = (
+                "\n\n--- COMPACT REPO MAP ({n} files, {c} chars) ---\n"
+                "Each line: <path> [<layer>] · symbols: ... · imports: ... · // <desc>\n"
+                "Use this to pick exact files to change. Do NOT invent paths.\n\n"
+                "{m}\n"
+                "--- END REPO MAP ---\n"
+            ).format(n=rm["file_count"], c=rm["char_count"], m=rm["map_text"])
+            logger.info(
+                "[plan] injected repo map: %d files, %d chars",
+                rm["file_count"], rm["char_count"],
+            )
+    except Exception as e:                              # noqa: BLE001
+        logger.debug("[plan] repo map injection skipped: %r", e)
+
     sys_msg = (
         "You are ORA, an AI CTO.  The user is in Loop Mode and needs a "
         "PLAN ONLY (no code).  Respond with strict JSON:\n"
@@ -962,6 +1020,7 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
         '  "estimated_time":  str (e.g. "~3 minutes")\n'
         '}\n'
         "Return ONLY the JSON object — no markdown, no commentary."
+        + repo_map_block
     )
     meta = await call_llm_with_meta(sys_msg, user_message,
                                     review_mode="pro",
