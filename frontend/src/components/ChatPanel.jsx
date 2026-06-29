@@ -3041,17 +3041,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             const v = e.target.value;
             setInput(v);
             setDetectedMode(detectMode(v));
-            // Iter 212m-111 — Focus Mode: any keystroke in the composer
-            // signals "user is working in chat" so Dashboard collapses
-            // the sidebar / topbar / Ask Advisor chrome away.
+            // Iter 212m-123 — Per founder spec: TopBar / focus chrome
+            // hides ONLY once the user has actually TYPED something.
+            // Pure focus (click into the input) no longer triggers
+            // hide — the previous `onFocus` dispatch was removed.
             if (v.length > 0) {
               try { window.dispatchEvent(new CustomEvent("aurem:chat-focus")); }
               catch { /* ignore */ }
             }
-          }}
-          onFocus={() => {
-            try { window.dispatchEvent(new CustomEvent("aurem:chat-focus")); }
-            catch { /* ignore */ }
           }}
           onKeyDown={onKeyDown}
           onPaste={(e) => {

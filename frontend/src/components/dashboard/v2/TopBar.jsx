@@ -1,7 +1,7 @@
 /**
  * TopBar.jsx — Iter 212m-81 — JSX port of v0 `topbar.tsx`.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { cn } from "./cn";
 import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus } from "lucide-react";
 
@@ -44,37 +44,23 @@ export function TopBar({
   // Iter 212m-89 — optional slot for the ShipStreakWidget chip
   streakSlot = null,
 }) {
-  // Iter 212m-93 — Auto-hide topbar on scroll-down (translateY -100%,
-  // 200ms transition). Reappears when scrolling up OR when the mouse
-  // moves to the top 20px of the viewport (mac-style hover-reveal).
+  // Iter 212m-93 → 212m-123 — Founder spec: TopBar hides ONLY when
+  // the user starts typing in the chat composer (driven by the
+  // `aurem:chat-focus` event from ChatPanel), and re-appears ONLY
+  // when the cursor enters the top 20 px of the viewport. The
+  // earlier scroll-based auto-hide (translateY -100% on scroll-
+  // down, return on scroll-up) was surprising users mid-read and
+  // has been deleted; this useEffect now wires just the two
+  // approved triggers.
   const [autoHidden, setAutoHidden] = useState(false);
-  const lastY = useRef(0);
   useEffect(() => {
-    const HIDE_THRESHOLD = 60;
-    const onScroll = (e) => {
-      // listen to any scroll on the dashboard's chat scroller (or window)
-      const t = e.target;
-      const y = (t === document) ? window.scrollY : (t?.scrollTop ?? 0);
-      if (y < HIDE_THRESHOLD) { setAutoHidden(false); lastY.current = y; return; }
-      const dy = y - lastY.current;
-      lastY.current = y;
-      if (dy > 4) setAutoHidden(true);         // scrolling down
-      else if (dy < -4) setAutoHidden(false);  // scrolling up
-    };
     const onMouseMove = (e) => {
       if (e.clientY <= 20) setAutoHidden(false);
     };
-    // Iter 212m-111 — Focus Mode: dispatched by ChatPanel when user
-    // is typing / interacting in the chat. Hide the topbar so it
-    // doesn't compete for attention. The existing mouse-at-top
-    // listener reveals it again on hover.
     const onChatFocus = () => setAutoHidden(true);
-    // Attach broadly — chat scroll lives inside the chat pane, not window.
-    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("mousemove", onMouseMove, { passive: true });
     window.addEventListener("aurem:chat-focus", onChatFocus);
     return () => {
-      window.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("aurem:chat-focus", onChatFocus);
     };
