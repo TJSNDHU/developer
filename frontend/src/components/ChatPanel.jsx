@@ -39,6 +39,7 @@ import { getScanSeverityCounts, onScanUpdated, setCachedScan } from "../lib/secu
 import LoopModeToggle, {
   EXEC_MODES, loadExecMode, saveExecMode,
 } from "./LoopModeToggle";
+import IntentTierIndicator from "./IntentTierIndicator";
 import LoopStepBar from "./LoopStepBar";
 import PlanApprovalCard from "./PlanApprovalCard";
 // Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
@@ -244,6 +245,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const chatStream = useChatStream();
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
+  // Iter 212m-149 — Intent Gateway last-known tier for the indicator.
+  // Updated when an SSE `intent` frame arrives during a chat turn.
+  const [lastIntentTier, setLastIntentTier] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   // Iter 212m-19 — Live step floating card. Tracks the steps + model
@@ -1653,6 +1657,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             visible:  true,
           };
         });
+      },
+      // Iter 212m-149 — Intent Gateway result frame.  Pin the tier
+      // dot in the composer to the gateway's authoritative answer
+      // for this turn.
+      onIntent: (intent) => {
+        if (intent && intent.tier) setLastIntentTier(intent.tier);
       },
       onThinking: (elapsed, activity, invocations) => {
         bumpActivity();
@@ -3347,12 +3357,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ))}
             </select>
           )}
-          {/* Iter 212m-103 — LoopModeToggle pill inside the composer
-              toolbar, immediately before the Send button. Matches v0
-              screenshot: chunky orange pill ("LOOP ON") when active,
-              transparent outlined ("LOOP OFF") when inactive. */}
-          <LoopModeToggle value={execMode} onChange={handleExecModeChange}
-                          locked={!isLoopUnlocked} />
+          {/* Iter 212m-149 — Loop toggle REPLACED by the Intent Tier
+              Indicator. Read-only display: shows what tier the
+              Gateway picked for this message (casual / query /
+              agentic / clarify).  Not a toggle — the Gateway routes
+              for us. */}
+          <IntentTierIndicator liveText={input} lastTier={lastIntentTier} />
 
           {busy ? (
             <button

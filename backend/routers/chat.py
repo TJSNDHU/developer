@@ -918,6 +918,39 @@ async def _maybe_guard_shell_handoff_followup(
     return None
 
 
+
+# ─── Iter 212m-149 — Intent Gateway live-classify endpoint ────────────
+# Used by the chat composer to render the live tier-dot indicator
+# (casual / query / agentic) as the user types.  Heuristic-only
+# (escalate_to_llm=False) so it returns in <5 ms with no LLM cost.
+
+class IntentClassifyBody(BaseModel):
+    message: str
+    project_id: Optional[str] = None
+
+
+@router.post("/classify-intent")
+async def classify_intent_endpoint(
+    body: IntentClassifyBody,
+    authorization: Optional[str] = Header(None),
+):
+    """Lightweight intent classifier — heuristic only.
+    Returns: { tier, confidence, method, reasoning, gateway_ms, clarify? }.
+    No Mongo write; the full `/chat/stream` call logs the real one."""
+    user = await current_dev(authorization)
+    from core.intent_gateway import classify as _classify_intent
+    result = await _classify_intent(
+        body.message or "",
+        history=[],
+        db=None,                  # no logging on the preview path
+        user_id=user.get("user_id"),
+        project_id=body.project_id,
+        escalate_to_llm=False,    # heuristic only — instant
+    )
+    return {"ok": True, **result}
+
+
+
 @router.post("/stream")
 async def chat_stream(
     request: Request,
@@ -1781,11 +1814,80 @@ async def chat_stream(
                 # Initial 🤔 frame so the UI immediately moves off the
                 # generic "thinking…" tick.
                 _step("🤔 Thinking…")
+
+                # Iter 212m-149 — Intent Gateway routing.
+                # 3-tier classifier replaces the binary loop toggle.
+                #   casual  → bypass tools, single LLM reply (target <1s)
+                #   query   → tools with low max_iters (target <2s)
+                #   agentic → full pipeline (current default)
+                #   clarify → confidence <0.72; we still let the pipeline
+                #             run but the UI is informed so it can render
+                #             a "looks ambiguous" hint next to the reply.
+                from core.intent_gateway import classify as _classify_intent
+                _intent_result = await _classify_intent(
+                    body.prompt or "",
+                    history=[],   # full conversation context is heavy
+                                  # for the 2 s budget; we rely on the
+                                  # heuristic + the message itself.
+                    db=get_db(),
+                    user_id=user_id,
+                    project_id=body.project_id,
+                )
+                # Emit an SSE `intent` frame so the chat UI can render
+                # the tier dot + clarifying probe inline.
+                await q.put({
+                    "type":   "intent",
+                    "intent": _intent_result,
+                })
+
+                _tier = _intent_result.get("tier") or "agentic"
+                if _tier == "casual":
+                    # Direct LLM reply path — no tool calls, fast.
+                    try:
+                        from services.llm import call_llm as _call_llm
+                        _casual_system = (
+                            "You are ORA — AUREM CTO's developer co-pilot.\n"
+                            "For this casual message, respond naturally and briefly.\n"
+                            "Be confident, warm, and direct. Do NOT mention\n"
+                            "pipelines, agents, or technical systems. Keep your\n"
+                            "reply under 2 sentences."
+                        )
+                        _casual_reply = await _call_llm(
+                            [{"role": "user", "content": body.prompt or ""}],
+                            system=_casual_system,
+                            max_tokens=200,
+                            temperature=0.6,
+                        )
+                        result = {
+                            "ok":               True,
+                            "reply":            _casual_reply or "Hey!",
+                            "tool_invocations": [],
+                            "tool_calls_run":   0,
+                            "intent":           _intent_result,
+                            "tier":             _tier,
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
+                    except Exception as _ce:
+                        # If the cheap LLM trips, fall through to the
+                        # orchestrator path — never blank-screen the user.
+                        logger.warning(
+                            "intent_gateway casual path failed (%r) — "
+                            "falling through to orchestrator", _ce,
+                        )
+
+                if _tier == "query":
+                    # Limited tool iterations — context retrieval only.
+                    _max_iters_eff = 2
+                else:
+                    # Agentic or clarify — full pipeline.
+                    _max_iters_eff = min(max(body.max_tool_iters, 4), 6)
+
                 result = await chat_with_tools(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
                     system=(extra_sys + "\n\n" if extra_sys else None),
-                    max_iters=min(max(body.max_tool_iters, 4), 6),
+                    max_iters=_max_iters_eff,
                     session_id=body.session_id,
                     mongo_client=None,
                     user_id=user_id,
@@ -1798,6 +1900,8 @@ async def chat_stream(
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):
                     _published[:] = result.get("tool_invocations") or []
+                    result["intent"] = _intent_result
+                    result["tier"]   = _tier
                 await q.put({"type": "result", "result": result})
             except Exception as e:
                 logger.exception("chat_stream orchestrator failed")
@@ -1942,6 +2046,16 @@ async def chat_stream(
             elif ev["type"] == "error":
                 yield f"data: {json.dumps({'error': ev['error']})}\n\n"
                 return
+            elif ev["type"] == "intent":
+                # Iter 212m-149 — Intent Gateway frame.  UI uses this
+                # to render the tier dot (casual/query/agentic) +
+                # an optional clarifying probe when ambiguous.
+                yield (
+                    "data: " + json.dumps({
+                        "type":   "intent",
+                        "intent": ev.get("intent") or {},
+                    }) + "\n\n"
+                )
             elif ev["type"] == "result":
                 result = ev["result"]
                 break

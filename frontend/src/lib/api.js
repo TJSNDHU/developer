@@ -151,6 +151,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     onThinking, onTaskHandoff, onDone, onError,
                                     onStep,   // Iter 212m-19 — live step cards
                                     onCouncil, // Iter 212m-78 — recalled count
+                                    onIntent,  // Iter 212m-149 — gateway tier classification
                                     signal }) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
@@ -200,6 +201,7 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
           if (payload.meta) onMeta?.(payload);
           else if (payload.type === "mode") onMode?.(payload);
           else if (payload.type === "step") onStep?.(payload);   // Iter 212m-19
+          else if (payload.type === "intent") onIntent?.(payload.intent || {});  // Iter 212m-149
           else if (payload.type === "council") onCouncil?.(payload.council_recalled || 0);  // Iter 212m-78
           else if (payload.type === "ops_redirect") onOpsRedirect?.(payload);
           else if (payload.type === "task_handoff") onTaskHandoff?.(payload);

@@ -12,6 +12,92 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-149 — 3-tier Intent Gateway replaces Loop Mode toggle (Feb 2026) ✅
+
+**Founder spec**: "Loop mode ko 3-tier intent gateway se replace karo. Binary on/off toggle khatam. Gateway ab decide karega kaunsa path lena hai — casual, query, ya full OODA." A binary toggle is forced UX state the user shouldn't have to manage. The new gateway routes every message into one of three lanes based on what was actually requested.
+
+**A) New module — `backend/core/intent_gateway.py`**:
+
+```
+TIER_CASUAL  ("casual")  → direct LLM reply, no tools, target <1 s
+TIER_QUERY   ("query")   → tools at max_iters=2, target <2 s
+TIER_AGENTIC ("agentic") → full chat_with_tools pipeline
+TIER_CLARIFY ("clarify") → conf <0.72; UI shows a probe instead of guessing
+```
+
+Two-phase classifier:
+1. **Heuristic pass** (microseconds, no API call):
+   - Imperative verb at message start (`fix`, `send`, `deploy`, `commit`, …) → agentic @ 0.92–0.97
+   - Short (<8 words) message with no action/query signals → casual @ 0.86–0.94
+   - Question lead (`show`, `what`, `list`, `explain`, …) or `?` → query @ 0.76–0.86
+   - Ambiguous middle-ground → conf <0.75 (escalates to LLM)
+2. **LLM fallback** (only on heuristic conf <0.75):
+   - Cheapest fast model via `services.llm.call_llm`
+   - 2 s hard timeout, 20 token output cap, temperature 0
+   - Strict-JSON system prompt with parser that handles dirty replies
+3. **Ambiguity handler**:
+   - Final conf <0.72 → returns `clarify` tier with a one-line probe ("Just checking — did you want me to X, or were you just thinking out loud?")
+4. **Mongo logging**:
+   - One row per call to `intent_classifications`: `{message_preview, tier, confidence, method, gateway_ms, was_ambiguous, user_id, project_id, ts}`
+
+**B) Wiring — `backend/routers/chat.py`**:
+
+- `chat_stream` calls `classify()` BEFORE the orchestrator dispatch.
+- Emits an `intent` SSE frame to the client so the composer can pin the tier dot.
+- Casual path: skips `chat_with_tools` entirely, makes one `call_llm` with a brief casual system prompt, returns immediately. NO tool loop overhead.
+- Query path: clamps `max_iters` to 2.
+- Agentic / clarify: full pipeline (unchanged).
+- New endpoint `POST /chat/classify-intent` — heuristic-only (`escalate_to_llm=False`), <5 ms, used by the UI for live preview of the tier dot as the user types.
+
+**C) UI — `frontend/src/components/IntentTierIndicator.jsx` (new)**:
+
+- 8 px tier-dot + uppercase label pill (casual=grey, query=amber, agentic=orange w/ glow, clarify=yellow).
+- Read-only — NOT a toggle.
+- Live preview: debounced (220 ms) hit to `/chat/classify-intent` as user types.
+- Sticky preview: pinned to the gateway's authoritative tier when the SSE `intent` frame arrives.
+- Replaces the chunky `LoopModeToggle` pill in the composer toolbar.  Old toggle file kept on disk for now (only its render call removed) — full deletion lined up for a later cleanup.
+
+**D) Stream wiring** — `frontend/src/lib/api.js`:
+
+- New `onIntent` callback in `streamChat`, fires when an `intent` SSE frame lands.
+- `ChatPanel.jsx` consumes via `setLastIntentTier(intent.tier)`.
+
+**Live verification on preview**:
+
+| Message | tier | conf | method | latency |
+|---|---|---|---|---|
+| "Good morning" | casual | 0.94 | heuristic | 0 ms |
+| "Thanks ORA" | casual | 0.94 | heuristic | 0 ms |
+| "lol ok got it" | casual | 0.94 | heuristic | 0 ms |
+| "Show me today's leads" | query | 0.86 | heuristic | 0 ms |
+| "What is my pipeline status" | query | 0.86 | heuristic | 0 ms |
+| "Send follow-up to all leads from yesterday" | agentic | 0.97 | heuristic | 0 ms |
+| "Run a security scan on the repo" | agentic | 0.97 | heuristic | 0 ms |
+
+Real `/chat/stream` end-to-end on "Good morning" → `intent` SSE frame received with tier=casual, `tool_calls_run=0` (NO tool loop), reply in 1.5 s. Mongo log row written.
+
+UI screenshot proof: 3 composer states showing the dot+label flipping from grey CASUAL → amber QUERY → glowing-orange AGENTIC as the user types different messages.  Legacy `loop-mode-toggle` data-testid no longer in the DOM.
+
+**Test coverage** — `backend/tests/test_iter212m149_intent_gateway.py` (31 new tests):
+
+- 6× heuristic casual fixtures + 6× query + 6× agentic
+- Empty / edge cases
+- Ambiguous mid-length statement falls through (<0.75)
+- High-confidence heuristic does NOT call LLM (monkeypatched stub)
+- Mid-confidence escalates to LLM, LLM result preferred when conf higher
+- Ambiguous → returns `clarify` tier + probe text
+- Mongo log row shape + user/project IDs threaded through
+- Broken Mongo write does NOT block classification
+- LLM timeout returns safe fallback
+- Dirty JSON output parsed correctly
+- Source-pattern contracts: `chat.py` imports gateway + emits `intent` SSE frame + casual short-circuit branch + `/classify-intent` endpoint with `escalate_to_llm=False`
+
+**Regression**: 57/57 passing across iter 212m-147, 148, 149. Lint clean across 5 modified files.
+
+**Files touched**: `backend/core/intent_gateway.py` (new), `backend/core/__init__.py` (new), `backend/routers/chat.py`, `frontend/src/components/IntentTierIndicator.jsx` (new), `frontend/src/components/ChatPanel.jsx`, `frontend/src/lib/api.js`, `backend/tests/test_iter212m149_intent_gateway.py` (new).
+
+
+
 ### Iter 212m-148 — Persistent Fix Bar + global FixJob state (SSE survives panel hide) (Feb 2026) ✅
 
 **Founder spec**: "Fix job panel ko persistent banao — user kuch bhi click kare, job background mein chalta rahe. Panel sirf hide ho, kill nahi." The previous drawer owned its EventSource, so any unmount (backdrop click, route change) silently killed the in-flight bulk fix. Real fix: lift all job state into a global React Context mounted at App root, with the SSE owned by the provider — drawer becomes a pure consumer that can hide/show via CSS transform without affecting the stream.
