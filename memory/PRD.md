@@ -12,6 +12,23 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-110 — Founder Bug Hunt bypass + real Codebase Graph drawer + Preview default tab (Feb 28 2026) ✅
+
+P0 fork-resume task from previous session. Three founder-spec fixes landed in a single pass + green pytest + green testing-agent (iteration_22.json).
+
+**Changes:**
+- **`routers/codebase_health.py`** — `/scan` rate-limit and `/fix` token-deduction now BOTH bypass for `is_admin OR is_unlimited OR tier=='founder'` (was `is_admin` only on /scan; /fix had no bypass at all). Founders queue health fixes with `tokens_charged: 0` and never get 429 on Bug Hunt scans.
+- **`pages/Dashboard.jsx`** — `SidebarReal.onToolClick` for `toolId === "graph"` now dispatches `aurem:toggle-graph` (opens the existing GraphPanel drawer pointing at the user's own connected GitHub repo) instead of `navigate("/feature-window")` which leaked ORA's internal architecture map.
+- **`components/dashboard/v2/SidebarBound.jsx`** — Removed the founder-only gate on the `graph` tool. The drawer works for any user with a connected repo, so non-founders also see "Codebase Graph" in the sidebar. Active-state detection no longer references `/feature-window`.
+- **`components/PreviewPanel.jsx`** — When the active project has a deployed `preview_url` but the chat hasn't emitted a `live_url` block yet, a synthetic `{lang:"live_url", label:"Live Site"}` block is prepended so tab index 0 is always Live Site (was defaulting to alphabetical-first codebase file, usually `README.md`). Added a defensive `useEffect` that auto-selects the live_url tab if it ever ends up non-zero.
+
+**Tests (all green):**
+- New: `/app/backend/tests/test_iter212m110_founder_bypass_and_graph.py` (5 tests — sidebar event dispatch, no /feature-window leak, graph visible to all, /scan bypass, /fix bypass + non-founder leak guard).
+- Regression: `test_iter212m75_rate_limit_and_bughunt.py` + `test_iter212m73_bug_hunt.py` + `test_founder_and_admin_resilience.py` all still pass.
+- Testing-agent (iter 22): live HTTP confirmed founders get `tokens_charged: 0` and zero 429s across 12 rapid scan calls. Frontend Playwright confirmed sidebar Codebase Graph click stays on `/dashboard` and renders `data-testid="graph-panel"` drawer.
+
+
+
 ### Iter 212m-101 — New logo + click-to-clear-cache (Feb 28 2026) ✅
 ### Iter 212m-100 — Founder spec: tool re-org (Feb 28 2026) ✅
 *(see iter detail below — preserved)*
