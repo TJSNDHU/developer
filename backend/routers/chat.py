@@ -999,6 +999,8 @@ async def chat_stream(
     user_id = user.get("user_id", "")
 
     # Iter 212m-139 — Ask Advisor "No repo connected" bug fix.
+    # Iter 212m-141 — Hardened to filter by ACTUAL GitHub reachability.
+    #
     # When the frontend hasn't yet stamped an active-project tab (e.g.
     # the user has exactly one connected repo and never had to click a
     # tab to switch), `body.project_id` arrives as null/empty. Every
@@ -1007,25 +1009,47 @@ async def chat_stream(
     # "No project connected", which the LLM faithfully reports back as
     # "no repo is connected right now" — even though the user has one
     # in the sidebar.
-    # FIX (route level): if the caller passed no project AND the user
-    # has exactly ONE connected project (real `github_owner+repo`), we
-    # rewrite body.project_id to that project once, for the whole turn.
-    # With 2+ projects we leave it null — the LLM must disambiguate.
+    # FIX: if the caller passed no project AND the user has EXACTLY
+    # ONE project that is BOTH (a) wired in DB (github_owner+repo) AND
+    # (b) actually reachable on GitHub (via repo_status._CACHE or live
+    # probe), we rewrite body.project_id to that project. Stale/dead
+    # repos in the DB (e.g. PROD dogfood → 404) no longer fool the
+    # heuristic into abstaining.
     if not (body.project_id or "").strip() or (body.project_id or "").strip() == "home":
         try:
             _db_ai = get_db()
             if _db_ai is not None:
-                _candidates = await _db_ai.cto_projects.find(
+                _cands = await _db_ai.cto_projects.find(
                     {"user_id": user_id,
                      "github_owner": {"$nin": [None, ""]},
                      "github_repo":  {"$nin": [None, ""]}},
                     {"_id": 0, "project_id": 1},
-                ).limit(2).to_list(2)
-                if len(_candidates) == 1:
-                    body.project_id = _candidates[0]["project_id"]
+                ).limit(20).to_list(20)
+                _picked = None
+                if len(_cands) == 1:
+                    _picked = _cands[0]["project_id"]
+                elif len(_cands) > 1:
+                    # Two or more wired candidates — disambiguate using
+                    # the live reachability cache so a stale/dead repo
+                    # doesn't block the inference.
+                    try:
+                        from routers.repo_status import _CACHE as _RS_CACHE
+                    except Exception:
+                        _RS_CACHE = {}
+                    _connected = []
+                    for _c in _cands:
+                        _pid = _c.get("project_id")
+                        _row = _RS_CACHE.get(_pid)
+                        if _row and _row.get("status") == "connected":
+                            _connected.append(_pid)
+                    if len(_connected) == 1:
+                        _picked = _connected[0]
+                if _picked:
+                    body.project_id = _picked
                     logger.info(
-                        "chat.stream: auto-inferred sole project %s for user %s",
-                        body.project_id, user_id,
+                        "chat.stream: auto-inferred sole project %s for "
+                        "user %s (candidates=%d)",
+                        body.project_id, user_id, len(_cands),
                     )
         except Exception as _ai_e:
             logger.warning("chat.stream auto-infer project failed: %r", _ai_e)

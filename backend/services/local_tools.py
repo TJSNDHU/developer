@@ -85,26 +85,44 @@ async def _resolve_project(user_id: str, project_id: str) -> dict | None:
         )
 
     if proj is None:
-        # Iter 212m-139 — single-project auto-infer fallback.
-        # Match only projects that have a real repo wired up so we don't
-        # pick a half-created project_id row with no repo. Cap at 2 to
-        # cheaply distinguish "exactly one" from "two or more".
+        # Iter 212m-139 / 212m-141 — single-reachable-project auto-infer.
+        # Match projects with a real repo wired up (`github_owner` +
+        # `github_repo` set). When there are 2+ wired candidates, fall
+        # back to the live reachability cache to pick the ONE that is
+        # actually connected on GitHub. This handles the PROD edge
+        # case where a user has 2 DB rows but only one is reachable
+        # (the other is `repo_not_found` 404).
         try:
             candidates = await db.cto_projects.find(
                 {"user_id": user_id,
                  "github_owner": {"$nin": [None, ""]},
                  "github_repo":  {"$nin": [None, ""]}},
-            ).limit(2).to_list(2)
+            ).limit(20).to_list(20)
         except Exception as e:                       # noqa: BLE001
             logger.warning("local_tools._resolve_project inference failed: %r", e)
             return None
-        if len(candidates) != 1:
+        picked = None
+        if len(candidates) == 1:
+            picked = candidates[0]
+        elif len(candidates) > 1:
+            try:
+                from routers.repo_status import _CACHE as _RS_CACHE
+            except Exception:
+                _RS_CACHE = {}
+            connected = []
+            for c in candidates:
+                row = _RS_CACHE.get(c.get("project_id"))
+                if row and row.get("status") == "connected":
+                    connected.append(c)
+            if len(connected) == 1:
+                picked = connected[0]
+        if picked is None:
             return None
-        proj = candidates[0]
+        proj = picked
         logger.info(
             "local_tools._resolve_project: inferred sole project "
-            "%s for user %s (caller passed pid=%r)",
-            proj.get("project_id"), user_id, project_id,
+            "%s for user %s (caller passed pid=%r, candidates=%d)",
+            proj.get("project_id"), user_id, project_id, len(candidates),
         )
 
     # Decrypt the per-project PAT (if present), else fall back to OAuth.

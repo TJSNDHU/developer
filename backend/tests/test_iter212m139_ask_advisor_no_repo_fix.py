@@ -171,10 +171,70 @@ async def test_resolve_project_infers_sole_project_on_home_pid(
 async def test_resolve_project_does_not_infer_with_two_connected(
     monkeypatch, db_two_connected,
 ):
-    """Ambiguous — the LLM must explicitly disambiguate. We do NOT
-    pick one at random."""
+    """Two wired projects AND neither is in the reachability cache → 
+    ambiguous → LLM must explicitly disambiguate."""
     from services import local_tools
     monkeypatch.setattr(local_tools, "get_db", lambda: db_two_connected)
+    # Empty cache → no disambiguation possible
+    from routers import repo_status
+    monkeypatch.setattr(repo_status, "_CACHE", {})
+
+    proj = await local_tools._resolve_project("u1", None)
+    assert proj is None
+
+
+async def test_resolve_project_picks_reachable_when_one_dead(
+    monkeypatch,
+):
+    """Iter 212m-141 — Real-world PROD repro: 2 projects in DB,
+    `p_a` is reachable, `p_b` returns 404 from GitHub. The
+    reachability cache reports only `p_a` as `connected`. Inference
+    must pick `p_a`."""
+    from services import local_tools
+    db = _FakeDB([
+        {"project_id": "p_a", "user_id": "u1",
+         "github_owner": "tj", "github_repo": "alpha",
+         "github_token": "", "branch": "main"},
+        {"project_id": "p_b", "user_id": "u1",
+         "github_owner": "polaris", "github_repo": "dead",
+         "github_token": "", "branch": "main"},
+    ])
+    monkeypatch.setattr(local_tools, "get_db", lambda: db)
+    from routers import repo_status
+    monkeypatch.setattr(repo_status, "_CACHE", {
+        "p_a": {"project_id": "p_a", "status": "connected"},
+        "p_b": {"project_id": "p_b", "status": "disconnected",
+                "error": "repo_not_found"},
+    })
+    async def _noop(*a, **kw): return None
+    monkeypatch.setattr("routers.cto_projects._decrypt_pat", _noop, raising=False)
+    monkeypatch.setattr("routers.cto_projects._user_gh_token", _noop, raising=False)
+
+    proj = await local_tools._resolve_project("u1", None)
+    assert proj is not None
+    assert proj["project_id"] == "p_a"
+
+
+async def test_resolve_project_abstains_when_two_both_connected(
+    monkeypatch,
+):
+    """If both projects are reachable, we still abstain — that's
+    genuine ambiguity, the LLM must disambiguate explicitly."""
+    from services import local_tools
+    db = _FakeDB([
+        {"project_id": "p_a", "user_id": "u1",
+         "github_owner": "tj", "github_repo": "alpha",
+         "github_token": "", "branch": "main"},
+        {"project_id": "p_b", "user_id": "u1",
+         "github_owner": "tj", "github_repo": "beta",
+         "github_token": "", "branch": "main"},
+    ])
+    monkeypatch.setattr(local_tools, "get_db", lambda: db)
+    from routers import repo_status
+    monkeypatch.setattr(repo_status, "_CACHE", {
+        "p_a": {"project_id": "p_a", "status": "connected"},
+        "p_b": {"project_id": "p_b", "status": "connected"},
+    })
 
     proj = await local_tools._resolve_project("u1", None)
     assert proj is None
