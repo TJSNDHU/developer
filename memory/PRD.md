@@ -12,6 +12,44 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-120 — Phase 1: Trufflehog CI secret-scan ingest (Feb 2026) ✅
+
+**Scope:** CI-only secret scanning. Zero backend image growth, zero new binaries baked into the Docker runtime. Phase 2 (Trivy + Semgrep sidecar via docker-compose) deferred until this is confirmed green in prod.
+
+**Backend (`routers/vanguard_ci.py`)**
+- `POST /api/aurem-dev/vanguard/ci-findings` — ingests trufflehog JSON-lines results from the GitHub Actions runner.
+- Auth: shared secret bearer token via `AUREM_CI_INGEST_TOKEN` env var (fail-closed when unset; HMAC compare_digest).
+- Storage: Mongo collection `vanguard_ci_findings`, upserted on (`repo`, `commit`, `scanner`) so re-runs replace stale findings.
+- Redaction: raw secret values are clipped to `prefix…suffix` form before persistence so a Mongo leak can't replay credentials.
+- `GET /api/aurem-dev/vanguard/ci-findings` — JWT-protected dashboard reader scoped to the user's `cto_projects` repos (admins see all).
+
+**CI (`.github/workflows/ci.yml`)**
+- New `secret-scan` job:
+  1. Full-history checkout (`fetch-depth: 0`).
+  2. Installs trufflehog via official install.sh (auto-pulls latest stable).
+  3. Runs `trufflehog filesystem . --json --exclude-paths=.trufflehog-exclude`.
+  4. Uploads raw JSONL artifact (7-day retention).
+  5. POSTs compact JSON (capped 2000 findings) to backend ingest endpoint using `secrets.AUREM_CI_INGEST_TOKEN` and `vars.AUREM_API_URL` (defaults to `https://auremcto.com`).
+  6. Fails the job iff `verified > 0` — pattern-only hits warn but don't block (prevents fixture/test-secret noise).
+- Added to `deploy-gate` `needs:` list so a verified secret blocks the Vercel hook.
+- `/app/.trufflehog-exclude` — excludes `backend/tests/`, `*.md`, lockfiles, snapshot fixtures.
+
+**Required secrets / vars (user must configure on the GitHub repo + prod backend):**
+- Repo secret: `AUREM_CI_INGEST_TOKEN` (any 32+ char random string) — same value goes into `backend/.env` on prod.
+- Repo variable: `AUREM_API_URL` (optional; defaults to `https://auremcto.com`).
+
+**Tests:** `test_iter212m120_vanguard_ci_ingest.py` — 6 tests covering fail-closed without token, wrong token rejection, persist+redact happy path, upsert on same SHA, unknown scanner rejection, missing-field rejection. All pass.
+
+**Regression:** Live preview backend reloaded clean; `POST` returns `503 CI ingest disabled` until `AUREM_CI_INGEST_TOKEN` is set in env (correct fail-closed behaviour).
+
+**Phase 2 plan (NOT shipped yet):**
+- Add `scanner` + `semgrep` services to `infra/docker-compose.yml` running `aquasec/trivy:latest` and `semgrep/semgrep:latest`.
+- Named volume `trivy-cache` to persist the ~500 MB vuln DB across restarts.
+- Backend calls scanners over internal Docker network — no new binaries in the API image.
+- Dashboard "Vanguard scan" button fans out to all three (in-process + trivy + semgrep) and merges results.
+
+
+
 ### Iter 212m-118 — Diagnose-first repair + litellm.Router (Feb 28 2026) ✅
 
 Founder spec commit: `feat(loop): diagnose-first repair + litellm router`
