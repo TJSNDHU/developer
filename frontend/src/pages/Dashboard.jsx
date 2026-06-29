@@ -411,7 +411,16 @@ function SidebarReal({
       onToolClick={(toolId) => {
         if (toolId === "health")   navigate("/codebase-health");
         else if (toolId === "bughunt") navigate("/bug-hunt");
-        else if (toolId === "graph") navigate("/feature-window");
+        else if (toolId === "graph") {
+          // Iter 212m-110 — sidebar Codebase Graph now opens the
+          // GraphPanel drawer (user's connected GitHub repo) instead
+          // of /feature-window which exposes ORA's internal feature
+          // map. The drawer is mounted in ChatPanel and listens to
+          // the `aurem:toggle-graph` event.
+          window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
+            detail: { open: true },
+          }));
+        }
         else if (toolId === "vanguard") {
           // Open the existing Vanguard drawer via the well-known event.
           window.dispatchEvent(new CustomEvent("aurem:open-vanguard"));

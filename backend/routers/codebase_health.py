@@ -500,12 +500,17 @@ async def scan(
         raise HTTPException(503, "DB not connected")
 
     # Iter 212m-75 — sliding-window rate limit (10 scans / hour / user / category).
-    # Admins are exempt via JWT `is_admin` claim. Each call writes one
-    # log row to `scan_rate_limits`; the prune step deletes rows older
-    # than the window so the collection stays small. Returns 429 with
-    # `retry_after_seconds` on the first denied category so the client
-    # can wait the right amount.
-    is_admin = bool(user.get("is_admin"))
+    # Iter 212m-110 — admins, founders and is_unlimited accounts are
+    # ALL exempt. Each call writes one log row to `scan_rate_limits`;
+    # the prune step deletes rows older than the window so the
+    # collection stays small. Returns 429 with `retry_after_seconds`
+    # on the first denied category so the client can wait the right
+    # amount.
+    is_admin = bool(
+        user.get("is_admin")
+        or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+    )
     if not is_admin:
         denied_cat, retry_secs, remaining = await _check_scan_rate_limit(
             db, user_id, categories,
@@ -682,6 +687,14 @@ async def request_fix(
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
+    # Iter 212m-110 — Founder / admin / unlimited accounts bypass the
+    # token deduction entirely (free Bug Hunt + Health fixes). We still
+    # surface `tokens_charged: 0` so the UI behaves consistently.
+    is_unlimited_user = bool(
+        user.get("is_admin")
+        or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+    )
     # Token deduction — simple model: dev_users.tokens_remaining.
     me = await db.dev_users.find_one(
         {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1},
@@ -689,20 +702,25 @@ async def request_fix(
     if not me:
         raise HTTPException(404, "User not found")
     bal = int(me.get("tokens_remaining") or 0)
-    if bal < tokens_cost:
-        raise HTTPException(402, {
-            "error":   "insufficient_tokens",
-            "needed":  tokens_cost,
-            "balance": bal,
-        })
-    # Deduct atomically.
-    upd = await db.dev_users.update_one(
-        {"user_id": user_id, "tokens_remaining": {"$gte": tokens_cost}},
-        {"$inc": {"tokens_remaining": -tokens_cost}},
-    )
-    if upd.modified_count == 0:
-        raise HTTPException(402, "Concurrent token deduction — try again")
-    new_balance = bal - tokens_cost
+    if is_unlimited_user:
+        # Founder / admin path — no check, no deduction.
+        tokens_cost = 0
+        new_balance = bal
+    else:
+        if bal < tokens_cost:
+            raise HTTPException(402, {
+                "error":   "insufficient_tokens",
+                "needed":  tokens_cost,
+                "balance": bal,
+            })
+        # Deduct atomically.
+        upd = await db.dev_users.update_one(
+            {"user_id": user_id, "tokens_remaining": {"$gte": tokens_cost}},
+            {"$inc": {"tokens_remaining": -tokens_cost}},
+        )
+        if upd.modified_count == 0:
+            raise HTTPException(402, "Concurrent token deduction — try again")
+        new_balance = bal - tokens_cost
 
     # Build the fix prompt and enqueue as a regular cto_task.
     prompt = (

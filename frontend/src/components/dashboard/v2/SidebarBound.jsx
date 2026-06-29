@@ -276,19 +276,15 @@ export default function SidebarBound({
           )}
           <ul className="space-y-[1px]">
             {TOOLS.filter((t) => {
-              // Iter 212m-99 — hide founder-only tools from non-founders.
-              // Backend /feature-window/status 403s for non-founders, so
-              // showing the button → silent redirect-to-dashboard which
-              // looks broken. Founder/admin only.
-              if (t.id === "graph") {
-                return Boolean(user?.is_admin) || (user?.tier === "founder");
-              }
+              // Iter 212m-110 — Codebase Graph is now available to every
+              // user (opens the GraphPanel drawer of their connected
+              // GitHub repo via aurem:toggle-graph, no longer leaks
+              // /feature-window's internal ORA map).
               return true;
             }).map((tool) => {
               const Icon = tool.icon;
               const isActive =
-                (tool.id === "health"  && location.pathname.startsWith("/codebase-health")) ||
-                (tool.id === "graph"   && location.pathname.startsWith("/feature-window"));
+                (tool.id === "health"  && location.pathname.startsWith("/codebase-health"));
               const row = (
                 <button onClick={() => onToolClick?.(tool.id)}
                   data-testid={`ds2-tool-${tool.id}`}

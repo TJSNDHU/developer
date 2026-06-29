@@ -10,7 +10,7 @@
  * The iframe is sandboxed with `allow-scripts` only — no same-origin —
  * so any code rendered here cannot read parent state.
  */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { X, Copy, RefreshCw, Code2, Eye, ExternalLink, Loader2, Rocket } from "lucide-react";
 import { toast } from "./Toast";
 import { api } from "../lib/api";
@@ -222,13 +222,53 @@ export default function PreviewPanel({ blocks, onClose, activeProject, initialVi
       return l === "live_url" || l === "text";
     }
   );
+
+  // Iter 212m-110 (BUG 10) — When the project has a deployed
+  // `preview_url` but the chat hasn't emitted a live_url block yet,
+  // synthesise one so the Preview tab opens on the Live Site
+  // instead of falling through to README.md (the alphabetical-first
+  // file in the codebase tree).
+  const hasLiveBlock = realBlocks.some(
+    (b) => (b?.lang || "").toLowerCase() === "live_url"
+  );
+  const syntheticLive = (!hasLiveBlock && activeProject?.preview_url)
+    ? [{
+        lang: "live_url",
+        label: "Live Site",
+        code: activeProject.preview_url,
+        synthetic: true,
+      }]
+    : [];
+
   const effectiveBlocks = (onlyLiveOrPlaceholder && codebaseBlocks.length > 0)
-    ? [...realBlocks.filter((b) => (b?.lang || "").toLowerCase() === "live_url"), ...codebaseBlocks]
-    : realBlocks;
+    ? [
+        ...realBlocks.filter((b) => (b?.lang || "").toLowerCase() === "live_url"),
+        ...syntheticLive,
+        ...codebaseBlocks,
+      ]
+    : (syntheticLive.length > 0
+        ? [...syntheticLive, ...realBlocks]
+        : realBlocks);
 
   const block = effectiveBlocks[activeTab];
   const isRenderable = !!block && RENDERABLE.has((block.lang || "").toLowerCase());
   const isLiveUrl = (block?.lang || "").toLowerCase() === "live_url";
+
+  // Iter 212m-110 (BUG 10) — When the panel first opens (or after the
+  // effective-blocks list changes), prefer the "Live Site" tab over
+  // any README.md / other codebase file. Previously we left activeTab
+  // at the literal index 0, which for fresh repos meant README.md
+  // (alphabetical-first file) was shown by default instead of the
+  // deployed live URL. We only auto-jump if the user hasn't already
+  // selected a non-default tab.
+  const liveUrlIndex = effectiveBlocks.findIndex(
+    (b) => (b?.lang || "").toLowerCase() === "live_url"
+  );
+  useEffect(() => {
+    if (liveUrlIndex >= 0 && activeTab === 0 && liveUrlIndex !== 0) {
+      setActiveTab(liveUrlIndex);
+    }
+  }, [liveUrlIndex, effectiveBlocks.length]);
   // Note: We deliberately don't useEffect to lazy-load file content
   // on tab change. The tab button's onClick triggers the fetch inline
   // — see the file-tabs map below.
