@@ -22,6 +22,7 @@ import {
 import { api } from "../lib/api";
 import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
 import { toast } from "sonner";
+import SecretScanCard from "./SecretScanCard";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -40,7 +41,7 @@ const _chipStyle = (border, fg) => ({
   border: `1px solid ${border}`, color: fg,
 });
 
-export default function SecurityScanDrawer({ open, onClose, projectId, projectLabel }) {
+export default function SecurityScanDrawer({ open, onClose, projectId, projectLabel, repoOwner, repoName }) {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
   const [data, setData]         = useState(null);
@@ -360,6 +361,20 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+          {/* Iter 212m-120 — CI Secret Scan (trufflehog) card.
+              Sits ABOVE the in-process Vanguard findings so the
+              user sees the GitHub Actions verdict first. Hidden
+              when the repo has no owner/name yet. */}
+          {repoOwner && repoName && (
+            <div style={{ marginBottom: 12, marginLeft: -16, marginRight: -16 }}>
+              <SecretScanCard
+                repoOwner={repoOwner}
+                repoName={repoName}
+                variant="drawer"
+                defaultExpanded={false}
+              />
+            </div>
+          )}
           {loading && !data && (
             <div
               data-testid="security-scan-loading"

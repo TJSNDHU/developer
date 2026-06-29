@@ -44,6 +44,7 @@ import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import ShipConfirmModal from "../components/ShipConfirmModal";
 import ShipStreakWidget from "../components/ShipStreakWidget";
+import SecretScanCard from "../components/SecretScanCard";
 import { toast } from "../components/Toast";
 import { api } from "../lib/api";
 import { logout, getUser } from "../lib/api";
@@ -351,7 +352,16 @@ function DashboardV2Body() {
               branch: activeProject?.branch       || "main",
             }}
             healthScore={healthScore}
-            streakSlot={<ShipStreakWidget />}
+            streakSlot={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <ShipStreakWidget />
+                <SecretScanCard
+                  variant="dashboard"
+                  repoOwner={activeProject?.github_owner}
+                  repoName={activeProject?.github_repo}
+                />
+              </span>
+            }
           />
 
           {/* Empty-state banner above ChatPanel */}

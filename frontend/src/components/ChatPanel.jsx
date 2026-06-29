@@ -3428,6 +3428,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       {/* Iter 212m-55 — Security scan drawer (right side). */}
       <SecurityScanDrawer
         projectId={activeProject?.project_id}
+        repoOwner={activeProject?.github_owner}
+        repoName={activeProject?.github_repo}
         projectLabel={
           activeProject?.github_owner && activeProject?.github_repo
             ? `${activeProject.github_owner}/${activeProject.github_repo}`

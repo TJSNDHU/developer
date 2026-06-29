@@ -12,6 +12,34 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-120b — Phase 1 frontend: Secret Scan card + dashboard pill (Feb 2026) ✅
+
+Ships the UI half of the Trufflehog CI ingest pipeline added in Iter 212m-120.
+
+**New component `frontend/src/components/SecretScanCard.jsx`** — one file, two variants:
+- `variant="dashboard"`: compact pill that sits next to ShipStreakWidget in the TopBar's `streakSlot`. Hides when no project is active or no CI runs exist yet. Red ring + "N secret(s)" when verified > 0, green check + "Secrets: clean" otherwise. Click → fires `aurem:open-vanguard` to surface the full card.
+- `variant="drawer"`: wider card mounted at the top of `SecurityScanDrawer` body. Lists the last 5 CI runs with commit SHA, branch, timestamp, GitHub Actions link, and per-run verified-secret count. Expandable to show the latest run's findings (detector, file:line, redacted secret preview).
+
+**Mounts**
+- `pages/Dashboard.jsx` — TopBar `streakSlot` now wraps both `ShipStreakWidget` and `SecretScanCard variant="dashboard"`, fed by `activeProject?.github_owner / github_repo`.
+- `components/SecurityScanDrawer.jsx` — accepts new `repoOwner` + `repoName` props, mounts `SecretScanCard variant="drawer"` above the in-process Vanguard findings list.
+- `components/ChatPanel.jsx` — passes the new props through to the drawer.
+
+**Behaviour invariants**
+- Auto-refresh on `aurem:ci-findings-refresh` event (frontend can fire this after a manual deploy).
+- Cross-tenant 403s from the GET endpoint surface silently in dashboard variant, inline in drawer variant.
+- Empty-state messaging on the drawer card guides the user to push to `main` to trigger their first scan.
+
+**New dependency**: `sonner@2.0.7` added to `frontend/package.json` — was already imported by `SecurityScanDrawer.jsx` + `TrustLevelCard.jsx` but the package was never installed; surfaced as a Vite import error when I touched the drawer. One-line `yarn add sonner` fixed the pre-existing latent bug.
+
+**Visual proof**: Logged in as `test@aurem.dev` on preview, seeded 2 CI runs into Mongo (one verified-secret, one clean) for a stubbed `aurem-ai/demo-repo` project owned by the founder. Pill rendered `🛡 1 secret` in red; drawer card showed "1 verified" badge + 2-row timeline + expandable findings. Seed cleaned up after verification.
+
+**Files touched**
+- NEW: `frontend/src/components/SecretScanCard.jsx`
+- MODIFIED: `frontend/src/pages/Dashboard.jsx`, `frontend/src/components/SecurityScanDrawer.jsx`, `frontend/src/components/ChatPanel.jsx`, `frontend/package.json`
+
+
+
 ### Iter 212m-120 — Phase 1: Trufflehog CI secret-scan ingest (Feb 2026) ✅
 
 **Scope:** CI-only secret scanning. Zero backend image growth, zero new binaries baked into the Docker runtime. Phase 2 (Trivy + Semgrep sidecar via docker-compose) deferred until this is confirmed green in prod.
