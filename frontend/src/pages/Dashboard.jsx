@@ -103,9 +103,36 @@ function DashboardV2Body() {
   };
   const [sidebarPinned,    setSidebarPinned]    = useState(false);
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
+  // Iter 212m-124 — "edge-trigger reveal" lives separately from the
+  // intent-based hover state.  When the sidebar is fully translated
+  // off-screen we can't hover the panel itself; we listen for the
+  // cursor crossing the left 16 px of the viewport instead.
+  const [sidebarEdgeReveal, setSidebarEdgeReveal] = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
   const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
+
+  // Iter 212m-124 — Left-edge reveal trigger.  Per founder spec:
+  // once the sidebar fully hides (chatActive=true), the ONLY way to
+  // bring it back without explicit pinning is to move the cursor
+  // into the leftmost 16 px of the viewport.  Mouse leaving the
+  // sidebar area (clientX > sidebar width) collapses it again so
+  // the chat pane reclaims the full width.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const SIDEBAR_PX = 240;       // width of the expanded sidebar
+    const onMove = (e) => {
+      const x = e.clientX;
+      if (x <= 16) {
+        if (!sidebarEdgeReveal) setSidebarEdgeReveal(true);
+      } else if (x > SIDEBAR_PX + 24 && sidebarEdgeReveal) {
+        // Mouse drifted off the sidebar — re-hide.
+        setSidebarEdgeReveal(false);
+      }
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [sidebarEdgeReveal]);
 
   // Iter 212m-111 — Theme is permanently locked to NIGHT (dark). The
   // user-facing day/night toggle has been removed per founder spec.
@@ -291,7 +318,14 @@ function DashboardV2Body() {
     }));
   }, []);
 
-  const sidebarCollapsed = chatActive && !sidebarPinned && !sidebarHovered;
+  // Iter 212m-124 — Two sidebar states now:
+  //   • sidebarCollapsed → still drives the existing narrow icon-rail
+  //     mode that the in-sidebar toggle button uses (manual collapse).
+  //   • sidebarFullyHidden → full translateX(-100%), used when the
+  //     user is typing in chat. Reveal trigger is the left-edge
+  //     mousemove listener above + sidebarPinned (explicit intent).
+  const sidebarCollapsed = chatActive && !sidebarPinned && !sidebarHovered && !sidebarEdgeReveal;
+  const sidebarFullyHidden = chatActive && !sidebarPinned && !sidebarEdgeReveal;
   const user = getUser() || {};
 
   return (
@@ -300,11 +334,21 @@ function DashboardV2Body() {
       style={{ height: "100vh", overflow: "hidden" }}>
       <div style={{ display: "flex", height: "100%", width: "100%" }}>
 
-        {/* Sidebar — v2 chrome wired to real /cto/projects/list */}
+        {/* Sidebar — v2 chrome wired to real /cto/projects/list.
+            Iter 212m-124: when sidebarFullyHidden, the wrapper slides
+            the panel off-screen with translateX AND collapses its
+            layout slot so the chat pane reclaims the width. */}
         <div
+          data-testid="ds2-sidebar-wrap"
           onMouseEnter={() => sidebarCollapsed && setSidebarHovered(true)}
           onMouseLeave={() => setSidebarHovered(false)}
-          style={{ flexShrink: 0 }}
+          style={{
+            flexShrink: 0,
+            transform: sidebarFullyHidden ? "translateX(-100%)" : "translateX(0)",
+            width: sidebarFullyHidden ? 0 : "auto",
+            overflow: "hidden",
+            transition: "transform 220ms ease-in-out, width 220ms ease-in-out",
+          }}
         >
           <SidebarReal
             collapsed={sidebarCollapsed}
