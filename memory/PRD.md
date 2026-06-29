@@ -12,6 +12,51 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-133 — Red repo dot actionable + production audit (Feb 2026) ✅
+
+**Founder report**: dogfood repo showed red dot in production with no path to recovery. User asked us to use founder credentials and audit production.
+
+**Production diagnosis via founder login** (`teji.ss1986@gmail.com`):
+- Login OK → JWT returned, `is_admin: true`, `tier: founder`
+- `GET /cto/projects/connection-status` returned:
+  - `p_55aa60c68d` (**dogfood** — `polarisbuiltinc-wq/auremdev`) → **404 `repo_not_found`** ⛔
+  - `p_c2b5b8a916` (automation — `TJSNDHU/Aurem`) → **200 connected** ✅
+- Direct GitHub API check: `polarisbuiltinc-wq` org exists, but the `auremdev` repo is **deleted/private** (404). OAuth token is healthy (other repo works).
+- **Root cause**: the dogfood repo was deleted or renamed on GitHub at some point; the project row still pointed at the old `(owner, repo)`. Sidebar showed red dot with NO path for the user to re-link or remove.
+
+**Other production smoke tests** — all 11 endpoints returned HTTP 200 under the founder JWT:
+- `/usage/me`, `/founder-offer/{status,user-status}`, `/cto/projects/{list,connection-status}`, `/wrapped/me`, `/loop/active`, `/vanguard/ci-findings`, `/codebase-health/last`, `/fix-pipeline/list`, `/chat/sessions`
+- POST `/cto/projects/{id}/warm-start` → 200
+- POST `/security-scan/run` → 200
+
+**Last deployment failure**: ran `deployment_agent` against the codebase → **PASS** (no hardcoded secrets, no CORS issues, no missing env vars, supervisor config valid, dotenv handled correctly, no malformed env files). Failure was infrastructure-level — k8s pod never became ready, but the boot timing in preview is 1.1 s with `/api/healthz` responding in 2 ms. The user just needs to retry the deploy.
+
+**UX fix** — `frontend/src/components/dashboard/v2/SidebarBound.jsx`:
+- `liveStatus[id]` now stores `{ status, error, http_code }` (was a bare string).
+- New helpers `liveError(repo)` + `liveReasonLabel(code)` translate machine codes (`repo_not_found`, `invalid_token`, `missing_scope`, `github_unauthorized`, `github_rate_limited`, `network_error`) into short human strings.
+- Red rows now render the reason text in red **below the branch line** (e.g. `Repo deleted or renamed on GitHub`).
+- Inline **Settings (⚙) icon** appears on the right of red rows and links to `/projects?edit=<project_id>`.
+- Right-clicking a red row also opens the edit deep-link.
+- Tooltip on red rows: `<label> · <branch> · <reason> · right-click or click ⚙ to fix`.
+- New data-attributes `data-status` and `data-error` on the repo button for future e2e tests.
+
+**Routing** — `frontend/src/pages/Projects.jsx`:
+- New `?edit=<project_id>` query handler — finds the project (waits for the list to populate if needed) and immediately opens the Edit Project modal so the user can re-link to a new repo or delete in two clicks.
+- `window.history.replaceState` clears the query so a refresh doesn't re-open the modal.
+
+**Test coverage** — `backend/tests/test_iter212m133_red_repo_actionable.py` (5 source-pattern contract tests):
+- Sidebar tracks disconnect-error reason in `liveStatus[id]`.
+- Red repos render reason text + Settings deep-link icon.
+- All 5 critical error codes have human-readable mappings.
+- Projects.jsx reads `?edit=` and opens the Edit modal.
+- Data attributes pinned for future e2e tests.
+
+**Regression**: 109/109 passing across all iter 212m-121 → 133 tests.  Backend boots in 1.1 s, frontend hot-reload clean, lint clean for SidebarBound.jsx (Projects.jsx had pre-existing empty-block warnings unrelated to this iter).
+
+**Files touched**: `frontend/src/components/dashboard/v2/SidebarBound.jsx`, `frontend/src/pages/Projects.jsx`, `backend/tests/test_iter212m133_red_repo_actionable.py` (new).
+
+
+
 ### Iter 212m-132 — Send-button click fix + Vanguard diff-scan (Feb 2026) ✅
 
 Two surgical fixes per founder spec ("no new features"):
