@@ -2935,8 +2935,16 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             # We only carry the maxx_mode boolean at this layer; treat
             # everything else as Swift (the safest, strictest default).
             _vg_mode = "maxx" if maxx_mode else "swift"
+            # Iter 212m-132 — Diff-aware verify: pass `contents`
+            # (the pre-edit content we fetched from GitHub at the
+            # READ phase above) as `base_blocks` so Vanguard only
+            # flags vulns on lines the patch ACTUALLY added or
+            # modified.  Pre-existing issues in untouched lines are
+            # surfaced in `verify_result.regex.skipped_preexisting`
+            # for audit but do NOT block the commit.
             verify_result = await verify_patch(
-                edits, repo_ctx=f"{owner}/{repo}@{branch}", mode=_vg_mode,
+                edits, repo_ctx=f"{owner}/{repo}@{branch}",
+                mode=_vg_mode, base_blocks=contents,
             )
             await _log(task_id, f"🛡️ Verify: {verify_result['summary']}",
                        "info" if verify_result["pass"] else "error")

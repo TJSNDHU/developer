@@ -869,7 +869,23 @@ class LoopEngine:
                          step=4, total_steps=5,
                          message="Running Vanguard security scan…")
         try:
-            results = await _run_security_scan(self.user_id, self.project_id)
+            # Iter 212m-132 — Diff-only scan. The old path called
+            # `_run_security_scan` which scanned the ENTIRE repo
+            # (up to 200 files), so pre-existing vulns in untouched
+            # files / lines blocked every Loop commit. Now we ONLY
+            # scan the files this loop actually changed, AND only
+            # flag findings on lines the patch added/modified.
+            submitted_files = list(self.context.get("submitted_files") or [])
+            if submitted_files:
+                results = await _run_diff_security_scan(
+                    self.db, self.user_id, self.project_id, submitted_files,
+                )
+            else:
+                # No submitted files (Phase A / plan-only loops) →
+                # fall through to the legacy full-repo scan because
+                # there's no diff to compare against.
+                results = await _run_security_scan(self.user_id,
+                                                   self.project_id)
             self.context["scan_results"] = results
             crit = (results.get("summary", {})
                            .get("by_severity", {}).get("critical", 0))
@@ -881,9 +897,11 @@ class LoopEngine:
                 await self._emit(
                     LoopState.PAUSED_FOR_USER, "scan",
                     step=4, total_steps=5,
-                    message=f"{crit} critical finding(s) — review required.",
+                    message=f"{crit} critical finding(s) introduced by this "
+                            f"patch — review required.",
                     data={"summary": results.get("summary", {}),
-                          "findings": (results.get("findings") or [])[:25]},
+                          "findings": (results.get("findings") or [])[:25],
+                          "diff_mode": results.get("diff_mode", False)},
                     requires_user_action=True,
                 )
             elif high > 0:
@@ -891,8 +909,9 @@ class LoopEngine:
                 await self._emit(
                     LoopState.SCANNING, "scan",
                     step=4, total_steps=5,
-                    message=f"{high} high finding(s) — continuing with caution.",
-                    data={"summary": results.get("summary", {})},
+                    message=f"{high} high finding(s) introduced — continuing with caution.",
+                    data={"summary": results.get("summary", {}),
+                          "diff_mode": results.get("diff_mode", False)},
                 )
         except Exception as e:                          # noqa: BLE001
             await _log_error(self.db, self.loop_id, "scan", repr(e))
@@ -1464,6 +1483,118 @@ async def load_session(db, loop_id: str) -> Optional[dict]:
     return await db.loop_sessions.find_one(
         {"loop_id": loop_id}, {"_id": 0},
     )
+
+
+# Iter 212m-132 — Diff-only Loop scan helper.
+async def _run_diff_security_scan(
+    db, user_id: str, project_id: Optional[str],
+    submitted_files: list[dict],
+) -> dict:
+    """Scan ONLY the files this loop just touched, and only flag
+    findings whose line was added or modified by the patch.
+
+    Returns a shape compatible with `_do_scan`'s consumers:
+        {
+          "summary":   {"total": N, "by_severity": {...}},
+          "findings":  [...],
+          "diff_mode": True,
+          "scanned_files": M,
+          "preexisting_skipped": K,
+        }
+
+    Why this exists (founder report — iter 212m-132):
+      The full-repo scan in `_run_security_scan` was flagging
+      pre-existing vulns in files the Loop never touched, blocking
+      every commit at the SCAN phase even when the patch itself
+      was clean.  We now restrict the scan to the patch surface AND
+      use `vanguard_verify_agent.changed_lines_for_file` to drop
+      findings outside the changed-line set.
+    """
+    if not submitted_files:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "findings": [], "diff_mode": True,
+                "skipped_reason": "no_submitted_files"}
+    if not project_id:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "findings": [], "diff_mode": True,
+                "skipped_reason": "no_project"}
+    if db is None:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "findings": [], "diff_mode": True,
+                "skipped_reason": "no_db"}
+
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user_id},
+        {"_id": 0, "github_owner": 1, "github_repo": 1,
+         "github_branch": 1, "github_token": 1},
+    )
+    if not proj:
+        return {"summary": {"total": 0, "by_severity": {}},
+                "findings": [], "diff_mode": True,
+                "skipped_reason": "no_project_doc"}
+
+    from routers.security_scan import _decrypt_pat, _scan_text
+    from services.github_api_writer import fetch_file as gh_fetch
+    from services.vanguard_verify_agent import (
+        changed_lines_for_file, filter_findings_to_changed_lines,
+    )
+    import httpx
+
+    owner  = proj.get("github_owner") or ""
+    repo   = proj.get("github_repo")  or ""
+    branch = proj.get("github_branch") or "main"
+    pat    = await _decrypt_pat(user_id, proj.get("github_token"))
+    if not (owner and repo and pat):
+        return {"summary": {"total": 0, "by_severity": {}},
+                "findings": [], "diff_mode": True,
+                "skipped_reason": "no_github_linkage"}
+
+    # Fetch the BASE content for each changed file (the head SHA on
+    # the loop branch).  If a file doesn't exist on the base (new
+    # file), `base` stays empty → every line counts as "changed".
+    line_map: dict[str, set[int]] = {}
+    findings: list[dict] = []
+    skipped_preexisting = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for f in submitted_files:
+            path = f.get("path") or ""
+            new_content = f.get("content") or ""
+            if not path or not new_content:
+                continue
+            try:
+                base_content = await gh_fetch(
+                    client, owner, repo, path, branch, pat,
+                )
+            except Exception as e:                       # noqa: BLE001
+                logger.debug("diff scan base fetch failed %s: %r", path, e)
+                base_content = None
+            base = base_content or ""
+            # Compute changed-line set.
+            line_map[path] = changed_lines_for_file(base, new_content)
+            # Run the regex scan on the NEW content.
+            raw = _scan_text(path, new_content)
+            findings.extend(raw)
+
+    # Drop pre-existing findings.
+    kept, dropped = filter_findings_to_changed_lines(findings, line_map)
+    skipped_preexisting = len(dropped)
+
+    # Build severity histogram on kept findings only.
+    sev: dict[str, int] = {
+        "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
+    }
+    for fnd in kept:
+        s = (fnd.get("severity") or "").lower()
+        if s in sev:
+            sev[s] += 1
+
+    return {
+        "summary":              {"total": len(kept), "by_severity": sev},
+        "findings":             kept,
+        "diff_mode":            True,
+        "scanned_files":        len(submitted_files),
+        "preexisting_skipped":  skipped_preexisting,
+    }
 
 
 # Registry of live engines keyed by loop_id, so the same instance can

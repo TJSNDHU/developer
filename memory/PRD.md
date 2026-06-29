@@ -12,6 +12,62 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-132 — Send-button click fix + Vanguard diff-scan (Feb 2026) ✅
+
+Two surgical fixes per founder spec ("no new features"):
+
+---
+
+**Fix #1 — Send button mouse-click was silently no-op'ing (Enter worked).**
+
+Root cause: the orange send button used the native HTML `disabled` attribute, computed from `!input.trim() || !sessionId || exhausted`. Browsers respect `disabled` and SUPPRESS the click event entirely. React state propagation from the textarea's `onChange` to the button's `disabled` attribute has a one-tick delay; if the user typed the last character and clicked IMMEDIATELY, the button's `disabled` attribute could still be `true` from the previous render frame, swallowing the click. Enter worked because `onKeyDown` was on the textarea and fired AFTER `onChange` propagated.
+
+Fix in `frontend/src/components/ChatPanel.jsx`:
+- Removed the `disabled={…}` attribute. `send()` already does the identical gate check at line 1228 (`if ((!text && !readyAttachments.length) || busy || !sessionId) return;`), so the button stays ALWAYS clickable — clicks that would have failed just no-op cleanly inside send() now.
+- Added `aria-disabled` instead, so screen-readers still get the right signal.
+- Removed redundant `e.preventDefault()` / `e.stopPropagation()` / `e.currentTarget.disabled` from the onClick handler — `type="button"` has no default action to prevent.
+- Added `onPointerDown` as a defence-in-depth focus hook (fires earlier than click; can't be eaten by transient overlays).
+- Inline `pointerEvents: "auto"`, `position: "relative"`, `zIndex: 5` on the button, and `pointerEvents: "none"` on the inner `<Send>` icon so the SVG can't accidentally capture the press.
+- Click handler now calls `send()` with no args — identical to the Enter path → both entrypoints take the SAME code path.
+
+Visual "disabled" treatment (orange-50%, cursor:not-allowed) stays via inline styles — no UX change.
+
+---
+
+**Fix #2 — Vanguard scanned the entire file including pre-existing issues, blocking Loop commits.**
+
+Root cause: `verify_patch()` and `_run_security_scan()` both ran regex + LLM scans on the FULL content of changed files. If the file had pre-existing CRITICAL vulns (hardcoded keys, `eval`, etc.) in lines the patch never touched, those vulns blocked the commit anyway — but they weren't introduced by this Loop, they were there before.
+
+Fix in `backend/services/vanguard_verify_agent.py`:
+- New helpers `changed_lines_for_file(base, new)` (uses `difflib.SequenceMatcher` opcodes) + `changed_lines_map(base_blocks, new_blocks)` + `filter_findings_to_changed_lines(findings, line_map)`.
+- `verify_patch()` now accepts an optional `base_blocks={path: pre_edit_content}` kwarg. When supplied:
+  - The regex scan runs on the new content as before, but findings whose `line` falls outside the changed-line set are dropped (and surfaced in `regex.skipped_preexisting` for audit).
+  - The LLM envelope gets a `CHANGED_LINES: 1-3, 7-8` header per file + a system-prompt addendum: *"ONLY emit findings whose line is in the CHANGED_LINES set… Pre-existing code is OUT OF SCOPE."*
+  - LLM findings are also post-filtered server-side (defence-in-depth — Claude sometimes drifts back to full-file review on large files).
+  - Brand-new files (path missing from base_blocks) → every line counts as "changed", so we still flag the first commit of a hardcoded secret.
+- When `base_blocks` is `None` or empty → behaviour is IDENTICAL to pre-iter-132 (full-file scan). Backward-compatible.
+
+Wired into `backend/routers/cto_projects.py`:
+- The chat-task handler at line 2938 already had `contents` dict (files fetched from GitHub at the READ phase). Now passes `base_blocks=contents` to `verify_patch`. One-line wire.
+
+Wired into `backend/services/loop_engine.py`:
+- New helper `_run_diff_security_scan(db, user_id, project_id, submitted_files)` fetches base content from GitHub for each changed file, runs regex on the new content, filters via `changed_lines_for_file`. Returns the same shape as `_run_security_scan`.
+- `_do_scan()` now branches on `submitted_files` — uses diff scan when files were touched, falls back to full-repo scan for plan-only loops.
+
+**Test coverage** — `backend/tests/test_iter212m132_vanguard_diff_scan.py` (14 new tests):
+- `changed_lines_for_file`: addition at end, addition at top, replace middle, delete-only returns empty, no base = all new, empty new = empty, no change = empty.
+- `changed_lines_map`: multi-file with unchanged + modified + brand-new.
+- `filter_findings_to_changed_lines`: keeps changed-line findings, untouched-file findings, no-line findings; drops pre-existing.
+- `verify_patch` with `base_blocks`: pre-existing critical SKIPPED + new critical BLOCKS (the real win), clean patch with dirty base PASSES, brand-new file still flags vulns.
+- `verify_patch` without `base_blocks`: legacy full-file behaviour preserved.
+- Send-button: source-pattern test pins `aria-disabled` not `disabled={…}`, no `currentTarget.disabled` check.
+
+**Regression**: 104/104 passing across all iter 212m-121 → 132 tests.  Backend restart clean, no warnings on boot.
+
+**Files touched**: `backend/services/vanguard_verify_agent.py`, `backend/routers/cto_projects.py`, `backend/services/loop_engine.py`, `frontend/src/components/ChatPanel.jsx`, `backend/tests/test_iter212m132_vanguard_diff_scan.py` (new).
+
+
+
 ### Iter 212m-131 — Loop Engine Deep RCA + 11 root-cause fixes (Feb 2026) ✅
 
 **Trigger**: User requested deep RCA of `services/loop_engine.py` to find root causes of (a) Execute phase getting stuck, (b) Verify retry storms, (c) state-machine bugs. Read the entire file + its collaborators (`loop_execute.py`, `loop_verify.py`, `loop_safety.py`) end-to-end. Identified 11 distinct root-cause bugs.

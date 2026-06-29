@@ -3366,15 +3366,45 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           ) : (
             <button
               type="button" data-testid="chat-send"
-              disabled={!input.trim() || !sessionId || exhausted}
-              onClick={(e) => {
-                // Iter 212m-109 — Standalone button (not type="submit")
-                // to avoid double-submit when both the form's onSubmit
-                // and onClick fire. Always call send(e) explicitly.
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.currentTarget.disabled) return;
-                send(e);
+              // Iter 212m-132 — Bug fix: mouse click was sometimes
+              // not firing because the `disabled` attribute could be
+              // stale during the click frame (browser respects DOM
+              // disabled, but React's render hadn't flipped it to
+              // `false` yet after the user typed the last char +
+              // immediately clicked).  Enter worked because the
+              // onKeyDown bypassed this gate entirely.  Fix:
+              //   1. ALWAYS keep the button clickable — the send()
+              //      function already gates on the same conditions
+              //      (`!text && !readyAttachments.length || busy ||
+              //       !sessionId` at line ~1228).  Visual
+              //      "disabled" treatment stays via inline styles.
+              //   2. Drop the redundant e.preventDefault() and
+              //      e.stopPropagation() — button has type="button"
+              //      so it has no default-submit action to prevent.
+              //   3. Add `onPointerDown` as a redundant earlier-fire
+              //      handler in case the click event gets eaten by
+              //      a transient overlay (defence in depth).
+              //   4. Explicit `pointer-events:auto` + relative
+              //      z-index:5 to guarantee no ancestor with
+              //      `pointer-events:none` swallows the click.
+              //   5. Use `aria-disabled` for SR users instead of
+              //      the native `disabled` attribute.
+              aria-disabled={!input.trim() || !sessionId || exhausted}
+              onPointerDown={(e) => {
+                // Native pointer event fires BEFORE click — if any
+                // overlay is at z-index above this button, this is
+                // our last reliable hook to capture the press.
+                // We do NOT send() here (it would double-fire with
+                // the synthetic onClick); we just guarantee focus
+                // moves to the button so React's onClick will land.
+                if (e.currentTarget) e.currentTarget.focus();
+              }}
+              onClick={() => {
+                // Iter 212m-132 — call send() with no event arg
+                // (matches the Enter-key path at onKeyDown so both
+                // entrypoints take the IDENTICAL code path inside
+                // send()).  send() already handles all gating.
+                send();
               }}
               title={
                 exhausted
@@ -3397,9 +3427,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                   ? "none"
                   : "0 0 20px -6px rgba(255,102,8,0.7)",
                 transition: "background 140ms, opacity 140ms, transform 100ms",
+                // Iter 212m-132 — guarantee click reachability.
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 5,
               }}
             >
-              <Send size={15} strokeWidth={2.5} />
+              <Send size={15} strokeWidth={2.5} style={{ pointerEvents: "none" }} />
             </button>
           )}
         </div>
