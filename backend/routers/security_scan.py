@@ -927,6 +927,9 @@ async def apply_security_fix(
         new_balance = bal - tokens_cost
 
     from services.finding_fix_applier import apply_finding_fix
+    from services import ora_fix_learning as _ofl
+    import time as _t
+    _t_start = _t.time()
     try:
         res = await apply_finding_fix(
             db=db, user=me, project_id=project_id, finding=finding,
@@ -934,6 +937,20 @@ async def apply_security_fix(
     except Exception as e:
         logger.exception("apply_finding_fix raised")
         res = {"ok": False, "error": f"unhandled: {e}"}
+    _dur_ms = int((_t.time() - _t_start) * 1000)
+
+    # Iter 212m-129 — Learning hook (single-finding security/vanguard fix).
+    # Best-effort: never blocks or fails the user-visible response.
+    try:
+        await _ofl.record_fix_outcome(
+            db, user_id=user_id, project_id=project_id,
+            finding={**finding, "scanner": "vanguard"},
+            result=res, attempts=1, duration_ms=_dur_ms,
+            tokens_charged=(deducted if res.get("ok") else 0),
+            scanner="vanguard",
+        )
+    except Exception as _e:
+        logger.debug("learning hook (security) soft-failed: %r", _e)
 
     if not res.get("ok"):
         # REFUND the tokens — the fix never landed.

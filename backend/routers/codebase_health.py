@@ -803,6 +803,9 @@ async def request_fix(
         "snippet":   fix_hint,
     }
     from services.finding_fix_applier import apply_finding_fix
+    from services import ora_fix_learning as _ofl
+    import time as _t
+    _t_start = _t.time()
     try:
         res = await apply_finding_fix(
             db=db, user=user, project_id=project_id, finding=finding_payload,
@@ -810,6 +813,20 @@ async def request_fix(
     except Exception as e:
         logger.exception("health apply_finding_fix raised")
         res = {"ok": False, "error": f"unhandled: {e}"}
+    _dur_ms = int((_t.time() - _t_start) * 1000)
+
+    # Iter 212m-129 — Learning hook (single-finding codebase-health fix).
+    try:
+        await _ofl.record_fix_outcome(
+            db, user_id=user_id, project_id=project_id,
+            finding={**finding_payload, "category": "codebase_health",
+                     "scanner": "codebase_health"},
+            result=res, attempts=1, duration_ms=_dur_ms,
+            tokens_charged=(tokens_cost if res.get("ok") else 0),
+            scanner="codebase_health",
+        )
+    except Exception as _e:
+        logger.debug("learning hook (health) soft-failed: %r", _e)
 
     if not res.get("ok"):
         # Refund tokens if deduction happened (founders deducted=0).

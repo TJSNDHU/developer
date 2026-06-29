@@ -60,6 +60,7 @@ from cto_services.auth import current_dev
 from cto_services.db import get_db
 from services import fix_job_manager as fjm
 from services.finding_fix_applier import apply_finding_fix
+from services import ora_fix_learning
 
 logger = logging.getLogger("aurem-dev.fix_pipeline")
 router = APIRouter(prefix="/fix-pipeline", tags=["Fix Pipeline"])
@@ -306,7 +307,10 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 # never feels stuck on a hung step.
                 res = None
                 last_err = None
+                attempts_used = 0
+                _t_fix_start = time.time()
                 for attempt in range(1, _MAX_FIX_ATTEMPTS + 1):
+                    attempts_used = attempt
                     try:
                         res = await apply_finding_fix(
                             db=db, user=user, project_id=project_id, finding=finding,
@@ -332,6 +336,7 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                              of=_MAX_FIX_ATTEMPTS, last_error=last_err,
                              backoff_s=backoff, file=path, rule_id=rule_id)
                     await asyncio.sleep(backoff)
+                _fix_duration_ms = int((time.time() - _t_fix_start) * 1000)
 
                 if not res.get("ok"):
                     # Refund the per-finding deduction on failure.
@@ -350,6 +355,15 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                              attempts=_MAX_FIX_ATTEMPTS,
                              file=path, rule_id=rule_id)
                     await fjm.persist_event(db, job_id)
+                    # Iter 212m-129 — Learning hook (failure path).
+                    await ora_fix_learning.record_fix_outcome(
+                        db, user_id=user_id, project_id=project_id,
+                        finding=finding, result=res,
+                        attempts=attempts_used,
+                        duration_ms=_fix_duration_ms,
+                        tokens_charged=0,   # refunded above
+                        scanner=finding.get("scanner"),
+                    )
                     continue
 
                 # Real GitHub verification — confirm the commit exists.
@@ -370,6 +384,19 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                          rule_id=res.get("rule_id"),
                          verified=verified)
                 await fjm.persist_event(db, job_id)
+                # Iter 212m-129 — Learning hook (success path).  The
+                # `verified` field carries the real GitHub-commit-
+                # exists check so analytics can distinguish "LLM said
+                # it fixed it" from "GitHub actually has the commit".
+                await ora_fix_learning.record_fix_outcome(
+                    db, user_id=user_id, project_id=project_id,
+                    finding=finding,
+                    result={**res, "verified": verified},
+                    attempts=attempts_used,
+                    duration_ms=_fix_duration_ms,
+                    tokens_charged=cost if not is_unlim else 0,
+                    scanner=finding.get("scanner"),
+                )
                 total_ok += 1
 
             # End of batch — emit a summary event the UI uses for the
