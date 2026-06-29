@@ -927,3 +927,60 @@ table { max-width: 100%; }
   100% { opacity: 0.40; }
 }
 
+
+
+/* Iter 212m-140 — Adaptive chat width (Claude-style centered column
+   that gracefully shrinks when Preview or Ask Advisor opens).
+
+   IMPORTANT: padding for the messages container + composer form is
+   defined ENTIRELY in CSS (not inline) so the container queries below
+   override cleanly. We tried mixing inline `padding` shorthand with
+   container-query `padding-left/right !important` and hit a real
+   browser CSSOM quirk where `padding-left !important` overrides the
+   shorthand's left side but `padding-right !important` does not
+   reliably override the right side (the clamp() keeps recomputing).
+   Single-source-of-truth in CSS bypasses the quirk entirely.
+
+   Layering strategy:
+   1. Default padding: `clamp(16px, 17.25%, 240px)` on each side.
+      • Above ~1390 px container width → 17.25 % → 240 px ceiling.
+      • Between ~140 px and 1390 px → 17.25 %.
+      • Below 140 px → 16 px floor.
+   2. Container queries override at narrow widths (both Preview +
+      Advisor side panels open):
+      • ≤ 900 px → 24 px gutter.
+      • ≤ 600 px → 12 px gutter (phone-ish).
+   3. Live-popup override (392 px right padding) STAYS inline because
+      it's a JS-driven runtime state, not a width-driven layout state.
+      The component sets paddingRight only when a popup is open, and
+      that inline override correctly beats the CSS clamp here.
+
+   This is the single source of truth for chat horizontal rhythm. */
+[data-testid="chat-panel"] {
+  container-type: inline-size;
+  container-name: chat-panel;
+}
+
+[data-testid="chat-messages"] {
+  padding: 24px clamp(16px, 17.25%, 240px);
+}
+
+[data-testid="chat-form"].glass-composer {
+  padding: 14px clamp(16px, 17.25%, 240px);
+}
+
+@container chat-panel (max-width: 900px) {
+  [data-testid="chat-messages"],
+  [data-testid="chat-form"].glass-composer {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+@container chat-panel (max-width: 600px) {
+  [data-testid="chat-messages"],
+  [data-testid="chat-form"].glass-composer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}

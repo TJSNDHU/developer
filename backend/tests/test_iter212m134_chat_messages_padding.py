@@ -24,36 +24,48 @@ def src() -> str:
 
 
 def test_chat_messages_container_uses_17_25_percent_padding(src: str) -> None:
-    """The chat-messages container's `padding` shorthand should set both
-    sides to 17.25% so messages sit in a Claude-style centered column."""
-    # Find the chat-messages style block
-    m = re.search(
-        r'data-testid="chat-messages"\s*\n\s*style=\{\{(?P<style>[^}]+?)\}\}',
-        src,
-        re.DOTALL,
+    """The chat-messages container's horizontal gutter must come from
+    CSS (index.css line ~957) — `padding: 24px clamp(16px, 17.25%, 240px)`
+    — and NOT from inline JSX style (Iter 212m-140: mixing the two hit
+    a real browser CSSOM quirk where the `padding-right` longhand
+    inside the inline shorthand wasn't reliably overridable by the
+    container query's `!important` rule). Inline style on the messages
+    container must NOT redeclare `padding`."""
+    anchor = src.index('data-testid="chat-messages"')
+    style_window = src[anchor:anchor + 4000]
+    # Inline style must NOT set the `padding` shorthand anymore.
+    assert "padding:" not in style_window[:1500].replace("// ", "").replace(
+        "transition: padding-right", ""
+    ).split("display:")[0], (
+        "Inline JSX style on chat-messages must NOT contain `padding:` "
+        "anymore — padding lives in index.css so container queries can "
+        "override cleanly."
     )
-    assert m, "chat-messages container with inline style not found"
-    style = m.group("style")
-    assert 'padding: "24px 17.25%"' in style, (
-        "Expected padding shorthand '24px 17.25%' on the chat-messages "
-        "container so the messages area is centered. Got:\n" + style
+    # CSS must own the rule.
+    from pathlib import Path
+    css = Path("/app/frontend/src/index.css").read_text(encoding="utf-8")
+    assert (
+        '[data-testid="chat-messages"] {' in css
+        and "padding: 24px clamp(16px, 17.25%, 240px)" in css
+    ), (
+        "index.css must declare "
+        '`[data-testid="chat-messages"] { padding: 24px clamp(16px, 17.25%, 240px); }` '
+        "as the single source of truth for messages padding."
     )
 
 
 def test_chat_messages_right_padding_preserves_live_popup_room(src: str) -> None:
-    """When a live-task popup is open, the right padding must still swap to
-    392px so the popup doesn't overlap message content. Otherwise it stays
-    at 17.25% to match the left side."""
-    m = re.search(
-        r'data-testid="chat-messages"\s*\n\s*style=\{\{(?P<style>[^}]+?)\}\}',
-        src,
-        re.DOTALL,
-    )
-    assert m
-    style = m.group("style")
-    assert 'paddingRight: livePopupTaskId ? 392 : "17.25%"' in style, (
-        "Right padding must override to 392px while the live popup is open "
-        "and fall back to 17.25% otherwise. Got:\n" + style
+    """When a live-task popup is open, the right padding must still
+    swap to 392px so the popup doesn't overlap message content. This
+    override STAYS inline (JS-driven runtime state, not layout state).
+    When no popup, the property is omitted so CSS clamp drives both
+    sides."""
+    anchor = src.index('data-testid="chat-messages"')
+    style_window = src[anchor:anchor + 4000]
+    assert "...(livePopupTaskId ? { paddingRight: 392 } : {})" in style_window, (
+        "Right padding must override to 392px while the live popup is "
+        "open via a conditional spread (NOT a ternary) so the property "
+        "is omitted otherwise."
     )
 
 
@@ -73,9 +85,11 @@ def test_composer_lives_outside_chat_messages_container(src: str) -> None:
 
 
 def test_composer_form_uses_17_25_percent_horizontal_padding(src: str) -> None:
-    """Iter 212m-135 — the composer <form data-testid="chat-form"> must use
-    `padding: "14px 17.25%"` so the textarea + toolbar inside it sit in the
-    same centered column as the messages above, matching Claude's UI."""
+    """Iter 212m-135 / 212m-140 — composer padding lives in CSS now
+    (same reason as messages: browser CSSOM quirk with shorthand vs
+    container-query longhand !important). CSS owns
+    `padding: 14px clamp(16px, 17.25%, 240px)` on
+    `[data-testid="chat-form"].glass-composer`."""
     # Anchor on glass-composer className which is unique to the form.
     m = re.search(
         r'className="glass-composer"(?P<form>.+?)style=\{\{(?P<style>.+?)\}\}\s*>',
@@ -84,7 +98,29 @@ def test_composer_form_uses_17_25_percent_horizontal_padding(src: str) -> None:
     )
     assert m, "glass-composer form with inline style not found"
     style = m.group("style")
-    assert 'padding: "14px 17.25%"' in style, (
-        "Expected composer form padding shorthand '14px 17.25%' so the "
-        "input content is centered like Claude's chat. Got:\n" + style
+    # Inline style must NOT set padding anymore.
+    assert "padding:" not in style, (
+        "Inline JSX style on glass-composer must NOT contain `padding:` "
+        "anymore — composer padding lives in index.css for container "
+        "query parity with messages."
     )
+    from pathlib import Path
+    css = Path("/app/frontend/src/index.css").read_text(encoding="utf-8")
+    assert (
+        '[data-testid="chat-form"].glass-composer {' in css
+        and "padding: 14px clamp(16px, 17.25%, 240px)" in css
+    ), "index.css must own the composer padding rule."
+
+
+def test_chat_panel_opts_into_container_queries() -> None:
+    """Iter 212m-140 — `index.css` must mark the chat-panel as a
+    container so the @container queries can adapt the padding when
+    Preview or Ask Advisor opens and the chat shrinks."""
+    from pathlib import Path
+    css = Path("/app/frontend/src/index.css").read_text(encoding="utf-8")
+    assert "container-type: inline-size" in css, (
+        "Chat panel needs container-type: inline-size to enable adaptive "
+        "padding via @container queries."
+    )
+    assert "@container chat-panel (max-width: 900px)" in css
+    assert "@container chat-panel (max-width: 600px)" in css

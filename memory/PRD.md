@@ -12,6 +12,66 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-140 — Adaptive Claude-style chat width via CSS container queries (Feb 2026) ✅
+
+**Founder spec**: chat layout should adapt naturally to 3 viewport states:
+1. Full screen (only chat) → wide centered column
+2. Preview OR Ask Advisor open (one side panel) → narrower centered column
+3. BOTH open (heavy squeeze) → minimal gutter, prioritise content
+
+**Approach**: CSS container queries on the chat-panel container, with a `clamp(16px, 17.25%, 240px)` baseline that caps the gutter at 240 px (so big monitors don't get an absurd 600 px gutter).
+
+**Key debug story — CSS specificity quirk we hit and solved**:
+
+First attempt put the `padding` shorthand in JSX inline style and used container queries with `padding-left/right !important` to override. Live testing revealed a browser CSSOM quirk: `padding-left !important` cleanly overrides the shorthand's left side, but `padding-right !important` does NOT reliably override the right side (the clamp keeps recomputing inside the longhand). Same selector, same `!important`, same rule block — only left worked.
+
+**Real fix**: move the `padding` shorthand entirely to CSS (`index.css`). No specificity conflict possible. Inline JSX retains ONLY the popup-aware right override (`...(livePopupTaskId ? { paddingRight: 392 } : {})`) because that's a runtime JS state, not a width-driven layout state.
+
+**Final CSS** in `frontend/src/index.css`:
+```css
+[data-testid="chat-panel"] {
+  container-type: inline-size;
+  container-name: chat-panel;
+}
+[data-testid="chat-messages"] {
+  padding: 24px clamp(16px, 17.25%, 240px);
+}
+[data-testid="chat-form"].glass-composer {
+  padding: 14px clamp(16px, 17.25%, 240px);
+}
+@container chat-panel (max-width: 900px) {
+  [data-testid="chat-messages"],
+  [data-testid="chat-form"].glass-composer {
+    padding-left: 24px;  padding-right: 24px;
+  }
+}
+@container chat-panel (max-width: 600px) {
+  [data-testid="chat-messages"],
+  [data-testid="chat-form"].glass-composer {
+    padding-left: 12px;  padding-right: 12px;
+  }
+}
+```
+
+**Live verification** across 6 chat-panel widths (DOM-measured):
+
+| Chat width | Msgs L/R | Composer L/R | Content width |
+|---|---|---|---|
+| 1920 px (full) | 240 px | 240 px | 1440 px |
+| 1400 px (one panel open) | 240 px | 240 px | 920 px |
+| 900 px (both panels) | 24 px | 24 px | 852 px |
+| 850 px (≤900 query) | 24 px | 24 px | 802 px |
+| 600 px (≤600 query) | 12 px | 12 px | 576 px |
+| 550 px (phone) | 12 px | 12 px | 526 px |
+
+All 12 measurements perfect. Container queries trigger cleanly at the right thresholds.
+
+**Files touched**: `frontend/src/index.css`, `frontend/src/components/ChatPanel.jsx`, `backend/tests/test_iter212m134_chat_messages_padding.py` (updated for new CSS source of truth).
+
+**Regression**: 89/89 passing across iter 212m-130 → 140. 5/5 padding contract tests green.
+
+
+
 ### Iter 212m-139 — Ask Advisor "No repo connected" route-level fix (Feb 2026) ✅
 
 **User repro**: with `TJSNDHU/Aurem` connected on PROD, Ask Advisor replied:

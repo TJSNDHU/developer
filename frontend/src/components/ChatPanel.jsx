@@ -2465,13 +2465,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         style={{
           flex: 1, overflowY: "auto",
           minHeight: 0,
-          // Iter 212m-134 — Claude-style centered chat: 17.25% horizontal
-          // padding on both sides of the messages area. Composer is OUTSIDE
-          // this container (glass-composer wrapper below) so it stays full
-          // width. When a live-popup is open, right padding swaps to 392px
-          // so the popup doesn't overlap message content.
-          padding: "24px 17.25%",
-          paddingRight: livePopupTaskId ? 392 : "17.25%",
+          // Iter 212m-134 / 212m-140 — Padding lives in index.css (CSS
+          // container queries adapt 17.25% / 24px / 12px gutters as the
+          // chat panel shrinks). Only the live-popup right override
+          // stays inline because it's a JS-driven runtime state, not
+          // a layout-driven state — the popup overlaps the right edge
+          // and needs 392 px regardless of width.
+          ...(livePopupTaskId ? { paddingRight: 392 } : {}),
           display: "flex", flexDirection: "column", gap: 20,
           transition: "padding-right 0.2s ease",
         }}
@@ -2971,12 +2971,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
         }}
         style={{
-          // Iter 212m-135 — match the chat-messages container's 17.25%
-          // horizontal padding so the composer content (textarea + toolbar)
-          // sits in the same centered column as the messages above. The
-          // form's amber side borders + bottom-rounded corners stay edge-
-          // to-edge to keep the founder-offer banner stack flow intact.
-          padding: "14px 17.25%",
+          // Iter 212m-135 / 212m-140 — composer padding lives in
+          // index.css (same container queries as messages). Only
+          // top/bottom 14 px is structural and stays inline alongside
+          // the form's display/border styling.
           display: "flex", flexDirection: "column", gap: 8,
           outline: dragOver ? "2px dashed var(--accent-2)" : "none",
           outlineOffset: -8,
