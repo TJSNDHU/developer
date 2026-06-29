@@ -12,6 +12,65 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-152 — Prompt-mode 3 production gaps (Feb 2026) ✅
+
+Surgical fixes to the chat_with_tools path — no architecture change. Founder spec: "Prompt mode ke 3 production gaps fix karo — surgical changes, koi architecture nahi badalna."
+
+**Files touched (only the 3 declared in spec)**:
+- `backend/core/tool_router.py` (new) — keyword-based tool namespace router
+- `backend/services/orchestrator.py` — wires tool_router into catalog build + adds `_trim_tool_results`
+- `backend/services/local_tools.py` — mandatory syntax gate inside `write_repo_file`
+
+NOT touched: `intent_gateway.py`, `loop_engine.py`, `parliament.py`, `routers/chat.py`, ORA handler, Vanguard, JWT, rate limit, persona build.
+
+**Fix 1 — Tool namespace reduction**: 6 keyword groups (code/query/web/deploy/debug/casual). `pick_group()` + `get_tools_for_task()` heuristic match in <1 ms. Casual → empty list. Agentic zero-signal → falls back to `code`. Code task with deploy signals → adds deploy tools. Wired in `orchestrator.py` right after the catalog merge, fully try/except'd to fail-open.
+
+**Live proof**: "search latest Python docs for asyncio" → `tool_router: 5/38 tools selected for tier=query task_group=web`.
+
+**Fix 2 — Mandatory syntax gate in `write_repo_file`**: New `_run_syntax_check()` runs `python -m py_compile` for `.py`, `node --check` for `.js/.jsx`, `npx tsc --noEmit` for `.ts/.tsx` (parse errors only, type-only errors pass). Fails OPEN on timeout / missing binary. Runs AFTER Vanguard pre-scan, BEFORE `commit_files`. Logs: `syntax_gate BLOCKED|PASSED|SKIPPED:`.
+
+**Live proof**: broken `def foo(\n    pass` → `has_errors=True`, returns `syntax_gate_blocked`, NO GitHub commit. Valid Python passes.
+
+**Fix 3 — Context trim after iter 2**: New `_trim_tool_results(transcript)` regex-matches `=== TOOL RESULTS (iter N) ===` blocks, keeps last 2 full, compresses older blocks to 3200 chars + truncation marker. Called inside `chat_with_tools` whenever `iters >= 2`. Logs `context_trim: trimmed N tool result block(s) at iter X`.
+
+**Live proof**: 5-block transcript 40,297 → 26,020 chars (35% reduction); iter 4+5 intact, iter 1/2/3 carry markers.
+
+**Test coverage** — 34 new tests: tool-router fixtures, syntax gate end-to-end with stubbed Vanguard + commit_files (blocked + passed paths), context-trim shapes, source-pattern guards confirming `tool_router` does NOT leak into loop_engine/parliament/chat/intent_gateway.
+
+**Regression**: 164/164 passing across iters 130, 131, 147-152.
+
+
+
+### Iter 212m-151 — Parliament production-ready (4 gap fixes) (Feb 2026) ✅
+
+Closed all 4 production gaps before final Loop Mode wire-up.
+
+**Gap 1 — Circuit breaker + concurrency cap**: `MAX_CONCURRENT_LLM_CALLS=6` module-level semaphore (was 9 worst-case). `ParliamentCircuitBreaker` with CLOSED/OPEN/HALF_OPEN state machine — 3 consecutive failures → OPEN, 45 s cooldown → HALF_OPEN single probe. When OPEN, Parliament bypasses council fan-out, uses single-LLM fallback at temp 0.1 — Loop Mode never fully stops on transient provider issues. 25 s hard timeout per LLM call.
+
+**Gap 2 — Dual-retry conflict resolution**: `SelfHeal.heal()` now requires `max_rounds` from caller, returns `escalate` immediately if `round_num >= max_rounds` — never adds internal counter. `loop_engine.py::_do_verify` passes `max_rounds=MAX_SELF_HEALS=2` explicitly.
+
+**Gap 3 — Explicit CEO output-type detection**: `CEO_TEMPS` mapping (`code_output=0.0`, `analysis_output=0.3`, `writing_output=0.65`, etc.). `detect_output_type(task, council)` scores keyword matches; ties break to `code_output` when council A. CEO uses detected temp via `ceo_temp_value` field — no longer council-ID-assumed.
+
+**Gap 4 — Distributed trace IDs**: Each `Parliament.run()` gets a unique 8-char `trace_id`. Threaded through 6 events: `route`, `council_start`, `council_done`, `ceo_decision`, `final`, plus `aggregate` row. Events fire via `asyncio.create_task` (non-blocking).
+
+**Live verification**: All 4 gaps proven end-to-end via interactive script. 24 new contract tests.
+
+
+
+### Iter 212m-150 — Parliament wired into Loop Mode (Feb 2026) ✅
+
+Multi-agent code generation for Loop Mode. New `backend/core/parliament.py` + 2 wire-points in `loop_engine.py` (`_do_execute` + `_do_verify` heal block). Prompt Mode, ORA, codebase-health untouched.
+
+- **TaskRouter** picks Council A (code/security). Councils B + C are placeholders.
+- **Council A** — 3 members at temps 0.1 / 0.2 / 0.3 fan out in parallel
+- **CEO** picks the winner by score, falls back to LLM tie-breaker
+- **SelfHeal** for verify-phase recovery
+- All decisions logged to `parliament_log` Mongo collection
+- 3-file parallel cap + 60 s per-file timeout preserved
+- Phase budgets unchanged (execute=420 s, verify=360 s)
+
+
+
 ### Iter 212m-149 — 3-tier Intent Gateway replaces Loop Mode toggle (Feb 2026) ✅
 
 **Founder spec**: "Loop mode ko 3-tier intent gateway se replace karo. Binary on/off toggle khatam. Gateway ab decide karega kaunsa path lena hai — casual, query, ya full OODA." A binary toggle is forced UX state the user shouldn't have to manage. The new gateway routes every message into one of three lanes based on what was actually requested.

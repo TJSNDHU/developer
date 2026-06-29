@@ -653,13 +653,104 @@ class LoopEngine:
                          self.loop_id, e)
 
         try:
-            generated = await generate_files(
-                plan=plan, user_message=self.user_message,
-                owner=owner, repo=repo, branch=branch, token=token,
-                user_id=self.user_id,
-            )
+            # Iter 212m-150 — Parliament wired into the per-file LLM
+            # generation step.  generate_files() still handles parallel
+            # fetch + localization but each file's actual code-generation
+            # LLM call is now routed through Council A (3 members @ temps
+            # 0.1 / 0.2 / 0.3, CEO pick @ temp 0.0). 3-file parallel cap
+            # and per-file timeout are preserved by running the parliament
+            # task inside the existing semaphore + asyncio.wait_for envelope.
+            from core.parliament import Parliament
+            _parliament = Parliament(db=self.db)
+
+            paths: list[str] = list((plan or {}).get("files_to_change") or [])
+            if not paths:
+                logger.warning(
+                    "[loop %s] EXECUTE — plan has no files_to_change",
+                    self.loop_id,
+                )
+                generated = []
+            else:
+                from services.loop_execute import (
+                    MAX_PARALLEL_GENS, PER_FILE_TIMEOUT_S,
+                )
+                from services.github_api_writer import fetch_file
+                import httpx as _httpx
+                sem = asyncio.Semaphore(MAX_PARALLEL_GENS)
+                plan_bullets = "\n".join(
+                    f"- {b}" for b in (plan.get("bullets") or [])[:12]
+                )
+                plan_title = plan.get("title", "")
+
+                async def _gen_via_parliament(client, path):
+                    async with sem:
+                        try:
+                            current = await fetch_file(
+                                client, owner, repo, path, branch, token,
+                            ) or ""
+                        except Exception as e:                # noqa: BLE001
+                            logger.warning(
+                                "[parliament] fetch_file failed for %s: "
+                                "%r (treating as new file)", path, e,
+                            )
+                            current = ""
+                        task_text = (
+                            f"USER REQUEST:\n{self.user_message}\n\n"
+                            f"APPROVED PLAN:\n{plan_title}\n{plan_bullets}\n\n"
+                            f"FILE PATH: {path}\n\n"
+                            f"--- CURRENT CONTENT ({len(current)} bytes) ---\n"
+                            f"{current}\n"
+                            f"--- END CURRENT CONTENT ---\n\n"
+                            "Return the complete new content for this file. "
+                            "No fences. No commentary. Just the file content."
+                        )
+                        try:
+                            result = await asyncio.wait_for(
+                                _parliament.run(
+                                    task=task_text,
+                                    context={
+                                        "file_path":       path,
+                                        "council":         "A",
+                                        "task_type":       "code_fix",
+                                        "loop_session_id": self.loop_id,
+                                        "user_id":         self.user_id,
+                                    },
+                                ),
+                                timeout=PER_FILE_TIMEOUT_S,
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                "[parliament] file %s timed out (>%ds) — skipping",
+                                path, PER_FILE_TIMEOUT_S,
+                            )
+                            return None
+                        except Exception as e:                # noqa: BLE001
+                            logger.exception(
+                                "[parliament] file %s raised: %r", path, e,
+                            )
+                            return None
+                        if result.get("status") == "success" and result.get("output"):
+                            return {"path": path, "content": result["output"]}
+                        # manual_review or fail → skip this file; verify
+                        # phase will surface anything else that breaks.
+                        logger.warning(
+                            "[parliament] file %s status=%s — skipping "
+                            "(reason: %s)",
+                            path, result.get("status"),
+                            result.get("reasoning", "")[:200],
+                        )
+                        return None
+
+                async with _httpx.AsyncClient(timeout=20.0) as _client:
+                    _tasks = [_gen_via_parliament(_client, p) for p in paths]
+                    _results = await asyncio.gather(*_tasks, return_exceptions=False)
+                generated = [r for r in _results if r]
+                logger.info(
+                    "[parliament] EXECUTE generated %d/%d files",
+                    len(generated), len(paths),
+                )
         except Exception as e:                              # noqa: BLE001
-            logger.exception("[loop %s] EXECUTE — generate_files raised", self.loop_id)
+            logger.exception("[loop %s] EXECUTE — parliament raised", self.loop_id)
             await self._fail("execute", f"Code generation failed: {e}")
             return
 
@@ -776,19 +867,50 @@ class LoopEngine:
                     await record_backup(self.db, self.loop_id,
                                         f["path"], f["content"])
                 try:
-                    healed = await asyncio.wait_for(
-                        self_heal(
-                            f,
-                            [r.get("stdout") or r.get("stderr") or ""]
-                            + report["errors"],
-                            user_request=self.user_message,
-                            user_id=self.user_id,
+                    # Iter 212m-150 — Parliament healer replaces the
+                    # single-LLM-call self_heal.  The healer.heal()
+                    # method runs under the same SELF_HEAL_LLM_TIMEOUT_S
+                    # budget, threads prior failed attempts into the
+                    # prompt so it can't repeat the same fix, and
+                    # bumps temperature slightly per round.
+                    from core.parliament import Parliament as _P
+                    _parl = _P(db=self.db)
+                    heal_task = (
+                        f"Original user request:\n{self.user_message}\n\n"
+                        f"File path: {f['path']}\n\n"
+                        f"--- LINT ERRORS ---\n"
+                        + "\n".join(
+                            ([r.get("stdout") or r.get("stderr") or ""]
+                             + report["errors"])[:25]
+                        )
+                        + "\n--- END ERRORS ---"
+                    )
+                    last_err = (r.get("stdout") or r.get("stderr") or "") + "\n" + "\n".join(report["errors"][:8])
+                    heal_result = await asyncio.wait_for(
+                        _parl.healer.heal(
+                            task=heal_task,
+                            all_attempts=[{
+                                "output": f["content"],
+                                "score":  0.0,
+                                "error":  last_err,
+                            }],
+                            round_num=heal_attempt,
+                            max_rounds=MAX_SELF_HEALS,
                         ),
                         timeout=SELF_HEAL_LLM_TIMEOUT_S,
                     )
+                    if heal_result.get("status") == "retry":
+                        healed = heal_result.get("output")
+                    else:
+                        # status ∈ {"escalate", "circuit_open"} →
+                        # existing behaviour (None → mark file failed).
+                        # `circuit_open` means the upstream LLM is sick;
+                        # the legacy heal path could also fail similarly,
+                        # so we let the outer phase budget handle it.
+                        healed = None
                 except asyncio.TimeoutError:
                     logger.warning(
-                        "[loop %s] self_heal LLM timed out for %s "
+                        "[loop %s] parliament healer timed out for %s "
                         "(%ds budget)",
                         self.loop_id, f["path"], SELF_HEAL_LLM_TIMEOUT_S,
                     )
@@ -797,7 +919,7 @@ class LoopEngine:
                     raise
                 except Exception as e:                       # noqa: BLE001
                     logger.warning(
-                        "[loop %s] self_heal raised for %s: %r",
+                        "[loop %s] parliament healer raised for %s: %r",
                         self.loop_id, f["path"], e,
                     )
                     healed = None

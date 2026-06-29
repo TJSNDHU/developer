@@ -27,6 +27,101 @@ from typing import Optional
 
 from cto_services.db import get_db
 from .repo_context import _fetch_file as _gh_fetch_file
+
+# ─── Iter 212m-152 — Mandatory syntax gate for write_repo_file ─────
+# Runs `python -m py_compile` for .py, `node --check` for .js/.jsx,
+# and `npx tsc --noEmit` for .ts/.tsx.  Each in a fresh tempfile so
+# the project itself isn't touched.  Falls open on tooling errors
+# (timeout, missing binary) so we never block a commit on local
+# infra flake — better to ship than to deadlock.
+
+def _run_syntax_check(*, content: str, file_path: str, ext: str) -> dict:
+    """Returns {has_errors: bool, errors: str, skipped: bool, reason: str?}."""
+    import os
+    import subprocess
+    import tempfile
+
+    if not content:
+        return {"has_errors": False, "errors": "",
+                "skipped": True, "reason": "empty_content"}
+    try:
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=ext, mode="w", delete=False, encoding="utf-8",
+        )
+        tmp.write(content)
+        tmp.close()
+        tmp_path = tmp.name
+    except Exception as e:                                # noqa: BLE001
+        return {"has_errors": False, "errors": "",
+                "skipped": True, "reason": f"tmp_write:{type(e).__name__}"}
+
+    try:
+        if ext == ".py":
+            try:
+                result = subprocess.run(
+                    ["python", "-m", "py_compile", tmp_path],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                return {"has_errors": False, "errors": "",
+                        "skipped": True,
+                        "reason": f"py_check:{type(e).__name__}"}
+            if result.returncode != 0:
+                return {"has_errors": True,
+                        "errors": (result.stderr or result.stdout or "")[:500],
+                        "skipped": False}
+        elif ext in (".js", ".jsx"):
+            try:
+                result = subprocess.run(
+                    ["node", "--check", tmp_path],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                return {"has_errors": False, "errors": "",
+                        "skipped": True,
+                        "reason": f"js_check:{type(e).__name__}"}
+            if result.returncode != 0:
+                return {"has_errors": True,
+                        "errors": (result.stderr or "")[:500],
+                        "skipped": False}
+        elif ext in (".ts", ".tsx"):
+            # tsc may be slow; cap at 15 s and run with the frontend
+            # tsconfig so JSX / module resolution match the project.
+            try:
+                result = subprocess.run(
+                    ["npx", "tsc", "--noEmit", "--allowJs",
+                     "--jsx", "preserve", "--target", "ES2020",
+                     "--module", "esnext", "--moduleResolution", "node",
+                     tmp_path],
+                    capture_output=True, text=True, timeout=15,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                return {"has_errors": False, "errors": "",
+                        "skipped": True,
+                        "reason": f"ts_check:{type(e).__name__}"}
+            if result.returncode != 0:
+                # tsc surfaces errors on stdout, not stderr.
+                err = (result.stdout or result.stderr or "")[:500]
+                # Filter out "type errors" we don't actually care about
+                # at this gate — we only block on PARSE errors (TS1xxx).
+                # If the only errors are type-resolution (TS2xxx) we
+                # let them through; downstream Vanguard / verify can
+                # catch deeper issues.
+                if "error TS1" in err:
+                    return {"has_errors": True, "errors": err,
+                            "skipped": False}
+                # Type errors only → don't block the commit.
+                return {"has_errors": False, "errors": "",
+                        "skipped": True,
+                        "reason": "ts_only_type_errors"}
+        return {"has_errors": False, "errors": "", "skipped": False}
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 from .web_skills import (
     WEB_TOOLS as _WEB_TOOLS,
     WEB_TOOL_SPECS as _WEB_TOOL_SPECS,
@@ -602,6 +697,44 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
     except Exception as _ve:
         logger.warning("write_repo_file: vanguard scan failed: %r", _ve)
         # Don't block on scanner infra errors — same policy as task path.
+
+    # Iter 212m-152 — MANDATORY SYNTAX GATE (Fix 2).
+    # Runs after Vanguard but BEFORE the GitHub commit.  Blocks any
+    # commit whose new content contains a syntax error.  Falls open
+    # (allows the commit) on tooling errors or timeouts — better to
+    # ship than block on a flaky local linter.
+    _ext = ""
+    try:
+        _dot = path.rfind(".")
+        if _dot >= 0:
+            _ext = path[_dot:].lower()
+    except Exception:
+        _ext = ""
+    if _ext in (".py", ".ts", ".tsx", ".js", ".jsx"):
+        _gate = _run_syntax_check(content=content, file_path=path, ext=_ext)
+        if _gate.get("has_errors"):
+            logger.warning(
+                "syntax_gate BLOCKED commit: %s — %s",
+                path, (_gate.get("errors") or "")[:100],
+            )
+            return {
+                "ok":             False,
+                "error":          "syntax_gate_blocked",
+                "message":        (
+                    "Syntax errors detected in your patch — commit blocked. "
+                    "Fix the syntax and try again.\n"
+                    + (_gate.get("errors") or "")
+                ),
+                "file":           path,
+                "syntax_errors": _gate.get("errors"),
+            }
+        if _gate.get("skipped"):
+            logger.warning(
+                "syntax_gate SKIPPED: %s — %s",
+                path, _gate.get("reason") or "unknown",
+            )
+        else:
+            logger.info("syntax_gate PASSED: %s", path)
 
     # Commit via the existing atomic Git Data API writer.
     try:

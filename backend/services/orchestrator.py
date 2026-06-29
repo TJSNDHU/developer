@@ -95,6 +95,64 @@ def _dedupe_sources(all_sources: list[dict]) -> list[dict]:
     return out
 
 
+
+# Iter 212m-152 — CONTEXT TRIM (Prompt Mode gap fix #3).
+#
+# Each tool-call iteration appends a `=== TOOL RESULTS (iter N) ===`
+# block to the running transcript.  By iter 4-6 those blocks total
+# many KB of stale file dumps, and the LLM's final-answer quality
+# degrades silently because the recent reasoning is buried.
+#
+# Strategy: keep the most recent TRIM_KEEP_LAST_N blocks intact, and
+# compress all older blocks to a hard char cap + truncation marker.
+# Pure string surgery on the transcript — no message-list refactor.
+import re as _re
+
+TRIM_KEEP_LAST_N    = 2
+TRIM_OLD_BLOCK_CHARS = 3200            # ~800 tokens per old block
+_TRIM_BLOCK_RX = _re.compile(
+    r"=== TOOL RESULTS \(iter \d+\) ===\n.*?=== END TOOL RESULTS ===\n",
+    _re.DOTALL,
+)
+
+
+def _trim_tool_results(transcript: str) -> tuple[str, int]:
+    """Compress older `=== TOOL RESULTS ===` blocks in `transcript`.
+
+    Returns (new_transcript, trimmed_count).  Trim is a no-op when
+    fewer than TRIM_KEEP_LAST_N + 1 blocks exist."""
+    if not transcript:
+        return transcript, 0
+    matches = list(_TRIM_BLOCK_RX.finditer(transcript))
+    if len(matches) <= TRIM_KEEP_LAST_N:
+        return transcript, 0
+    to_trim = matches[:-TRIM_KEEP_LAST_N]
+    trimmed_count = 0
+    # Rebuild the transcript by replacing the old blocks from the
+    # end backwards so earlier offsets stay stable.
+    pieces: list[str] = []
+    cursor = 0
+    old_blocks = {m.start(): m for m in to_trim}
+    for start in sorted(old_blocks.keys()):
+        m = old_blocks[start]
+        pieces.append(transcript[cursor:start])
+        original = m.group(0)
+        if len(original) > TRIM_OLD_BLOCK_CHARS:
+            head = original[:TRIM_OLD_BLOCK_CHARS]
+            pieces.append(
+                head
+                + "\n[... trimmed for context efficiency "
+                  "— earlier tool output omitted ...]\n"
+                  "=== END TOOL RESULTS ===\n"
+            )
+            trimmed_count += 1
+        else:
+            pieces.append(original)
+        cursor = m.end()
+    pieces.append(transcript[cursor:])
+    return "".join(pieces), trimmed_count
+
+
 def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
     """Build a human-readable closing message when we hit `max_iters`.
 
@@ -1442,6 +1500,48 @@ async def chat_with_tools(
     # Local tools are always available regardless of upstream state
     tools = list(tools or []) + list(LOCAL_TOOL_SPECS)
 
+    # Iter 212m-152 — TOOL NAMESPACE REDUCTION (Fix 1).
+    # Filter the 39-tool catalog down to the slice that's actually
+    # relevant to this turn.  Saves ~19.5 k tokens of schema text per
+    # call and meaningfully improves LLM tool-choice accuracy.  We
+    # use the Intent Gateway's heuristic-only classifier so this
+    # decision adds <1 ms and zero LLM cost.
+    try:
+        from core.intent_gateway import classify_heuristic_sync
+        from core.tool_router import (
+            get_tools_for_task as _tool_router_pick,
+            pick_group as _tool_router_group,
+        )
+        _intent_tier = (classify_heuristic_sync(prompt) or {}).get("tier", "agentic")
+        # The router is wired downstream of the gateway's casual
+        # short-circuit, so we only ever see query/agentic/clarify here.
+        # `clarify` is treated as `agentic` because the user might still
+        # want an action — better to expose the bigger toolbox than to
+        # under-equip a real request.
+        _effective_tier = "agentic" if _intent_tier in ("agentic", "clarify") else "query"
+        _allowed_names = set(_tool_router_pick(prompt, _effective_tier))
+        _group         = _tool_router_group(prompt, _effective_tier)
+        if _allowed_names:
+            _full_count = len(tools)
+            _filtered = [
+                t for t in tools
+                if t.get("name") in _allowed_names
+            ]
+            # Safety net: if the filter happens to remove every entry
+            # on an agentic task, fall back to the full catalog rather
+            # than send the LLM in blind.
+            if _filtered or _effective_tier != "agentic":
+                tools = _filtered
+            logger.info(
+                "tool_router: %d/%d tools selected for tier=%s task_group=%s",
+                len(tools), _full_count, _effective_tier, _group,
+            )
+    except Exception as e:                              # noqa: BLE001
+        # Best-effort — if router import or classification fails for
+        # any reason, fall through with the full catalog.  Prompt mode
+        # must never regress because of a routing hint.
+        logger.debug("tool_router skipped: %r", e)
+
     catalog_lines = [
         f"- {t.get('name')}: {t.get('description', '')}\n"
         f"  args: {t.get('args_spec') or t.get('args') or {}}"
@@ -2220,6 +2320,18 @@ async def chat_with_tools(
             f"Now give your FINAL answer using only these real results "
             f"(or call more tools if needed)."
         )
+        # Iter 212m-152 — Context trim (Fix 3).  After iter 2 onwards,
+        # compress older TOOL RESULTS blocks so the transcript stays
+        # focused and the final-answer quality doesn't degrade.
+        if iters >= 2:
+            _before = len(transcript)
+            transcript, _trimmed = _trim_tool_results(transcript)
+            if _trimmed > 0:
+                logger.info(
+                    "context_trim: trimmed %d tool result block(s) "
+                    "at iter %d. Transcript before=%d, after=%d",
+                    _trimmed, iters, _before, len(transcript),
+                )
 
     # Hit max_iters. Two pathologies to handle at the ROOT here:
     #
