@@ -12,6 +12,39 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-157 — Admin-only gate on Bug Hunt + Vanguard + Security Scan + Health Scan (Feb 2026) ✅
+
+**Founder spec (verbatim)**: "Hide Bug Hunt, Vanguard Scan, Security Scan, and Health Scan from the main sidebar nav for all users EXCEPT accounts flagged as is_founder=true or is_admin=true in the DB. Routes stay alive. No redirects. No new pages. Just conditional rendering on the nav links."
+
+Plus follow-up tightening: "Add route guard on each of those 4 pages: if user.is_admin !== true → redirect to /dashboard. Founder/admin accounts bypass both guards."
+
+**Shipped**:
+  • Single source-of-truth helper `isAdminOrFounder(u)` in `lib/api.js` — checks `is_admin || is_founder || tier === "founder"`.
+  • Three protected page-level guards (CodebaseHealth, AdminVanguard, BugHunt) using a wrapper+Inner split so Rules of Hooks stay safe.  Non-admin → `<Navigate to="/dashboard" replace>` with discoverable testids (`health-nonadmin-redirect`, `vanguard-nonadmin-redirect`, `bh-nonadmin-redirect`).
+  • Sidebar Health Scanner link gated via new `adminOnly: true` on the TOOLS array + filter check.
+  • Inline chat composer Security Scan button (`chat-security-scan-btn`) gated by `isAdminOrFounder()` on top of the existing project/repo guards.
+  • Landing nav Bug Hunt link gated — visible to anonymous (SEO) + admins, hidden for logged-in non-admins.
+  • Removed the iter 212m-154 "all authed users → /codebase-health" push from BugHunt — admins now see the marketing page same as anon.
+
+**Behaviour matrix** (verified by testing agent on PREVIEW, 14/14 scenarios PASS):
+
+| Visitor                    | /bug-hunt           | /codebase-health        | /admin/vanguard         | Sidebar Health link | Composer security-scan-btn | Landing nav Bug Hunt |
+|----------------------------|---------------------|-------------------------|-------------------------|---------------------|----------------------------|----------------------|
+| Anonymous                  | Marketing page      | (existing auth bouncer) | (existing auth bouncer) | n/a (no sidebar)    | n/a                        | Visible              |
+| Logged-in non-admin        | → /dashboard        | → /dashboard            | → /dashboard            | Hidden              | Hidden                     | Hidden               |
+| Admin / founder            | Marketing page      | Full Health Scanner     | Full Vanguard           | Visible             | Visible (when repo connected) | Visible              |
+
+**Implementation notes for next agent**:
+  • `localStorage.aurem_user` on preview's test admin looks like `{tier:"founder", is_unlimited:true}` with NO explicit `is_admin` field — the gate works because `isAdminOrFounder()` treats `tier === "founder"` as admin (defensive coverage).
+  • Sidebar tools render after ~3-4 s of /me hydration on mount; tests should poll `[data-testid="ds2-tool-health"]` rather than wait a fixed 2.5 s.
+  • Redirect-marker testids unmount in <500 ms when `<Navigate>` fires; assert on `page.url.endsWith("/dashboard")` rather than on the marker.
+
+**Test coverage** — 9 new pytests in `test_iter212m157_admin_only_security_pages.py` (helper export, 3 page-guard markers, 3 nav-link gates, routes-still-alive).
+
+**Regression**: 156/156 across iters 149-157.
+
+
+
 ### Iter 212m-156 — Mobile dashboard drawer (Feb 2026) ✅
 
 **Founder QA finding**: "Mobile view mein koi sidebar dikhai nahi diya jisse user repos add/select kar sake ya settings open kar sake. Fix."
