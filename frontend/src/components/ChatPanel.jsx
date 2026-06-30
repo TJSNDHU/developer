@@ -17,7 +17,7 @@ import {
   Send, Loader2, Square, Paperclip, Github, Zap,
   Eye, EyeOff, Trash2, Network, ShieldCheck,
 } from "lucide-react";
-import { api, streamChat, API_BASE, getToken, getUser } from "../lib/api";
+import { api, streamChat, API_BASE, getToken, getUser, isAdminOrFounder } from "../lib/api";
 import { toast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
@@ -3058,10 +3058,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               Iter 212m-56 — red dot badge with critical+high count
               when the latest cached scan found findings. Same pattern
               as the GitHub status dot above. */}
+          {/* Iter 212m-157 — Security Scan composer button is now
+              admin-only.  Same gate as the sidebar's Health Scanner
+              link and the Vanguard admin page — non-admin users see
+              no security/scan affordance anywhere in the UI. */}
           {activeProject?.project_id
             && activeProject.project_id !== "home"
             && activeProject?.github_owner
-            && activeProject?.github_repo && (
+            && activeProject?.github_repo
+            && isAdminOrFounder() && (
             <span style={{ position: "relative", display: "inline-flex" }}>
               <ToolButton
                 testid="chat-security-scan-btn"

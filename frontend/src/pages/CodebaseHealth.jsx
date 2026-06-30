@@ -19,12 +19,12 @@
  *   • Empty state (pre-scan) with 5 category buttons + Full Scan CTA
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import {
   Shield, Zap, Code2, Package, Database, RefreshCw, Loader2,
   ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, isAdminOrFounder } from "../lib/api";
 import BulkFixConfirmModal from "../components/BulkFixConfirmModal";
 
 const CATS = [
@@ -321,6 +321,18 @@ function UnlockBtn({ label, tokens, onClick }) {
 }
 
 export default function CodebaseHealth() {
+  // Iter 212m-157 — Admin-only guard wrapper.  Splitting the check
+  // into a parent wrapper keeps the inner component's hook order
+  // unconditional (Rules of Hooks compliance).  Non-admins are
+  // bounced to /dashboard; admins/founders fall through to the
+  // full Health Scanner experience.
+  if (!isAdminOrFounder()) {
+    return <Navigate to="/dashboard" replace data-testid="health-nonadmin-redirect" />;
+  }
+  return <CodebaseHealthInner />;
+}
+
+function CodebaseHealthInner() {
   const navigate = useNavigate();
   const [projectId, setProjectId] = useState(localStorage.getItem("aurem_active_project") || "");
   const [scanning, setScanning] = useState(false);

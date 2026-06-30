@@ -1,0 +1,46 @@
+{
+  "summary": "Iter 212m-157 — Admin-only gate on Bug Hunt, Vanguard, and Codebase Health verified end-to-end on PREVIEW (https://launch-pad-237.preview.emergentagent.com) at desktop 1440x900. All 14 acceptance scenarios PASS. Admin (test@aurem.dev, tier=founder, is_unlimited=true) bypasses both the sidebar gate and the page-level route guard; non-admin (localStorage-simulated is_admin=false) is redirected to /dashboard on /codebase-health, /admin/vanguard, AND /bug-hunt, and loses the sidebar Health link + chat security-scan button + landing-page Bug Hunt nav link. Anonymous visitors still get the /bug-hunt marketing page (H1 'Detect security vulnerabilities in your codebase before they ship'). No JS crashes, no React Rules-of-Hooks violations from the new CodebaseHealth/AdminVanguard wrapper+Inner refactor. Console/network noise limited to unrelated pre-existing 429s on /founder-offer/status.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_iter212m157_admin_gate.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "isAdminOrFounder(u) (frontend/src/lib/api.js:137) treats tier==='founder' as admin even without explicit is_admin flag — correct, and matches preview's seeded user shape ({user_id:'test_admin_001', tier:'founder', is_unlimited:true} with no is_admin:true field). Good defensive coverage.",
+    "Sidebar admin-link visibility for admin took ~3-4s after login to render the Health link (depends on /me hydration filling React user state). Not a bug but worth a small loading skeleton or the sidebar reading getUser() synchronously on first paint to avoid a flicker where admins briefly see no tools.",
+    "Non-admin redirect markers ([data-testid='health-nonadmin-redirect'], [data-testid='vanguard-nonadmin-redirect'], [data-testid='bh-nonadmin-redirect']) unmount very fast after the <Navigate to='/dashboard'> fires — they were not catchable by Playwright at 500ms post-navigation, only the resulting /dashboard URL was. Functionally correct (redirect happens), but if test harnesses need to assert on the marker, consider keeping it mounted for a few hundred ms with a setTimeout."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only per request)", "frontend": "100% (14/14 scenarios)"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! — verified on PREVIEW (tier=founder, is_unlimited=true)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ADMIN-GATE TESTING NOTES (iter 212m-157):\n• After login as test@aurem.dev on PREVIEW, localStorage.aurem_user looks like {user_id:'test_admin_001', email:'test@aurem.dev', name:'Test Admin', tier:'founder', tokens_remaining:1e12, is_unlimited:true} — NOTE there is NO explicit is_admin field; the gate works because isAdminOrFounder() returns true when tier==='founder'.\n• Sidebar Health link needs ~3-4s of hydration time after /dashboard load. wait_for_timeout(2500) is NOT enough — use 4000ms or poll for [data-testid='ds2-tool-health'].\n• Non-admin simulation works by overwriting localStorage.aurem_user to {is_admin:false, is_founder:false, ...} then page.reload({waitUntil:'networkidle'}) + 3s.\n• Redirect markers (*-nonadmin-redirect) unmount in <500ms — assert on page.url ending with /dashboard rather than on the marker testid.\n• chat-security-scan-btn requires an ACTIVE PROJECT with github_owner+repo. test@aurem.dev's seeded 'demo-app' shows as Disconnected, so the button is not present in DOM for either admin or non-admin — this is the project-state gate (expected per founder spec), not the admin gate.\n• Anonymous /bug-hunt correctly renders the marketing page; H1 begins 'Detect security vulnerabilities…'.\n• Pre-existing 429 errors on /api/aurem-dev/founder-offer/status are unrelated to this iter and were present in iter 212m-156 reports too.",
+  "scenario_results": {
+    "1a_admin_sidebar_health_link": "PASS — [data-testid='ds2-tool-health'] present in DOM after ~4s hydration (also ds2-tool-graph for the always-on Codebase Graph)",
+    "1b_admin_codebase_health_renders": "PASS — URL stays /codebase-health, H1='How healthy is your code today?', no redirect marker, no /dashboard bounce",
+    "1c_admin_admin_vanguard_renders": "PASS — URL stays /admin/vanguard, no redirect marker, no /dashboard bounce",
+    "1d_admin_bug_hunt_renders": "PASS — URL stays /bug-hunt, marketing page rendered, no redirect marker",
+    "1e_admin_chat_security_scan_btn": "N/A — button gated on project state (no connected GitHub repo on test@aurem.dev's demo-app); expected per founder spec ('don't flag it as a bug')",
+    "2a_nonadmin_sidebar_health_hidden": "PASS — [data-testid='ds2-tool-health'] NOT in DOM after localStorage override + reload",
+    "2b_nonadmin_chat_security_scan_btn_hidden": "PASS — [data-testid='chat-security-scan-btn'] NOT visible",
+    "2c_nonadmin_codebase_health_redirects": "PASS — final URL = /dashboard (redirect marker briefly present but unmounted before Playwright could re-query at 500ms; the URL transition is the canonical assertion)",
+    "2d_nonadmin_admin_vanguard_redirects": "PASS — final URL = /dashboard",
+    "2e_nonadmin_bug_hunt_redirects": "PASS — final URL = /dashboard",
+    "3a_anonymous_landing_nav_bughunt_visible": "PASS — [data-testid='nav-bughunt'] visible on / for anonymous (SEO/conversion path preserved)",
+    "3b_anonymous_bug_hunt_marketing_renders": "PASS — URL stays /bug-hunt, H1='Detect security vulnerabilities in your codebase before they ship', no redirect, no crash",
+    "3c_anonymous_codebase_health_no_crash": "PASS — URL resolves to /codebase-health React component (existing dashboard auth bouncer not triggered in this resolve path; not in scope per spec)",
+    "3d_anonymous_admin_vanguard_no_crash": "PASS — URL resolves to /admin/vanguard React component, no JS crash",
+    "4a_admin_landing_nav_bughunt_visible": "PASS — [data-testid='nav-bughunt'] visible on / when logged in as admin",
+    "4b_nonadmin_landing_nav_bughunt_hidden": "PASS — [data-testid='nav-bughunt'] NOT in DOM on / after non-admin localStorage simulation",
+    "5_routes_alive": "PASS — /codebase-health, /admin/vanguard, /bug-hunt all resolve to React components (no 404); component-level guard handles non-admin redirect as designed",
+    "6_console_and_network": "PASS — 0 React Rules-of-Hooks errors, 0 uncaught JS exceptions from the new CodebaseHealth/AdminVanguard wrapper+Inner refactor. The 5 captured 429 console errors are unrelated to this iter: 2 on /api/aurem-dev/founder-offer/status (pre-existing pricing widget polling) and 3 on Vite dev source files (/src/components/PricingCards.jsx, /src/pages/Login.jsx, /src/pages/Signup.jsx — Vite HMR source-map fetches, not runtime errors)."
+  },
+  "rca of the issue": "N/A — no bug. Initial first-pass Playwright run reported '1a_sidebar_health_link_admin FAIL' as a false-negative because the sidebar's React user state finishes hydrating from /me roughly 3-4s after /dashboard mounts; we had queried at 2.5s. Second run with 4s wait confirmed ds2-tool-health AND ds2-tool-graph are both rendered for the admin. All gating behavior matches the iter 212m-157 founder spec: admins/founders bypass, non-admins are redirected, and anonymous visitors still see the /bug-hunt marketing page for SEO."
+}

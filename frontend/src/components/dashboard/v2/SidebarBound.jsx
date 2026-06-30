@@ -13,7 +13,7 @@ import {
   GitFork, Github,
   User, Settings, Zap, LogOut, ChevronRight,
 } from "lucide-react";
-import { getToken } from "../../../lib/api";
+import { getToken, getUser, isAdminOrFounder } from "../../../lib/api";
 
 const API_BASE = `${(typeof process !== "undefined" ? process.env.REACT_APP_BACKEND_URL : "") || ""}/api/aurem-dev`;
 
@@ -22,7 +22,11 @@ const TOOLS = [
   // from sidebar. Vanguard & Loop now live as inline composer toggles
   // (chat-security-scan-btn + LoopModeToggle). Bug Hunt promoted to
   // the homepage marketing nav. Codebase Graph filtered for founders.
-  { id: "health",   label: "Health Scanner",    icon: HeartPulse  },
+  //
+  // Iter 212m-157 — Health Scanner is now admin-only (founder spec).
+  // The `adminOnly: true` flag below is honored by the .filter() call
+  // in the Tools render block.  Codebase Graph stays public.
+  { id: "health",   label: "Health Scanner",    icon: HeartPulse,  adminOnly: true },
   { id: "graph",    label: "Codebase Graph",    icon: GitFork     },
 ];
 
@@ -446,6 +450,12 @@ export default function SidebarBound({
               // user (opens the GraphPanel drawer of their connected
               // GitHub repo via aurem:toggle-graph, no longer leaks
               // /feature-window's internal ORA map).
+              //
+              // Iter 212m-157 — Admin-only tools (Health Scanner) are
+              // hidden from the sidebar for non-admin users.  Route
+              // stays alive but the visible nav link is gone.  Admins
+              // and founders see everything.
+              if (t.adminOnly && !isAdminOrFounder(user)) return false;
               return true;
             }).map((tool) => {
               const Icon = tool.icon;

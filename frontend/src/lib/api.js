@@ -126,6 +126,20 @@ export function getUser() {
   }
 }
 
+// Iter 212m-157 — Single source of truth for the "admin / founder"
+// gate.  Pages and sidebar links that surface Bug Hunt, Vanguard,
+// Security Scan, and Health Scan must call this helper rather than
+// re-implementing the flag check.  Returns true for:
+//   • backend-flagged admins      (user.is_admin === true)
+//   • backend-flagged founders    (user.is_founder === true)
+//   • legacy founder tier         (user.tier === "founder")
+// Anonymous (no user) → false.  Subscribers/free tier → false.
+export function isAdminOrFounder(u) {
+  const me = u !== undefined ? u : getUser();
+  if (!me) return false;
+  return !!(me.is_admin || me.is_founder || me.tier === "founder");
+}
+
 export function logout() {
   setToken(null);
   setUser(null);

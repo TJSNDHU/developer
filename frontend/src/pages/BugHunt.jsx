@@ -10,10 +10,18 @@
  * /bug-hunt we send them to the authenticated `/codebase-health`
  * scan dashboard.  Public visitors keep seeing the marketing page so
  * the SEO + conversion funnel is preserved.
+ *
+ * Iter 212m-157 — Admin-only gate.  Bug Hunt, Vanguard, Security
+ * Scan, and Health Scan now ALL hide for non-admin users (per
+ * founder spec).  Behaviour matrix:
+ *   • anonymous    → marketing page (SEO preserved)
+ *   • admin/founder → marketing page (consistent — they can also
+ *                     reach the live scanner via the sidebar link)
+ *   • logged-in non-admin → <Navigate to="/dashboard" replace>
  */
 import React, { useEffect } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { getUser, getToken } from "../lib/api";
+import { getUser, getToken, isAdminOrFounder } from "../lib/api";
 
 const BH_CSS = `
 .bh-page {
@@ -313,17 +321,22 @@ function PatternList({ items }) {
 }
 
 export default function BugHunt() {
-  // Iter 212m-154 — resolve auth state once at render, before any
-  // other hooks fire, so the conditional return below does not
-  // violate Rules of Hooks (always-same-order requirement).
-  const isAuthed = !!(getToken() && getUser());
+  // Iter 212m-157 — resolve auth state once at render, before any
+  // hooks fire, so the conditional return below stays Rules-of-Hooks
+  // safe.  Three buckets:
+  //   • anon        → marketing page (SEO + conversion)
+  //   • admin       → marketing page (allow access, no harm)
+  //   • non-admin   → redirected to /dashboard (per founder spec)
+  const me = getUser();
+  const isAuthed     = !!(getToken() && me);
+  const adminOrAnon  = !isAuthed || isAdminOrFounder(me);
 
   // SEO: title, meta description, JSON-LD injection on mount; cleanup on unmount.
   // Hook is unconditional and always runs in the same order — the
-  // injected SEO tags are auto-cleared if we redirect immediately
-  // (React schedules the effect after the redirect render is unmounted).
+  // injected SEO tags only matter when we render the page (not when
+  // we redirect).
   useEffect(() => {
-    if (isAuthed) return undefined;     // do not inject SEO for authed users
+    if (!adminOrAnon) return undefined;  // about to redirect, skip SEO write
     document.title = "Bug Hunt — Detect 50+ vulnerabilities in your codebase | ORA by Aurem CTO";
     let meta = document.querySelector('meta[name="description"]');
     const prev = meta ? meta.getAttribute("content") : null;
@@ -345,15 +358,12 @@ export default function BugHunt() {
       try { document.head.removeChild(ld); } catch { /* no-op */ }
       if (prev !== null && meta) meta.setAttribute("content", prev);
     };
-  }, [isAuthed]);
+  }, [adminOrAnon]);
 
-  // Iter 212m-154 — Authenticated visitors land on the public
-  // marketing surface unintentionally (sidebar link is the same for
-  // both audiences).  Redirect them to the authed scan dashboard so
-  // their workflow stays unbroken.  Hooks above run first to keep
-  // React's Rules of Hooks invariant.
-  if (isAuthed) {
-    return <Navigate to="/codebase-health" replace data-testid="bh-authed-redirect" />;
+  // Iter 212m-157 — Non-admin logged-in users → /dashboard.
+  // Hooks above run first to keep React's Rules of Hooks invariant.
+  if (!adminOrAnon) {
+    return <Navigate to="/dashboard" replace data-testid="bh-nonadmin-redirect" />;
   }
 
   return (

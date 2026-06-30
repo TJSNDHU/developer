@@ -11,8 +11,8 @@
  * Built on /api/aurem-dev/admin/vanguard/{stats,recent}.
  */
 import React, { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { useNavigate, Navigate } from "react-router-dom";
+import { api, isAdminOrFounder } from "../lib/api";
 import VanguardConfigPanel from "../components/VanguardConfigPanel";
 
 const SEV_COLOR = {
@@ -32,6 +32,16 @@ function timeSince(iso) {
 }
 
 export default function AdminVanguard() {
+  // Iter 212m-157 — Admin-only guard wrapper.  Non-admin/non-founder
+  // users are redirected to /dashboard before any of the inner
+  // component's hooks run — keeps Rules of Hooks invariant safe.
+  if (!isAdminOrFounder()) {
+    return <Navigate to="/dashboard" replace data-testid="vanguard-nonadmin-redirect" />;
+  }
+  return <AdminVanguardInner />;
+}
+
+function AdminVanguardInner() {
   const nav = useNavigate();
   const [stats,  setStats]  = useState(null);
   const [recent, setRecent] = useState([]);
