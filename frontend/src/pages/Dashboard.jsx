@@ -111,6 +111,37 @@ function DashboardV2Body() {
   };
   const [sidebarPinned,    setSidebarPinned]    = useState(false);
   const [sidebarHovered,   setSidebarHovered]   = useState(false);
+
+  // Iter 212m-156 — Mobile drawer state.  The desktop sidebar reveal
+  // logic (hover + left-edge mousemove) does NOTHING on touch
+  // devices, leaving mobile users with no way to switch repos / open
+  // tools / log out (caught by iter 212m-154 PROD chat E2E).  On
+  // mobile (<=900 px viewport) we ignore the hover state and use
+  // this explicit toggle driven by the hamburger button below.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isMobile,          setIsMobile]          = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.matchMedia("(max-width: 900px)").matches; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setMobileSidebarOpen(false);   // back to desktop, close drawer
+    };
+    try { mq.addEventListener("change", onChange); }
+    catch { mq.addListener(onChange); }
+    return () => {
+      try { mq.removeEventListener("change", onChange); }
+      catch { mq.removeListener(onChange); }
+    };
+  }, []);
+  // Auto-close the mobile drawer when the user picks a repo OR when
+  // the underlying route changes — otherwise it stays open over the
+  // chat surface and feels broken.
+  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
   // Iter 212m-124 — "edge-trigger reveal" lives separately from the
   // intent-based hover state.  When the sidebar is fully translated
   // off-screen we can't hover the panel itself; we listen for the
@@ -395,15 +426,75 @@ function DashboardV2Body() {
   //   • sidebarFullyHidden → full translateX(-100%), used when the
   //     user is typing in chat. Reveal trigger is the left-edge
   //     mousemove listener above + sidebarPinned (explicit intent).
-  const sidebarCollapsed = chatActive && !sidebarPinned && !sidebarHovered && !sidebarEdgeReveal;
-  const sidebarFullyHidden = chatActive && !sidebarPinned && !sidebarEdgeReveal;
+  // Iter 212m-156 — On mobile (<=900 px) the hover/edge-reveal logic
+  // is bypassed: visibility is driven purely by `mobileSidebarOpen`
+  // because touch devices can't synthesise the cursor events that
+  // gate the desktop behaviour.
+  const sidebarCollapsed = !isMobile
+    && chatActive && !sidebarPinned && !sidebarHovered && !sidebarEdgeReveal;
+  const sidebarFullyHidden = isMobile
+    ? !mobileSidebarOpen
+    : (chatActive && !sidebarPinned && !sidebarEdgeReveal);
   const user = getUser() || {};
 
   return (
     <div className="ds2-root" data-testid="dashboard-v2-root"
       data-theme={effectiveTheme}
       style={{ height: "100vh", overflow: "hidden" }}>
+      {/* Iter 212m-156 — mobile drawer fade-in keyframes. */}
+      <style>{`
+        @keyframes ds2-fade-in {
+          from { opacity: 0 }
+          to   { opacity: 1 }
+        }
+      `}</style>
       <div style={{ display: "flex", height: "100%", width: "100%" }}>
+
+        {/* Iter 212m-156 — Mobile hamburger.  Only visible on phones
+            (<=900 px) when the drawer is closed.  Tapping it opens
+            the sidebar drawer over the chat.  The fixed positioning
+            keeps it above the persistent fix bar + chat composer so
+            it's always reachable. */}
+        {isMobile && !mobileSidebarOpen && (
+          <button
+            type="button"
+            data-testid="mobile-sidebar-toggle"
+            aria-label="Open menu"
+            onClick={() => setMobileSidebarOpen(true)}
+            style={{
+              position: "fixed", top: 12, left: 12, zIndex: 1500,
+              width: 40, height: 40, borderRadius: 10,
+              background: "rgba(13,16,24,0.92)",
+              border: "1px solid rgba(125,211,252,0.28)",
+              color: "var(--accent-2, #7dd3fc)",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.55)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 18, fontWeight: 600,
+              cursor: "pointer",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+            }}
+          >
+            ☰
+          </button>
+        )}
+
+        {/* Iter 212m-156 — Mobile backdrop.  Tapping anywhere outside
+            the drawer closes it.  Only renders when the drawer is
+            open on a mobile viewport. */}
+        {isMobile && mobileSidebarOpen && (
+          <div
+            data-testid="mobile-sidebar-backdrop"
+            onClick={closeMobileSidebar}
+            style={{
+              position: "fixed", inset: 0, zIndex: 1400,
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(2px)",
+              WebkitBackdropFilter: "blur(2px)",
+              animation: "ds2-fade-in 180ms ease-out",
+            }}
+          />
+        )}
 
         {/* Sidebar — v2 chrome wired to real /cto/projects/list.
             Iter 212m-124: when sidebarFullyHidden, the wrapper slides
@@ -411,9 +502,18 @@ function DashboardV2Body() {
             layout slot so the chat pane reclaims the width. */}
         <div
           data-testid="ds2-sidebar-wrap"
-          onMouseEnter={() => sidebarCollapsed && setSidebarHovered(true)}
-          onMouseLeave={() => setSidebarHovered(false)}
-          style={{
+          onMouseEnter={() => !isMobile && sidebarCollapsed && setSidebarHovered(true)}
+          onMouseLeave={() => !isMobile && setSidebarHovered(false)}
+          style={isMobile ? {
+            // Iter 212m-156 — mobile drawer mode: float over the
+            // chat surface with translateX, keep full width-280 so
+            // the repo list + tool icons are readable on phones.
+            position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 1450,
+            width: 280,
+            transform: mobileSidebarOpen ? "translateX(0)" : "translateX(-100%)",
+            transition: "transform 240ms cubic-bezier(.4,0,.2,1)",
+            boxShadow: mobileSidebarOpen ? "8px 0 32px rgba(0,0,0,0.6)" : "none",
+          } : {
             flexShrink: 0,
             transform: sidebarFullyHidden ? "translateX(-100%)" : "translateX(0)",
             width: sidebarFullyHidden ? 0 : "auto",
@@ -426,9 +526,21 @@ function DashboardV2Body() {
             pinned={sidebarPinned}
             onPinChange={setSidebarPinned}
             repos={repoEntries}
-            onSelectRepo={handleSelectRepo}
-            onAddRepo={handleAddRepo}
+            onSelectRepo={(...args) => {
+              handleSelectRepo(...args);
+              // Iter 212m-156 — auto-close the mobile drawer the
+              // moment the user picks a repo, otherwise the panel
+              // sits over the chat and feels broken.
+              if (isMobile) closeMobileSidebar();
+            }}
+            onAddRepo={(...args) => {
+              handleAddRepo(...args);
+              if (isMobile) closeMobileSidebar();
+            }}
             user={user}
+            // Iter 212m-156 — every nav action (Tool click, Settings,
+            // Logout, Tokens) also auto-closes the mobile drawer.
+            onAfterAction={isMobile ? closeMobileSidebar : undefined}
           />
         </div>
 
@@ -543,13 +655,14 @@ function DashboardV2Body() {
 function SidebarReal({
   collapsed, pinned, onPinChange,
   repos, onSelectRepo, onAddRepo, user,
+  onAfterAction,
 }) {
   const navigate = useNavigate();
-  // Override Sidebar's default `repositories` constant by re-importing
-  // the component and feeding it through props is heavy; instead we
-  // use a thin clone of the v2 Sidebar API.  Simpler: render the v2
-  // Sidebar passing all live data through the props it already
-  // accepts and lean on the existing `Sidebar` for visuals.
+  // Wrap navigate so the parent (Dashboard) can auto-close the mobile
+  // drawer right after any nav action.
+  const _go = (to) => {
+    try { navigate(to); } finally { onAfterAction?.(); }
+  };
   return (
     <SidebarV2Bound
       collapsed={collapsed}
@@ -559,34 +672,31 @@ function SidebarReal({
       onSelectRepo={onSelectRepo}
       onAddRepo={onAddRepo}
       onToolClick={(toolId) => {
-        if (toolId === "health")   navigate("/codebase-health");
-        else if (toolId === "bughunt") navigate("/bug-hunt");
+        if (toolId === "health")        _go("/codebase-health");
+        else if (toolId === "bughunt")  _go("/bug-hunt");
         else if (toolId === "graph") {
-          // Iter 212m-110 — sidebar Codebase Graph now opens the
-          // GraphPanel drawer (user's connected GitHub repo) instead
-          // of /feature-window which exposes ORA's internal feature
-          // map. The drawer is mounted in ChatPanel and listens to
-          // the `aurem:toggle-graph` event.
           window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
             detail: { open: true },
           }));
+          onAfterAction?.();
         }
         else if (toolId === "vanguard") {
-          // Open the existing Vanguard drawer via the well-known event.
           window.dispatchEvent(new CustomEvent("aurem:open-vanguard"));
+          onAfterAction?.();
         }
         else if (toolId === "loop") {
           window.dispatchEvent(new CustomEvent("aurem:toggle-loop"));
+          onAfterAction?.();
         }
       }}
       user={user}
       onLogout={() => {
         try { logout(); } catch { /* ignore */ }
-        navigate("/login");
+        _go("/login");
       }}
-      onEditProfile={() => navigate("/settings")}
-      onSettings={() => navigate("/settings")}
-      onRecharge={() => navigate("/tokens")}
+      onEditProfile={() => _go("/settings")}
+      onSettings={() =>     _go("/settings")}
+      onRecharge={() =>     _go("/tokens")}
     />
   );
 }
