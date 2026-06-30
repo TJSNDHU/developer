@@ -1698,6 +1698,7 @@ async def chat_stream(
                     from services.llm import (
                         _call_glm, _call_claude, _call_deepseek,
                         _call_deepseek_direct, _call_groq, _GLM_MODEL,
+                        cap_for, temperature_for,
                     )
                     # Iter 212m-53 — Ask Advisor dedicated config (admin-set).
                     # Read the dedicated prompt + LLM choice; fall back to
@@ -1729,52 +1730,133 @@ async def chat_stream(
                         + (extra_sys + "\n\n" if extra_sys else "")
                         + ORA_PANEL_TONE
                     ).strip()
+
+                    # Iter 212m-161 — Ask Advisor multi-model cascade.
+                    # Primary = admin-selected LLM. On error / empty:
+                    #   Groq llama-3.3-70b (FREE) rescue → DeepSeek V3
+                    #   (cheap) last-resort.  Whichever primary the
+                    #   admin picked, we never re-call it as its own
+                    #   rescue — `_seen` short-circuits self-rescue.
+                    # Cost-tier rationale per founder: Claude is too
+                    # expensive for advisor rescue; Groq is free,
+                    # DeepSeek is cheap.
+                    _adv_max_tokens  = cap_for("advisor")
+                    _adv_temperature = temperature_for("advisor")
+                    _adv_call_kwargs = dict(
+                        system=ora_system,
+                        user=body.prompt,
+                        max_tokens=_adv_max_tokens,
+                        temperature=_adv_temperature,
+                    )
+
+                    async def _adv_primary(llm_id: str) -> tuple[str, str]:
+                        """Returns (content, provider_tag).  Raises on
+                        upstream errors so the outer cascade can rescue."""
+                        if llm_id == "claude-sonnet-4.5":
+                            return await _call_claude(**_adv_call_kwargs), "claude-sonnet-4.5"
+                        if llm_id == "deepseek-chat":
+                            return await _call_deepseek(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=_adv_max_tokens,
+                                temperature=_adv_temperature,
+                            ), "deepseek-chat"
+                        if llm_id == "deepseek-direct":
+                            return await _call_deepseek_direct(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=_adv_max_tokens,
+                                temperature=_adv_temperature,
+                            ), "deepseek-direct"
+                        if llm_id == "groq-llama-3.3-70b":
+                            return await _call_groq(
+                                messages=[{"role": "user", "content": body.prompt}],
+                                system=ora_system,
+                                max_tokens=_adv_max_tokens,
+                                temperature=_adv_temperature,
+                            ), "groq-llama-3.3-70b"
+                        # "glm-5.2" (default) or any unrecognised value.
+                        return await _call_glm(**_adv_call_kwargs), "glm-5.2"
+
+                    glm_text = ""
+                    _adv_model_tag = ""
+                    _adv_chain: list[str] = []
+                    _adv_fatal_err: Optional[Exception] = None
                     try:
                         _step("🤔 Thinking…")
-                        # Iter 212m-53 — dispatch on admin-selected LLM.
-                        # Each branch produces `glm_text` (legacy name) +
-                        # a provider tag for the SSE meta frame.
-                        _adv_call_kwargs = dict(
-                            system=ora_system,
-                            user=body.prompt,
-                            max_tokens=2500,
-                            temperature=0.2,
-                        )
-                        if _adv_llm == "claude-sonnet-4.5":
-                            glm_text = await _call_claude(**_adv_call_kwargs)
-                            _adv_model_tag = "claude-sonnet-4.5"
-                        elif _adv_llm == "deepseek-chat":
-                            glm_text = await _call_deepseek(
-                                messages=[{"role": "user", "content": body.prompt}],
-                                system=ora_system,
-                                max_tokens=2500, temperature=0.2,
+                        # ── Step 1: PRIMARY (admin-selected) ──
+                        try:
+                            glm_text, _adv_model_tag = await _adv_primary(_adv_llm)
+                            _adv_chain.append(_adv_model_tag)
+                        except Exception as _p_err:
+                            logger.warning(
+                                "advisor primary %s failed: %r — trying Groq rescue",
+                                _adv_llm, _p_err,
                             )
-                            _adv_model_tag = "deepseek-chat"
-                        elif _adv_llm == "deepseek-direct":
-                            glm_text = await _call_deepseek_direct(
-                                messages=[{"role": "user", "content": body.prompt}],
-                                system=ora_system,
-                                max_tokens=2500, temperature=0.2,
+                            _adv_chain.append(f"{_adv_llm}-error")
+                            glm_text = ""
+                        # ── Step 2: GROQ FREE RESCUE ──
+                        # Fire when primary returned empty OR raised,
+                        # except when primary IS Groq (no self-rescue).
+                        if not (glm_text or "").strip() and _adv_llm != "groq-llama-3.3-70b":
+                            try:
+                                activity["label"] = "groq rescue…"
+                                _step("⚙️ Switching to Groq rescue…")
+                                glm_text = await _call_groq(
+                                    messages=[{"role": "user", "content": body.prompt}],
+                                    system=ora_system,
+                                    max_tokens=_adv_max_tokens,
+                                    temperature=_adv_temperature,
+                                )
+                                if (glm_text or "").strip():
+                                    _adv_model_tag = "groq-llama-3.3-70b-rescue"
+                                    _adv_chain.append("groq-llama-3.3-70b")
+                            except Exception as _g_err:
+                                logger.warning(
+                                    "advisor Groq rescue failed: %r — trying DeepSeek",
+                                    _g_err,
+                                )
+                                _adv_chain.append("groq-error")
+                                glm_text = ""
+                        # ── Step 3: DEEPSEEK V3 LAST-RESORT ──
+                        if not (glm_text or "").strip() and _adv_llm not in (
+                            "deepseek-chat", "deepseek-direct",
+                        ):
+                            try:
+                                activity["label"] = "deepseek rescue…"
+                                _step("⚙️ Switching to DeepSeek rescue…")
+                                glm_text = await _call_deepseek(
+                                    messages=[{"role": "user", "content": body.prompt}],
+                                    system=ora_system,
+                                    max_tokens=_adv_max_tokens,
+                                    temperature=_adv_temperature,
+                                )
+                                if (glm_text or "").strip():
+                                    _adv_model_tag = "deepseek-v3-rescue"
+                                    _adv_chain.append("deepseek-v3")
+                            except Exception as _d_err:
+                                logger.error(
+                                    "advisor DeepSeek last-resort failed: %r — "
+                                    "falling through to orchestrator",
+                                    _d_err,
+                                )
+                                _adv_fatal_err = _d_err
+                                _adv_chain.append("deepseek-error")
+
+                        if not (glm_text or "").strip():
+                            # All three real models exhausted — fall through
+                            # to the orchestrator path (legacy safety net)
+                            # so the user never sees a blank reply.
+                            raise _adv_fatal_err or RuntimeError(
+                                "advisor full cascade returned empty"
                             )
-                            _adv_model_tag = "deepseek-direct"
-                        elif _adv_llm == "groq-llama-3.3-70b":
-                            glm_text = await _call_groq(
-                                messages=[{"role": "user", "content": body.prompt}],
-                                system=ora_system,
-                                max_tokens=2500, temperature=0.2,
-                            )
-                            _adv_model_tag = "groq-llama-3.3-70b"
-                        else:
-                            # "glm-5.2" (default) or any unrecognised value.
-                            glm_text = await _call_glm(**_adv_call_kwargs)
-                            _adv_model_tag = "glm-5.2"
                         _step("✅ Done", True)
                         result = {
-                            "ok":              bool((glm_text or "").strip()),
-                            "content":         glm_text or "",
+                            "ok":              True,
+                            "content":         glm_text,
                             "provider":        _adv_model_tag,
                             "model":           _adv_model_tag,
-                            "fallback_chain":  [_adv_model_tag],
+                            "fallback_chain":  _adv_chain,
                             "iterations":      1,
                             "tool_calls_run":  0,
                             "tool_invocations": [],
@@ -1783,16 +1865,15 @@ async def chat_stream(
                         await q.put({"type": "result", "result": result})
                         return
                     except Exception as glm_err:
-                        # If the selected LLM errors, fall through to the
-                        # orchestrator path below — that path uses the full
-                        # call_llm_with_meta(review_mode=swift) routing
-                        # so the user never sees a blank reply.
+                        # Full advisor cascade exhausted — fall through to
+                        # the orchestrator path below as a last-of-last
+                        # resort so the user still gets a reply.
                         logger.info(
-                            "ora→%s unavailable (%r) — falling back to "
-                            "orchestrator", _adv_llm, glm_err,
+                            "ora advisor cascade exhausted (chain=%s, last=%r) — "
+                            "falling back to orchestrator", _adv_chain, glm_err,
                         )
                         activity["label"] = (
-                            f"{_adv_llm} unavailable — switching to AUREM CTO…"
+                            "advisor models unavailable — switching to AUREM CTO…"
                         )
                         # Fall through to the AUREM/orchestrator path below.
 

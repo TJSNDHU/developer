@@ -332,6 +332,9 @@ MAX_TOKENS = {
     "code":    int(os.getenv("LLM_CODE_MAX_TOKENS", "3500")),
     "review":  int(os.getenv("LLM_REVIEW_MAX_TOKENS", "4096")),
     "analysis": int(os.getenv("LLM_ANALYSIS_MAX_TOKENS", "2000")),
+    # Iter 212m-161 — Ask Advisor dedicated budget (was hard-coded
+    # in routers/chat.py before the P1 advisor-fallback refactor).
+    "advisor": int(os.getenv("LLM_ADVISOR_MAX_TOKENS", "2500")),
     "title":     30,
     "default": int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "1500")),
 }
@@ -343,6 +346,8 @@ TEMPERATURE = {
     "title":   0.0,
     "chat":    0.7,
     "analysis": 0.4,
+    # Iter 212m-161 — Ask Advisor (slightly creative but factual).
+    "advisor": 0.2,
     "default": 0.3,
 }
 

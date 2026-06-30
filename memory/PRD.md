@@ -10847,3 +10847,27 @@ system_reminder for bug fixes (not optional). Report at
 - smart_router.py consolidation.
 - Advisor dispatch dict refactor.
 
+
+---
+
+## Iter 212m-161 — Ask Advisor multi-model cascade (2026-06-30)
+
+**Config maps**: `services/llm.py` now defines `TEMPERATURE["advisor"]=0.2` and `MAX_TOKENS["advisor"]=2500`. Honors `LLM_ADVISOR_MAX_TOKENS` env override.
+
+**Cascade** (`routers/chat.py` advisor block):
+```
+admin-selected primary (default GLM-5.2)
+    ↓ on error / empty
+Groq llama-3.3-70b rescue   (FREE, _call_groq)
+    ↓ on error / empty
+DeepSeek V3 last-resort     (cheap, _call_deepseek)
+    ↓ all exhausted
+orchestrator path           (legacy safety net)
+```
+- Self-rescue guard: if admin's primary IS Groq, skip Groq-rescue step. If admin's primary IS DeepSeek (chat or direct), skip DeepSeek-rescue.
+- `fallback_chain` field in the SSE result now lists every model walked (not just `[primary]`). Provider tags for rescue paths use distinct suffixes (`groq-llama-3.3-70b-rescue`, `deepseek-v3-rescue`) so Langfuse can compute rescue rate per primary.
+- **No Claude fallback** (per founder directive — too expensive for this use-case).
+- Hard-coded `max_tokens=2500` and `temperature=0.2` removed from `routers/chat.py`; advisor now reads from `cap_for("advisor")` / `temperature_for("advisor")`.
+
+**Tests**: 8 new tests in `tests/test_iter212m161_advisor_cascade.py` (cascade order, self-rescue guards, config-map plumbing, no-Claude assertion, fallback_chain shape). Combined suite (m155→m161): **190 passed / 2 pre-existing unrelated failures**.
+
