@@ -1858,13 +1858,27 @@ async def chat_stream(
                             max_tokens=200,
                             temperature=0.6,
                         )
+                        # Iter 212m-155 — BUG FIX: previously set `reply`
+                        # here, but the SSE worker downstream reads
+                        # `result["content"]` (line ~2081) to stream
+                        # tokens.  Key mismatch caused every casual
+                        # "hi" greeting on PROD to render as an empty
+                        # assistant bubble (caught by iter 212m-154
+                        # PROD chat E2E).  Switching to the canonical
+                        # `content` key — same shape as every other
+                        # mode (B/D/F/orchestrator).  Fallback to a
+                        # friendly "Hey!" so the bubble is never empty.
                         result = {
                             "ok":               True,
-                            "reply":            _casual_reply or "Hey!",
-                            "tool_invocations": [],
+                            "content":          (_casual_reply or "").strip() or "Hey! How can I help you ship today?",
+                            "provider":         "intent-gateway-casual",
+                            "fallback_chain":   ["intent_casual"],
+                            "iterations":       1,
                             "tool_calls_run":   0,
+                            "tool_invocations": [],
                             "intent":           _intent_result,
                             "tier":             _tier,
+                            "mode":             "chat",
                         }
                         await q.put({"type": "result", "result": result})
                         return
@@ -2083,6 +2097,32 @@ async def chat_stream(
         mode = _detect_mode(body.prompt)
         from services.llm import temperature_for
         temperature = temperature_for(mode)
+
+        # Iter 212m-155 — SAFETY NET against silent SSE close.
+        # On PROD, the agentic tier occasionally returned an empty
+        # `content` (caused by upstream LLM throttle / mid-loop bail
+        # / no-tools-needed branch that produced no text).  The
+        # streaming loop below then yielded zero token frames and
+        # the user was stuck on "thinking…" forever.  We now emit a
+        # graceful fallback so the bubble always has something to
+        # render — even when the upstream pipeline failed silently.
+        if not content.strip():
+            _fb_reasons = []
+            _fb_err = result.get("error") or result.get("warning")
+            if _fb_err:
+                _fb_reasons.append(str(_fb_err)[:160])
+            if result.get("tool_calls_run", 0) == 0 and (result.get("iterations", 0) or 0) > 0:
+                _fb_reasons.append("the model decided no tools were needed")
+            _tier_hint = result.get("tier") or result.get("intent", {}).get("tier") or "agentic"
+            content = (
+                f"_(I wasn't able to produce a reply for this {_tier_hint} request"
+                + (f": {_fb_reasons[0]}" if _fb_reasons else ".")
+                + " Please rephrase or try again — the chat itself is healthy.)_"
+            )
+            logger.warning(
+                "chat_stream: empty content fallback used (tier=%s tool_calls_run=%s iters=%s)",
+                _tier_hint, result.get("tool_calls_run"), result.get("iterations"),
+            )
 
         meta = {"meta": True, "session_id": body.session_id,
                 "provider": provider, "mode": mode, "temperature": temperature,

@@ -12,6 +12,45 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-155 — Chat casual empty-bubble + agentic-hang safety net (Feb 2026) ✅
+
+**PROD chat E2E (iter 212m-154 report)** caught 2 critical chat bugs on the founder's account:
+  1. **CASUAL tier empty bubble** — sending "hi" rendered an EMPTY assistant bubble.  SSE stream returned 200 text/event-stream but no token frames.  Persisted across reload.
+  2. **AGENTIC tier hang** — "list top-level files of this repository" stuck at "thinking · 8.0s" for the full 60 s wait window.  No 4xx/5xx surfaced.
+
+**Root cause of #1**: The intent-gateway casual fast-path wrote the LLM reply into `result["reply"]`, but the downstream SSE worker reads `result["content"]` (line 2095) to drive the token-streaming loop.  Key mismatch = zero tokens emitted = empty bubble.  Every other mode (B / D / F / orchestrator) uses `"content"` — the casual branch was the odd one out.
+
+**Fix #1** — Surgical: switch the casual `result` dict from `"reply"` → `"content"` and match the shape of every other mode.  Also bumped the empty-LLM fallback from `"Hey!"` to `"Hey! How can I help you ship today?"` (substantive multi-word so the bubble never reads weird).  New provider tag `intent-gateway-casual` so the source of every casual reply is traceable in logs + Langfuse.
+
+**Live proof on preview**: curl `POST /chat/stream` with `prompt:"hi"` now emits the correct sequence:
+```
+data: {"type": "intent", "intent": {"tier": "casual", ...}}
+data: {"meta": ..., "provider": "intent-gateway-casual"}
+data: {"token": "Hey th"}
+data: {"token": "ere! 👋"}
+data: {"token": " What'"}
+data: {"token": "s up?"}
+data: {"done": true, "provider": "intent-gateway-casual", ...}
+```
+
+**Fix #2** — Agentic hang safety net.  Without access to PROD logs the exact cause of the freeze is not pinpointed (could be DeepSeek throttling on $0.72 balance, tool-call dispatch issue, or a no-tool-needed branch returning empty content).  Added a defensive guard in `chat.py::stream_chat` right before the token-streaming loop: when `result.get("content")` is blank for ANY reason, emit a friendly explainer message instead of zero token frames.
+
+This guarantees the user is NEVER stuck on a frozen "thinking…" bubble — even if the upstream pipeline fails silently.  Logs the failure path so the next debugging pass has signal (`empty content fallback` warning with `tier / tool_calls_run / iters`).
+
+**Frontend QA finding #3 (PersistentFixBar discoverability)** — closed as not-a-bug.  The component already exposes `data-testid="persistent-fix-bar"` on its root div (line 73 of PersistentFixBar.jsx).  It returns `null` when `status === "idle"` which is the normal state on a fresh dashboard.  Pin-tested via the new `test_persistent_fix_bar_has_testid` guard so the testid can't silently disappear.
+
+**Frontend QA finding #4 (/projects/list 404)** — closed as documentation drift.  Working path is `/api/aurem-dev/cto/projects/list` (mounted with the `/cto` prefix in `main.py`).  Several iter notes referenced the shorter path; updating callers is queued as a P2 cleanup item — no functional regression.
+
+**Test coverage** — 4 new pytests in `test_iter212m155_chat_casual_content_key.py`:
+  • Casual branch uses `content` key (not `reply`).
+  • Casual fallback string is substantive multi-word.
+  • SSE worker has empty-content safety net (logger marker + user-visible explainer).
+  • PersistentFixBar carries its testid + intentional idle gating.
+
+**Regression**: 140/140 passing across iters 149-155.
+
+
+
 ### Iter 212m-154 — Founder-level PROD regression batch fix (Feb 2026) ✅
 
 Five surgical fixes for issues caught by the iter 212m-153 PROD QA pass.  Shipped in a single deploy at the founder's request: "Sab ek saath, ek deploy mein."
