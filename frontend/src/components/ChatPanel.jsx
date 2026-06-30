@@ -2770,10 +2770,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         />
       </div>
 
-      {/* Iter 212m-103 — LoopModeToggle is now rendered INSIDE the
-          composer toolbar (next to Paperclip / Github icons). The line
-          here is intentionally a no-op so the toolbar render order is
-          the single source of truth. */}
+      {/* Iter 212m-163 — Loop mode pill is now rendered INSIDE the
+          composer toolbar (next to the IntentTierIndicator), driven
+          by `isLoopUnlocked` so founder/admin/unlimited see the
+          unlocked pill and everyone else sees the locked "Loop · soon"
+          variant.  The actual JSX lives in the composer-toolbar block
+          below (search the toolbar for the LoopModeToggle tag). */}
 
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by
@@ -3160,12 +3162,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               ))}
             </select>
           )}
-          {/* Iter 212m-149 — Loop toggle REPLACED by the Intent Tier
-              Indicator. Read-only display: shows what tier the
-              Gateway picked for this message (casual / query /
-              agentic / clarify).  Not a toggle — the Gateway routes
-              for us. */}
+          {/* Iter 212m-149 → 212m-163 — Intent Tier Indicator + Loop
+              toggle BOTH live here.  The Intent Gateway still
+              auto-routes every message (casual / query / agentic /
+              clarify); the Loop pill is a manual override for
+              founder/admin/unlimited users who want to force the full
+              Plan → Execute → Verify → Ship pipeline regardless of
+              the Gateway's tier pick.  Free / paid non-admin users
+              see a locked "Loop · soon" variant so the surface stays
+              consistent without giving them the engine. */}
           <IntentTierIndicator liveText={input} lastTier={lastIntentTier} />
+          <LoopModeToggle
+            value={execMode}
+            onChange={handleExecModeChange}
+            locked={!isLoopUnlocked}
+          />
 
           {busy ? (
             <button

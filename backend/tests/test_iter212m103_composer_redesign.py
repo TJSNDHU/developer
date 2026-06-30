@@ -70,12 +70,19 @@ def test_send_button_is_circular_pill():
 
 def test_loop_mode_toggle_lives_inside_toolbar():
     src = _read("components/ChatPanel.jsx")
-    # Iter 212m-103 — the toggle must render inside the composer toolbar
-    # block (not above the composer like the legacy implementation).
-    # We assert the source ordering by finding the toolbar open + the
-    # LoopModeToggle tag below it.
+    # Iter 212m-103 → 212m-163 — the toggle must render inside the
+    # composer toolbar block (not above the composer like the legacy
+    # implementation).  We assert the source ordering by finding the
+    # toolbar open + the LoopModeToggle tag below it.
+    #
+    # Iter 212m-163 reinstated the toggle (founder/admin only) after
+    # Iter 212m-149 had temporarily replaced it with the
+    # IntentTierIndicator.  Accept either single-line or multi-line
+    # JSX shape.
+    import re
     toolbar_idx = src.find('<div className="composer-toolbar">')
-    toggle_idx = src.find("<LoopModeToggle value={execMode}")
+    m = re.search(r"<LoopModeToggle\b", src)
+    toggle_idx = m.start() if m else -1
     send_idx   = src.find('data-testid="chat-send"')
     assert toolbar_idx != -1, "composer-toolbar opener not found"
     assert toggle_idx != -1, "LoopModeToggle not mounted"
