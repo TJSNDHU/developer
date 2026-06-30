@@ -1,0 +1,47 @@
+{
+  "summary": "PROD chat E2E completed against https://auremcto.com using founder credentials teji.ss1986@gmail.com/Singh1986$. Tested both desktop (1440x900) and mobile (390x844). Used the EXISTING connected project 'automation' → TJSNDHU/Aurem (status=connected, 56 tasks_done) instead of creating a new one — the founder already has 1 project (not 0 as task assumed; /projects/list path used in task is 404 — actual endpoint is /api/aurem-dev/cto/projects/list which returns the 'automation' project pointing at TJSNDHU/Aurem). No code modifications were made. All SSE chat streams returned HTTP 200 with text/event-stream. /auth/me, login, /cto/projects/list, /chat/sessions all clean. Found 2 functional issues: (1) CASUAL-tier replies render with an EMPTY assistant bubble (no text streamed back) on both desktop and mobile, (2) AGENTIC tier request 'list the top-level files of this repository' hung in 'thinking · 8.0s' state for >60s without producing a repo file listing during the test window. Found 1 instrumentation gap: PersistentFixBar component is NOT discoverable via any reasonable selector (no data-testid, no class match) on either viewport — either it isn't mounted on /dashboard or it lacks discoverable hooks, blocking the 'fix bar must not overlap composer' verification.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/projects/list", "issue": "Returns 404 'Not Found' — referenced in task spec and likely in older docs. Actual working path is /api/aurem-dev/cto/projects/list. Recommend adding an alias or updating callers/docs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ChatPanel — CASUAL tier response", "issue": "Sending a casual message ('hi there testing 212m154' desktop, 'hi from mobile test' mobile) creates the user bubble and shows the CASUAL tier pill, but the assistant reply bubble renders empty (just a black pill with no text) even after waiting 30s and after a full page reload. The empty bubble persists across reload (so the missing content is server-side, not just a transient render). Network: /chat/stream returns 200 text/event-stream — so the stream opens but appears to emit no text frame, OR the FE drops the frame. Compare with QUERY tier in same session which renders a full answer in <10s.", "selector": "assistant bubble after user 'hi' message in ChatPanel", "priority": "HIGH"},
+      {"component": "ChatPanel — AGENTIC tier", "issue": "'list the top-level files of this repository' classified correctly (visible thinking pill) but stayed in 'thinking · 8.0s' state for the full 60s wait window with no tool-call output or file listing rendered. The repo IS connected (TJSNDHU/Aurem, has_pat=true). Either the agentic tool call is very slow, hanging, or not wired up for the read-only listing path. No 4xx/5xx surfaced.", "selector": "[class*='thinking'] bubble after agentic prompt", "priority": "HIGH"},
+      {"component": "PersistentFixBar", "issue": "Component not discoverable in DOM on /dashboard at either 1440x900 or 390x844 via any of: [data-testid*='persistent'|'fix-bar'], [class*='PersistentFix'|'FixBar'|'fix-bar']. Either not mounted, or it lacks the data-testid the task description references. This blocks E2E verification of 'fix bar must not overlap composer'.", "selector": "[data-testid*='persistent-fix-bar']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Casual chat reply", "issue": "SSE stream HTTP 200 text/event-stream opens but no visible assistant text rendered. Possibly the casual tier emits an empty/zero-length completion or only a system ack that ChatPanel filters out.", "affected_selectors": ["assistant bubble"]}
+    ],
+    "design_issues": [
+      {"screen": "Mobile chat (390x844)", "issues": ["Composer sits at top=686 / bottom=742, well clear of 844 viewport bottom — input not eaten by keyboard, send button reachable. Top header tabs (Swift/Pro/Maxx, Chat/Preview/Graph) appear cramped and the '10 ships this week — tap to share' floating banner partially overlaps the 'New run' button in the top-right at 390px width."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_iter212m154_prod_chat_e2e.json"
+  ],
+  "action_items": [
+    "Investigate why CASUAL-tier (intent_gateway classifier output 'casual') yields an empty assistant bubble on PROD even though SSE stream returns 200. Check backend/core/intent_gateway.py casual branch + backend/routers/chat.py /chat/stream handler — is the casual tier emitting `data: [DONE]` immediately without a content frame? Or is the FE filtering it?",
+    "Investigate AGENTIC tier latency / hang for repo-listing prompts. 'list the top-level files of this repository' should hit the GitHub read_repo_file/get_dependencies tool path and return file names from TJSNDHU/Aurem within <30s. Confirm tool calls fire and that loop_engine.execute returns within a sensible budget.",
+    "Add a discoverable `data-testid` (e.g. `data-testid=\"persistent-fix-bar\"`) on the PersistentFixBar root element so E2E can verify its presence and overlap behavior, OR confirm whether the component is intentionally gated and not mounted on /dashboard for the founder.",
+    "Add 404 alias OR update callers/docs: /api/aurem-dev/projects/list is 404 on PROD; the working path is /api/aurem-dev/cto/projects/list. Several iter notes/specs reference the shorter path."
+  ],
+  "critical_code_review_comments": [
+    "Frontend ChatPanel.jsx is reported to be 3417 lines after the iter 212m-153 split — still well over the 700-line guideline. Consider further extraction (tier indicator, recall banner, message list virtualization) to make the casual-empty-bubble bug easier to isolate.",
+    "Backend: ensure /chat/stream emits at least a sentinel content frame for the casual tier so the FE never has to render an 'empty' bubble. Even a one-token ack ('Hi 👋') is preferable to silent SSE close.",
+    "Backend: /projects/list returning 404 instead of being aliased to /cto/projects/list is a footgun for any internal script/test still referencing the legacy path."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "90%", "frontend": "60%"},
+  "test_credentials": "PROD founder teji.ss1986@gmail.com / Singh1986$ — login HTTP 200, JWT issued, /auth/me returns tier=founder, is_admin=true, is_unlimited=true, GitHub login=RerootsBeauty (but the only existing project 'automation' points at TJSNDHU/Aurem with has_pat=true).",
+  "seed_data_creation": "None. Did NOT create a new project — used the existing 'automation' (project_id p_c2b5b8a916, repo TJSNDHU/Aurem) which is the only project on the founder account. Sent 4 chat messages on PROD which appear in /chat/sessions history (1 desktop casual 'hi there testing 212m154', 1 desktop query 'in one sentence, what is FastAPI?', 1 desktop agentic 'list the top-level files of this repository', 1 mobile casual 'hi from mobile test'). Did NOT delete them per task instruction (leave-if-cant-clean).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PROD founder login works. JWT in localStorage key `aurem_token`. Composer is `textarea` (placeholder 'Ask ORA to build, fix, or scan...'). Tier indicator appears as a small pill (CASUAL/QUERY/AGENTIC) near send button after submit. SSE endpoint is /api/aurem-dev/chat/stream returning text/event-stream. The CASUAL-empty-bubble and AGENTIC-hang findings are reproducible — repeat with new prompts and capture raw SSE frames (curl with Accept: text/event-stream) to isolate FE vs BE. PersistentFixBar selector unknown — recommend grepping frontend/src for the component name first.",
+  "rca_of_the_issue": {
+    "casual_empty_bubble": "Reproduction: Login as founder on PROD → /dashboard (project TJSNDHU/Aurem auto-loaded) → type 'hi there testing 212m154' → Enter. Expected: assistant bubble with greeting. Actual: bubble renders empty, persists across full page reload. SSE call returns 200 text/event-stream and there are no 4xx/5xx anywhere. Hypothesis: casual tier in intent_gateway short-circuits without emitting a content delta, OR the FE's SSE consumer in ChatPanel doesn't render the casual ack frame shape. Mitigation: in /chat/stream casual branch, always emit at least one `data: {\"delta\":\"...\"}` frame before `[DONE]`.",
+    "agentic_hang": "Reproduction: Same project, send 'list the top-level files of this repository'. Expected: tool call → list of repo files within ~20s. Actual: thinking pill stuck at '8.0s' through full 60s wait window. Mitigation: add execution timeout + user-facing 'tool timeout' message in loop_engine.execute, and verify GitHub tool calls actually fire (capture logs for read_repo_file invocations on this user_id)."
+  }
+}

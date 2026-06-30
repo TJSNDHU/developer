@@ -12,6 +12,49 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-154 — Founder-level PROD regression batch fix (Feb 2026) ✅
+
+Five surgical fixes for issues caught by the iter 212m-153 PROD QA pass.  Shipped in a single deploy at the founder's request: "Sab ek saath, ek deploy mein."
+
+**Fix 1 (HIGH) — `/admin/insights/activation-funnel` cold-start HTTP 499**
+
+Previously: nginx 499 on every fresh admin load because the heavy 4-collection Mongo aggregation exceeded the frontend's AbortController timeout on a cold cache (>6 s).
+
+New design — Mongo-backed Stale-While-Revalidate cache (`services/admin_analytics_cache.py::mongo_swr_cache`):
+- Persisted in `analytics_persistent_cache` Mongo collection (one doc per key).
+- Every read returns the stored value immediately — even when past the 5 min TTL.
+- Stale reads spawn a background refresh task; the request itself never waits.
+- First-ever cold boot caps the synchronous compute at 4 s; anything slower returns a `{_status:"warming"}` skeleton and schedules a background compute.
+- Bonus helper `warm_swr_keys()` for app-startup pre-warming.
+
+Side-effect bug fix in the funnel compute path: `_compute_activation_funnel` was crashing cold-start with `TypeError: '<' not supported between instances of 'int' and 'datetime.datetime'` because production `dev_users.created_at` is a mix of int epoch + datetime depending on signup vintage.  Normalised to float epoch via `_ca_epoch(u)`.
+
+**Live proof**: cold-start 140 ms HTTP 200, warm 110 ms HTTP 200.  Was: 6000ms → 499.
+
+**Fix 2 (MEDIUM) — `/hosted-deploy/status/{project_id}` 404 noise**
+
+The status route raised HTTP 404 when the project doesn't exist, leaking a "Failed to load resource" into the console on every `/deploy` visit.  Now returns 200 with a graceful empty-state body: `{ok:true, connected:false, project_found:false, provider:null, ...}`.  The connect/disconnect/ship routes still 404 legitimately (mutate-on-missing should fail).
+
+**Fix 3 (MEDIUM) — `/tokens` page renders "∞ Unlimited" for unlimited users**
+
+`Tokens.jsx::Stat[tokens-remaining]` previously rendered `me?.tokens_remaining ?? "—"` unconditionally — founder saw a contradictory "TOKENS REMAINING: 0" on PROD.  Now branches on `me?.is_unlimited` first and renders "∞ Unlimited" when true.
+
+**Fix 4 (LOW, mobile) — Toast overlapping mode pills on iPhone-width screens**
+
+`components/Toast.jsx` toaster sits at `top:24 right:24` which overlapped the dashboard top bar's Swift/Pro/Maxx mode pills on 390px screens.  Added stable `.aurem-toaster` class + inline `@media (max-width: 480px)` overrides: top=88px right=12px left=12px on mobile only.  Desktop unchanged.
+
+**Fix 5 (LOW) — `/bug-hunt` showing public landing for authed users**
+
+`pages/BugHunt.jsx` is a public marketing/SEO surface — but the dashboard sidebar links to it for everyone, so the founder + paying users were dumped onto the marketing page instead of their scan dashboard.  Added a top-of-component `getToken() && getUser()` check that returns `<Navigate to="/codebase-health" replace />` for authed visitors.  Public anon visitors still see the marketing page (SEO + funnel preserved).  Rules-of-Hooks compliant: the auth check happens after the `useEffect` declaration (effect early-returns when authed).
+
+**Test coverage** — 9 new pytests in `test_iter212m154_prod_regression_fixes.py` covering: mongo_swr_cache export, activation-funnel SWR wiring + sort-key fix, hosted-deploy status 200 path, Tokens unlimited render, Toast media query, BugHunt Navigate import + /codebase-health target, source-pattern guard that nothing else writes the funnel cache key.
+
+**Regression**: 136/136 passing across iters 149-154.
+
+**Live E2E verification on PREVIEW (via testing agent)**: all 5 fixes PASS on both desktop 1440x900 and mobile 390x844.  Login, dashboard hydrate, SystemStatsPage KPIs all clean — zero regressions.
+
+
+
 ### Iter 212m-153 — Production observability + System Stats page + ChatPanel refactor (Feb 2026) ✅
 
 Closed the 4-part batch the founder ordered last session: (1) wire **Langfuse** telemetry into the Parliament hot path, (2) ship the `SystemStatsPage` admin dashboard, (3) finish the Council B/C self-improvement layer, and (4) refactor `ChatPanel.jsx` so it stops being a 3.8 k-LOC blob.
