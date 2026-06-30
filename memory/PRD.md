@@ -10802,3 +10802,21 @@ system_reminder for bug fixes (not optional). Report at
 ---
 
 
+
+---
+
+## Iter 212m-159 — Parliament V2 Routing (2026-06-30)
+
+**Implemented:**
+- 3 env flags wired in `services/llm.py`: `LONGCAT_ENABLED`, `COUNCIL_B_GLM_ENABLED`, `CEO_RESCUE_ENABLED` (all default false, all enabled in backend/.env).
+- `_call_longcat()` helper for `meituan/longcat-2.0` via OpenRouter; auto-falls-back to GLM-5.2 when LongCat returns empty (LongCat-2.0 not yet live on OpenRouter as of 2026-06-30).
+- New `mode="analysis"` (Council B path): GLM-5.2 primary + DeepSeek V3 rescue when `COUNCIL_B_GLM_ENABLED=true`; falls through to legacy DeepSeek when false.
+- `_ceo_judge_call_with_rescue()` in `core/parliament.py`: wraps CEO judge GLM-5.2 call in `CEO_PRIMARY_TIMEOUT_S` (2s); on timeout / empty / error → DeepSeek V3 rescue under distinct trace name `parliament.ceo.rescue`.
+- Langfuse trace metadata now carries `primary_model`, `v2_longcat`, `v2_council_b_glm`, `v2_ceo_rescue` on every Council member vote.
+
+**Tests:** 22 new tests in `tests/test_iter212m159_parliament_v2_routing.py` (all pass). Architectural guard test `test_parliament_wired_only_in_loop_engine` still green.
+
+**Critical finding:** `meituan/longcat-2.0` returns "not a valid model ID" from OpenRouter (probed live). Council A primary therefore silently uses GLM-5.2 today via the LongCat→GLM fallback. Flip `LONGCAT_ENABLED=false` if the warning logs are noisy; flip back when LongCat is published.
+
+**Shadow test:** Not run because LongCat is unreachable on OpenRouter — would burn budget producing only error rows. Re-run once LongCat is live.
+

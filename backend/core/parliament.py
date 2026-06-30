@@ -422,20 +422,37 @@ class _CouncilMember:
 
     async def cast_vote(self, *, task: str, context: dict) -> dict:
         """Returns: {member, output, score, error, latency_ms, temp}."""
+        # Iter 212m-159 — surface the V2 routing primary on each trace so
+        # Langfuse dashboards can filter Parliament runs by model.
+        from services.llm import (
+            LONGCAT_ENABLED, COUNCIL_B_GLM_ENABLED, CEO_RESCUE_ENABLED,
+            council_a_primary_model, council_b_primary_model,
+        )
+        council_id = context.get("council") or ""
+        if council_id == "A":
+            primary_model = council_a_primary_model()
+        elif council_id == "B":
+            primary_model = council_b_primary_model()
+        else:
+            primary_model = "deepseek/deepseek-chat"
         content, latency_ms, err = await _llm_call_protected(
             system=self.persona, user=task,
             max_tokens=self.max_tokens, mode=self.mode,
             review_mode=self.review_mode,
             user_id=context.get("user_id"),
             temperature=self.temperature,
-            trace_name=f"parliament.council.{context.get('council', '?')}.{self.name}",
+            trace_name=f"parliament.council.{council_id or '?'}.{self.name}",
             trace_metadata={
-                "trace_id":     context.get("parliament_trace_id"),
-                "council":      context.get("council"),
-                "member":       self.name,
-                "task_type":    context.get("task_type"),
-                "user_id":      context.get("user_id"),
-                "file_path":    context.get("file_path"),
+                "trace_id":         context.get("parliament_trace_id"),
+                "council":          council_id,
+                "member":           self.name,
+                "task_type":        context.get("task_type"),
+                "user_id":          context.get("user_id"),
+                "file_path":        context.get("file_path"),
+                "primary_model":    primary_model,
+                "v2_longcat":       LONGCAT_ENABLED,
+                "v2_council_b_glm": COUNCIL_B_GLM_ENABLED,
+                "v2_ceo_rescue":    CEO_RESCUE_ENABLED,
             },
         )
         if err:
@@ -534,18 +551,24 @@ class CouncilB(_Council):
     (skeptic).  Scoring uses a structural heuristic — analysis has no
     binary pass/fail like code tests, so we credit numbers, structure,
     appropriate length, and the presence of an actionable conclusion.
+
+    Iter 212m-159 — mode="analysis" instead of "chat".  When
+    COUNCIL_B_GLM_ENABLED=true, services/llm.py routes analysis to
+    GLM-5.2 (reasoning model) with DeepSeek V3 rescue.  When the flag
+    is False, mode="analysis" falls through to the same DeepSeek path
+    as mode="chat", so Council B is byte-identical to legacy.
     """
     name = "B"
     members = [
         _CouncilMember(name="B1-analyst",
                        temperature=0.3, persona=_COUNCIL_B_PERSONAS[0],
-                       mode="chat", max_tokens=1200),
+                       mode="analysis", max_tokens=1200),
         _CouncilMember(name="B2-advisor",
                        temperature=0.4, persona=_COUNCIL_B_PERSONAS[1],
-                       mode="chat", max_tokens=1200),
+                       mode="analysis", max_tokens=1200),
         _CouncilMember(name="B3-skeptic",
                        temperature=0.5, persona=_COUNCIL_B_PERSONAS[2],
-                       mode="chat", max_tokens=1200),
+                       mode="analysis", max_tokens=1200),
     ]
 
 
@@ -755,12 +778,10 @@ class CEO:
             "digit, 0/1/2).  No explanation, no JSON, no commentary."
         )
         usr = f"TASK:\n{task[:1500]}\n\nCANDIDATES:\n{choices_text}"
-        content, _ms, err = await _llm_call_protected(
-            system=sys, user=usr, max_tokens=8, mode="chat",
-            review_mode="swift",
+        content, _ms, err = await _ceo_judge_call_with_rescue(
+            system=sys, user=usr, max_tokens=8,
             user_id=context.get("user_id"),
             temperature=temperature,
-            trace_name="parliament.ceo.judge",
             trace_metadata={
                 "trace_id":   context.get("parliament_trace_id"),
                 "council":    context.get("council"),
@@ -776,6 +797,95 @@ class CEO:
             return None
         idx = int(m.group(0))
         return idx if 0 <= idx < len(candidates) else None
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Iter 212m-159 — CEO judge primary+rescue wrapper.
+# ─────────────────────────────────────────────────────────────────────
+async def _ceo_judge_call_with_rescue(
+    *, system: str, user: str, max_tokens: int,
+    user_id: Optional[str], temperature: float,
+    trace_metadata: dict,
+) -> tuple[str, float, Optional[str]]:
+    """CEO judge LLM call with optional DeepSeek rescue.
+
+    When `CEO_RESCUE_ENABLED=False` (default): single call to
+    `_llm_call_protected` with the legacy params (mode=chat, review_mode=swift
+    → GLM-5.2 primary via the V2 routing).
+
+    When True (V2): wrap the primary call in `CEO_PRIMARY_TIMEOUT_S` seconds.
+    On TimeoutError OR empty content, issue a second call with the rescue
+    model (DeepSeek V3 by default) under a separate Langfuse span
+    `parliament.ceo.rescue`.  This eliminates the single-point-of-failure
+    that the CEO was previously.
+
+    Returns the same (content, latency_ms, err_tag) tuple shape as
+    `_llm_call_protected`.
+    """
+    from services.llm import CEO_RESCUE_ENABLED, CEO_PRIMARY_TIMEOUT_S
+
+    md_primary = {**trace_metadata, "ceo_role": "primary", "ceo_rescue_enabled": CEO_RESCUE_ENABLED}
+
+    if not CEO_RESCUE_ENABLED:
+        return await _llm_call_protected(
+            system=system, user=user, max_tokens=max_tokens,
+            mode="chat", review_mode="swift",
+            user_id=user_id, temperature=temperature,
+            trace_name="parliament.ceo.judge",
+            trace_metadata=md_primary,
+        )
+
+    # V2 — primary with hard timeout
+    primary_task = _llm_call_protected(
+        system=system, user=user, max_tokens=max_tokens,
+        mode="chat", review_mode="swift",
+        user_id=user_id, temperature=temperature,
+        trace_name="parliament.ceo.judge",
+        trace_metadata=md_primary,
+    )
+    t0 = time.monotonic()
+    primary_timed_out = False
+    primary_err: Optional[str] = None
+    primary_content = ""
+    primary_latency = 0.0
+    try:
+        primary_content, primary_latency, primary_err = await asyncio.wait_for(
+            primary_task, timeout=CEO_PRIMARY_TIMEOUT_S
+        )
+    except asyncio.TimeoutError:
+        primary_timed_out = True
+        primary_err = "primary_timeout"
+        primary_latency = round((time.monotonic() - t0) * 1000, 1)
+        logger.warning(
+            "CEO judge primary (GLM-5.2) exceeded %.1fs — firing DeepSeek rescue",
+            CEO_PRIMARY_TIMEOUT_S,
+        )
+
+    # Decide whether to rescue: timeout OR primary failed OR empty content
+    needs_rescue = primary_timed_out or bool(primary_err) or not (primary_content or "").strip()
+    if not needs_rescue:
+        return primary_content, primary_latency, None
+
+    md_rescue = {
+        **trace_metadata,
+        "ceo_role":          "rescue",
+        "rescue_reason":     "timeout" if primary_timed_out else (primary_err or "empty"),
+        "primary_latency_ms": primary_latency,
+    }
+    # DeepSeek rescue via mode="chat" (no review_mode → bypasses GLM, uses DeepSeek)
+    rescue_content, rescue_latency, rescue_err = await _llm_call_protected(
+        system=system, user=user, max_tokens=max_tokens,
+        mode="chat", review_mode="",
+        user_id=user_id, temperature=temperature,
+        trace_name="parliament.ceo.rescue",
+        trace_metadata=md_rescue,
+    )
+    if rescue_err or not (rescue_content or "").strip():
+        # Both primary and rescue failed → return whichever has signal.
+        if (primary_content or "").strip():
+            return primary_content, primary_latency, None
+        return "", rescue_latency, (rescue_err or "rescue_empty")
+    return rescue_content, rescue_latency, None
 
 
 # ─────────────────────────────────────────────────────────────────────

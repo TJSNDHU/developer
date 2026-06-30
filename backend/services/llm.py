@@ -331,6 +331,7 @@ MAX_TOKENS = {
     "chat":    int(os.getenv("LLM_CHAT_MAX_TOKENS", "4000")),
     "code":    int(os.getenv("LLM_CODE_MAX_TOKENS", "3500")),
     "review":  int(os.getenv("LLM_REVIEW_MAX_TOKENS", "4096")),
+    "analysis": int(os.getenv("LLM_ANALYSIS_MAX_TOKENS", "2000")),
     "title":     30,
     "default": int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "1500")),
 }
@@ -341,6 +342,7 @@ TEMPERATURE = {
     "review":  0.0,
     "title":   0.0,
     "chat":    0.7,
+    "analysis": 0.4,
     "default": 0.3,
 }
 
@@ -348,6 +350,51 @@ _DEEPSEEK_HOSTS = ["deepseek", "streamlake", "deepinfra", "novita"]
 
 # Modes that use Claude for better code quality
 _CLAUDE_MODES = {"code", "review"}
+
+# ─── Iter 212m-159 — V2 council routing flags ─────────────────────────────────
+# Per /app/memory/V2_ROUTING_ROADMAP.md. All flags default False so
+# existing callers see zero behaviour change until env enables them.
+#
+#   LONGCAT_ENABLED       → Council A primary swaps GLM-5.2 → LongCat-2.0
+#                           Claude Sonnet 4.5 remains the rescue for pro/maxx.
+#   COUNCIL_B_GLM_ENABLED → mode="analysis" primary uses GLM-5.2 with DeepSeek
+#                           rescue.  When False, mode="analysis" behaves like
+#                           mode="chat" (DeepSeek only) — Council B unchanged.
+#   CEO_RESCUE_ENABLED    → CEO judge wraps its GLM-5.2 call in a
+#                           2 s timeout; on timeout falls back to DeepSeek.
+LONGCAT_ENABLED       = os.getenv("LONGCAT_ENABLED", "false").lower() == "true"
+COUNCIL_B_GLM_ENABLED = os.getenv("COUNCIL_B_GLM_ENABLED", "false").lower() == "true"
+CEO_RESCUE_ENABLED    = os.getenv("CEO_RESCUE_ENABLED", "false").lower() == "true"
+
+# OpenRouter model strings
+_LONGCAT_MODEL  = os.getenv("LONGCAT_MODEL", "meituan/longcat-2.0")
+
+# CEO rescue config (used when CEO_RESCUE_ENABLED=True — see core/loop hub)
+CEO_PRIMARY_TIMEOUT_S = float(os.getenv("CEO_PRIMARY_TIMEOUT_S", "2.0"))
+CEO_RESCUE_MODEL      = os.getenv("CEO_RESCUE_MODEL", "deepseek/deepseek-chat")
+
+
+def council_a_primary_model() -> str:
+    """Returns the Council A primary model id.
+
+    V2: LongCat-2.0 when LONGCAT_ENABLED=True, else legacy GLM-5.2.
+    Read on every call so env flips take effect on next supervisor restart
+    without a code change.
+    """
+    if LONGCAT_ENABLED:
+        return _LONGCAT_MODEL
+    return _GLM_MODEL
+
+
+def council_b_primary_model() -> str:
+    """Returns the Council B primary model id.
+
+    V2: GLM-5.2 when COUNCIL_B_GLM_ENABLED=True, else DeepSeek V3 (legacy).
+    Council C is unchanged (always DeepSeek) and routed via mode="chat".
+    """
+    if COUNCIL_B_GLM_ENABLED:
+        return _GLM_MODEL
+    return _deepseek_model()
 
 
 def cap_for(mode: str) -> int:
@@ -671,6 +718,61 @@ async def _call_glm(system: str, user: str,
     return content or ""
 
 
+# ── LongCat-2.0 path (Iter 212m-159 — Council A primary) ─────
+
+async def _call_longcat(system: str, user: str,
+                        max_tokens: int = 3500,
+                        temperature: float = 0.0) -> str:
+    """Call LongCat-2.0 (`meituan/longcat-2.0`) via OpenRouter.
+
+    Only invoked when `LONGCAT_ENABLED=true` and the caller routes via
+    Council A (`mode="code"` + Swift/Pro/Maxx).  Mirrors `_call_glm`'s
+    shape so the routing block can swap models with a single conditional.
+
+    Iter 212m-159 — Safety net: as of the V2 roll-out LongCat-2.0 is not
+    yet published on OpenRouter under the documented slug.  When the
+    upstream returns an empty string (invalid-model 400, no-endpoints
+    404, or quota exhaustion through the free-tier walk), we silently
+    fall back to GLM-5.2 so Council A never blank-ships.  Once LongCat
+    is live on OpenRouter this fallback never fires.  Returns the
+    assistant content string.
+    """
+    if not _openrouter_key():
+        logger.info(
+            "OPENROUTER_API_KEY not set — LongCat call falling back to DeepSeek"
+        )
+        return await _call_deepseek(
+            messages=[{"role": "user", "content": user}],
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    content = await call_openrouter_model(
+        model=_LONGCAT_MODEL,
+        system=system,
+        user=user,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    if not (content or "").strip():
+        # LongCat unreachable on OpenRouter today — silent GLM-5.2 fall-through.
+        # Logged at WARNING so the on-call sees the fallback rate in Langfuse
+        # and the moment LongCat becomes live this line vanishes.
+        logger.warning(
+            "_call_longcat: %s returned empty — falling back to GLM-5.2",
+            _LONGCAT_MODEL,
+        )
+        try:
+            return await _call_glm(
+                system=system, user=user,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+        except Exception as e:
+            logger.error("_call_longcat: GLM-5.2 fallback also failed: %r", e)
+            return ""
+    return content
+
+
 # ── Unified entry point ───────────────────────────────────────────────────────
 
 async def call_openrouter_model(
@@ -918,6 +1020,8 @@ async def _call_llm_with_meta_inner(system: str, user: str,
     actual_tokens = min(max_tokens, cap_for(mode))
 
     # ── Iter 212m-18 — Review-mode routing (Swift / Pro / Maxx) ─────────
+    # Iter 212m-159 — Council A primary swaps GLM-5.2 → LongCat-2.0 when
+    # LONGCAT_ENABLED=true AND mode=="code".  Claude rescue path unchanged.
     rm = (review_mode or "").lower().strip()
     if rm in {"swift", "pro", "maxx"}:
         # Maxx-budget gate still applies — Pro/Maxx tiers track Claude
@@ -944,7 +1048,13 @@ async def _call_llm_with_meta_inner(system: str, user: str,
             except Exception as e:
                 logger.warning(f"maxx budget check failed (allowing): {e!r}")
 
-        # Step 1 — always GLM first.
+        # Iter 212m-159 — pick Council A primary based on flag + mode.
+        use_longcat = LONGCAT_ENABLED and mode == "code"
+        primary_model_id   = _LONGCAT_MODEL if use_longcat else _GLM_MODEL
+        primary_provider   = "longcat-2.0" if use_longcat else "glm-5.2"
+        primary_caller     = _call_longcat if use_longcat else _call_glm
+
+        # Step 1 — primary first.
         if step_hook:
             try:
                 step_hook("🤔 Thinking…")
@@ -953,28 +1063,28 @@ async def _call_llm_with_meta_inner(system: str, user: str,
         glm_content = ""
         glm_err: Optional[Exception] = None
         try:
-            glm_content = await _call_glm(
+            glm_content = await primary_caller(
                 system=system, user=user,
                 max_tokens=actual_tokens, temperature=temperature,
             )
         except Exception as e:
             glm_err = e
-            logger.warning(f"GLM-5.2 call raised: {e!r}")
+            logger.warning(f"{primary_provider} call raised: {e!r}")
 
         if rm == "swift":
             return {
                 "ok":             True if (glm_content or not glm_err) else False,
-                "provider":       "glm-5.2",
+                "provider":       primary_provider,
                 "content":        glm_content,
                 "temperature":    temperature,
                 "mode":           mode,
                 "review_mode":    "swift",
-                "model":          _GLM_MODEL,
-                "fallback_chain": ["glm-5.2"],
+                "model":          primary_model_id,
+                "fallback_chain": [primary_provider],
                 "maxx_capped":    maxx_capped,
                 "maxx_overage":   False,
                 "maxx_remaining": maxx_remaining,
-                **({"error": f"GLM unavailable: {glm_err}"} if glm_err else {}),
+                **({"error": f"{primary_provider} unavailable: {glm_err}"} if glm_err else {}),
             }
 
         if rm == "pro":
@@ -983,24 +1093,24 @@ async def _call_llm_with_meta_inner(system: str, user: str,
             if glm_content.strip():
                 return {
                     "ok":             True,
-                    "provider":       "glm-5.2",
+                    "provider":       primary_provider,
                     "content":        glm_content,
                     "temperature":    temperature,
                     "mode":           mode,
                     "review_mode":    "pro",
-                    "model":          _GLM_MODEL,
-                    "fallback_chain": ["glm-5.2"],
+                    "model":          primary_model_id,
+                    "fallback_chain": [primary_provider],
                     "maxx_capped":    maxx_capped,
                     "maxx_overage":   maxx_overage,
                     "maxx_remaining": maxx_remaining,
                 }
             logger.info(
-                "Pro mode: GLM returned empty (err=%r) — falling back to Claude",
-                glm_err,
+                "Pro mode: %s returned empty (err=%r) — falling back to Claude",
+                primary_provider, glm_err,
             )
             if step_hook:
                 try:
-                    step_hook("⚙️ GLM empty — falling back to Claude…")
+                    step_hook(f"⚙️ {primary_provider} empty — falling back to Claude…")
                 except Exception:
                     pass
             try:
@@ -1014,11 +1124,11 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                     "ok": False, "provider": None, "content": "",
                     "temperature": temperature, "mode": mode,
                     "review_mode": "pro",
-                    "fallback_chain": ["glm-5.2", "claude-sonnet"],
+                    "fallback_chain": [primary_provider, "claude-sonnet"],
                     "maxx_capped":    maxx_capped,
                     "maxx_overage":   maxx_overage,
                     "maxx_remaining": maxx_remaining,
-                    "error": f"Both GLM and Claude unavailable: {e}",
+                    "error": f"Both {primary_provider} and Claude unavailable: {e}",
                 }
             return {
                 "ok":             bool(claude_content.strip()),
@@ -1028,22 +1138,23 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                 "mode":           mode,
                 "review_mode":    "pro",
                 "model":          _CLAUDE_MODEL,
-                "fallback_chain": ["glm-5.2", "claude-sonnet"],
+                "fallback_chain": [primary_provider, "claude-sonnet"],
                 "maxx_capped":    maxx_capped,
                 "maxx_overage":   maxx_overage,
                 "maxx_remaining": maxx_remaining,
             }
 
-        # rm == "maxx" — GLM produces the draft, Claude reviews+improves.
+        # rm == "maxx" — primary produces the draft, Claude reviews+improves.
         if not glm_content.strip():
-            # GLM gave nothing → Claude has no draft to improve, so just
+            # primary gave nothing → Claude has no draft to improve, so just
             # let Claude answer directly (graceful degrade vs hard fail).
             logger.info(
-                "Maxx mode: GLM empty — Claude answers directly (no review)"
+                "Maxx mode: %s empty — Claude answers directly (no review)",
+                primary_provider,
             )
             if step_hook:
                 try:
-                    step_hook("⚙️ GLM empty — Claude answering directly…")
+                    step_hook(f"⚙️ {primary_provider} empty — Claude answering directly…")
                 except Exception:
                     pass
             try:
@@ -1056,11 +1167,11 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                     "ok": False, "provider": None, "content": "",
                     "temperature": temperature, "mode": mode,
                     "review_mode": "maxx",
-                    "fallback_chain": ["glm-5.2", "claude-sonnet"],
+                    "fallback_chain": [primary_provider, "claude-sonnet"],
                     "maxx_capped":    maxx_capped,
                     "maxx_overage":   maxx_overage,
                     "maxx_remaining": maxx_remaining,
-                    "error": f"GLM empty and Claude failed: {e}",
+                    "error": f"{primary_provider} empty and Claude failed: {e}",
                 }
             return {
                 "ok":             bool(claude_content.strip()),
@@ -1070,7 +1181,7 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                 "mode":           mode,
                 "review_mode":    "maxx",
                 "model":          _CLAUDE_MODEL,
-                "fallback_chain": ["glm-5.2", "claude-sonnet"],
+                "fallback_chain": [primary_provider, "claude-sonnet"],
                 "maxx_capped":    maxx_capped,
                 "maxx_overage":   maxx_overage,
                 "maxx_remaining": maxx_remaining,
@@ -1099,33 +1210,33 @@ async def _call_llm_with_meta_inner(system: str, user: str,
             )
         except Exception as e:
             logger.warning(
-                f"Maxx mode: Claude review failed ({e!r}) — returning GLM draft"
+                f"Maxx mode: Claude review failed ({e!r}) — returning {primary_provider} draft"
             )
             return {
                 "ok":             bool(glm_content.strip()),
-                "provider":       "glm-5.2-no-review",
+                "provider":       f"{primary_provider}-no-review",
                 "content":        glm_content,
                 "temperature":    temperature,
                 "mode":           mode,
                 "review_mode":    "maxx",
-                "model":          _GLM_MODEL,
-                "fallback_chain": ["glm-5.2"],
+                "model":          primary_model_id,
+                "fallback_chain": [primary_provider],
                 "maxx_capped":    maxx_capped,
                 "maxx_overage":   maxx_overage,
                 "maxx_remaining": maxx_remaining,
                 "error": f"Claude review unavailable: {e}",
             }
         if not claude_content.strip():
-            # Claude returned empty — keep GLM's draft, never blank-ship.
+            # Claude returned empty — keep the primary draft, never blank-ship.
             return {
                 "ok":             True,
-                "provider":       "glm-5.2-no-review",
+                "provider":       f"{primary_provider}-no-review",
                 "content":        glm_content,
                 "temperature":    temperature,
                 "mode":           mode,
                 "review_mode":    "maxx",
-                "model":          _GLM_MODEL,
-                "fallback_chain": ["glm-5.2"],
+                "model":          primary_model_id,
+                "fallback_chain": [primary_provider],
                 "maxx_capped":    maxx_capped,
                 "maxx_overage":   maxx_overage,
                 "maxx_remaining": maxx_remaining,
@@ -1141,17 +1252,81 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                 logger.warning(f"maxx counter incr failed: {e!r}")
         return {
             "ok":             True,
-            "provider":       "glm-5.2+claude-review",
+            "provider":       f"{primary_provider}+claude-review",
             "content":        claude_content,
             "temperature":    temperature,
             "mode":           mode,
             "review_mode":    "maxx",
             "model":          _CLAUDE_MODEL,
-            "fallback_chain": ["glm-5.2", "claude-sonnet-review"],
+            "fallback_chain": [primary_provider, "claude-sonnet-review"],
             "maxx_capped":    maxx_capped,
             "maxx_overage":   maxx_overage,
             "maxx_remaining": maxx_remaining,
         }
+
+    # ── Iter 212m-159 — Council B "analysis" mode routing ──────────────
+    # When COUNCIL_B_GLM_ENABLED, analysis primary = GLM-5.2 (reasoning
+    # model) with DeepSeek V3 rescue.  When the flag is OFF, behaves
+    # identically to mode="chat" (DeepSeek only) so Council B falls
+    # back to legacy behaviour with zero diff.
+    if mode == "analysis":
+        if not COUNCIL_B_GLM_ENABLED:
+            # Pre-V2 behaviour: just DeepSeek (same as mode="chat" path
+            # below — fall through by rebranding mode for the legacy
+            # selector).
+            mode = "chat"
+        else:
+            try:
+                glm_content = await _call_glm(
+                    system=system, user=user,
+                    max_tokens=actual_tokens, temperature=temperature,
+                )
+            except Exception as e:
+                logger.warning(f"Council B GLM-5.2 raised: {e!r} — using DeepSeek rescue")
+                glm_content = ""
+            if glm_content.strip():
+                return {
+                    "ok":             True,
+                    "provider":       "glm-5.2",
+                    "content":        glm_content,
+                    "temperature":    temperature,
+                    "mode":           "analysis",
+                    "model":          _GLM_MODEL,
+                    "fallback_chain": ["glm-5.2"],
+                    "maxx_capped":    False,
+                    "maxx_overage":   False,
+                    "maxx_remaining": None,
+                }
+            # GLM empty/failure → DeepSeek rescue
+            logger.info("Council B: GLM-5.2 empty — falling back to DeepSeek V3")
+            try:
+                ds_content = await _call_deepseek(
+                    messages=[{"role": "user", "content": user}],
+                    system=system,
+                    max_tokens=actual_tokens, temperature=temperature,
+                )
+            except Exception as e:
+                logger.error(f"Council B: both GLM and DeepSeek failed: {e!r}")
+                return {
+                    "ok": False, "provider": None, "content": "",
+                    "temperature": temperature, "mode": "analysis",
+                    "fallback_chain": ["glm-5.2", "deepseek-v3"],
+                    "maxx_capped": False, "maxx_overage": False,
+                    "maxx_remaining": None,
+                    "error": f"Both GLM-5.2 and DeepSeek unavailable: {e}",
+                }
+            return {
+                "ok":             bool(ds_content.strip()),
+                "provider":       "deepseek-v3-council-b-rescue",
+                "content":        ds_content,
+                "temperature":    temperature,
+                "mode":           "analysis",
+                "model":          _deepseek_model(),
+                "fallback_chain": ["glm-5.2", "deepseek-v3"],
+                "maxx_capped":    False,
+                "maxx_overage":   False,
+                "maxx_remaining": None,
+            }
 
     # ── Legacy mode routing (unchanged) ─────────────────────────────────
     wants_claude = mode in _CLAUDE_MODES and bool(_openrouter_key())
