@@ -10919,3 +10919,23 @@ orchestrator path           (legacy safety net)
 
 **Tests**: 14 new tests in `test_iter212m164_health_curve_and_task_type.py` (all pass). Combined recent suite: zero new regressions vs baseline.
 
+
+---
+
+## Iter 212m-165 — Council C dedicated "write" mode (2026-06-30)
+
+**Quirk fix**: Pre-this iter, when `review_mode=swift` + `task_type=write|copy|email|draft`, the swift/pro/maxx routing block fired FIRST and forced Council C through GLM-5.2 instead of DeepSeek. Founder spec is "Council C → DeepSeek (cheaper + better fit for prose)".
+
+**Implementation** (`services/llm.py` + `services/orchestrator.py`):
+- New mode `"write"` in `MAX_TOKENS` (2500) and `TEMPERATURE` (0.8 — slightly creative).
+- Swift/pro/maxx block now bypasses for `mode in {"analysis","write"}` so Council B/C reach their own dispatch (`if rm in {...} and mode not in {"analysis","write"}:`).
+- New `if mode == "write":` block in `_call_llm_with_meta_inner` — DeepSeek primary, no GLM rescue (DeepSeek's own free-OpenRouter walk already handles fallback). Provider tag = `deepseek-v3-council-c`.
+- Orchestrator now sets `llm_mode="write"` (was `"chat"`) for the email/copy/write/draft task_type bucket.
+
+**Verified on preview**:
+- All 4 Council C task_types: `provider="deepseek-v3-council-c"`, `council="C"` ✅
+- Council A (code_fix) + B (analysis) unchanged ✅
+- Legacy callers (mode=code, review=swift, no task_type) still GLM via swift ✅
+
+**Tests**: 6 new tests in `test_iter212m165_council_c_write_mode.py` (all pass). Combined suite (m150→m165): **103/103 green**.
+

@@ -335,6 +335,10 @@ MAX_TOKENS = {
     # Iter 212m-161 — Ask Advisor dedicated budget (was hard-coded
     # in routers/chat.py before the P1 advisor-fallback refactor).
     "advisor": int(os.getenv("LLM_ADVISOR_MAX_TOKENS", "2500")),
+    # Iter 212m-165 — Council C dedicated mode (writing tasks).
+    # DeepSeek-only, lighter budget than chat because writing
+    # outputs tend to be tighter (emails, copy, drafts).
+    "write":   int(os.getenv("LLM_WRITE_MAX_TOKENS", "2500")),
     "title":     30,
     "default": int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "1500")),
 }
@@ -348,6 +352,9 @@ TEMPERATURE = {
     "analysis": 0.4,
     # Iter 212m-161 — Ask Advisor (slightly creative but factual).
     "advisor": 0.2,
+    # Iter 212m-165 — Council C writing tasks (slightly more creative
+    # than chat — readers expect personality in marketing copy).
+    "write":   0.8,
     "default": 0.3,
 }
 
@@ -1107,8 +1114,14 @@ async def _call_llm_with_meta_inner(system: str, user: str,
     # ── Iter 212m-18 — Review-mode routing (Swift / Pro / Maxx) ─────────
     # Iter 212m-159 — Council A primary swaps GLM-5.2 → LongCat-2.0 when
     # LONGCAT_ENABLED=true AND mode=="code".  Claude rescue path unchanged.
+    # Iter 212m-165 — Council B (`mode="analysis"`) and Council C
+    # (`mode="write"`) BYPASS the swift/pro/maxx routing entirely so
+    # writing tasks land on DeepSeek (cheap + good fit) and analysis
+    # tasks land on the GLM-5.2 + DeepSeek rescue chain — not on the
+    # GLM-forced swift path.  Legacy callers using mode="code" or
+    # mode="chat" with review_mode set are unaffected.
     rm = (review_mode or "").lower().strip()
-    if rm in {"swift", "pro", "maxx"}:
+    if rm in {"swift", "pro", "maxx"} and mode not in {"analysis", "write"}:
         # Maxx-budget gate still applies — Pro/Maxx tiers track Claude
         # usage even when GLM is the primary because Claude is the
         # fallback/reviewer.
@@ -1412,6 +1425,43 @@ async def _call_llm_with_meta_inner(system: str, user: str,
                 "maxx_overage":   False,
                 "maxx_remaining": None,
             }
+
+    # ── Iter 212m-165 — Council C "write" mode routing ─────────────────
+    # Writing tasks (email/copy/draft) → DeepSeek primary, no GLM
+    # rescue.  DeepSeek is both cheaper and a better fit for prose
+    # than GLM-5.2 (reasoning-heavy).  If DeepSeek fails the call
+    # falls back to the legacy DeepSeek + free-OpenRouter walk that
+    # `_call_deepseek` already implements, so no extra rescue layer
+    # is needed at this level.
+    if mode == "write":
+        try:
+            content = await _call_deepseek(
+                messages=[{"role": "user", "content": user}],
+                system=system,
+                max_tokens=actual_tokens, temperature=temperature,
+            )
+        except Exception as e:
+            logger.error(f"Council C: DeepSeek write failed: {e!r}")
+            return {
+                "ok": False, "provider": None, "content": "",
+                "temperature": temperature, "mode": "write",
+                "fallback_chain": ["deepseek-v3"],
+                "maxx_capped": False, "maxx_overage": False,
+                "maxx_remaining": None,
+                "error": f"DeepSeek unavailable: {e}",
+            }
+        return {
+            "ok":             bool((content or "").strip()),
+            "provider":       "deepseek-v3-council-c",
+            "content":        content or "",
+            "temperature":    temperature,
+            "mode":           "write",
+            "model":          _deepseek_model(),
+            "fallback_chain": ["deepseek-v3"],
+            "maxx_capped":    False,
+            "maxx_overage":   False,
+            "maxx_remaining": None,
+        }
 
     # ── Legacy mode routing (unchanged) ─────────────────────────────────
     wants_claude = mode in _CLAUDE_MODES and bool(_openrouter_key())

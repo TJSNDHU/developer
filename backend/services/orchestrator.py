@@ -1792,8 +1792,9 @@ async def chat_with_tools(
         council_letter = "B"
         token_budget   = int(os.getenv("LLM_ANALYSIS_MAX_TOKENS", "2000"))
     elif task_type in ("email", "copy", "write", "draft"):
-        llm_mode       = "chat"
+        llm_mode       = "write"
         council_letter = "C"
+        token_budget   = int(os.getenv("LLM_WRITE_MAX_TOKENS", "2500"))
     elif task_type in ("code_fix", "code_review", "security", "lint_heal"):
         llm_mode       = "code"
         council_letter = "A"
