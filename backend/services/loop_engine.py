@@ -709,8 +709,15 @@ class LoopEngine:
                                 _parliament.run(
                                     task=task_text,
                                     context={
+                                        # Iter 212m-160 — `council` hardcode
+                                        # removed. `task_type="code_fix"`
+                                        # still routes to Council A via
+                                        # TaskRouter, so behaviour is
+                                        # unchanged for this code-gen
+                                        # path. The change unblocks
+                                        # Council B/C for future callers
+                                        # that pass different task_types.
                                         "file_path":       path,
-                                        "council":         "A",
                                         "task_type":       "code_fix",
                                         "loop_session_id": self.loop_id,
                                         "user_id":         self.user_id,

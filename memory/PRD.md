@@ -10820,3 +10820,30 @@ system_reminder for bug fixes (not optional). Report at
 
 **Shadow test:** Not run because LongCat is unreachable on OpenRouter — would burn budget producing only error rows. Re-run once LongCat is live.
 
+
+---
+
+## Iter 212m-160 — Pre-launch P0s (2026-06-30)
+
+**P0.1 — TaskRouter wired for B/C traffic** (`core/parliament.py:291-345`):
+- Added `_TASK_TYPE_TO_COUNCIL` map: `analysis|report|insight|summarize` → B; `email|copy|write|draft` → C; `code_fix|code_review|security|lint_heal` → A.
+- Removed `council="A"` hardcode from `services/loop_engine.py` — task_type="code_fix" still resolves to A via the new map, so behaviour is unchanged for the only current production caller. Council B/C are now reachable for any future caller that sets the appropriate task_type.
+
+**P0.2 — LongCat live-availability probe** (`services/llm.py` + `main.py`):
+- New module-level flag `LONGCAT_LIVE` (default True).
+- New `probe_longcat_availability()` async helper — pings OpenRouter with a 1-token prompt at boot when LONGCAT_ENABLED=true. On HTTP 400 / 404 / network error → flips `LONGCAT_LIVE=False` and logs a single informative WARNING ("LongCat unavailable... Council A on GLM-5.2 fallback").
+- Wired from `main.py::lifespan` as a non-blocking background task so cold-start latency is unaffected.
+- `_call_longcat` now fast-paths to GLM-5.2 when `LONGCAT_LIVE=False`, saving the wasted 400 round-trip on every Council A call.
+- Mid-session empty response also flips the flag to short-circuit subsequent calls.
+- `council_a_primary_model()` returns GLM-5.2 (not LongCat) when the live flag is False — Langfuse traces now show the **actual** model in use.
+
+**Tests**: 15 new tests in `tests/test_iter212m160_pre_launch_p0.py`. Combined recent iteration suite: 94/94 green.
+
+**Verified on preview**: boot log shows `LongCat unavailable (HTTP 400: meituan/longcat-2.0 is not a valid model ID) — Council A on GLM-5.2 fallback until next restart`. Founder now has clear visibility into LongCat status without grepping every 400 response.
+
+**Held to post-launch (per founder directive)**:
+- P1 — Ask Advisor model fallback (GLM-5.2 → Claude rescue) + move temp/max_tokens into `services/llm.py` config maps.
+- Council B exposure endpoint (`POST /api/parliament/analyze`).
+- smart_router.py consolidation.
+- Advisor dispatch dict refactor.
+

@@ -488,6 +488,22 @@ async def lifespan(app: FastAPI):
             logger.warning(f"github_deploy_service.set_db failed: {_e}")
 
     app.state.bootstrap_task = _asyncio.create_task(_bg_bootstrap())
+
+    # Iter 212m-160 — LongCat availability probe (non-blocking).
+    # Fires in the background after lifespan returns; sets
+    # services.llm.LONGCAT_LIVE to False when the OpenRouter slug is
+    # rejected so Council A skips the wasted round-trip and goes
+    # straight to the GLM-5.2 fallback. When LongCat is published
+    # upstream, the next supervisor restart flips the flag back True.
+    if os.getenv("LONGCAT_ENABLED", "false").lower() == "true":
+        async def _probe_longcat():
+            try:
+                from services.llm import probe_longcat_availability
+                await probe_longcat_availability()
+            except Exception as _e:
+                logger.warning("LongCat probe failed: %r", _e)
+        _asyncio.create_task(_probe_longcat())
+
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()

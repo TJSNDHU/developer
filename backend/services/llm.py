@@ -374,14 +374,86 @@ CEO_PRIMARY_TIMEOUT_S = float(os.getenv("CEO_PRIMARY_TIMEOUT_S", "2.0"))
 CEO_RESCUE_MODEL      = os.getenv("CEO_RESCUE_MODEL", "deepseek/deepseek-chat")
 
 
+# Iter 212m-160 — LongCat live-availability flag.
+# Default True (optimistic) — flipped to False by `probe_longcat_availability()`
+# on app boot when OpenRouter rejects the model slug. When False, `_call_longcat`
+# skips the wasted 400-round-trip and goes straight to GLM-5.2. A supervisor
+# restart re-probes, so the moment LongCat goes live upstream the flag flips
+# back True without a code change.
+LONGCAT_LIVE = True
+
+
+async def probe_longcat_availability() -> bool:
+    """Probe OpenRouter to see whether `_LONGCAT_MODEL` is a live slug.
+
+    Sets the module-level `LONGCAT_LIVE` flag and returns the resolved
+    boolean.  Logs a single WARNING when LongCat is unavailable so the
+    on-call sees it once at boot (instead of a flood on every call).
+
+    Safe to call from a background task — never raises.
+    """
+    global LONGCAT_LIVE
+    if not LONGCAT_ENABLED:
+        return LONGCAT_LIVE
+    api_key = _openrouter_key()
+    if not api_key:
+        LONGCAT_LIVE = False
+        logger.warning(
+            "LongCat probe skipped — OPENROUTER_API_KEY missing. "
+            "Council A will use GLM-5.2 fallback."
+        )
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.post(
+                OPENROUTER_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "model":       _LONGCAT_MODEL,
+                    "messages":    [{"role": "user", "content": "ping"}],
+                    "max_tokens":  1,
+                    "temperature": 0,
+                },
+            )
+    except Exception as e:
+        LONGCAT_LIVE = False
+        logger.warning(
+            "LongCat probe network error (%r) — assuming unavailable. "
+            "Council A will use GLM-5.2 fallback until next restart.", e,
+        )
+        return False
+    if r.status_code == 200:
+        LONGCAT_LIVE = True
+        logger.info("✅ LongCat probe OK — Council A primary = %s", _LONGCAT_MODEL)
+        return True
+    # 400 invalid-model / 404 no-endpoints / 5xx upstream → treat as unavailable
+    try:
+        err_msg = (r.json().get("error") or {}).get("message") or r.text[:120]
+    except Exception:
+        err_msg = r.text[:120]
+    LONGCAT_LIVE = False
+    logger.warning(
+        "LongCat unavailable (HTTP %s: %s) — Council A on GLM-5.2 fallback "
+        "until next restart. Re-probe by restarting the backend once "
+        "%s is published upstream.",
+        r.status_code, err_msg, _LONGCAT_MODEL,
+    )
+    return False
+
+
 def council_a_primary_model() -> str:
     """Returns the Council A primary model id.
 
-    V2: LongCat-2.0 when LONGCAT_ENABLED=True, else legacy GLM-5.2.
-    Read on every call so env flips take effect on next supervisor restart
+    V2: LongCat-2.0 when LONGCAT_ENABLED=True AND the live-probe flag
+    `LONGCAT_LIVE` is True; otherwise legacy GLM-5.2.  The flag is
+    refreshed on every supervisor restart by `probe_longcat_availability()`,
+    so the moment LongCat publishes upstream the next boot picks it up
     without a code change.
     """
-    if LONGCAT_ENABLED:
+    if LONGCAT_ENABLED and LONGCAT_LIVE:
         return _LONGCAT_MODEL
     return _GLM_MODEL
 
@@ -729,14 +801,18 @@ async def _call_longcat(system: str, user: str,
     Council A (`mode="code"` + Swift/Pro/Maxx).  Mirrors `_call_glm`'s
     shape so the routing block can swap models with a single conditional.
 
-    Iter 212m-159 — Safety net: as of the V2 roll-out LongCat-2.0 is not
-    yet published on OpenRouter under the documented slug.  When the
-    upstream returns an empty string (invalid-model 400, no-endpoints
-    404, or quota exhaustion through the free-tier walk), we silently
-    fall back to GLM-5.2 so Council A never blank-ships.  Once LongCat
-    is live on OpenRouter this fallback never fires.  Returns the
-    assistant content string.
+    Iter 212m-160 — fast-path: if the boot-time probe already marked
+    LongCat unavailable (`LONGCAT_LIVE=False`), skip the wasted
+    OpenRouter round-trip and go straight to GLM-5.2. Saves ~200 ms
+    + an OR rate-limit slot per Council A call until LongCat is live.
     """
+    global LONGCAT_LIVE
+    if not LONGCAT_LIVE:
+        # Boot probe already detected LongCat is dead — straight to GLM.
+        return await _call_glm(
+            system=system, user=user,
+            max_tokens=max_tokens, temperature=temperature,
+        )
     if not _openrouter_key():
         logger.info(
             "OPENROUTER_API_KEY not set — LongCat call falling back to DeepSeek"
@@ -755,13 +831,17 @@ async def _call_longcat(system: str, user: str,
         temperature=temperature,
     )
     if not (content or "").strip():
-        # LongCat unreachable on OpenRouter today — silent GLM-5.2 fall-through.
-        # Logged at WARNING so the on-call sees the fallback rate in Langfuse
-        # and the moment LongCat becomes live this line vanishes.
-        logger.warning(
-            "_call_longcat: %s returned empty — falling back to GLM-5.2",
-            _LONGCAT_MODEL,
-        )
+        # LongCat suddenly unreachable mid-flight (probe said it was
+        # live, but this call returned empty). Update the live flag
+        # so subsequent calls take the fast-path, then fall back to GLM.
+        if LONGCAT_LIVE:
+            LONGCAT_LIVE = False
+            logger.warning(
+                "_call_longcat: %s returned empty mid-session — "
+                "flipping LONGCAT_LIVE=False, Council A on GLM-5.2 "
+                "until next restart.",
+                _LONGCAT_MODEL,
+            )
         try:
             return await _call_glm(
                 system=system, user=user,
