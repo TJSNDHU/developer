@@ -28,7 +28,18 @@ export default function Tokens() {
         sub="Track your token wallet. Refills every 24h on the free tier."
       />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, maxWidth: 820 }}>
-        <Stat icon={Coins} label="tokens remaining" value={me?.tokens_remaining ?? "—"} testid="tokens-remaining" />
+        <Stat
+          icon={Coins}
+          label="tokens remaining"
+          // Iter 212m-154 — Founder / unlimited / admin accounts bypass
+          // token deduction everywhere else in the stack but the UI
+          // was still rendering `tokens_remaining` literally (=0 once
+          // any was deducted by /streak or /wrapped warm-up).  Founder
+          // QA caught this — show "∞ Unlimited" when the auth flag
+          // says the wallet is uncapped.
+          value={me?.is_unlimited ? "∞ Unlimited" : (me?.tokens_remaining ?? "—")}
+          testid="tokens-remaining"
+        />
         <Stat icon={Coins} label="tier" value={me?.tier || "free"} testid="tokens-tier" />
         <Stat icon={Coins} label="streak (days)" value={streak?.streak_days ?? 0} testid="tokens-streak" />
       </div>

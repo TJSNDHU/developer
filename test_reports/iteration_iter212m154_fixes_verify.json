@@ -1,0 +1,61 @@
+{
+  "summary": "Verified all 5 iter212m-154 PROD-regression fixes on PREVIEW (https://launch-pad-237.preview.emergentagent.com). 5/5 PASS. Regressions clean (login, dashboard hydrate, SystemStatsPage KPI cards). Tested both desktop 1440x900 and mobile 390x844.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "fix_verification": {
+    "fix1_activation_funnel_cold_cache": {
+      "status": "PASS",
+      "detail": "After `sudo supervisorctl restart backend && sleep 4`, first call to GET /api/aurem-dev/admin/insights/activation-funnel returned HTTP 200 in 140ms (cold) with full funnel payload (signup_to_github, github_to_project, totals.all_users=44 etc). Second call warm in 122ms HTTP 200. No HTTP 499. Well under 3s requirement."
+    },
+    "fix2_hosted_deploy_status_empty": {
+      "status": "PASS",
+      "detail": "GET /api/aurem-dev/hosted-deploy/status/p_does_not_exist_test returned HTTP 200 with body {ok:true, connected:false, project_found:false, provider:null, connected_at:null, last_deploy:null, last_status:null, last_response:\"\"}. Previously was 404."
+    },
+    "fix3_tokens_unlimited_render": {
+      "status": "PASS",
+      "detail": "test@aurem.dev on PREVIEW returns is_unlimited=true via /auth/me. /tokens page tokens-remaining card text = ' tokens remaining∞ Unlimited' on BOTH desktop 1440 and mobile 390. Infinity symbol + 'Unlimited' word both present. Manual localStorage flag override NOT required."
+    },
+    "fix4_toast_responsive_offset": {
+      "status": "PASS",
+      "detail": "Toast dispatched via window.dispatchEvent('aurem:toast'). Element [data-testid=toaster] / .aurem-toaster rendered. DESKTOP 1440: top=24px right=24px (matches spec). MOBILE 390: top=88px right=12px — offset >=88px requirement met, below the top bar."
+    },
+    "fix5_bug_hunt_authed_redirect": {
+      "status": "PASS",
+      "detail": "AUTHED (aurem_token in localStorage): /bug-hunt -> redirects to /codebase-health, h1='How healthy is your code today?'. ANON (token cleared): /bug-hunt stays on /bug-hunt, renders public marketing h1='Detect security vulnerabilities in your codebase before they ship'."
+    }
+  },
+  "regression_checks": {
+    "login_flow": "PASS — POST /api/aurem-dev/auth/login returned 200 + JWT (273 char) for test@aurem.dev / AuremTest2026!. /auth/me confirms tier=founder, is_admin=true, is_unlimited=true.",
+    "dashboard_hydrate": "PASS — /dashboard loaded with project header, Health Scanner, Codebase Graph rails and project banner visible.",
+    "system_stats_desktop": "PASS — /admin/system-stats rendered on desktop with 8 KPI-like elements and headings 'SYSTEM OBSERVABILITY', 'PARLIAMENT RUNS', 'COUNCIL SUCCESS RATE', 'CIRCUIT BREAKER OPENS · 24H' all visible."
+  },
+  "raw_evidence": {
+    "fix1_cold_ms": 140,
+    "fix1_warm_ms": 122,
+    "fix1_http": 200,
+    "fix2_response": {"ok": true, "connected": false, "project_found": false, "provider": null},
+    "fix3_desktop_text": " tokens remaining∞ Unlimited",
+    "fix3_mobile_text": " tokens remaining∞ Unlimited",
+    "fix4_desktop_toast": {"top": 24, "right": 24, "css_top": "24px", "css_right": "24px", "class": "aurem-toaster", "viewport_w": 1440},
+    "fix4_mobile_toast": {"top": 88, "right": 12, "css_top": "88px", "css_right": "12px", "class": "aurem-toaster", "viewport_w": 390},
+    "fix5_authed_url": "https://launch-pad-237.preview.emergentagent.com/codebase-health",
+    "fix5_authed_h1": "How healthy is your code today?",
+    "fix5_anon_url": "https://launch-pad-237.preview.emergentagent.com/bug-hunt",
+    "fix5_anon_h1": "Detect security vulnerabilities in your codebase before they ship"
+  },
+  "test_report_links": ["/app/test_reports/iteration_iter212m154_fixes_verify.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: React Router v6 warns about v7 future flags (v7_startTransition, v7_relativeSplatPath) on every page — non-blocking but a tech-debt cleanup before v7 upgrade.",
+    "Minor: Preload hints for /aurem-bg.webp and /aurem-bg-mobile.webp warn that resources are preloaded but not used within a few seconds of load — consider removing the preload for routes that don't paint the hero bg quickly."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "PREVIEW founder/admin/unlimited: test@aurem.dev / AuremTest2026! — is_unlimited=true verified live on PREVIEW",
+  "seed_data_creation": "None — only restarted backend once to validate Fix #1 cold-cache path.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter 212m-154 PREVIEW verification: all 5 surgical fixes (activation-funnel SWR cache, hosted-deploy/status empty-state, Tokens unlimited render, mobile toast offset, /bug-hunt authed redirect) PASS. Safe to redeploy to PROD. No regressions in login/dashboard/system-stats.",
+  "rca of the issue": "N/A — all fixes verified working; no failures encountered."
+}

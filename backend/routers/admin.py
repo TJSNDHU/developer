@@ -25,7 +25,11 @@ from services.usage import get_usage
 # (activation funnel, dev_users buckets, etc.). Founders click around
 # the admin panel rapidly; without this every click fires 5+ heavy
 # aggregations against Mongo.
-from services.admin_analytics_cache import cached_agg, invalidate as _cache_invalidate
+from services.admin_analytics_cache import (
+    cached_agg,
+    invalidate as _cache_invalidate,
+    mongo_swr_cache,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -3002,17 +3006,24 @@ async def activation_funnel(
 ):
     await _require_admin(authorization)
 
-    # Iter 212m-71 — 60 s TTL cache wraps the entire heavy aggregation
-    # (4 parallel Mongo scans).  The funnel data trends over hours;
-    # 60 s of staleness is invisible in the UI but drops repeat loads
-    # from ~6 s to ~5 ms — admin clicking around no longer thrashes
-    # the cluster.  Single-flight semantics inside `cached_agg`
-    # prevent multiple concurrent admins from all firing the
-    # aggregation in parallel on a cold cache.
-    return await cached_agg(
+    # Iter 212m-154 — Mongo-backed Stale-While-Revalidate cache.
+    #
+    # The previous 60 s in-process cache (iter 212m-71) helped warm
+    # reads but did NOTHING for cold-start admin loads — every fresh
+    # uvicorn worker / pod restart paid the full ~6 s aggregation
+    # cost on the first request, which the frontend AbortController
+    # cancelled with HTTP 499 (caught in iter 212m-153 prod QA).
+    #
+    # SWR pattern: persist the last-known-good funnel result in a
+    # Mongo doc.  Every read returns it in <50 ms even when stale.
+    # When past the 5-minute TTL, a background task refreshes the
+    # doc without blocking the request.  First-ever boot (no doc)
+    # is capped at 4 s — anything slower returns a "warming" skeleton.
+    return await mongo_swr_cache(
         key="admin:activation_funnel:v1",
-        ttl=60.0,
+        ttl_seconds=300.0,         # 5 min freshness target
         builder=_compute_activation_funnel,
+        hard_timeout=4.0,          # never block the frontend past abort threshold
     )
 
 
@@ -3156,11 +3167,25 @@ async def _compute_activation_funnel() -> dict:
     for i, step in enumerate(funnel_steps):
         step["is_biggest_dropoff"] = (i == biggest_drop_idx and biggest_drop_n > 0)
 
-    recent = sorted(
-        real_users,
-        key=lambda x: x.get("created_at") or 0,
-        reverse=True,
-    )[:10]
+    # Iter 212m-154 — `created_at` is a mix of int (epoch seconds) +
+    # datetime in the production dev_users collection (different
+    # signup paths wrote different shapes over the years).  Python's
+    # sort can't compare those types, which used to crash this
+    # endpoint cold-compute path (caught in the same iter when
+    # switching to the SWR cache).  Normalise to a float epoch.
+    def _ca_epoch(u: dict) -> float:
+        v = u.get("created_at")
+        if v is None:
+            return 0.0
+        if isinstance(v, (int, float)):
+            return float(v)
+        # datetime — including timezone-aware values
+        try:
+            return float(v.timestamp())
+        except Exception:
+            return 0.0
+
+    recent = sorted(real_users, key=_ca_epoch, reverse=True)[:10]
 
     return {
         "ok": True,

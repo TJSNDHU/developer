@@ -31,8 +31,15 @@ export default function Toaster() {
   return (
     <div
       data-testid="toaster"
+      className="aurem-toaster"
       style={{
         position: "fixed",
+        // Iter 212m-154 — desktop keeps the original 24/24 anchor.
+        // Mobile previously had this toaster sitting AT y=24 which
+        // overlapped the dashboard top-bar's mode pills (Swift/Pro/
+        // Maxx) and the repo selector pill on iPhone-width screens
+        // (caught in iter 212m-153 prod QA).  We bump it below the
+        // top bar on phones via the media-query stylesheet below.
         top: 24,
         right: 24,
         display: "flex",
@@ -42,6 +49,16 @@ export default function Toaster() {
         pointerEvents: "none",
       }}
     >
+      <style>{`
+        @media (max-width: 480px) {
+          .aurem-toaster {
+            top: 88px !important;     /* clears mobile top bar + mode pills */
+            right: 12px !important;
+            left: 12px !important;
+            max-width: calc(100vw - 24px) !important;
+          }
+        }
+      `}</style>
       {list.map((t) => {
         const palette = {
           info: { bg: "var(--panel)", border: "var(--border-strong)", color: "var(--text)" },

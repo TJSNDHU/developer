@@ -110,14 +110,31 @@ async def status(project_id: str,
          "last_deploy_response": 1},
     )
     if not proj:
-        raise HTTPException(404, "Project not found")
+        # Iter 212m-154 — graceful empty-state.  Previously raised
+        # HTTP 404 here, which leaked a "Failed to load resource"
+        # error into the browser console on every /deploy visit for
+        # projects without an active deploy connection (caught in
+        # iter 212m-153 prod QA).  The UI already handles the
+        # "not connected" case, so we return a 200 with the same
+        # shape as the connected case but every flag set to False.
+        return {
+            "ok":            True,
+            "connected":     False,
+            "project_found": False,
+            "provider":      None,
+            "connected_at":  None,
+            "last_deploy":   None,
+            "last_status":   None,
+            "last_response": "",
+        }
     return {
-        "ok":           True,
-        "connected":    bool(proj.get("deploy_provider")),
-        "provider":     proj.get("deploy_provider"),
-        "connected_at": proj.get("deploy_connected_at"),
-        "last_deploy":  proj.get("last_deploy_at"),
-        "last_status":  proj.get("last_deploy_status"),
+        "ok":            True,
+        "connected":     bool(proj.get("deploy_provider")),
+        "project_found": True,
+        "provider":      proj.get("deploy_provider"),
+        "connected_at":  proj.get("deploy_connected_at"),
+        "last_deploy":   proj.get("last_deploy_at"),
+        "last_status":   proj.get("last_deploy_status"),
         "last_response": (proj.get("last_deploy_response") or "")[:200],
     }
 
