@@ -1402,6 +1402,12 @@ async def chat_with_tools(
     mode: str = "swift",                # Iter 153 — review mode (swift/pro/maxx)
     step_hook=None,                     # Iter 212m-18 — optional callback(text, done=False)
                                         # for SSE step events
+    task_type: Optional[str] = None,    # Iter 212m-164 — caller-pinned council:
+                                        #   analysis/report/insight/summarize → B (GLM-5.2)
+                                        #   email/copy/write/draft           → C (DeepSeek)
+                                        #   code_fix/code_review/security/
+                                        #     lint_heal                       → A (LongCat→GLM)
+                                        # None/unknown → fall back to use_code_model heuristic.
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -1774,6 +1780,25 @@ async def chat_with_tools(
     )
     llm_mode = "code" if use_code_model else "chat"
 
+    # Iter 212m-164 — caller-pinned council via task_type overrides the
+    # heuristic.  Lets the founder hit Council B (analysis → GLM-5.2 +
+    # DeepSeek rescue) or Council C (writing → DeepSeek) directly from
+    # /chat/stream without waiting for the post-launch council-direct
+    # endpoint.  Unknown / None task_type leaves
+    # llm_mode untouched so existing callers are unaffected.
+    council_letter = "A"
+    if task_type in ("analysis", "report", "insight", "summarize"):
+        llm_mode       = "analysis"
+        council_letter = "B"
+        token_budget   = int(os.getenv("LLM_ANALYSIS_MAX_TOKENS", "2000"))
+    elif task_type in ("email", "copy", "write", "draft"):
+        llm_mode       = "chat"
+        council_letter = "C"
+    elif task_type in ("code_fix", "code_review", "security", "lint_heal"):
+        llm_mode       = "code"
+        council_letter = "A"
+        token_budget   = int(os.getenv("LLM_CODE_MAX_TOKENS", "3500"))
+
     # Iter 157 — PER-TURN ORCHESTRATOR DEADLINE.
     # The router-level HARD_TIMEOUT_S (default 150s) used to be the only
     # ceiling, but it lives outside this loop and only fires when the
@@ -1942,6 +1967,8 @@ async def chat_with_tools(
                 "tool_calls_run": len(invocations),
                 "tool_invocations": invocations,
                 "mode": llm_mode,
+                "council":   council_letter,
+                "task_type": task_type,
                 "per_turn_budget_hit": True,
                 "web_sources": _dedupe_sources(
                     [s for inv in invocations for s in (inv.get("web_sources") or [])]
@@ -2009,6 +2036,8 @@ async def chat_with_tools(
                     "tool_calls_run": len(invocations),
                     "tool_invocations": invocations,
                     "mode": llm_mode,
+                    "council":   council_letter,
+                    "task_type": task_type,
                     "tool_loop_break": True,
                     "web_sources": _dedupe_sources(
                         [s for inv in invocations for s in (inv.get("web_sources") or [])]
@@ -2192,6 +2221,12 @@ async def chat_with_tools(
                 "verified_paths": sorted(tool_paths_read),
                 "mode": llm_mode,
                 "review_mode": mode,
+                # Iter 212m-164 — council letter for downstream tests +
+                # Langfuse dashboard cohort grouping.  Driven by the
+                # caller-supplied task_type when set, otherwise "A"
+                # (the safe default that matches Iter 212m-160 TaskRouter).
+                "council": council_letter,
+                "task_type": task_type,
                 "web_sources": _dedupe_sources(
                     [s for inv in invocations for s in (inv.get("web_sources") or [])]
                 ),
@@ -2375,6 +2410,8 @@ async def chat_with_tools(
         "tool_invocations": invocations,
         "verified_paths": sorted(_max_iter_paths),
         "mode": llm_mode,
+        "council":   council_letter,
+        "task_type": task_type,
         "max_iters_hit": True,
         "web_sources": _dedupe_sources(
             [s for inv in invocations for s in (inv.get("web_sources") or [])]

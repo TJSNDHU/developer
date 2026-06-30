@@ -10891,3 +10891,31 @@ orchestrator path           (legacy safety net)
 
 **Tests**: New `tests/test_iter212m162_sidebar_chat_cleanup.py` (6 tests) + updated iter 212m-157 stale assertions. All 25 sidebar/chat/tools-page tests pass. Smoke-rendered `/tools` on preview — all 4 cards display correctly.
 
+
+---
+
+## Iter 212m-164 — Health-score curve + task_type field (2026-06-30)
+
+**Change 1 — Diminishing-returns health score** (`routers/codebase_health.py:370-385`):
+- Formula now `score = round(100 * exp(-raw_weight / 60))` (was `100 - sum(weights)`).
+- The legacy linear formula cliff-edged at 0 for any repo with ≥4 critical findings, so the score was stuck at 0 regardless of progress.
+- New curve preserves severity ordering (criticals still dominate) but every fix produces visible score delta:
+  - 0 issues → 100 (HEALTHY)
+  - 5 medium → 78 (GOOD)
+  - 5 high → 51 (NEEDS ATTENTION)
+  - 4 critical → 19 (CRITICAL)
+  - 9 critical → 2 (CRITICAL)
+- Bands re-tuned (`_category_label`): CRITICAL <20, NEEDS_ATTENTION 20-49, GOOD 50-80, HEALTHY >80.
+- Prod data for TJSNDHU/Aurem (9c + 144 total) will move from `0 → 2` immediately on re-scan, and to ~10-15 once founder clears criticals.
+
+**Change 2 — `task_type` field on `ChatBody`** (`routers/chat.py:204-231` + `services/orchestrator.py:1404,1782-1798,2227-2230,1969-1976,2042-2049,2410-2417`):
+- Optional `task_type` field whitelisted to the 12 router keys (validator drops typos silently to None).
+- Threaded through `chat_with_tools(task_type=...)` → derives `llm_mode` + `council_letter`:
+  - `analysis|report|insight|summarize` → mode="analysis", council="B" (GLM-5.2 + DeepSeek rescue)
+  - `email|copy|write|draft` → mode="chat", council="C" (DeepSeek/GLM via review-mode)
+  - `code_fix|code_review|security|lint_heal` → mode="code", council="A" (LongCat→GLM)
+- All 4 return paths now surface `council` + `task_type` in the API response so callers can verify routing without scraping Mongo.
+- Smoke-verified end-to-end on preview: ALL 12 task_types route to the correct council letter.
+
+**Tests**: 14 new tests in `test_iter212m164_health_curve_and_task_type.py` (all pass). Combined recent suite: zero new regressions vs baseline.
+

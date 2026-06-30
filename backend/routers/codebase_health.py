@@ -368,17 +368,42 @@ SEV_WEIGHTS = {"critical": 25, "high": 8, "medium": 3, "low": 1, "info": 0}
 
 
 def _score_for_findings(findings: list[dict]) -> int:
-    """0-100 health score.  Starts at 100, deducted per finding.
-    The first CRITICAL alone takes you below 80 — we want users to
-    feel the urgency."""
+    """0-100 health score using a diminishing-returns curve.
+
+    Iter 212m-164 — replaced the old linear `100 - sum(weights)` formula
+    which cliff-edged at 4 criticals (4 × 25 = 100 → score 0).  Real
+    repos routinely surface 5-15 critical findings on first scan and
+    the founder needs to see the score MOVE as they fix issues, not
+    sit stuck at 0.
+
+    New curve:  score = round(100 · exp(-raw / 60))
+
+    Reference points:
+        0  issues   → score 100  (HEALTHY)
+        5  medium   → raw 15  → score 78  (GOOD)
+        5  high     → raw 40  → score 51  (NEEDS ATTENTION)
+        2  critical → raw 50  → score 44  (NEEDS ATTENTION)
+        4  critical → raw 100 → score 19  (CRITICAL RISK)
+        9  critical → raw 225 → score 2   (CRITICAL RISK)
+
+    The curve preserves severity ordering (criticals still dominate)
+    but every fix produces a visible score delta, which is the whole
+    point of a health gauge during pre-launch.
+    """
     raw = sum(SEV_WEIGHTS.get(f.get("severity") or "low", 0) for f in findings)
-    return max(0, min(100, 100 - raw))
+    if raw <= 0:
+        return 100
+    import math
+    return max(0, min(100, round(100 * math.exp(-raw / 60))))
 
 
 def _category_label(score: int) -> tuple[str, str]:
-    if score <= 40:
+    # Iter 212m-164 — thresholds re-tuned for the diminishing-returns
+    # curve so the bands still split the score space roughly into
+    # quarters under the new compression.
+    if score <  20:
         return ("CRITICAL RISK",     "critical")
-    if score <= 60:
+    if score <  50:
         return ("NEEDS ATTENTION",   "warn")
     if score <= 80:
         return ("GOOD",              "good")

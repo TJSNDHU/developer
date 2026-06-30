@@ -201,10 +201,34 @@ class ChatBody(BaseModel):
     # captured by frontend/public/F12ErrorCapture.js. When present (and has
     # any errors), the request is auto-classified as Mode D (debug).
     f12_payload: Optional[dict] = None
+    # Iter 212m-164 — optional task_type override for the council
+    # TaskRouter (core/_TASK_TYPE_TO_COUNCIL in the council hub).
+    # Letting the caller pin the council unlocks the V2 LLM swaps
+    # for analysis (Council B → GLM-5.2) and writing (Council C →
+    # DeepSeek) tasks without waiting for the post-launch
+    # council-direct endpoint.  Accepted values mirror the router
+    # map exactly; an unrecognised string falls through to the
+    # existing keyword-based routing (safe — never escalates the
+    # council).
+    task_type: Optional[str] = Field(None, max_length=32)
 
     @validator("prompt")
     def _strip_prompt(cls, v: str) -> str:
         return (v or "").strip()
+
+    @validator("task_type")
+    def _validate_task_type(cls, v):
+        # Iter 212m-164 — whitelist to the 12 router keys.  Anything
+        # else is silently dropped to None so a typo doesn't accidentally
+        # change routing semantics.
+        if not v:
+            return None
+        ok = {
+            "code_fix", "code_review", "security", "lint_heal",
+            "analysis", "report", "insight", "summarize",
+            "email", "copy", "write", "draft",
+        }
+        return v if v in ok else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -667,6 +691,7 @@ async def chat_send(
         user_id=user["user_id"],
         project_id=body.project_id,
         mode=req_mode,
+        task_type=body.task_type,
     )
     t_llm = time.time()
     content = result.get("content", "") or ""
@@ -727,6 +752,11 @@ async def chat_send(
         # "📚 ORA recalled N similar past answers" above the bubble
         # when this is > 0.
         "council_recalled": _council_recalled,
+        # Iter 212m-164 — surface the council letter + task_type that
+        # drove this turn's LLM pick so callers can verify V2 routing
+        # without scraping Mongo / Langfuse.
+        "council":   result.get("council"),
+        "task_type": result.get("task_type"),
     }
 
 
@@ -1991,6 +2021,7 @@ async def chat_stream(
                     live_invocations_ref=_published,
                     mode=req_mode_stream,
                     step_hook=_step,
+                    task_type=body.task_type,
                 )
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):
