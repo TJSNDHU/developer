@@ -12,6 +12,40 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-156 — Mobile dashboard drawer (Feb 2026) ✅
+
+**Founder QA finding**: "Mobile view mein koi sidebar dikhai nahi diya jisse user repos add/select kar sake ya settings open kar sake. Fix."
+
+Root cause: `pages/Dashboard.jsx` (the chromeless dashboard) implemented sidebar visibility via **mouse-hover + left-edge `mousemove`** intent reveal.  On touch devices neither event fires, so the sidebar permanently sat at `translateX(-100%)` — there was literally NO way for a phone user to switch repos, click tools, open settings, or log out from the dashboard.
+
+**Fix shipped**:
+  • New state `mobileSidebarOpen` + `isMobile` matchMedia (≤900 px).
+  • Hamburger button (top-left, `position:fixed`, z=1500, glass-blur background) shown only on mobile when the drawer is closed.
+  • Backdrop overlay (z=1400, `rgba(0,0,0,0.55)` + 2px blur) closes the drawer on tap-outside.
+  • Sidebar wrapper now branches: mobile = `position:fixed`, full 280 px, `translateX` driven by `mobileSidebarOpen`, 240 ms cubic-bezier slide-in.  Desktop unchanged.
+  • Auto-close hooks: `onSelectRepo`, `onAddRepo`, every tool click, settings/recharge/logout navigation — every action calls `closeMobileSidebar` on mobile so the drawer never overlays the next screen.
+  • Hover/edge-reveal logic disabled on mobile (was firing `setSidebarHovered(true)` from accidental touchstart events).
+
+**Live E2E proof (testing agent PREVIEW)** — 8/8 scenarios PASS at 390x844:
+  1. Mobile login → dashboard hydrates, hamburger visible
+  2. Drawer closed: `transform=matrix(1,0,0,1,-280,0)`, backdrop count=0
+  3. Hamburger tap → drawer open: `transform=matrix(1,0,0,1,0,0)`, backdrop count=1, drawer shows repo list + Add Repo + tools + avatar
+  4. Backdrop tap → drawer closes back to `-280`, hamburger reappears
+  5. Add Repo tap → modal opens AND drawer auto-closes
+  6. Health Scanner tool tap → navigates to `/codebase-health`, drawer leaves DOM
+  7. Avatar tap → navigates to `/settings`, drawer leaves DOM
+  8. Desktop 1440x900 regression: 0 × hamburger, 0 × backdrop, hover-reveal sidebar still works
+
+Console clean (0 errors during full mobile flow).  Network clean (0 × 4xx/5xx).
+
+**Non-blocking design note (queued P2)**: on mobile the avatar tap navigates straight to `/settings` instead of expanding a Settings / Recharge / Logout dropdown.  Founder may want a richer mobile menu later; not required for the iter 212m-156 fix.
+
+**Test coverage** — 8 source-pattern guards in `test_iter212m156_mobile_dashboard_drawer.py` (matchMedia breakpoint, hamburger testid + state setter, backdrop testid + tap-close, sidebar-wrap mobile branch, SidebarReal onAfterAction hook, repo-select drawer-close, sidebarCollapsed disabled on mobile, sidebarFullyHidden mobile branch).
+
+**Regression**: 148/148 pytests passing across iters 149-156.
+
+
+
 ### Iter 212m-155 — Chat casual empty-bubble + agentic-hang safety net (Feb 2026) ✅
 
 **PROD chat E2E (iter 212m-154 report)** caught 2 critical chat bugs on the founder's account:
