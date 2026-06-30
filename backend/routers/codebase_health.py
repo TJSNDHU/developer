@@ -41,7 +41,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import JSONResponse
 
-from cto_services.auth import current_dev
+from cto_services.auth import current_dev, require_admin
 from cto_services.db import get_db
 from routers.security_scan import (
     _decrypt_pat, _list_repo_tree, _list_repo_tree_with_sha, _fetch_file,
@@ -473,10 +473,9 @@ async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
 @router.get("/cache-stats")
 async def cache_stats(authorization: Optional[str] = Header(None)) -> dict:
     """Iter 212m-79 — surface Redis scan-cache hit-rate to founders.
-    Admin-only."""
-    user = await current_dev(authorization)
-    if not user.get("is_admin"):
-        raise HTTPException(403, "Admin only")
+    Iter 212m-158 — was a custom is_admin check; now routed through
+    the shared `require_admin` helper for consistency."""
+    await require_admin(authorization)
     from services.scan_cache import get_scan_cache_stats
     return get_scan_cache_stats()
 
@@ -485,7 +484,9 @@ async def cache_stats(authorization: Optional[str] = Header(None)) -> dict:
 async def scan(
     body: dict, authorization: Optional[str] = Header(None),
 ) -> dict:
-    user = await current_dev(authorization)
+    # Iter 212m-158 — Health scan is now admin/founder-only (matches
+    # the frontend route guard shipped in iter 212m-157).
+    user = await require_admin(authorization)
     user_id = user["user_id"]
     project_id = (body or {}).get("project_id")
     categories = (body or {}).get("categories") or list(SCANNERS.keys())
@@ -657,7 +658,10 @@ async def last_scan(
 ) -> dict:
     if not project_id:
         raise HTTPException(400, "project_id required")
-    user = await current_dev(authorization)
+    # Iter 212m-158 — Admin/founder-only.  Non-admins shouldn't be
+    # able to poll last-scan state for any project (would leak the
+    # admin-only Health Scanner UX through a side channel).
+    user = await require_admin(authorization)
     user_id = user["user_id"]
     db = get_db()
     if db is None:
@@ -774,7 +778,8 @@ async def _check_scan_rate_limit(
 async def request_fix(
     body: dict, authorization: Optional[str] = Header(None),
 ) -> dict:
-    user = await current_dev(authorization)
+    # Iter 212m-158 — Admin/founder-only (Health Scan fix path).
+    user = await require_admin(authorization)
     user_id = user["user_id"]
     project_id  = (body or {}).get("project_id")
     finding_id  = (body or {}).get("finding_id") or ""

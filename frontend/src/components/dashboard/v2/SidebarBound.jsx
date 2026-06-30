@@ -10,7 +10,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "./cn";
 import {
   Pin, PinOff, Plus, HeartPulse,
-  GitFork, Github,
+  GitFork, Github, LayoutGrid,
   User, Settings, Zap, LogOut, ChevronRight,
 } from "lucide-react";
 import { getToken, getUser, isAdminOrFounder } from "../../../lib/api";
@@ -26,6 +26,11 @@ const TOOLS = [
   // Iter 212m-157 — Health Scanner is now admin-only (founder spec).
   // The `adminOnly: true` flag below is honored by the .filter() call
   // in the Tools render block.  Codebase Graph stays public.
+  //
+  // Iter 212m-158 — "Developer tools" preview surface added.  Visible
+  // to ALL users (no adminOnly flag), routes to /tools where the four
+  // upcoming scans are listed as "Coming soon" cards with notify-me.
+  { id: "tools",    label: "Developer tools",   icon: LayoutGrid  },
   { id: "health",   label: "Health Scanner",    icon: HeartPulse,  adminOnly: true },
   { id: "graph",    label: "Codebase Graph",    icon: GitFork     },
 ];

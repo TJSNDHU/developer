@@ -1263,6 +1263,9 @@ app.include_router(vanguard_ci_router,    prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(fix_pipeline_router,   prefix="/api/aurem-dev")  # Iter 212m-121 bulk + SSE fix pipeline
 app.include_router(repo_status_router,    prefix="/api/aurem-dev")  # Iter 212m-125 live repo connection ping
 app.include_router(codebase_health_router, prefix="/api/aurem-dev")  # Iter 212m-72 5-cat health
+# Iter 212m-158 — /tools page "Notify me" capture endpoint.
+from routers.notify_interest import router as notify_interest_router
+app.include_router(notify_interest_router, prefix="/api/aurem-dev")
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
 # Iter 212m-117 — User trust-level (L1/L2/L3) for Loop Mode + Fix.
 from routers.trust_level import router as trust_level_router

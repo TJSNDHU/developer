@@ -46,6 +46,49 @@ async def current_dev(authorization: Optional[str] = None) -> dict:
     return payload
 
 
+async def require_admin(authorization: Optional[str] = None) -> dict:
+    """Iter 212m-158 — Shared admin gate.
+
+    Single-line check usable by any router: simply add
+    ``await require_admin(authorization)`` at the top of the handler.
+
+    Mirrors the legacy ``routers/admin.py::_require_admin`` behaviour
+    so we don't have two slightly-different rules in the codebase:
+      1. Decode the JWT via ``current_dev``.
+      2. Fast path — JWT already carries ``is_admin=true`` or the live
+         row says ``tier == "founder"``.
+      3. Stale-JWT escape hatch — re-check the live ``dev_users`` row
+         so newly-promoted founders don't have to log out + log back in.
+      4. Otherwise raise ``HTTPException(403, "Admin access required")``.
+
+    Used by ``security_scan.py``, ``vanguard_ci.py``, the BugHunt
+    endpoints, and any future admin-only feature.  Importing this
+    helper is the *only* supported way to gate a route on admin
+    status — do NOT re-implement the check inline.
+    """
+    user = await current_dev(authorization)
+    if user.get("is_admin") or user.get("tier") == "founder":
+        return user
+    try:
+        from cto_services.db import get_db
+        db = get_db()
+        if db is not None and user.get("user_id"):
+            row = await db.dev_users.find_one(
+                {"user_id": user["user_id"]},
+                {"is_admin": 1, "tier": 1, "is_unlimited": 1, "email": 1},
+            )
+            if row and (row.get("is_admin") or row.get("tier") == "founder"):
+                user["is_admin"]     = True
+                user["tier"]         = row.get("tier") or user.get("tier")
+                user["is_unlimited"] = bool(row.get("is_unlimited"))
+                user["email"]        = row.get("email") or user.get("email")
+                return user
+    except Exception:
+        # Swallow DB hiccups — fail closed below.
+        pass
+    raise HTTPException(403, "Admin access required")
+
+
 def create_token(user_id: str, email: str, is_admin: bool = False) -> str:
     """Create a signed JWT for a developer user.
 

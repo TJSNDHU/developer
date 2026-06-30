@@ -39,7 +39,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Header
 
-from cto_services.auth import current_dev
+from cto_services.auth import current_dev, require_admin
 from cto_services.db import get_db
 # Iter 212m-66 — two-round deep scanner.
 from services.vanguard_scanner import run_two_round_scan
@@ -263,8 +263,12 @@ async def run_security_scan(
 
     Returns: {"ok": True, "summary": {…counts…}, "findings": [...]}.
     No auto-apply — caller renders + asks the user to fix manually.
+
+    Iter 212m-158 — Admin/founder gate.  Non-admin callers get a
+    clean 403 here instead of leaking the scan UX through.  Matches
+    the frontend route guards shipped in iter 212m-157.
     """
-    user = await current_dev(authorization)
+    user = await require_admin(authorization)
     user_id = user["user_id"]
     project_id = (body or {}).get("project_id")
     two_round  = bool((body or {}).get("two_round", False))
@@ -908,8 +912,10 @@ async def apply_security_fix(
     body: dict,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Apply a REAL fix for a single Vanguard finding."""
-    me = await current_dev(authorization)
+    """Apply a REAL fix for a single Vanguard finding.
+
+    Iter 212m-158 — Admin/founder gate (same rationale as /run)."""
+    me = await require_admin(authorization)
     user_id   = me["user_id"]
     project_id = (body or {}).get("project_id") or ""
     finding   = (body or {}).get("finding") or {}

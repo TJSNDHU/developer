@@ -674,6 +674,7 @@ function SidebarReal({
       onToolClick={(toolId) => {
         if (toolId === "health")        _go("/codebase-health");
         else if (toolId === "bughunt")  _go("/bug-hunt");
+        else if (toolId === "tools")    _go("/tools");
         else if (toolId === "graph") {
           window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
             detail: { open: true },

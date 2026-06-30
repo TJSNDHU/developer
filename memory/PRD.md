@@ -12,6 +12,55 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-158 — Backend require_admin gate + /tools preview page (Feb 2026) ✅
+
+Two-part landing in a single deploy:
+
+**Part 1 — Backend `require_admin` decorator**
+
+Founder spec: "Add require_admin decorator to all backend endpoints: /cto/security-scan/*, /cto/health/*, /cto/vanguard/*, /cto/bug-hunt/*. Same one-line check."
+
+Implementation:
+  • New shared helper `cto_services.auth.require_admin(authorization)` — single source of truth.  Mirrors the legacy `routers/admin.py::_require_admin` (JWT decode → fast path → stale-JWT live-row escape hatch → 403).
+  • Wired into `routers/security_scan.py` (2 routes: `/run`, `/fix`) and `routers/codebase_health.py` (4 routes: `/cache-stats`, `/scan`, `/last`, `/fix`).
+  • `routers/vanguard_ci.py` left alone — that's the CI-shared-token ingest path (trufflehog → backend), not user-JWT auth.  Adding `require_admin` there would have broken CI pipelines.
+  • Bug Hunt coverage: there is no dedicated `/bug-hunt/*` API; the actual scanner endpoints all live under `/security-scan/*` (now gated).  So Bug Hunt is admin-gated transitively.
+  • The legacy custom `if not user.get("is_admin"): raise 403` inside `codebase_health/cache-stats` is gone — single helper now.
+
+**Live proof on preview** (curl):
+  • Admin POST `/codebase-health/scan` → HTTP 400 "project_id required" (gate passes; only the logic 400 fires)
+  • Non-admin POST `/codebase-health/scan` → HTTP 403 "Admin access required" ✓
+  • Non-admin POST `/security-scan/run` → HTTP 403 "Admin access required" ✓
+  • Anon GET `/codebase-health/last` → HTTP 401 "Authorization header missing" ✓
+
+**Part 2 — `/tools` preview page**
+
+Founder drop-in implemented faithfully:
+  • New `pages/ToolsPage.jsx` (~280 LOC) — four "Coming soon" cards: Bug Hunt (coral), Vanguard Scan (purple), Security Scan (amber), Health Scan (teal).  Each card carries: accent icon header + ETA pill + description, disabled repo selector, disabled CTA button, notify-me email form.
+  • `<Route path="/tools" element={<ToolsPage />}>` registered in `App.jsx`.
+  • Sidebar TOOLS array (`components/dashboard/v2/SidebarBound.jsx`) has a new `tools` entry (LayoutGrid icon, "Developer tools" label) WITHOUT the `adminOnly` flag — visible to every user.
+  • `Dashboard.jsx::onToolClick` routes `tools` → `_go("/tools")`.
+  • Mock `useRepos()` replaced with a real `GET /cto/projects/list` fetch, mapped to `{id, full_name}` shape so the dropdown matches the user's connected repos.
+  • Notify form wired to `POST /api/aurem-dev/notify-interest` (new endpoint in `routers/notify_interest.py`).  Body: `{tool, email, repo}`.  Validation: tool ∈ allowed set; email regex + ≤240 chars; repo str ≤120; per-IP rate limit 20/min.  Persists into `tool_notify_interest` collection with `user_id` enrichment when authenticated.  Soft-fails to 200 if DB is unreachable so the UX never breaks.
+  • **DOES NOT link to actual tool routes** (per spec).  Cards are display-only previews.
+
+Icon library swap from drop-in: Tabler classes (`ti ti-bug`) → lucide-react (codebase standard, already in use).  Visual parity preserved via the same accent palette (#FAECE7 / #EEEDFE / #FAEEDA / #E1F5EE).
+
+**Live E2E verification on preview**: screenshot confirms all 4 cards render with correct accents + Coming-soon pills + disabled CTAs + notify-me forms.  `tools-card-bug-hunt-success` testid resolved after a real form submission round-trip, proving the `/notify-interest` endpoint persists end-to-end.
+
+**Test coverage** — 12 new pytests in `test_iter212m158_admin_gate_and_tools_page.py`:
+  • `require_admin` exposed + 403 path
+  • `security_scan/run + /fix` use the gate
+  • `codebase_health` all 4 routes use the gate; legacy inline 403 gone
+  • `vanguard_ci` left alone (CI ingest preserved)
+  • ToolsPage exists, 4 tool ids, no protected-route links, real `useRepos()` hook, notify form POST shape
+  • Route registered, sidebar entry exists without adminOnly, Dashboard routes `tools` to `/tools`
+  • Notify-interest router registered in main.py with validation + rate limit + persistence
+
+**Regression**: 168/168 passing across iters 149-158.
+
+
+
 ### Iter 212m-157 — Admin-only gate on Bug Hunt + Vanguard + Security Scan + Health Scan (Feb 2026) ✅
 
 **Founder spec (verbatim)**: "Hide Bug Hunt, Vanguard Scan, Security Scan, and Health Scan from the main sidebar nav for all users EXCEPT accounts flagged as is_founder=true or is_admin=true in the DB. Routes stay alive. No redirects. No new pages. Just conditional rendering on the nav links."
