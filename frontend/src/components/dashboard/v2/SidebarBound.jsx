@@ -9,7 +9,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "./cn";
 import {
-  Pin, PinOff, Plus, HeartPulse,
+  Pin, PinOff, Plus,
   GitFork, Github, LayoutGrid,
   User, Settings, Zap, LogOut, ChevronRight,
 } from "lucide-react";
@@ -23,15 +23,17 @@ const TOOLS = [
   // (chat-security-scan-btn + LoopModeToggle). Bug Hunt promoted to
   // the homepage marketing nav. Codebase Graph filtered for founders.
   //
-  // Iter 212m-157 — Health Scanner is now admin-only (founder spec).
-  // The `adminOnly: true` flag below is honored by the .filter() call
-  // in the Tools render block.  Codebase Graph stays public.
+  // Iter 212m-162 — Health Scanner removed from the sidebar entirely.
+  // It now lives as a "Coming soon" card inside /tools (Developer
+  // tools) alongside the Security Scan and Vanguard Scan cards.  The
+  // underlying admin route `/codebase-health` is still alive for
+  // direct navigation, just no longer surfaced as a nav link.
   //
-  // Iter 212m-158 — "Developer tools" preview surface added.  Visible
-  // to ALL users (no adminOnly flag), routes to /tools where the four
-  // upcoming scans are listed as "Coming soon" cards with notify-me.
+  // Iter 212m-158 — "Developer tools" preview surface.  Visible to ALL
+  // users (no adminOnly flag), routes to /tools where Health Scan,
+  // Security Scan, Vanguard Scan, and Bug Hunt are listed as "Coming
+  // soon" cards with notify-me.
   { id: "tools",    label: "Developer tools",   icon: LayoutGrid  },
-  { id: "health",   label: "Health Scanner",    icon: HeartPulse,  adminOnly: true },
   { id: "graph",    label: "Codebase Graph",    icon: GitFork     },
 ];
 
@@ -464,8 +466,13 @@ export default function SidebarBound({
               return true;
             }).map((tool) => {
               const Icon = tool.icon;
-              const isActive =
-                (tool.id === "health"  && location.pathname.startsWith("/codebase-health"));
+              // Iter 212m-162 — Health Scanner row deleted; tools row
+              // active-state map now only needs to handle the dynamic
+              // tools that route through /codebase-* or open drawers.
+              // The remaining "tools" + "graph" entries are dispatched
+              // by Dashboard.jsx::onToolClick — no path-based active
+              // highlight needed for either.
+              const isActive = false;
               const row = (
                 <button onClick={() => onToolClick?.(tool.id)}
                   data-testid={`ds2-tool-${tool.id}`}

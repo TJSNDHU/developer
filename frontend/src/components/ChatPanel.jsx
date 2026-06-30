@@ -3058,85 +3058,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               Iter 212m-56 — red dot badge with critical+high count
               when the latest cached scan found findings. Same pattern
               as the GitHub status dot above. */}
-          {/* Iter 212m-157 — Security Scan composer button is now
-              admin-only.  Same gate as the sidebar's Health Scanner
-              link and the Vanguard admin page — non-admin users see
-              no security/scan affordance anywhere in the UI. */}
-          {activeProject?.project_id
-            && activeProject.project_id !== "home"
-            && activeProject?.github_owner
-            && activeProject?.github_repo
-            && isAdminOrFounder() && (
-            <span style={{ position: "relative", display: "inline-flex" }}>
-              <ToolButton
-                testid="chat-security-scan-btn"
-                title={
-                  execMode === EXEC_MODES.LOOP
-                    ? "Auto — Shield runs automatically at Step 4 of every loop. Click to view findings."
-                    : scanCounts && (scanCounts.critical + scanCounts.high) > 0
-                      ? `${scanCounts.critical} critical • ${scanCounts.high} high vulnerabilities — click to view`
-                      : "Run 1-click security scan on this repo"
-                }
-                onClick={() => setScanOpen((v) => !v)}
-                Icon={ShieldCheck}
-                active={scanOpen}
-                wide
-              />
-              {/* Iter 212m-58 — In loop mode show an AUTO badge on the
-                  shield so the user understands the scanner will fire
-                  automatically.  Critical/high finding count badge
-                  still wins if any exist. */}
-              {execMode === EXEC_MODES.LOOP && !(scanCounts && (scanCounts.critical + scanCounts.high) > 0) && (
-                <span
-                  data-testid="chat-security-scan-auto-badge"
-                  style={{
-                    position: "absolute",
-                    bottom: -4, right: -4,
-                    padding: "0 5px", height: 12,
-                    borderRadius: 999,
-                    background: "linear-gradient(90deg, #a855f7, #6366f1)",
-                    color: "#fff",
-                    fontSize: 8.5, fontWeight: 800, letterSpacing: 0.4,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    display: "inline-flex",
-                    alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 0 6px rgba(168,85,247,0.7)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  AUTO
-                </span>
-              )}
-              {scanCounts && (scanCounts.critical + scanCounts.high) > 0 && (
-                <span
-                  data-testid="chat-security-scan-badge"
-                  aria-label={`${scanCounts.critical + scanCounts.high} high-severity findings`}
-                  style={{
-                    position: "absolute",
-                    top: -4, right: -4,
-                    minWidth: 16, height: 16,
-                    padding: "0 4px",
-                    borderRadius: 999,
-                    background: scanCounts.critical > 0 ? "#ef4444" : "#f97316",
-                    color: "#0a0a0a",
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    display: "inline-flex",
-                    alignItems: "center", justifyContent: "center",
-                    boxShadow: scanCounts.critical > 0
-                      ? "0 0 6px rgba(239,68,68,0.7)"
-                      : "0 0 6px rgba(249,115,22,0.7)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {scanCounts.critical + scanCounts.high > 99
-                    ? "99+"
-                    : scanCounts.critical + scanCounts.high}
-                </span>
-              )}
-            </span>
-          )}
+          {/* Iter 212m-162 — Security Scan composer button removed.
+              The scanner is now surfaced as a "Coming soon" card inside
+              /tools (Developer tools) — see ToolsPage.jsx. Removing
+              the composer affordance keeps the chat header lean and
+              consolidates all upcoming security/health tooling on
+              one page. */}
           {/* Iter 212m-93 — REMOVED "Vanguard active" green pill from
               composer per founder spec (matches v0 lean look). The
               security guarantee is still surfaced via the bottom

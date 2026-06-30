@@ -75,11 +75,19 @@ def test_admin_vanguard_has_admin_guard_wrapper():
 # ── Nav link visibility (sidebar + landing + composer) ──────────────
 
 def test_sidebar_health_link_is_admin_only():
+    """Iter 212m-162 — Health Scanner is now FULLY REMOVED from the
+    sidebar (stronger guarantee than the iter 212m-157 admin gate).
+    It lives as a "Coming soon" card in /tools instead.  This test
+    enforces the absence so the row never silently returns."""
     src = (_FRONTEND / "components" / "dashboard" / "v2" / "SidebarBound.jsx").read_text()
-    # The TOOLS entry carries the new flag.
-    assert "adminOnly: true" in src
-    # And the filter block honors it.
-    assert "t.adminOnly && !isAdminOrFounder" in src
+    # Slice to just the TOOLS list so historical comments don't false-positive.
+    start = src.find("const TOOLS = [")
+    end   = src.find("];", start)
+    tools_block = src[start:end]
+    # No literal id row, no label row, no HeartPulse icon reference.
+    assert 'id: "health"' not in tools_block
+    assert 'label: "Health Scanner"' not in tools_block
+    assert "HeartPulse" not in tools_block
 
 
 def test_landing_bughunt_link_is_admin_or_anon():
@@ -91,15 +99,15 @@ def test_landing_bughunt_link_is_admin_or_anon():
 
 
 def test_chatpanel_security_scan_button_is_admin_only():
+    """Iter 212m-162 — Security Scan composer button is now FULLY
+    REMOVED from the chat composer (stronger guarantee than the iter
+    212m-157 admin gate).  The scanner lives as a "Coming soon" card
+    in /tools instead.  This test enforces the absence so the button
+    never silently returns."""
     src = (_FRONTEND / "components" / "ChatPanel.jsx").read_text()
-    # The composer's "chat-security-scan-btn" wrapper now ANDs an
-    # admin check on top of the existing project/repo guards.
-    assert "isAdminOrFounder()" in src
-    # Find the chat-security-scan-btn block and confirm the gate is
-    # within ~400 chars of it.
-    sb_idx = src.index('testid="chat-security-scan-btn"')
-    window = src[max(0, sb_idx - 500): sb_idx]
-    assert "isAdminOrFounder()" in window, "admin gate missing near security-scan-btn"
+    assert 'testid="chat-security-scan-btn"' not in src
+    assert 'chat-security-scan-badge' not in src
+    assert 'chat-security-scan-auto-badge' not in src
 
 
 # ── Routes stay alive (per founder spec — "Routes stay alive") ──────

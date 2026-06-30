@@ -10871,3 +10871,23 @@ orchestrator path           (legacy safety net)
 
 **Tests**: 8 new tests in `tests/test_iter212m161_advisor_cascade.py` (cascade order, self-rescue guards, config-map plumbing, no-Claude assertion, fallback_chain shape). Combined suite (m155→m161): **190 passed / 2 pre-existing unrelated failures**.
 
+
+---
+
+## Iter 212m-162 — Sidebar + Chat composer cleanup (2026-06-30)
+
+**Removed from sidebar** (`components/dashboard/v2/SidebarBound.jsx`):
+- "Health Scanner" entry deleted from `TOOLS` array.
+- `HeartPulse` icon import dropped (no orphan import).
+- Active-state check for `tool.id === "health"` simplified to constant `false` (no path-based highlight needed for the remaining `tools` + `graph` entries).
+
+**Removed from chat composer** (`components/ChatPanel.jsx`):
+- Entire `chat-security-scan-btn` block (lines 3061-3139) deleted — composer Shield icon, AUTO badge, and critical/high vulnerability count badge all gone.
+
+**Result**: Health Scan + Security Scan now ONLY surface as locked "Coming soon" cards in `/tools` (Developer tools) — same UX as Bug Hunt and Vanguard Scan. All 4 cards have:
+- Coming-soon pill badge
+- Disabled CTA button
+- Notify-me email form
+
+**Tests**: New `tests/test_iter212m162_sidebar_chat_cleanup.py` (6 tests) + updated iter 212m-157 stale assertions. All 25 sidebar/chat/tools-page tests pass. Smoke-rendered `/tools` on preview — all 4 cards display correctly.
+
