@@ -69,11 +69,9 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("status", 1)],                       {}),
         ([("automation_id", 1)],                {"unique": True, "sparse": True}),
     ]),
-    ("project_plans", [
-        ([("project_id", 1), ("created_at", -1)], {}),
-        ([("user_id", 1)],                         {}),
-        ([("status", 1)],                          {}),
-    ]),
+    # Iter 212m-172 — project_plans collection removed together with
+    # the /projects/plan + /projects/build Flow-B endpoints.  All
+    # project state now lives exclusively in cto_projects.
     ("aurem_cto_unlock_requests", [
         ([("user_id", 1), ("ts", -1)], {}),
         ([("status", 1)],              {}),

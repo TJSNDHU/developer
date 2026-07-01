@@ -43,7 +43,6 @@ initTheme();
 // memoises the chunks so the SECOND visit to /admin is instant.
 const Dashboard         = lazy(() => import("./pages/Dashboard"));
 const Deploy            = lazy(() => import("./pages/Deploy"));
-const Database          = lazy(() => import("./pages/Database"));
 const Domain            = lazy(() => import("./pages/Domain"));
 const Settings          = lazy(() => import("./pages/Settings"));
 const Tokens            = lazy(() => import("./pages/Tokens"));
@@ -152,7 +151,6 @@ export default function App() {
           <Route path="/signup"          element={<Signup />} />
           <Route path="/dashboard"       element={<Dashboard />} />
           <Route path="/deploy"          element={<Deploy />} />
-          <Route path="/database"        element={<Database />} />
           <Route path="/domain"          element={<Domain />} />
           <Route path="/settings"        element={<Settings />} />
           <Route path="/tokens"          element={<Tokens />} />

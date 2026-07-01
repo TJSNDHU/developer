@@ -102,11 +102,15 @@ async def test_continues_when_one_collection_indexer_fails():
 
 
 def test_spec_includes_all_user_requested_collections():
-    """User explicitly listed these 10 collections — lock them in."""
+    """User explicitly listed these collections — lock them in.
+
+    Iter 212m-172 — `project_plans` removed together with Flow-B
+    /projects/plan endpoint.
+    """
     required = {
         "cto_payments", "cto_support", "cto_support_messages",
         "cto_token_grants", "cto_vault_audit_log", "referrals",
-        "vanguard_audit", "cto_automations", "project_plans",
+        "vanguard_audit", "cto_automations",
         "aurem_cto_unlock_requests",
     }
     have = {name for name, _ in _BOOTSTRAP_SPEC}

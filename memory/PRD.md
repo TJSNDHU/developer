@@ -12,6 +12,106 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-173 — Flow B (orphan `/projects/create`) removed, single PAT flow (Feb 2026) ✅
+
+Founder QA on iter 212m-172 flagged **two divergent PAT flows** for
+adding projects to Aurem CTO:
+
+**Flow A** (`POST /api/aurem-dev/cto/projects/add` — `routers/cto_projects.py:827`):
+mandatory user-pasted PAT → GitHub reachability verification →
+HKDF-Fernet encrypted → stored in `cto_projects.github_token`.  All
+downstream code (Loop Mode, Ask Advisor, Fix Pipeline, `bin_context`,
+`_repo_ctx_from`, dev_skills, local_tools) reads exclusively from
+this collection.  18 pytest files guard it.  3 real frontend surfaces
+call it: `AddProjectWizard`, `NewUserWizard`, `Projects.jsx`.
+
+**Flow B** (`POST /api/aurem-dev/projects/create` +
+`/projects/plan`, `/projects/build/{id}`, `/projects/{id}/files`
+— `routers/projects.py`): idea-to-code path that **created NO
+`cto_projects` doc**, wrote files to `/tmp/aurem-dev-projects/{project_id}`
+on the filesystem, and used either `dev_users.github.access_token`
+(OAuth) OR the server-wide `GITHUB_TOKEN` env var to push to a fresh
+GitHub repo.  Cross-user attribution risk on the env-var fallback.
+Only one frontend page (`Database.jsx`) called it; the sibling `/plan`
++ `/build/{id}` + `/{id}/files` endpoints had **zero** frontend callers.
+Live Mongo check confirmed `cto_projects=0` + `project_plans=0` — no
+production data ever touched Flow B.
+
+**Audit → aggressive removal** (all deletions verified for zero
+downstream impact before removal):
+
+**Files deleted**:
+- `backend/routers/projects.py` (219 LOC, 4 endpoints)
+- `backend/services/project_generator.py` (Flow B only)
+- `backend/services/github_auto.py` (Flow B only)
+- `backend/services/mongo_provisioner.py` (Flow B only)
+- `backend/services/doc_generator.py` (Flow B `/plan` only)
+- `frontend/src/pages/Database.jsx` (Flow B's sole UI)
+
+**Files updated**:
+- `backend/main.py`: removed `from routers.projects import ...` +
+  `include_router(projects_router, ...)` line.
+- `backend/scripts/init_prod_collections.py`: removed `project_plans`
+  collection init (its only writers are gone).
+- `backend/tests/test_iter181_admin_emails_and_projects.py`: kept only
+  the ADMIN_EMAILS multi-admin tests; removed the Flow B budget +
+  degradation pattern tests (Flow B endpoint no longer exists).
+- `backend/tests/test_iter116_init_collections.py`: dropped
+  `project_plans` from the required-collection assertion set.
+- `frontend/src/components/Shell.jsx`: removed `{ to: "/database", ...}`
+  from `NAV` array + unused `Database` icon import.
+- `frontend/src/App.jsx`: removed `Database` lazy import + `/database`
+  route (falls through to the `path="*"` → `/` redirect).
+
+**Preserved (independent of Flow B, still 100% wired)**:
+- `routers/github_bot.py` (`/github/status`, `/github/push`) — used by
+  `SaveToGithubDialog.jsx` (chat-scoped save-to-repo feature).  Uses
+  `GITHUB_TOKEN` env for the bot commits, unrelated to per-project auth.
+- `dev_users.github.access_token` OAuth column — still consulted by
+  `services/bin_context.py` as the last-resort fallback for legacy
+  pre-Iter 211 projects that never stored a per-project PAT (with a
+  hard-403 if both PAT decrypt + OAuth fallback fail).
+- `WORKSPACE = /tmp/aurem-dev-projects` path in `routers/cto_projects.py`
+  — used for Loop rollback + task workspaces (unrelated to Flow B's
+  filesystem write).
+
+**Live verification on preview**:
+- `POST /api/aurem-dev/projects/create` → HTTP 404 ✅
+- `POST /api/aurem-dev/projects/plan` → HTTP 404 ✅
+- `POST /api/aurem-dev/projects/build/xyz` → HTTP 404 ✅
+- `POST /api/aurem-dev/cto/projects/add` → HTTP 422 (validation, as
+  expected without a body) ✅
+- `GET /api/aurem-dev/cto/projects/list` → returns founder's real
+  project row ✅
+- Browser hit to `/database` on preview → redirects to landing page
+  via the catch-all Route ✅
+- Backend + frontend restart clean; supervisor RUNNING; `/api/health`
+  returns `ok=true` ✅
+
+**Test coverage** — 9 new pytests in
+`backend/tests/test_iter212m173_flow_b_removed.py`:
+- Flow B backend files removed
+- Flow B frontend file removed
+- `main.py` no longer imports Flow B router
+- Full backend grep: no imports of any deleted service
+- Shell.jsx nav cleaned
+- App.jsx route + lazy import cleaned
+- Zero frontend components POST to any Flow B endpoint
+- Flow A endpoint still exists + encrypts PAT + verifies against GitHub
+  before insert
+- `init_prod_collections` no longer seeds `project_plans`
+
+**Regression**: 92/92 passing across iters 212m-116, 172, 173 + admin
+emails.  All lints clean.
+
+**What this unlocks**: single mental model for project auth, no
+cross-user PAT leak surface, one code path for the QA suite to
+target, ~600 LOC of orphan code removed.  Aurem CTO now has ONE and
+only one way for a founder to connect a GitHub repo.
+
+
+
+
 ### Iter 212m-172 — 5 fixes batch + Loop timeout hardening + linter runtime install (Feb 2026) ✅
 
 Delivered in one deploy at founder's request after a PROD Loop Mode E2E

@@ -28,7 +28,6 @@ from routers.trust import router as trust_router
 from routers.chat_commits import router as chat_commits_router
 from routers.engagement import router as engagement_router
 from routers.unlock import router as unlock_router
-from routers.projects import router as projects_router
 from routers.auth import router as auth_router
 from routers.mfa import router as mfa_router  # Iter 212m-20 — admin 2FA
 from routers.chat import router as chat_router
@@ -1383,7 +1382,6 @@ app.include_router(harden_router,       prefix="/api/aurem-dev")
 app.include_router(trust_router,        prefix="/api/aurem-dev")
 app.include_router(chat_commits_router, prefix="/api/aurem-dev")
 app.include_router(engagement_router,   prefix="/api/aurem-dev")
-app.include_router(projects_router,      prefix="/api/aurem-dev")
 app.include_router(unlock_router,       prefix="/api/aurem-dev")
 app.include_router(auth_router,         prefix="/api/aurem-dev")
 app.include_router(mfa_router,          prefix="/api/aurem-dev")  # Iter 212m-20 — admin 2FA
