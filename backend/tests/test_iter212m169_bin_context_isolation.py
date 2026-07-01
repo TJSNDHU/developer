@@ -286,18 +286,18 @@ async def test_7_loop_session_holds_bin_ctx(db_and_scratch_users):
 
 
 def test_8_stream_route_no_silent_degrade_source_check():
-    """Test 8 — Stream route emits build_bin_context call after
-    current_dev.  The prior silent auto-infer block that could pick
-    a random project has been REMOVED (search should find zero hits
-    of the auto-infer log line).
+    """Test 8 — Stream route emits build_ora_context (Iter 212m-170)
+    OR build_bin_context (Iter 212m-169) call after current_dev.  The
+    prior silent auto-infer block that could pick a random project
+    has been REMOVED (search should find zero hits of the auto-infer
+    log line).
     """
     src = Path(__file__).resolve().parents[1] / "routers" / "chat.py"
     text = src.read_text()
-    # New wiring: build_bin_context must be called in the stream flow.
-    assert "build_bin_context(" in text, (
-        "chat.py must call build_bin_context to build the BINContext "
-        "at request entry"
-    )
+    # New wiring: ora_context OR bin_context factory must be called.
+    assert (
+        "build_ora_context(" in text or "build_bin_context(" in text
+    ), "chat.py must call build_ora_context / build_bin_context at entry"
     # Prior auto-infer log line must be GONE.
     assert "chat.stream: auto-inferred sole project" not in text, (
         "silent auto-infer must be removed — the FE is responsible for "

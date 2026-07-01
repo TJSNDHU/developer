@@ -1604,41 +1604,22 @@ async def chat_with_tools(
     # ~4 k chars × (max_iters - 1) per turn.
     extra = system or ""
 
-    # Iter 212m-168 — PRIVACY GUARDRAIL (non-founder end-user sessions).
-    # The AUREM_CTO_PERSONA has several examples that mention `/app/`
-    # paths and encourage the LLM to inspect the local pod filesystem
-    # via execute_bash — those exist so the FOUNDER can use ORA to
-    # develop AUREM itself.  For end-user (customer) chats we've
-    # already dropped execute_bash from the tool catalog above, but
-    # we ALSO prepend a hard rule so the model refuses to describe or
-    # invent local-pod contents even when hallucinating.  Without
-    # this rule the model would sometimes reply "ls /app/backend"
-    # from training memory when asked "which repo are you working
-    # on?" — surfacing AUREM internals as if they were the user's.
-    if not is_founder:
-        extra = (
-            "=== SCOPE HARD RULE (non-negotiable) ===\n"
-            "You are working EXCLUSIVELY on the user's connected "
-            "GitHub repo (owner/repo shown in the CONNECTED REPO "
-            "CONTEXT block below, if any).  You DO NOT have access "
-            "to the AUREM server pod's local filesystem.  Any path "
-            "starting with `/app`, `/tmp`, `/var`, `/etc`, `/usr`, "
-            "`/root`, `/home` refers to AUREM'S OWN internal server "
-            "and is OFF-LIMITS.  If the user asks 'which repo are "
-            "you working on?', answer with the owner/repo of their "
-            "connected GitHub project ONLY — never mention `/app/`, "
-            "`/app/backend`, `/app/frontend`, `auremcto`, or any "
-            "AUREM-internal directory.  If no repo is connected, "
-            "say exactly that and prompt them to connect one.  "
-            "Reading files: use ONLY `read_repo_file`, "
-            "`read_repo_files`, `list_repo_files`, `search_repo`, "
-            "`semantic_search_repo`, `get_repo_structure` — every "
-            "one of these is scoped to the user's connected repo.  "
-            "Never invent shell output, never claim to have run a "
-            "local command, never quote file contents from a path "
-            "starting with `/app`.\n"
-            "=== END SCOPE HARD RULE ===\n\n"
-        ) + extra
+    # Iter 212m-170 — ORA ABSOLUTE BOUNDARY.  Prepends the ORA
+    # system-file boundary block to the LLM's system prompt for ALL
+    # users (including founder) in ALL modes (swift / pro / maxx,
+    # prompt / loop).  Layer 0 of the isolation stack — even a founder
+    # accidentally asking "cat /app/backend/main.py" in normal chat
+    # gets a documented refusal.  The founder's escape hatch is
+    # debug_mode on the ORAContext (settable only by a founder token)
+    # which unlocks execute_bash for /app/* — but the boundary block
+    # itself still tells the model to reset its default.
+    #
+    # Iter 212m-168 (SCOPE HARD RULE for non-founders) is REPLACED by
+    # this — a superset of the earlier rule that additionally protects
+    # ORA internal names (parliament, loop_engine, orchestrator, vault,
+    # AUREM_MASTER_KEY, JWT_SECRET, LANGFUSE, …).
+    from services.ora_context import render_ora_boundary_prompt
+    extra = render_ora_boundary_prompt(bin_ctx) + extra
 
     # Iter 104 — escalation memory for repeated founder-contact asks.
     founder_ask_count = _count_founder_asks(history_lines, prompt)

@@ -1631,13 +1631,14 @@ async def submit_task(
     # now redundant.  We STILL fetch the full project doc for
     # downstream metadata (repo_index_summary etc. are excluded by
     # the projection below) but only AFTER ownership is proven.
-    from services.bin_context import build_bin_context
+    # Iter 212m-169/170 — Build ORAContext at task entry.
+    from services.ora_context import build_ora_context
     _is_fnd_task = bool(
         me.get("is_admin") or me.get("is_unlimited")
         or (me.get("tier") == "founder")
         or is_founder_email(me.get("email"))
     )
-    bin_ctx = await build_bin_context(
+    bin_ctx = await build_ora_context(
         user_id=me["user_id"],
         project_id=body.project_id,
         db=db,

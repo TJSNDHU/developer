@@ -1837,8 +1837,8 @@ async def lookup_or_rehydrate(
     # "GitHub credentials missing" instead of crashing.
     rehydrated_bin_ctx = None
     try:
-        from services.bin_context import build_bin_context
-        rehydrated_bin_ctx = await build_bin_context(
+        from services.ora_context import build_ora_context
+        rehydrated_bin_ctx = await build_ora_context(
             user_id=doc.get("user_id") or "",
             project_id=doc.get("project_id"),
             db=db,

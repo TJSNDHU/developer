@@ -125,13 +125,9 @@ async def start_loop(body: StartBody,
                                 "project. Wait for it to finish or cancel it.",
         })
 
-    # Iter 212m-169 — Build BINContext ONCE at loop start.  This
-    # validates ownership + PAT + repo fields BEFORE we spend any
-    # LLM tokens on the plan.  A broken PAT or wrong-user project_id
-    # returns a clean 403 here instead of failing at SHIP after
-    # 30 seconds of pipeline work.
-    from services.bin_context import build_bin_context
-    _bin_ctx_loop = await build_bin_context(
+    # Iter 212m-169/170 — Build ORAContext ONCE at loop start.
+    from services.ora_context import build_ora_context
+    _bin_ctx_loop = await build_ora_context(
         user_id=user["user_id"],
         project_id=body.project_id,
         db=db,

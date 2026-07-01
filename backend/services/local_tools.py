@@ -252,6 +252,44 @@ _NO_BIN_CTX_ERROR = {
 }
 
 
+def _verify_ctx(ctx: dict):
+    """Iter 212m-170 — ORAContext / BINContext accessor.
+
+    Returns the request-scoped context object (ORAContext or its
+    parent BINContext) if it's present AND valid.  Returns None
+    otherwise so the caller can respond with a soft tool error
+    envelope (raising HTTPException from inside a tool breaks the
+    orchestrator's tool-loop; tools must return dicts).
+
+    Validity checks:
+      • ctx["bin_ctx"] is a BINContext (or ORAContext subclass)
+      • bin_ctx.bin_id matches ctx["user_id"] (cross-user tamper
+        detection — see local_tools._repo_ctx_from for the same
+        check on the repo-tool path).
+      • For ORAContext with ora_boundary_active=False, the caller
+        must be a founder (defence in depth against a mutated ctx).
+    """
+    bc = (ctx or {}).get("bin_ctx")
+    if bc is None:
+        return None
+    caller_uid = (ctx or {}).get("user_id") or ""
+    if getattr(bc, "bin_id", None) and caller_uid and bc.bin_id != caller_uid:
+        logger.warning(
+            "_verify_ctx: bin_ctx.bin_id=%s != ctx.user_id=%s — refusing",
+            bc.bin_id, caller_uid,
+        )
+        return None
+    # If the ORA boundary flag is deactivated, is_founder must be True.
+    boundary_off = getattr(bc, "ora_boundary_active", True) is False
+    if boundary_off and not bool(getattr(bc, "is_founder", False)):
+        logger.warning(
+            "_verify_ctx: ora_boundary_active=False but is_founder=False "
+            "— refusing (boundary tamper)",
+        )
+        return None
+    return bc
+
+
 def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[str, bool]:
     """Apply optional line-range slice, then hard-truncate. Returns (content, truncated)."""
     if isinstance(lines, list) and len(lines) == 2:
@@ -1504,6 +1542,40 @@ async def execute_bash(ctx: dict, args: dict) -> dict:
     cmd = (args or {}).get("command", "").strip()
     if not cmd:
         return {"ok": False, "error": "command is required"}
+
+    # Iter 212m-170 — ORA ABSOLUTE BOUNDARY on execute_bash args.
+    # Even for founders, /app/*, /tmp/*, /var/*, /etc/*, /usr/*,
+    # /root/*, /home/* paths are OFF-LIMITS unless the founder has
+    # explicitly enabled debug_mode on their ORAContext (which is
+    # itself gated on is_founder=True at build time).  This means
+    # the DEFAULT founder session cannot inspect the AUREM pod
+    # filesystem — they must opt-in to debug_mode first (via the
+    # admin panel toggle, tracked in ORAContext.debug_mode).
+    #
+    # Non-founder sessions never reach this point (blocked above),
+    # but the boundary check runs anyway as defence-in-depth.
+    from services.ora_context import path_hits_ora_boundary
+    _hit = path_hits_ora_boundary(cmd)
+    if _hit is not None:
+        # Founder + debug_mode → allow.  Every other combination refuses.
+        allow = (
+            _bc is not None
+            and bool(getattr(_bc, "is_founder", False))
+            and bool(getattr(_bc, "debug_mode", False))
+        )
+        if not allow:
+            return {
+                "ok": False,
+                "error": (
+                    f"execute_bash refused: the command references "
+                    f"ORA-internal path `{_hit}` which is OFF-LIMITS in "
+                    f"normal mode.  If you are a founder developing "
+                    f"AUREM itself, enable Debug Mode in the admin "
+                    f"panel and start a new chat session."
+                ),
+                "error_class": "ora_boundary_violation",
+            }
+
 
     # Parse first token to gate against the allowlist. We use shlex so
     # quoted paths don't trip the parser.

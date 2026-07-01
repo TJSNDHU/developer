@@ -578,22 +578,22 @@ async def chat_send(
     # was left sequential, which is why founder's first message hit
     # 20s on prod (testing agent finding iter 212m-14).
     t_start = time.time()
-    # Iter 212m-169 — BINContext hardening.  Build the request-scoped
-    # BINContext at the entry point when the user is chatting AGAINST
-    # a project.  Home-page casual chat (no project) still works with
-    # bin_ctx=None; downstream repo tools will refuse cleanly.
+    # Iter 212m-169/170 — ORAContext hardening.  Build the request-
+    # scoped ORAContext at the entry point when the user is chatting
+    # AGAINST a project.  Home-page casual chat (no project) still
+    # works with bin_ctx=None; downstream repo tools will refuse cleanly.
     pid = (body.project_id or "").strip()
     _db = get_db()
     bin_ctx = None
     if pid and pid != "home":
-        # build_bin_context does ALL of:
+        # build_ora_context does ALL of:
         #   • ownership check (find_one {project_id, user_id})     → 403
         #   • repo_owner / repo_name / branch pull                 → 400
         #   • PAT decrypt via services/vault HKDF                  → 403
         #   • OAuth fallback for legacy OAuth-only projects        → 403
-        # so the previous separate ownership guard is now redundant.
-        from services.bin_context import build_bin_context
-        bin_ctx = await build_bin_context(
+        #   • wraps into ORAContext with ora_boundary_active=True  (170)
+        from services.ora_context import build_ora_context
+        bin_ctx = await build_ora_context(
             user_id=user["user_id"],
             project_id=pid,
             db=_db,
@@ -1064,20 +1064,13 @@ async def chat_stream(
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 
-    # Iter 212m-169 — Build BINContext for the stream endpoint.
-    # Non-blank project_id → verify + decrypt PAT + freeze into bin_ctx.
-    # If project_id refers to another user's project OR PAT is broken,
-    # build_bin_context raises HTTPException(403) which the outer
-    # /stream handler surfaces as a normal HTTP error frame BEFORE the
-    # SSE stream opens — the FE sees a clean 403 not a truncated SSE.
-    # Blank/"home" → bin_ctx=None (Home casual chat still works;
-    # any tool that needs a repo will refuse cleanly).
+    # Iter 212m-169/170 — Build ORAContext for the stream endpoint.
     _db_bc = get_db()
     _pid_stream = (body.project_id or "").strip()
     bin_ctx = None
     if _pid_stream and _pid_stream != "home":
-        from services.bin_context import build_bin_context
-        bin_ctx = await build_bin_context(
+        from services.ora_context import build_ora_context
+        bin_ctx = await build_ora_context(
             user_id=user_id,
             project_id=_pid_stream,
             db=_db_bc,
