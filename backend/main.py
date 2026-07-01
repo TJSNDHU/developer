@@ -505,31 +505,111 @@ async def lifespan(app: FastAPI):
                 logger.warning("LongCat probe failed: %r", _e)
         _asyncio.create_task(_probe_longcat())
 
-    # Iter 212m-166 — Loop Verify linter binary probe.  If ruff/eslint
-    # are missing on the runtime pod, `services/loop_verify.py::_run`
-    # gracefully returns rc=127 (soft-skip) but the founder needs to
-    # know because a missing linter silently masks syntax errors on
-    # generated code before Ship.
+    # Iter 212m-172 — Loop Verify linter runtime auto-install.
+    # Prior iters warned about missing ruff/eslint but relied on the
+    # Dockerfile to install them.  On Emergent pods the pre-baked base
+    # image is used and Dockerfile edits are ignored, so ruff + eslint
+    # were still missing on PROD after multiple redeploys.
+    # Real fix: install them at runtime from the lifespan hook so every
+    # boot converges to the same shape regardless of base image drift.
     async def _probe_loop_linters():
         import shutil
-        missing = []
+        import subprocess
+        missing_before: list[str] = []
         for binary in ("ruff", "eslint"):
             if not shutil.which(binary):
-                missing.append(binary)
-        if missing:
-            logger.warning(
-                "⚠️  Loop Verify degraded — linter binary(s) missing on pod: %s. "
-                "The LoopEngine will soft-skip lint for affected file types and "
-                "still Ship, but syntax errors on generated code will NOT be "
-                "caught before commit.  Fix: rebuild the pod (Dockerfile installs "
-                "them) or manually run `pip install ruff` / `npm install -g eslint@8`.",
-                ", ".join(missing),
+                missing_before.append(binary)
+
+        installed: list[str] = []
+        install_errors: list[str] = []
+
+        if "ruff" in missing_before:
+            try:
+                # 60 s cap so pip freeze doesn't hang the lifespan.
+                proc = await _asyncio.wait_for(
+                    _asyncio.to_thread(
+                        subprocess.run,
+                        ["pip", "install", "--quiet", "--no-input", "ruff"],
+                        capture_output=True, text=True,
+                    ),
+                    timeout=60.0,
+                )
+                if proc.returncode == 0 and shutil.which("ruff"):
+                    installed.append("ruff")
+                else:
+                    install_errors.append(
+                        f"ruff: rc={proc.returncode} stderr={proc.stderr[:200]}"
+                    )
+            except Exception as _e:
+                install_errors.append(f"ruff: {_e!r}")
+
+        if "eslint" in missing_before:
+            try:
+                proc = await _asyncio.wait_for(
+                    _asyncio.to_thread(
+                        subprocess.run,
+                        ["npm", "install", "-g", "--silent", "eslint@8"],
+                        capture_output=True, text=True,
+                    ),
+                    timeout=90.0,
+                )
+                if proc.returncode == 0 and shutil.which("eslint"):
+                    installed.append("eslint")
+                else:
+                    install_errors.append(
+                        f"eslint: rc={proc.returncode} stderr={proc.stderr[:200]}"
+                    )
+            except Exception as _e:
+                install_errors.append(f"eslint: {_e!r}")
+
+        # Re-probe after install attempt so the /health flag reflects reality.
+        still_missing = [b for b in ("ruff", "eslint") if not shutil.which(b)]
+        app.state.loop_linters_missing = still_missing
+
+        if installed:
+            logger.info(
+                "✅ Loop Verify linters auto-installed at boot: %s",
+                ", ".join(installed),
             )
-            app.state.loop_linters_missing = missing
-        else:
+        if install_errors:
+            logger.warning(
+                "⚠️  Loop Verify linter install errors: %s",
+                " | ".join(install_errors),
+            )
+        if not still_missing:
             logger.info("✅ Loop Verify OK — ruff + eslint both installed.")
-            app.state.loop_linters_missing = []
+        else:
+            logger.warning(
+                "⚠️  Loop Verify degraded — linter(s) STILL missing after install: %s. "
+                "Verify phase will soft-skip lint for those languages.",
+                ", ".join(still_missing),
+            )
     _asyncio.create_task(_probe_loop_linters())
+
+    # Iter 212m-172 — Awaiting-confirmation stale sweeper.
+    # If a user starts a Loop but walks away, the plan sits in
+    # AWAITING_CONFIRMATION state forever, holding the loop_lock and
+    # blocking a fresh /start on the same project.  Founder spec: any
+    # PAUSED state older than AWAITING_CONFIRM_MAX_S auto-expires to
+    # ABORTED, the lock releases, and the user sees a clean "Loop
+    # expired — restart if you still want to run it" message.
+    async def _sweep_awaiting_confirmations():
+        from services.loop_engine import (
+            LoopState, sweep_expired_awaiting_confirmations,
+        )
+        while True:
+            try:
+                await _asyncio.sleep(60)  # every minute
+                if app.state.db is None:
+                    continue
+                n = await sweep_expired_awaiting_confirmations(app.state.db)
+                if n:
+                    logger.info("Loop sweeper: expired %d stale paused loop(s)", n)
+            except _asyncio.CancelledError:
+                break
+            except Exception as _e:
+                logger.warning("Loop sweeper tick failed: %r", _e)
+    app.state.loop_expiry_task = _asyncio.create_task(_sweep_awaiting_confirmations())
 
     yield
     if getattr(app.state, "digest_task", None):
@@ -540,6 +620,8 @@ async def lifespan(app: FastAPI):
         app.state.eval_task.cancel()
     if getattr(app.state, "bootstrap_task", None):
         app.state.bootstrap_task.cancel()
+    if getattr(app.state, "loop_expiry_task", None):
+        app.state.loop_expiry_task.cancel()
     if app.state.mongo:
         app.state.mongo.close()
     logger.info("AUREM Dev shutdown")
@@ -1099,6 +1181,22 @@ def _resolve_build_hash() -> str:
 # ── Health ──
 @app.get("/api/health")
 async def health():
+    # Iter 212m-172 — Surface LongCat live status so any UI can pick
+    # the right Council A model label without a founder-gated call.
+    try:
+        from services.llm import (
+            council_a_primary_model as _council_a_primary_model,
+            LONGCAT_LIVE as _LONGCAT_LIVE,
+            LONGCAT_ENABLED as _LONGCAT_ENABLED,
+        )
+        council_a_model = _council_a_primary_model()
+        longcat_live = bool(_LONGCAT_LIVE)
+        longcat_enabled = bool(_LONGCAT_ENABLED)
+    except Exception:
+        council_a_model = "z-ai/glm-5.2"
+        longcat_live = False
+        longcat_enabled = False
+
     return {
         "ok": True,
         "service": "aurem-dev",
@@ -1110,6 +1208,10 @@ async def health():
         # dashboards can show a "Verify phase degraded" pill when the
         # pod is missing ruff / eslint.
         "loop_linters_missing": getattr(app.state, "loop_linters_missing", None),
+        # Iter 212m-172 — live model routing surface.
+        "council_a_model":  council_a_model,
+        "longcat_live":     longcat_live,
+        "longcat_enabled":  longcat_enabled,
     }
 
 

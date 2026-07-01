@@ -73,13 +73,80 @@ function Tooltip({ label, children }) {
   );
 }
 
-function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, onLogout }) {
+function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, onLogout, isMobile = false }) {
   const ref = useRef(null);
   useEffect(() => {
     function handle(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [onClose]);
+
+  // Iter 212m-172 — Mobile bottom-sheet variant.
+  // Desktop retains the compact absolute-positioned menu.  On mobile we
+  // render a full-width sheet anchored to the bottom of the viewport
+  // with a backdrop, so the user gets a clear, discoverable menu with
+  // Settings / Recharge / Logout (previously the mobile avatar tap
+  // went straight to /settings — QA noted as P2 in iter 212m-156).
+  if (isMobile) {
+    return (
+      <>
+        {/* Backdrop */}
+        <div
+          data-testid="ds2-user-sheet-backdrop"
+          onClick={onClose}
+          className="fixed inset-0 z-[1500] bg-black/60"
+          style={{ backdropFilter: "blur(2px)" }}
+        />
+        {/* Sheet */}
+        <div
+          ref={ref}
+          data-testid="ds2-user-sheet"
+          className="fixed inset-x-0 bottom-0 z-[1510] overflow-hidden rounded-t-xl border-t border-border bg-[#161616] shadow-[0_-8px_32px_rgba(0,0,0,0.6)]"
+          style={{ animation: "ds2SheetIn 220ms cubic-bezier(0.16,1,0.3,1)" }}
+        >
+          <style>{`@keyframes ds2SheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+          {/* Handle indicator */}
+          <div className="flex justify-center py-2">
+            <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+          </div>
+          <div className="border-b border-border px-4 pb-3">
+            <p className="text-[14px] font-semibold text-foreground">
+              {user?.name || user?.email || "Founder"}
+            </p>
+            {user?.email && (
+              <p className="mt-[2px] text-[12px] text-muted-foreground">{user.email}</p>
+            )}
+            {user?.tier && (
+              <p className="mt-1 inline-flex items-center rounded-full bg-primary/15 px-2 py-[2px] text-[10px] font-bold text-primary">
+                {user.tier}
+              </p>
+            )}
+          </div>
+          <div className="py-1">
+            <button data-testid="ds2-user-edit-mobile" onClick={onEditProfile}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-foreground transition-colors hover:bg-secondary">
+              <User className="size-4 text-muted-foreground" strokeWidth={2} /> Edit Profile
+            </button>
+            <button data-testid="ds2-user-settings-mobile" onClick={onSettings}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-foreground transition-colors hover:bg-secondary">
+              <Settings className="size-4 text-muted-foreground" strokeWidth={2} /> Settings
+            </button>
+            <button data-testid="ds2-user-recharge-mobile" onClick={onRecharge}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-primary transition-colors hover:bg-secondary">
+              <Zap className="size-4" strokeWidth={2} /> Recharge Tokens
+            </button>
+          </div>
+          <div className="border-t border-border py-1 pb-[max(env(safe-area-inset-bottom),8px)]">
+            <button data-testid="ds2-user-logout-mobile" onClick={onLogout}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-destructive transition-colors hover:bg-secondary">
+              <LogOut className="size-4" strokeWidth={2} /> Logout
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <div ref={ref} data-testid="ds2-user-dropdown"
       className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-lg border border-border bg-[#161616] shadow-2xl">
@@ -119,6 +186,7 @@ export default function SidebarBound({
   collapsed = false, pinned = false, onPinChange,
   repos = [], onSelectRepo, onAddRepo,
   onToolClick, user, onEditProfile, onSettings, onRecharge, onLogout,
+  isMobile = false,
 }) {
   const isCollapsed = !pinned && collapsed;
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -497,7 +565,8 @@ export default function SidebarBound({
         {dropdownOpen && !isCollapsed && (
           <UserDropdown user={user} onClose={() => setDropdownOpen(false)}
             onEditProfile={onEditProfile} onSettings={onSettings}
-            onRecharge={onRecharge} onLogout={onLogout} />
+            onRecharge={onRecharge} onLogout={onLogout}
+            isMobile={isMobile} />
         )}
         <button onClick={() => setDropdownOpen((v) => !v)} aria-label="User menu"
           data-testid="ds2-sidebar-avatar"

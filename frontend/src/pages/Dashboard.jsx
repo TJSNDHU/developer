@@ -538,6 +538,9 @@ function DashboardV2Body() {
               if (isMobile) closeMobileSidebar();
             }}
             user={user}
+            // Iter 212m-172 — pass isMobile through so the UserDropdown
+            // renders the bottom-sheet variant.
+            isMobile={isMobile}
             // Iter 212m-156 — every nav action (Tool click, Settings,
             // Logout, Tokens) also auto-closes the mobile drawer.
             onAfterAction={isMobile ? closeMobileSidebar : undefined}
@@ -656,6 +659,7 @@ function SidebarReal({
   collapsed, pinned, onPinChange,
   repos, onSelectRepo, onAddRepo, user,
   onAfterAction,
+  isMobile = false,
 }) {
   const navigate = useNavigate();
   // Wrap navigate so the parent (Dashboard) can auto-close the mobile
@@ -671,6 +675,7 @@ function SidebarReal({
       repos={repos}
       onSelectRepo={onSelectRepo}
       onAddRepo={onAddRepo}
+      isMobile={isMobile}
       onToolClick={(toolId) => {
         if (toolId === "health")        _go("/codebase-health");
         else if (toolId === "bughunt")  _go("/bug-hunt");

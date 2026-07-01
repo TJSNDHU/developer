@@ -60,6 +60,15 @@ _VERIFY_MODEL = os.environ.get(
     "anthropic/claude-sonnet-4.5",
 )
 
+# Iter 212m-172 — Rescue model for when the primary Vanguard verifier
+# fails (timeout, 5xx, empty response, invalid JSON).  DeepSeek is the
+# same fallback used across the codebase (services/llm.py::_deepseek_model)
+# and is env-tunable so PROD can pin an alternative on outage.
+_VERIFY_RESCUE_MODEL = os.environ.get(
+    "VANGUARD_VERIFY_RESCUE_MODEL",
+    "deepseek/deepseek-chat",
+)
+
 # Iter 212m-41 — env-tunable severity threshold + kill-switch.
 _BLOCK_LEVEL = (
     os.environ.get("VANGUARD_VERIFY_BLOCK_LEVEL", "CRITICAL") or "CRITICAL"
@@ -352,16 +361,60 @@ async def _llm_review(file_blocks: dict, repo_ctx: str,
                 "separate audit. Include the line number in every "
                 "finding so the caller can verify."
             )
-        raw = await asyncio.wait_for(
-            call_openrouter_model(
-                model=_VERIFY_MODEL,
-                system=sys_prompt,
-                user="Review the following patch:\n\n" + envelope,
-                max_tokens=2000,
-                temperature=0.0,
-            ),
-            timeout=30.0,
-        )
+
+        # Iter 212m-172 — Primary → rescue model fallback.
+        # If Claude (primary) fails (timeout / 5xx / empty), try DeepSeek
+        # (rescue) so the second-agent review still runs in production
+        # instead of silently dropping to the regex-only floor.
+        model_used = _VERIFY_MODEL
+        raw = ""
+        primary_error: Optional[str] = None
+        try:
+            raw = await asyncio.wait_for(
+                call_openrouter_model(
+                    model=_VERIFY_MODEL,
+                    system=sys_prompt,
+                    user="Review the following patch:\n\n" + envelope,
+                    max_tokens=2000,
+                    temperature=0.0,
+                ),
+                timeout=30.0,
+            )
+            if not (raw or "").strip():
+                raise ValueError("empty response from primary")
+        except Exception as _pe:
+            primary_error = f"{type(_pe).__name__}: {_pe!r}"[:200]
+            logger.warning(
+                "vanguard-verify primary failed (%s) — trying rescue model %s",
+                primary_error, _VERIFY_RESCUE_MODEL,
+            )
+            try:
+                raw = await asyncio.wait_for(
+                    call_openrouter_model(
+                        model=_VERIFY_RESCUE_MODEL,
+                        system=sys_prompt,
+                        user="Review the following patch:\n\n" + envelope,
+                        max_tokens=2000,
+                        temperature=0.0,
+                    ),
+                    timeout=30.0,
+                )
+                model_used = _VERIFY_RESCUE_MODEL
+                if not (raw or "").strip():
+                    raise ValueError("empty response from rescue")
+            except Exception as _re:
+                # Both failed — fall through to the regex floor.
+                logger.warning(
+                    "vanguard-verify rescue ALSO failed (%r) — leaving regex floor",
+                    _re,
+                )
+                return {"pass": True, "findings": [],
+                        "summary": (
+                            f"verify-agent skipped (primary={primary_error}, "
+                            f"rescue={type(_re).__name__})"
+                        )[:500],
+                        "model":   ""}
+
         text = (raw or "").strip()
         # Strip ```json fences if present
         if text.startswith("```"):
@@ -391,7 +444,7 @@ async def _llm_review(file_blocks: dict, repo_ctx: str,
             "pass":     bool(data.get("pass", True)),
             "findings": list(data.get("findings", []) or []),
             "summary":  str(data.get("summary", ""))[:500],
-            "model":    _VERIFY_MODEL,
+            "model":    model_used,
         }
     except Exception as e:
         logger.warning("vanguard-verify LLM call failed (%r) — leaving regex floor",

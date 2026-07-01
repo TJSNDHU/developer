@@ -18,12 +18,31 @@ Per-task cost (estimated, input + output combined):
 
 Override any model ID via env var: AUREM_MODEL_<KEY> (e.g.
 AUREM_MODEL_SWIFT_CODE) so we can A/B without redeploying.
+
+Iter 212m-172 — Claude / DeepSeek IDs are imported from services.llm
+so smart_router NEVER drifts from the Parliament V2 source of truth.
+Same env-override behaviour is preserved via _env().
 """
 from __future__ import annotations
 import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+# Iter 212m-172 — Import Claude + DeepSeek model IDs from services.llm
+# so smart_router shares the same source of truth as Parliament V2.
+# If the import fails at boot (circular / test env), we fall back to
+# the well-known OpenRouter slugs.
+try:
+    from .llm import _CLAUDE_MODEL as _LLM_CLAUDE_MODEL
+    from .llm import _deepseek_model as _llm_deepseek_model
+except Exception as _e:  # pragma: no cover — defensive
+    logger.warning("smart_router: could not import model IDs from services.llm (%r)", _e)
+    _LLM_CLAUDE_MODEL = "anthropic/claude-sonnet-4.5"
+
+    def _llm_deepseek_model() -> str:
+        return "deepseek/deepseek-chat"
+
 
 # Canonical model IDs. Wrapped through _env() so any deploy can pin a
 # different OpenRouter slug without touching code (useful when Kimi
@@ -44,16 +63,15 @@ MODELS = {
     "pro_code":     _env("PRO_CODE",     "moonshotai/kimi-k2.7-code"),
     "pro_review":   _env("PRO_REVIEW",   "moonshotai/kimi-k2-thinking"),
 
-    # Maxx mode — Claude writes
-    # Iter 212g — OpenRouter accepts dotted IDs; reverted dash-date format.
-    "maxx_code":    _env("MAXX_CODE",    "anthropic/claude-sonnet-4.5"),
+    # Maxx mode — Claude writes (Iter 212m-172: source of truth = services.llm._CLAUDE_MODEL)
+    "maxx_code":    _env("MAXX_CODE",    _LLM_CLAUDE_MODEL),
     "maxx_review":  _env("MAXX_REVIEW",  "moonshotai/kimi-k2-thinking"),
 
-    # Security — always Claude (accuracy non-negotiable)
-    "security":     _env("SECURITY",     "anthropic/claude-sonnet-4.5"),
+    # Security — always Claude (accuracy non-negotiable; same source-of-truth)
+    "security":     _env("SECURITY",     _LLM_CLAUDE_MODEL),
 
-    # Fallback — any model error → DeepSeek
-    "fallback":     _env("FALLBACK",     "deepseek/deepseek-chat"),
+    # Fallback — any model error → DeepSeek (source of truth = services.llm._deepseek_model())
+    "fallback":     _env("FALLBACK",     _llm_deepseek_model()),
 }
 
 # Per-task max_tokens. Review budgets are intentionally tight — the

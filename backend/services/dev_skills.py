@@ -13,6 +13,14 @@ Every skill is REAL — no mocks, no stubs:
 
 All skills fail-soft: a missing key or 404 returns
 {"ok": False, "error": "..."} — never raises into the orchestrator.
+
+Iter 212m-172 — Every repo-scoped skill now reads the repo tuple
+(owner/repo/branch/token) EXCLUSIVELY from `_repo_ctx_from(ctx)`
+(services/local_tools.py).  The legacy `_resolve_project(user_id,
+project_id)` DB round-trip is retained ONLY behind the shim in
+local_tools for callers outside the LLM tool loop.  ORA tool calls
+never hit the DB directly — the BINContext built at the router entry
+point is the single source of truth.
 """
 from __future__ import annotations
 
@@ -26,6 +34,9 @@ import httpx
 from cto_services.db import get_db
 from .repo_context import _fetch_file as _gh_fetch_file
 from .sandbox_runner import run_python_check
+# Iter 212m-172 — _repo_ctx_from / _NO_BIN_CTX_ERROR are imported
+# lazily inside each tool to avoid a circular import
+# (local_tools ⇄ dev_skills at module init).
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +82,28 @@ async def find_usages(ctx: dict, args: dict) -> dict:
       kind?    str   — 'function' | 'class' | 'variable' (hint only)
       max?     int   — max results (default 15, cap 30)
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     symbol     = ((args or {}).get("symbol") or "").strip()
     max_hits   = min(int((args or {}).get("max") or 15), 30)
 
     if not symbol or not symbol.replace("_", "").isalnum():
         return {"ok": False, "error": "symbol required (alphanumeric/underscore)"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
+    # Iter 212m-172 — read repo tuple from BINContext, never the DB.
+    rc = None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    owner = proj.get("github_owner") or ""
-    repo  = proj.get("github_repo") or ""
-    token = proj.get("github_token") or None
+    owner  = rc["owner"] or ""
+    repo   = rc["repo"] or ""
+    branch = rc["branch"] or "main"
+    token  = rc["token"] or None
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner/repo"}
 
@@ -116,7 +134,7 @@ async def find_usages(ctx: dict, args: dict) -> dict:
             async with httpx.AsyncClient(timeout=20.0) as c:
                 tree_r = await c.get(
                     f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/"
-                    f"{proj.get('branch') or 'main'}?recursive=1",
+                    f"{branch}?recursive=1",
                     headers=_gh_headers(token),
                 )
             tree_r.raise_for_status()
@@ -128,7 +146,7 @@ async def find_usages(ctx: dict, args: dict) -> dict:
         except Exception:
             files = []
 
-        branch = proj.get("branch") or "main"
+        # branch already resolved above from BINContext (Iter 212m-172).
 
         async def _grep_one(path: str) -> dict | None:
             content = await _gh_fetch_file(owner, repo, path, branch, token)
@@ -173,17 +191,22 @@ async def get_dependencies(ctx: dict, args: dict) -> dict:
 
     args: none required.
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
+    # Iter 212m-172 — repo tuple from BINContext.
+    rc= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    owner  = rc["owner"]
+    repo   = rc["repo"]
+    branch = rc["branch"] or "main"
+    token  = rc["token"] or None
 
     # Try common dep-manifest locations
     paths_to_try = [
@@ -257,17 +280,22 @@ async def get_env_vars(ctx: dict, args: dict) -> dict:
       • frontend/.env.example
     Returns deduplicated key list.
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
+    # Iter 212m-172 — repo tuple from BINContext.
+    rc= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    owner  = rc["owner"]
+    repo   = rc["repo"]
+    branch = rc["branch"] or "main"
+    token  = rc["token"] or None
 
     candidates = [
         ".env.example", ".env.sample", ".env.template",
@@ -322,17 +350,22 @@ async def detect_framework(ctx: dict, args: dict) -> dict:
     """Detect the project's framework(s) from package.json / requirements.txt
     / file layout. Returns ranked stack labels.
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
+    # Iter 212m-172 — repo tuple from BINContext.
+    rc= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    owner  = rc["owner"]
+    repo   = rc["repo"]
+    branch = rc["branch"] or "main"
+    token  = rc["token"] or None
 
     # Pull a few key files in parallel
     paths = ["package.json", "requirements.txt", "backend/requirements.txt",
@@ -423,19 +456,25 @@ async def get_commit_history(ctx: dict, args: dict) -> dict:
       max?     int — number of commits (default 10, cap 30)
       path?    str — limit to commits touching this file/folder
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     max_n      = min(int((args or {}).get("max") or 10), 30)
     path_filter = (args or {}).get("path") or ""
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
+    # Iter 212m-172 — repo tuple from BINContext.
+    rc= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    owner  = rc["owner"]
+    repo   = rc["repo"]
+    branch = rc["branch"] or "main"
+    token  = rc["token"] or None
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner/repo"}
 
@@ -488,8 +527,6 @@ async def list_issues(ctx: dict, args: dict) -> dict:
       label?  str — filter by label
       max?    int — default 10, cap 30
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     state      = (args or {}).get("state") or "open"
     label      = (args or {}).get("label") or ""
     max_n      = min(int((args or {}).get("max") or 10), 30)
@@ -497,13 +534,21 @@ async def list_issues(ctx: dict, args: dict) -> dict:
     if state not in ("open", "closed", "all"):
         state = "open"
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
+    # Iter 212m-172 — repo tuple from BINContext.
+    rc= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rc = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rc is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    owner = proj.get("github_owner")
-    repo  = proj.get("github_repo")
-    token = proj.get("github_token") or None
+    owner = rc["owner"]
+    repo  = rc["repo"]
+    token = rc["token"] or None
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner/repo"}
 
@@ -555,8 +600,6 @@ async def get_pr_comments(ctx: dict, args: dict) -> dict:
     args:
       pr_number   int (required)
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     pr_number  = (args or {}).get("pr_number")
 
     if not pr_number:
@@ -566,13 +609,21 @@ async def get_pr_comments(ctx: dict, args: dict) -> dict:
     except Exception:
         return {"ok": False, "error": "pr_number must be int"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
+    # Iter 212m-172 — repo tuple from BINContext.
+    rctx= None
+    _NO_CTX = None
+    try:
+        from .local_tools import _repo_ctx_from as _lt_repo_ctx_from, _NO_BIN_CTX_ERROR as _lt_no_ctx
+        rctx = _lt_repo_ctx_from(ctx)
+        _NO_CTX = _lt_no_ctx
+    except Exception as _e:
+        logger.warning("dev_skills: _repo_ctx_from import failed: %r", _e)
+    if rctx is None:
+        return _NO_CTX or {"ok": False, "error": "no repo context"}
 
-    owner = proj.get("github_owner")
-    repo  = proj.get("github_repo")
-    token = proj.get("github_token") or None
+    owner = rctx["owner"]
+    repo  = rctx["repo"]
+    token = rctx["token"] or None
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner/repo"}
 

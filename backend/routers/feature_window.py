@@ -84,6 +84,26 @@ async def feature_window_status(
     except Exception:                                    # noqa: BLE001
         mongo_collections = "UNSURE"
 
+    # ── Live model routing (Iter 212m-172) ────────────────────────
+    # Swift = Council A primary model.  LongCat when live, GLM-5.2 otherwise.
+    # This label ships from ONE source of truth (services.llm) so the
+    # marketing UI never drifts from what Council A actually calls.
+    try:
+        from services.llm import (
+            council_a_primary_model,
+            LONGCAT_LIVE,
+            LONGCAT_ENABLED,
+        )
+        swift_model_id = council_a_primary_model()
+        longcat_live_flag = bool(LONGCAT_LIVE)
+        longcat_enabled_flag = bool(LONGCAT_ENABLED)
+    except Exception as _e:
+        logger.warning("feature_window: could not import council_a_primary_model: %r", _e)
+        swift_model_id = "z-ai/glm-5.2"
+        longcat_live_flag = False
+        longcat_enabled_flag = False
+    swift_model_label = f"{swift_model_id} via OpenRouter"
+
     # ── Live DB counts ────────────────────────────────────────────
     loop_sessions   = await _safe_count(db, "loop_sessions")
     loop_plans      = await _safe_count(db, "loop_plans")
@@ -188,15 +208,22 @@ async def feature_window_status(
             "mongo_collections":   mongo_collections,
         },
         "modes": [
-            {"name": "Swift", "model": "z-ai/glm-5.2 via OpenRouter",
+            {"name": "Swift", "model": swift_model_label,
              "tier": "starter+", "price": "$9", "status": "live"},
-            {"name": "Pro", "model": "GLM-5.2 → Claude Sonnet 4.5 fallback",
+            {"name": "Pro", "model": f"{swift_model_id} → Claude Sonnet 4.5 fallback",
              "tier": "pro+", "price": "$19", "status": "live"},
-            {"name": "Maxx", "model": "GLM draft + Claude review",
+            {"name": "Maxx", "model": f"{swift_model_id} draft + Claude review",
              "tier": "team+", "price": "$49", "status": "live"},
             {"name": "Local", "model": "Ollama / LM Studio",
              "tier": "any", "price": "free", "status": "not_built"},
         ],
+        # Iter 212m-172 — surface live LongCat state so the FeatureWindow
+        # UI can render a "LongCat live" pill instead of hardcoded GLM.
+        "council_a": {
+            "model":             swift_model_id,
+            "longcat_enabled":   longcat_enabled_flag,
+            "longcat_live":      longcat_live_flag,
+        },
         "tools": {
             "total": 24,
             "repo_tools": [

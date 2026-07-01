@@ -74,9 +74,11 @@ def test_health_endpoint_surfaces_loop_linters_missing():
 
 
 def test_boot_warning_message_actionable():
-    """The WARNING must tell ops HOW to fix — not just what's wrong."""
+    """Iter 212m-172 — Boot probe now actively INSTALLS ruff + eslint
+    at runtime (previous versions only warned).  Verify the subprocess
+    calls are present."""
     src = pathlib.Path("/app/backend/main.py").read_text()
-    # Presence of the exact fix commands so a founder reading the log
-    # doesn't have to grep the codebase.
-    assert "pip install ruff" in src
-    assert "npm install -g eslint" in src
+    # Subprocess installs the missing binaries automatically.
+    assert 'subprocess.run' in src
+    assert '"pip"' in src and '"ruff"' in src
+    assert '"npm"' in src and '"eslint@8"' in src

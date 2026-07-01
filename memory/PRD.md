@@ -12,6 +12,101 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-172 — 5 fixes batch + Loop timeout hardening + linter runtime install (Feb 2026) ✅
+
+Delivered in one deploy at founder's request after a PROD Loop Mode E2E
+smoke test caught two blockers: (a) linters still missing on PROD pods
+despite the Dockerfile fix, and (b) awaiting_confirmation state could
+hang indefinitely holding a project's loop_lock.
+
+**Timeout hardening (P0)**:
+- `services/loop_engine.py`: new `LoopState.EXPIRED = "expired"` state;
+  new `AWAITING_CONFIRM_MAX_S=600` (10 min, env-tunable via
+  `LOOP_AWAITING_CONFIRM_MAX_S`); new `sweep_expired_awaiting_confirmations(db)`
+  helper that flips stale AWAITING_CONFIRMATION / PAUSED_FOR_USER rows
+  to EXPIRED, releases the loop_lock, and drops from _LIVE.
+- `backend/main.py` lifespan: new `_sweep_awaiting_confirmations()`
+  background task running every 60 s; cancelled on shutdown.
+
+**Linter runtime install (P0 recurring)**:
+- `backend/main.py` lifespan: `_probe_loop_linters()` now RUNS
+  `pip install ruff` + `npm install -g eslint@8` via `subprocess.run`
+  when either binary is missing.  60 s / 90 s hard caps; results
+  logged; `app.state.loop_linters_missing` updated after install
+  attempt so `/api/health` reflects reality.
+- Removes the Dockerfile dependency (Emergent pods ignore Dockerfile
+  edits and use the pre-baked base image).
+
+**Fix 1 — dev_skills.py 7 tools moved to `_repo_ctx_from(ctx)`**:
+- `find_usages`, `get_dependencies`, `get_env_vars`, `detect_framework`,
+  `get_commit_history`, `list_issues`, `get_pr_comments` now read the
+  repo tuple (owner/repo/branch/token) from the request-scoped
+  BINContext instead of doing a fresh `_resolve_project()` DB round-trip.
+- Lazy imports inside each function to sidestep the circular import
+  (`local_tools` imports `dev_skills` at module top).
+
+**Fix 2 — Vanguard verify rescue model**:
+- New `_VERIFY_RESCUE_MODEL = os.environ.get("VANGUARD_VERIFY_RESCUE_MODEL", "deepseek/deepseek-chat")`.
+- Try/except around the primary Claude call: on timeout, empty response,
+  or 5xx, retries with DeepSeek instead of silently falling back to the
+  regex-only floor.  `primary_error` captured in the summary so the log
+  keeps a diagnostic trail.
+
+**Fix 3 — smart_router.py imports from services/llm.py**:
+- `_LLM_CLAUDE_MODEL` + `_llm_deepseek_model()` imported at top of file;
+  `MODELS["maxx_code"]`, `MODELS["security"]`, `MODELS["fallback"]` now
+  use those as defaults so smart_router never drifts from Parliament V2.
+- Env override (`AUREM_MODEL_*`) preserved.
+
+**Fix 4 — FeatureWindow dynamic Swift model label**:
+- `routers/feature_window.py` calls `services.llm.council_a_primary_model()`
+  when composing the `modes` list.  Swift row auto-updates from GLM-5.2
+  to LongCat when `LONGCAT_LIVE` flips true.  New `council_a` block in
+  the response surfaces `{model, longcat_enabled, longcat_live}`.
+- `main.py::/api/health` now exposes `council_a_model`, `longcat_live`,
+  `longcat_enabled` so any UI can render the correct label without a
+  founder-gated call.
+
+**Fix 5 — Mobile avatar bottom-sheet dropdown**:
+- `components/dashboard/v2/SidebarBound.jsx`: `UserDropdown` gains
+  `isMobile` prop; on mobile renders a full-width sheet anchored to
+  bottom with backdrop + slide-up animation instead of the absolute-
+  positioned desktop menu.  Buttons: Edit Profile, Settings, Recharge
+  Tokens, Logout.  New testids: `ds2-user-sheet`,
+  `ds2-user-sheet-backdrop`, `ds2-user-{edit,settings,recharge,logout}-mobile`.
+- `pages/Dashboard.jsx` threads `isMobile` through SidebarReal →
+  SidebarV2Bound.
+
+**Test coverage** — `backend/tests/test_iter212m172_five_fixes_and_timeout.py`
+(20 new tests): dev_skills refactor + lazy import, Vanguard rescue path,
+smart_router source-of-truth, FeatureWindow dynamic label, health
+endpoint LongCat surface, SidebarBound mobile testids, EXPIRED state +
+sweep helper contract, live sweeper behaviour (async iterator stub +
+lock release patched).
+
+**Regression**: 94/94 across iters 212m-165 → 172.  Iter 212m-166 boot
+warning test updated to reflect the new install-instead-of-warn shape.
+
+**Live PROD status**: Loop `loop_d4d5acb9e98049` failed at Ship phase
+with `403 Forbidden` from `POST /repos/TJSNDHU/Aurem/git/blobs`.  The
+fine-grained PAT on the project's github token lacks `contents:write`
+permission — needs founder to regenerate the PAT with the correct
+scope.  Loop pipeline itself is E2E working (plan → execute → verify →
+scan all completed cleanly); only the actual GitHub write is gated by
+the PAT permission.
+
+**Files touched**: `backend/services/loop_engine.py`,
+`backend/services/dev_skills.py`,
+`backend/services/vanguard_verify_agent.py`,
+`backend/services/smart_router.py`, `backend/routers/feature_window.py`,
+`backend/main.py`, `backend/tests/test_iter212m172_five_fixes_and_timeout.py`
+(new), `backend/tests/test_iter212m166_dockerfile_and_boot_probe.py`
+(updated), `frontend/src/pages/Dashboard.jsx`,
+`frontend/src/components/dashboard/v2/SidebarBound.jsx`.
+
+
+
+
 ### Iter 212m-158 — Backend require_admin gate + /tools preview page (Feb 2026) ✅
 
 Two-part landing in a single deploy:

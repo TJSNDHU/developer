@@ -79,6 +79,14 @@ MAX_PHASE_RESTARTS = 1
 # A session whose Mongo doc hasn't been updated in this long while in
 # EXECUTING/VERIFYING is treated as orphaned by resume_stale().
 STALE_AFTER_S = 300
+# Iter 212m-172 — Awaiting-confirmation / paused-for-user auto-expiry.
+# A loop that sits in AWAITING_CONFIRMATION or PAUSED_FOR_USER for more
+# than AWAITING_CONFIRM_MAX_S is auto-cancelled, its lock released,
+# and the user sees a clean "Loop expired" state on next fetch instead
+# of a silent hang.  Envelope-tunable so PROD can widen the window.
+AWAITING_CONFIRM_MAX_S = int(
+    os.getenv("LOOP_AWAITING_CONFIRM_MAX_S", "600")  # 10 min default
+)
 # Iter 212m-131 — Self-heal cap. SOURCE OF TRUTH for the verify inner
 # loop. The old code had MAX_VERIFY_RETRIES=3 + MAX_SELF_HEALS=2 with
 # a fragile "attempt >= MAX_SELF_HEALS + 1" check that worked ONLY
@@ -112,6 +120,10 @@ class LoopState(str, Enum):
     COMPLETED              = "completed"
     FAILED                 = "failed"
     ABORTED                = "aborted"
+    # Iter 212m-172 — Auto-expiry state.  Distinct from ABORTED so
+    # the UI can render "Loop expired — restart if you still want to
+    # run it" instead of "Loop cancelled by user".
+    EXPIRED                = "expired"
 
 
 def _now() -> datetime:
@@ -239,6 +251,84 @@ async def resume_stale(db) -> int:
     if rescued:
         logger.info("loop_engine: rescued %d stale session(s)", rescued)
     return rescued
+
+
+# ─── Iter 212m-172 — Auto-expiry sweeper for user-paused loops ──────
+
+async def sweep_expired_awaiting_confirmations(db) -> int:
+    """Auto-expire loops that have been PAUSED waiting for a user
+    decision for longer than AWAITING_CONFIRM_MAX_S.
+
+    A user-paused loop that never gets confirmed holds the loop_lock
+    for its (project_id, user_id) tuple forever — blocking fresh
+    `/loop/start` calls for up to STALE_S.  The founder QA repeatedly
+    hit "loop_already_running" with no active pipeline actually doing
+    work.
+
+    Design:
+      • state IN (awaiting_confirmation, paused_for_user) AND
+        updated_at older than the cutoff.
+      • Flip to EXPIRED with resume_reason="awaiting_confirmation_timeout".
+      • Release the (project_id, user_id) loop_lock so a new /start on
+        the same project succeeds on the next request.
+      • Return the count for the caller to log.
+
+    Called every 60 s by the lifespan background task.  Also safe to
+    call ad-hoc from tests.
+    """
+    cutoff = _now() - _td(AWAITING_CONFIRM_MAX_S)
+    expired = 0
+    try:
+        cursor = db.loop_sessions.find({
+            "state": {"$in": [
+                LoopState.AWAITING_CONFIRMATION.value,
+                LoopState.PAUSED_FOR_USER.value,
+            ]},
+            "updated_at": {"$lt": cutoff},
+        })
+    except Exception as e:
+        logger.warning("sweep_expired_awaiting_confirmations: cursor open failed: %r", e)
+        return 0
+    async for doc in cursor:
+        loop_id     = doc.get("loop_id") or ""
+        user_id     = doc.get("user_id") or ""
+        project_id  = doc.get("project_id") or None
+        try:
+            await db.loop_sessions.update_one(
+                {"loop_id": loop_id},
+                {"$set": {
+                    "state":         LoopState.EXPIRED.value,
+                    "resume_reason": "awaiting_confirmation_timeout",
+                    "updated_at":    _now(),
+                }},
+            )
+            # Best-effort lock release.  If loop_safety fails to import
+            # (test env), the loop_lock TTL will still clear it after
+            # STALE_S — this is just to make it prompt.
+            try:
+                from services.loop_safety import release_loop_lock
+                await release_loop_lock(db, project_id, user_id)
+            except Exception as _e:
+                logger.debug("release_loop_lock on expired loop failed: %r", _e)
+            await _log_error(
+                db, loop_id, doc.get("phase", "?"),
+                "Awaiting-confirmation timeout — loop auto-expired.",
+            )
+            # Drop from in-process registry so a follow-up lookup
+            # doesn't rehydrate a stale engine.
+            _LIVE.pop(loop_id, None)
+            expired += 1
+        except Exception as e:
+            logger.warning(
+                "sweep_expired_awaiting_confirmations: update failed for %s: %r",
+                loop_id, e,
+            )
+    if expired:
+        logger.info(
+            "loop_engine: expired %d awaiting_confirmation session(s)",
+            expired,
+        )
+    return expired
 
 
 # ─── The engine class ────────────────────────────────────────────────
