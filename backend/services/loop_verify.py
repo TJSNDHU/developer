@@ -62,11 +62,45 @@ def _ext(path: str) -> str:
 
 
 async def _run(cmd: list[str], cwd: str, timeout: float = _SUBPROCESS_TIMEOUT_S):
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    """Run a linter subprocess.
+
+    Iter 212m-166 — CRITICAL fix: wrap `create_subprocess_exec` in a
+    try/except for `FileNotFoundError` (errno 2).  When the linter
+    binary is not installed on the runtime pod (`ruff`, `eslint`) the
+    child process spawn raises `FileNotFoundError(2, 'No such file or
+    directory')` which previously bubbled straight up through
+    `_lint_one` → `verify_files` → `LoopEngine._execute()` and killed
+    the entire Loop mid-Execute with the very same errno-2 message the
+    founder was reporting on prod.
+
+    Return-value contract: `(returncode, stdout_bytes, stderr_bytes)`.
+    A missing binary returns rc=127 (POSIX "command not found") with
+    a self-describing stderr; `_lint_one` then treats it as a soft
+    skip (same code path as an unmapped extension) so the Loop
+    continues to the Ship phase instead of dying.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        binary = cmd[0] if cmd else "?"
+        logger.warning(
+            "loop_verify: linter binary %r not installed on pod — "
+            "skipping lint for this file (Loop continues).",
+            binary,
+        )
+        return 127, b"", f"linter binary '{binary}' not installed".encode()
+    except OSError as e:
+        # PermissionError, ENOEXEC (bad interpreter), etc.  Same
+        # rationale — degrade to a skip rather than crash the Loop.
+        logger.warning(
+            "loop_verify: OSError spawning linter %r: %r — skipping.",
+            cmd[:1], e,
+        )
+        return 127, b"", f"spawn failed: {e}".encode()
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(),
                                                  timeout=timeout)
@@ -138,6 +172,17 @@ async def verify_files(files: list[dict]) -> dict:
                     f"{rel}: write failed: {e}")
         async with sem:
             rc, so, se = await _run([tool, *flags, disk_path], cwd=sandbox)
+        # Iter 212m-166 — rc=127 = linter binary missing on this pod.
+        # Treat as a soft skip so the Loop continues to Ship instead of
+        # crashing.  Same shape as the `linter=skip` branch above.
+        if rc == 127:
+            return ({
+                "path":   rel,
+                "ok":     True,
+                "linter": "skip",
+                "stdout": "",
+                "stderr": se.decode(errors="ignore") or f"{tool} not available on runtime pod",
+            }, None)
         ok = (rc == 0)
         stdout = so.decode(errors="ignore")
         stderr = se.decode(errors="ignore")

@@ -10939,3 +10939,26 @@ orchestrator path           (legacy safety net)
 
 **Tests**: 6 new tests in `test_iter212m165_council_c_write_mode.py` (all pass). Combined suite (m150→m165): **103/103 green**.
 
+
+---
+
+## Iter 212m-166 — LAUNCH BLOCKER #1: Loop FileNotFoundError fix (2026-06-30)
+
+**Root cause** (verified end-to-end via reproduction test):
+`services/loop_verify.py::_run` at line 65 (pre-fix) called `asyncio.create_subprocess_exec("eslint"|"ruff", ...)`. When the linter binary is missing on the runtime pod, Python raises `FileNotFoundError(2, 'No such file or directory')` at spawn time. The old `_run()` only caught `asyncio.TimeoutError`, so the exception bubbled through `_lint_one → verify_files → LoopEngine._execute()` and killed the entire Loop mid-Verify — the exact errno-2 the founder was seeing on prod.
+
+**Fix** (`services/loop_verify.py:64-108`):
+1. Wrap `create_subprocess_exec` in try/except `(FileNotFoundError, OSError)` — return rc=127 with a self-describing stderr instead of raising.
+2. In `_lint_one`, add `if rc == 127:` branch that treats "linter binary missing" as a soft skip (same code path as unmapped extensions) so Loop continues to Ship phase.
+3. WARNING log surfaces which binary is missing so ops can either install it or accept the soft-skip.
+
+**Non-regression checks preserved**:
+- rc=124 timeout path — unchanged (regression test enforced).
+- Real lint errors (rc=1) still bubble up as `errors[]` on the report.
+
+**Tests**: 7 new tests (`test_iter212m166_loop_filenotfound_fix.py`) — all pass. Live simulation on preview confirmed: with linter spawn faked to raise FileNotFoundError, `verify_files` returns `ok=True`, `linter="skip"` per row, no exception. Loop's Ship phase would proceed normally.
+
+**What user needs to do**:
+1. Redeploy preview → production.
+2. Then rerun Loop mode e2e test on TJSNDHU/Aurem — should now reach Execute→Ship without errno-2 crash.
+
