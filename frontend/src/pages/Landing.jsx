@@ -563,6 +563,7 @@ export default function Landing() {
         <div className="nav-links">
           <a className="nav-link" href="#features" data-testid="nav-features">Features</a>
           <a className="nav-link" href="#pricing" data-testid="nav-pricing">Pricing</a>
+          <Link className="nav-link" to="/integrations" data-testid="nav-integrations">Integrations</Link>
           <a className="nav-link" href="#reviews" data-testid="nav-reviews">Reviews</a>
           {/* Iter 212m-157 — Bug Hunt nav link hidden for logged-in
               non-admin users.  Anonymous visitors keep seeing it for

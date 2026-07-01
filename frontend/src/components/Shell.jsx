@@ -10,7 +10,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Rocket, Globe, Settings as Cog,
+  LayoutDashboard, Rocket, Globe, Settings as Cog, Plug,
   Coins, BarChart3, LogOut, Zap, MessageSquare, Plus, Trash2,
   ChevronsLeft, ChevronsRight, FolderGit2, Menu, X, Trophy, Gift,
 } from "lucide-react";
@@ -28,6 +28,7 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: FolderGit2, testid: "nav-projects" },
   { to: "/deploy", label: "Deploy", icon: Rocket, testid: "nav-deploy" },
   { to: "/domain", label: "Domain", icon: Globe, testid: "nav-domain" },
+  { to: "/integrations", label: "Integrations", icon: Plug, testid: "nav-integrations" },
   { to: "/tokens", label: "Tokens", icon: Coins, testid: "nav-tokens" },
   { to: "/analytics", label: "Analytics", icon: BarChart3, testid: "nav-analytics" },
   { to: "/wall", label: "Ship Wall", icon: Trophy, testid: "nav-wall" },

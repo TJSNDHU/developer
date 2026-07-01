@@ -66,9 +66,11 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(data["serverInfo"]["name"], "ORA by Aurem CTO")
         self.assertEqual(data["transport"], "streamable-http")
         names = sorted(t["name"] for t in data["tools"])
-        self.assertEqual(names, sorted([
-            "list_projects", "ship_code", "get_task_status", "get_recent_commits",
-        ]))
+        # Iter 212m-174 — 4 legacy tools + 8 repo-scoped tools = 12.
+        self.assertGreaterEqual(len(names), 12)
+        legacy = {"list_projects", "ship_code", "get_task_status", "get_recent_commits"}
+        self.assertTrue(legacy.issubset(set(names)),
+            f"legacy tools missing: {legacy - set(names)}")
         for t in data["tools"]:
             self.assertIn("name", t)
             self.assertIn("description", t)
@@ -112,7 +114,8 @@ class TestAuthGate(unittest.TestCase):
         )
         d = r.json()
         self.assertNotIn("error", d)
-        self.assertEqual(len(d["result"]["tools"]), 4)
+        # Iter 212m-174 — 12 tools now (was 4).
+        self.assertGreaterEqual(len(d["result"]["tools"]), 12)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -248,7 +251,8 @@ class TestBatchAndParse(unittest.TestCase):
         self.assertIsInstance(d, list)
         self.assertEqual(len(d), 2)
         self.assertEqual([x["id"] for x in d], [1, 2])
-        self.assertEqual(len(d[1]["result"]["tools"]), 4)
+        # Iter 212m-174 — 12 tools now (was 4).
+        self.assertGreaterEqual(len(d[1]["result"]["tools"]), 12)
 
     def test_invalid_json_returns_parse_error(self):
         client, _ = _client()

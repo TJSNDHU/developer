@@ -1,8 +1,8 @@
 {
   "name": "aurem-cto",
   "displayName": "ORA by Aurem CTO",
-  "description": "AI engineer that reads your GitHub repo and ships code directly. No IDE needed. developers choice by Aurem CTO.",
-  "version": "0.2.0",
+  "description": "AI engineer that reads your GitHub repo and ships code directly via MCP. Works alongside Cursor, VS Code, and Claude Desktop.",
+  "version": "0.3.0",
   "publisher": "auremcto",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],

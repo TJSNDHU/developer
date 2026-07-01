@@ -12,6 +12,114 @@ Stack:
 Production deploy: `auremcto.com`. Preview/dev: `launch-pad-237.preview.emergentagent.com`.
 
 
+### Iter 212m-174 — IDE Native Integration full stack (Feb 2026) ✅
+
+Aurem CTO now has a first-class, one-click integration story for
+**Cursor**, **VS Code**, **Claude Desktop**, and **Claude Code CLI**,
+all sharing the same `sk-aurem-…` API key and JSON-RPC 2.0 MCP server.
+
+**Part 1 — MCP tool catalog: 4 → 12** (`backend/routers/mcp.py`)
+
+Kept the 4 legacy tools (`list_projects`, `ship_code`, `get_task_status`,
+`get_recent_commits`), added 8 new repo-scoped tools:
+
+| Tool | Purpose | Backing service |
+|------|---------|-----------------|
+| `read_repo_file` | Fetch a file at the pinned branch | `local_tools.read_repo_file` |
+| `list_repo_files` | List a directory | `local_tools.list_repo_files` |
+| `search_repo` | Substring / semantic search | `local_tools.search_repo` |
+| `write_repo_file` | Commit a file via GitHub API | `local_tools.write_repo_file` |
+| `run_vanguard_scan` | Live regex security scan on repo tree | `services.vanguard_scanner.scan_file_blocks` (bypasses admin gate; user-scoped via BIN) |
+| `get_repo_health` | Latest saved codebase-health scan | `db.codebase_health_scans` |
+| `get_repo_structure` | Recursive tree with languages | `local_tools.get_repo_structure` |
+| `get_project_info` | Metadata + health snapshot | Mongo direct read |
+
+Every new tool builds a **BINContext** via a new `_mcp_ctx_for(user_id,
+project_id)` helper. The helper validates ownership (`RuntimeError` if
+the project doesn't belong to the caller) and decrypts the PAT with the
+user's per-user HKDF key — identical isolation guarantee as ORA chat.
+`HTTPException` from `build_bin_context` is rewrapped so the RPC error
+surface stays uniform.
+
+**Part 2 — `GET /mcp/install-links` endpoint** (Iter 212m-174)
+
+Returns everything the frontend needs to render 4 one-click install
+buttons + copy-paste configs, all pre-filled with the caller's real
+API key. Auto-mints a new `sk-aurem-…` key if the user has none
+(`mint_if_missing=true` default) so no round-trip through the API-keys
+admin page is required. Live-verified:
+
+- `endpoint`  → public MCP URL
+- `api_key`   → real key (`api_key_new: true` on first call)
+- `cursor`    → `cursor://anysphere.cursor-deeplink/mcp/install?name=ORA&config=<b64>`
+- `vscode`    → `vscode:mcp/install?<urlencoded json>`
+- `config_json` → `{mcpServers: {ora: {url, headers}}}` for Claude Desktop
+- `claude_code_cli` → `claude mcp add ora <url> --header "..."`
+- `instructions.{cursor, vscode, claude_desktop, claude_code}` — human-readable setup notes
+
+**Part 3 — Public `/integrations` page** (`frontend/src/pages/Integrations.jsx`)
+
+Zero-friction setup:
+- Login gate if unauthenticated (redirects to `/login?next=/integrations`)
+- Auto-fetches `/mcp/install-links` on mount
+- Toast when a new key is minted
+- Per-tab UI: Cursor / VS Code / Claude Desktop / Claude Code CLI
+- **API Key card** with Reveal / Copy / Test Connection buttons
+- **Test Connection** pings `/mcp` and renders green ✓ / red ✗ pill
+- Every tab has 3 numbered steps + copy buttons on every code block
+- Deep-link buttons open the IDE directly (Cursor/VSCode) or copy the
+  raw link
+- Config JSON blocks with Copy button + syntax-highlighted `<pre>`
+
+Nav wiring:
+- `App.jsx` — lazy import + `<Route path="/integrations">`
+- `Shell.jsx` — sidebar `NAV` entry with `Plug` icon between Domain and Tokens
+- `Landing.jsx` — `<Link to="/integrations">Integrations</Link>` in top nav
+
+**Part 4 — VS Code extension migration** (`vscode-extension/`)
+
+Bumped to v0.3.0. Replaced OAuth localhost callback with an
+`sk-aurem-` API-key flow using VS Code SecretStorage
+(`context.secrets.store('aurem.apiKey', …)`). Ship command now routes
+through MCP JSON-RPC (`POST /mcp` with `method: "tools/call"`), calling
+`list_projects` then `ship_code` — same code path Cursor uses. Sidebar
+webview iframes `/dashboard` when connected; unconnected state points
+users to `/integrations` for their key.
+
+**Part 5 — /mcp/install-links deep-link generator** (Part 5)
+
+Documented above. Base64 payload validated in the test suite.
+
+**Test coverage** — `backend/tests/test_iter212m174_ide_integration.py`
+(24 new tests): all 12 tools registered, all handlers exist, BIN
+isolation enforced on every new tool, install-links endpoint shape,
+cursor / vscode deep-link schemes, base64 roundtrip yields valid JSON,
+auto-mint path, `/integrations` page renders 4 tabs with testids +
+login gate + test-connection button, Shell + Landing nav wired,
+`App.jsx` route registered, VS Code extension uses SecretStorage +
+MCP JSON-RPC + `sk-aurem-` prompt, no OAuth localhost server left.
+
+Iter 173 + 174 legacy tests updated: `assertEqual(len(tools), 4)` →
+`assertGreaterEqual(len(tools), 12)` in three places.
+
+**Regression** — 58/58 across iter 173, 174, 182, 212m-174. 4
+pre-existing failures in `test_iter212m17_topup_alerts.py` are due to
+a `_FakeCursor` async-iterator stub bug in the test infra — unrelated
+to this iter.
+
+**Live verification on preview**:
+- `/api/aurem-dev/mcp` → 12 tools ✅
+- `/api/aurem-dev/mcp/install-links` (JWT) → returns endpoint + auto-minted `sk-aurem-…` + cursor deep-link (base64 verified) + vscode URL + Claude Desktop JSON + CLI command ✅
+- Same MCP endpoint with `sk-aurem-` key → returns 12 tools via `tools/list` ✅
+- Browser: `/integrations` page renders 4 tabs, Test Connection reports `✓ ORA reachable — 12 tools available (protocol 2025-03-26)` ✅
+
+**Gap closed**: "No IDE integration setup UX" → "One-click install
+for Cursor, VS Code, Claude Desktop, Claude Code CLI, all sharing the
+same API key surface, all going through the isolated MCP server."
+
+
+
+
 ### Iter 212m-173 — Flow B (orphan `/projects/create`) removed, single PAT flow (Feb 2026) ✅
 
 Founder QA on iter 212m-172 flagged **two divergent PAT flows** for

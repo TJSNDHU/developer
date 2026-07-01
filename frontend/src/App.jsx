@@ -48,6 +48,7 @@ const Settings          = lazy(() => import("./pages/Settings"));
 const Tokens            = lazy(() => import("./pages/Tokens"));
 const Analytics         = lazy(() => import("./pages/Analytics"));
 const Projects          = lazy(() => import("./pages/Projects"));
+const Integrations      = lazy(() => import("./pages/Integrations")); // Iter 212m-174
 const Admin             = lazy(() => import("./pages/Admin"));
 const AdminOverview     = lazy(() => import("./pages/AdminOverview"));
 const AdminIntegrations = lazy(() => import("./pages/AdminIntegrations"));
@@ -150,6 +151,7 @@ export default function App() {
           <Route path="/login"           element={<Login />} />
           <Route path="/signup"          element={<Signup />} />
           <Route path="/dashboard"       element={<Dashboard />} />
+          <Route path="/integrations"    element={<Integrations />} />
           <Route path="/deploy"          element={<Deploy />} />
           <Route path="/domain"          element={<Domain />} />
           <Route path="/settings"        element={<Settings />} />

@@ -232,7 +232,8 @@ class TestApiKeyAuth(unittest.TestCase):
         )
         d = r.json()
         self.assertNotIn("error", d)
-        self.assertEqual(len(d["result"]["tools"]), 4)
+        # Iter 212m-174 — 12 tools now (was 4).
+        self.assertGreaterEqual(len(d["result"]["tools"]), 12)
 
     def test_revoked_key_rejected_with_rpc_unauthorized(self):
         key = "sk-aurem-revokedkey"
