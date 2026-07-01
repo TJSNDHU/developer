@@ -184,7 +184,7 @@ export default function PricingCards({ currentTier = "free", compact = false }) 
       const isHtmlError =
         typeof data === "string" && data.trimStart().toLowerCase().startsWith("<");
       const detail = isHtmlError
-        ? "Payment service is temporarily unreachable. Please retry in a moment — if it keeps failing, email polarisbuiltinc@gmail.com."
+        ? "Payment service is temporarily unreachable. Please retry in a moment — if it keeps failing, email ora@auremcto.com."
         : (data?.detail || e?.message);
       // 401 mid-flight means the token expired between page load and
       // click — treat the same as anon and bounce to login.

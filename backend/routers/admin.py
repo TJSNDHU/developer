@@ -2859,7 +2859,7 @@ async def admin_send_user_offer(
           "subject":  "Special offer for you",
           "body_html": "<p>Hi {{name}}, ...</p>",   # supports {{name}} and {{email}}
           "from": "ORA <ora@aurem.live>",   # optional, falls back to DIGEST_FROM
-          "reply_to": "polarisbuiltinc@gmail.com",  # optional, falls back to support inbox
+          "reply_to": "ora@auremcto.com",  # optional, falls back to support inbox
         }
 
     Returns: {sent, failed, dry_run, recipients[]}
@@ -2871,7 +2871,7 @@ async def admin_send_user_offer(
     subject  = ((body or {}).get("subject") or "").strip()
     body_html = ((body or {}).get("body_html") or "").strip()
     from_addr = ((body or {}).get("from") or "").strip()
-    reply_to = ((body or {}).get("reply_to") or "").strip() or "polarisbuiltinc@gmail.com"
+    reply_to = ((body or {}).get("reply_to") or "").strip() or "ora@auremcto.com"
 
     if not isinstance(user_ids, list) or not user_ids:
         raise HTTPException(400, "user_ids[] required (non-empty)")

@@ -65,7 +65,7 @@ async def vercel_status(authorization: Optional[str] = Header(None)):
             "tool_count":      len(VERCEL_TOOLS),
         }
     # Probe the actual account so we can show "Connected as
-    # polarisbuiltinc@gmail.com (hobby)" in the UI.
+    # ora@auremcto.com (hobby)" in the UI.
     info = await vercel_account_info({"user_id": user["user_id"]}, {})
     if not info.get("ok"):
         return {

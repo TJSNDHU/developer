@@ -31,11 +31,11 @@ def test_policy_files_exist(filename):
     assert p.exists(), f"{p} missing"
     text = p.read_text()
     assert len(text) > 500, f"{filename} suspiciously small ({len(text)} bytes)"
-    # Stale support emails must be wiped — Iter 201 unified everything to polarisbuiltinc@gmail.com.
+    # Stale support emails must be wiped — Iter 201 unified everything to ora@auremcto.com.
     for stale in ("privacy@auremcto.com", "support@auremcto.com", "abuse@auremcto.com"):
         assert stale not in text, f"{filename} still references {stale}"
     # New canonical address must be present.
-    assert "polarisbuiltinc@gmail.com" in text, f"{filename} missing polarisbuiltinc@gmail.com"
+    assert "ora@auremcto.com" in text, f"{filename} missing ora@auremcto.com"
 
 
 def test_app_jsx_wires_policy_routes():
@@ -51,7 +51,7 @@ def test_landing_footer_has_policy_links():
     assert 'data-testid="footer-terms"' in landing, "footer Terms link missing"
     assert 'data-testid="footer-aup"' in landing, "footer Acceptable Use link missing"
     assert 'data-testid="footer-support"' in landing, "footer Contact link missing"
-    assert "polarisbuiltinc@gmail.com" in landing
+    assert "ora@auremcto.com" in landing
 
 
 def test_signup_requires_terms_checkbox():
@@ -84,6 +84,6 @@ def test_policy_page_component_renders_markdown():
 
 def test_readme_uses_canonical_support_email():
     readme = (REPO / "README.md").read_text()
-    assert "polarisbuiltinc@gmail.com" in readme, "README must reference polarisbuiltinc@gmail.com"
+    assert "ora@auremcto.com" in readme, "README must reference ora@auremcto.com"
     # Stale CAD price must be gone (covered in iter94 too but belt+braces).
     assert "$35 / user / mo" not in readme, "stale $35 CAD price still in README"

@@ -22,7 +22,7 @@ const RECIPES = [
       { cmd: "sudo supervisorctl restart backend frontend", note: "If supervisor is alive but services crashed" },
       { cmd: "sudo tail -n 100 /var/log/supervisor/supervisord.log", note: "Read here if restart fails" },
     ],
-    escalate: "If `systemctl status` shows 'Failed' for 3+ consecutive restarts, email polarisbuiltinc@gmail.com with the last 100 lines of /var/log/supervisor/supervisord.log",
+    escalate: "If `systemctl status` shows 'Failed' for 3+ consecutive restarts, email ora@auremcto.com with the last 100 lines of /var/log/supervisor/supervisord.log",
   },
   {
     id: "service-logs",
@@ -174,7 +174,7 @@ export default function OpsRecipes() {
       ))}
       <div style={{ fontSize: 11, color: "var(--text-faint)",
                      textAlign: "center", padding: 16 }}>
-        Missing a recipe? Email polarisbuiltinc@gmail.com — we'll add it.
+        Missing a recipe? Email ora@auremcto.com — we'll add it.
       </div>
     </div>
   );

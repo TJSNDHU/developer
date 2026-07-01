@@ -59,5 +59,5 @@ Violations may result in:
 
 ## Reporting Violations
 
-Report abuse to: polarisbuiltinc@gmail.com
+Report abuse to: ora@auremcto.com
 

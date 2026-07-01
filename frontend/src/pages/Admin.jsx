@@ -520,7 +520,7 @@ function EmailOfferComposer({ userIds, recipients, onClose, onSent }) {
                        background: "rgba(34,197,94,0.07)",
                        border: "1px solid rgba(34,197,94,0.18)",
                        borderRadius: 6 }}>
-          ↩ Replies will land in <strong style={{ color: "#22c55e" }}>polarisbuiltinc@gmail.com</strong>
+          ↩ Replies will land in <strong style={{ color: "#22c55e" }}>ora@auremcto.com</strong>
         </div>
 
         <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block",

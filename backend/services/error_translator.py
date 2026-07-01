@@ -150,7 +150,7 @@ _RULES: List[Dict[str, Any]] = [
         "plain":   "Server pe encryption key configured nahi hai — admin ko set karni padegi.",
         "steps":   [
             "Ye admin-side issue hai, tum kuch nahi kar sakte",
-            "polarisbuiltinc@gmail.com pe ek line bhejo: 'Vault unavailable error on task XYZ'",
+            "ora@auremcto.com pe ek line bhejo: 'Vault unavailable error on task XYZ'",
             "Admin AUREM_CTO_MASTER_KEY env var set karke service restart kar dega",
         ],
         "suggestion": "Agar tum apna instance khud chala rahe ho (self-host), `backend/.env` mein `AUREM_CTO_MASTER_KEY` ek fernet key set karo (Python: `Fernet.generate_key()`).",
@@ -187,7 +187,7 @@ _GENERIC: Dict[str, Any] = {
     "steps":      [
         "Retry button dabao — kaafi failures one-time blips hote hain",
         "Agar dobara same error: chat mein likho 'last task kyun fail hua'",
-        "Persistent ho to polarisbuiltinc@gmail.com pe error message bhej do",
+        "Persistent ho to ora@auremcto.com pe error message bhej do",
     ],
     "suggestion": "Generally first retry ka success rate 60%+ hota hai.",
 }

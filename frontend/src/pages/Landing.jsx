@@ -1034,11 +1034,12 @@ export default function Landing() {
           <div className="footer-text">ORA by Aurem CTO — Built for developers · MIT extension</div>
         </div>
         <div className="footer-links">
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/terms">Terms</Link>
-          <Link to="/acceptable-use">Acceptable use</Link>
+          <Link to="/privacy"        data-testid="footer-privacy">Privacy</Link>
+          <Link to="/terms"          data-testid="footer-terms">Terms</Link>
+          <Link to="/acceptable-use" data-testid="footer-aup">Acceptable use</Link>
           <Link to="/wall">Ship Wall</Link>
           <Link to="/login">Sign in</Link>
+          <a   href="mailto:ora@auremcto.com" data-testid="footer-support">Contact: ora@auremcto.com</a>
         </div>
       </footer>
     </div>

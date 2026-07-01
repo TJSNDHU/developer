@@ -88,7 +88,7 @@ def test_no_note_for_1_or_2_asks():
 
 def test_3rd_ask_suggests_email_only():
     note = _founder_escalation_note(3)
-    assert "polarisbuiltinc@gmail.com" in note
+    assert "ora@auremcto.com" in note
     assert "FOUNDER ASK #3" in note
     # The LinkedIn URL must NOT appear yet (the word may appear in
     # a "do not share LinkedIn yet" instruction, which is fine).
@@ -98,7 +98,7 @@ def test_3rd_ask_suggests_email_only():
 def test_4th_and_5th_ask_say_wait_for_reply():
     for c in (4, 5):
         note = _founder_escalation_note(c)
-        assert "polarisbuiltinc@gmail.com" in note
+        assert "ora@auremcto.com" in note
         assert "1 working day" in note or "wait" in note.lower() or "give the team" in note.lower()
         # Still no LinkedIn URL at this stage
         assert "linkedin.com/in/tejinder-sandhu" not in note
@@ -108,7 +108,7 @@ def test_6th_plus_ask_shares_linkedin():
     for c in (6, 7, 12):
         note = _founder_escalation_note(c)
         assert "linkedin.com/in/tejinder-sandhu" in note
-        assert "polarisbuiltinc@gmail.com" in note  # email still mentioned as primary
+        assert "ora@auremcto.com" in note  # email still mentioned as primary
         # no fabricated bio
         assert "Shubham" not in note
         assert "India" not in note
@@ -129,7 +129,7 @@ def test_full_escalation_flow():
     # Turn 3 → email
     c = _count_founder_asks(hist, "i need to contact the founder")
     note = _founder_escalation_note(c)
-    assert c == 3 and "polarisbuiltinc@gmail.com" in note and "linkedin.com/in/tejinder-sandhu" not in note
+    assert c == 3 and "ora@auremcto.com" in note and "linkedin.com/in/tejinder-sandhu" not in note
     hist += ["[USER] i need to contact the founder", "[ASSISTANT] email ora"]
     # Turn 4 → wait
     c = _count_founder_asks(hist, "i need the founder again")

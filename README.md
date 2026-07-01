@@ -128,6 +128,14 @@ No installation. No IDE. Works in your browser.
 
 ---
 
+## Support
+
+- **Email:** ora@auremcto.com
+- **Docs:** [auremcto.com/integrations](https://auremcto.com/integrations) — connect Cursor, VS Code, Claude Desktop, or Claude Code CLI
+- **Status:** [auremcto.com/api/health](https://auremcto.com/api/health)
+
+---
+
 ## Also: aurem.live
 Autonomous AI workforce for lead generation, outreach, and business
 automation. Scout → Closer → Followup agents running 24/7.

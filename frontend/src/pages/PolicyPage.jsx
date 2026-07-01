@@ -61,8 +61,8 @@ export default function PolicyPage({ slug }) {
           color: "var(--danger, #ff6b6b)", borderRadius: 5,
         }}>
           Failed to load policy: {err}. Try refreshing or contact{" "}
-          <a href="mailto:polarisbuiltinc@gmail.com" style={{ color: "inherit" }}>
-            polarisbuiltinc@gmail.com
+          <a href="mailto:ora@auremcto.com" style={{ color: "inherit" }}>
+            ora@auremcto.com
           </a>.
         </div>
       )}
@@ -96,7 +96,7 @@ export default function PolicyPage({ slug }) {
         <Link to="/privacy" style={{ color: "inherit", marginRight: 16 }}>Privacy</Link>
         <Link to="/terms" style={{ color: "inherit", marginRight: 16 }}>Terms</Link>
         <Link to="/acceptable-use" style={{ color: "inherit", marginRight: 16 }}>Acceptable Use</Link>
-        <span>· Questions? <a href="mailto:polarisbuiltinc@gmail.com" style={{ color: "inherit" }}>polarisbuiltinc@gmail.com</a></span>
+        <span>· Questions? <a href="mailto:ora@auremcto.com" style={{ color: "inherit" }}>ora@auremcto.com</a></span>
       </footer>
     </div>
   );

@@ -113,7 +113,14 @@ class ReferralORA(AuremAgent):
                 resend.api_key = os.environ.get("RESEND_API_KEY", "")
                 try:
                     resend.Emails.send({
-                        "from": f"ORA <{os.environ.get('AUREM_CONTACT_EMAIL','ora@aurem.live')}>",
+                        # Iter 212m-175 — `from` must use the Resend-verified
+                        # sending domain (RESEND_FROM_EMAIL / DIGEST_FROM), NOT
+                        # the user-facing support address (which lives on
+                        # auremcto.com and isn't verified as a sender yet).
+                        "from": os.environ.get(
+                            "RESEND_FROM_EMAIL",
+                            "AUREM <ora@aurem.live>",
+                        ),
                         "to": [email],
                         "subject": f"{referrer} sent me your way",
                         "html": wrap_email_html(body, lead_id=ref.get("referral_id", "")),

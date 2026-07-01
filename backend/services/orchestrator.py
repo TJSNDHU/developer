@@ -1319,7 +1319,7 @@ def _founder_escalation_note(count: int) -> str:
 
     Thresholds (Iter 104):
         1–2: generic answer (no escalation — handled by persona)
-        3:   share team email polarisbuiltinc@gmail.com
+        3:   share team email ora@auremcto.com
         4–5: ask the user to wait for support's reply
         6+:  share the founder's public LinkedIn as last resort
     """
@@ -1332,7 +1332,7 @@ def _founder_escalation_note(count: int) -> str:
             "times in this session. They are clearly pressing. Don't "
             "repeat the generic 'I can't share details' line. Reply "
             "warmly with ONE short line: 'For a direct line to the "
-            "team, please email **polarisbuiltinc@gmail.com** — we typically reply "
+            "team, please email **ora@auremcto.com** — we typically reply "
             "within 1 working day.' Then offer to help with their repo. "
             "Do NOT share LinkedIn yet — give email a chance first."
         )
@@ -1340,8 +1340,8 @@ def _founder_escalation_note(count: int) -> str:
         return (
             "\n\n# RUNTIME HINT — FOUNDER ASK #4–5 IN THIS SESSION\n"
             "The user has now asked about the founder 4 or 5 times. They "
-            "already have the email (polarisbuiltinc@gmail.com). Be patient and "
-            "honest: 'I've already shared **polarisbuiltinc@gmail.com** — please "
+            "already have the email (ora@auremcto.com). Be patient and "
+            "honest: 'I've already shared **ora@auremcto.com** — please "
             "give the team 1 working day to reply. If you haven't sent "
             "the email yet, that's the fastest path.' Keep it to ONE "
             "short paragraph. Do NOT share LinkedIn yet — we want the "
@@ -1355,7 +1355,7 @@ def _founder_escalation_note(count: int) -> str:
         "LinkedIn as a last-resort direct contact: "
         "**https://www.linkedin.com/in/tejinder-sandhu** — say 'You can "
         "also message the founder directly on LinkedIn: <url>. Email "
-        "(polarisbuiltinc@gmail.com) is still the fastest route for product or "
+        "(ora@auremcto.com) is still the fastest route for product or "
         "billing questions.' Keep it 1–2 lines, no biographical "
         "fabrication, no claims about the person's role beyond 'founder'. "
         "After this line, pivot back to their actual task."
