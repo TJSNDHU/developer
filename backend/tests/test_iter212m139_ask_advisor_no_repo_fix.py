@@ -1,7 +1,26 @@
 """
 Iter 212m-139 — Ask Advisor "No repo connected" bug fix.
 
-REPRO
+⚠️ Iter 212m-169 REVERSAL — This test file is INTENTIONALLY REVERSED.
+
+The Iter 212m-139 contract said `_resolve_project` should silently
+auto-infer a project when the caller passed null/blank/"home"
+project_id (defence against a frontend forgetting to stamp the
+active project).
+
+Iter 212m-169 (BINContext hardening) explicitly reversed this:
+"No silent auto-selection ever."  A missing project_id now hard-fails
+at the router entry via `build_bin_context` → HTTP 400.
+
+The tests below therefore no longer describe live behaviour and are
+SKIPPED.  The replacement contract is pinned by
+`tests/test_iter212m169_bin_context_isolation.py` — tests #3, #8,
+and #9 in particular:
+  • #3  — null project_id → 400 (no auto-infer)
+  • #8  — chat.py stream route no longer contains auto-infer block
+  • #9  — _resolve_project source no longer has `.limit(20)` walk
+
+REPRO (historical — kept for context)
 -----
 User reported: with TJSNDHU/Aurem connected in the sidebar, Ask Advisor
 still said *"No repo is connected right now — I can't inspect your
@@ -49,7 +68,18 @@ from unittest.mock import AsyncMock
 import pytest
 
 
-pytestmark = pytest.mark.asyncio
+# Iter 212m-169 — File-wide skip: the assertions below describe a
+# contract that has been INTENTIONALLY reversed by BINContext
+# hardening.  See the module docstring and the 20-test suite in
+# test_iter212m169_bin_context_isolation.py.
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skip(reason=(
+        "Iter 212m-169 reversed the Iter 212m-139 silent auto-infer "
+        "contract.  New contract is pinned by "
+        "test_iter212m169_bin_context_isolation.py."
+    )),
+]
 
 
 # ── Fake DB ──────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from cto_services.auth import current_dev
 from cto_services.db import get_db, require_db
 from services.llm import call_llm
-from services.usage import assert_has_budget, assert_has_task_budget, get_usage
+from services.usage import assert_has_budget, assert_has_task_budget, get_usage, is_founder_email
 from services.github_api_writer import (
     commit_files as gh_api_commit,
     revert_commit as gh_api_revert,
@@ -1623,12 +1623,34 @@ async def submit_task(
             })
 
     db = require_db()
+    # Iter 212m-169 — Build BINContext at task entry.  This does ALL of:
+    #   • ownership check (find_one {project_id, user_id})   → 403
+    #   • repo_owner / repo_name / branch pull               → 400
+    #   • PAT decrypt via services/vault HKDF                → 403
+    # so the previous separate ownership guard + inline PAT decrypt are
+    # now redundant.  We STILL fetch the full project doc for
+    # downstream metadata (repo_index_summary etc. are excluded by
+    # the projection below) but only AFTER ownership is proven.
+    from services.bin_context import build_bin_context
+    _is_fnd_task = bool(
+        me.get("is_admin") or me.get("is_unlimited")
+        or (me.get("tier") == "founder")
+        or is_founder_email(me.get("email"))
+    )
+    bin_ctx = await build_bin_context(
+        user_id=me["user_id"],
+        project_id=body.project_id,
+        db=db,
+        is_founder=_is_fnd_task,
+    )
     proj = await db.cto_projects.find_one(
         {"project_id": body.project_id, "user_id": me["user_id"]},
         {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
          "repo_index_blocks": 0, "last_commit_diff": 0}
     )
     if not proj:
+        # Should never trigger — build_bin_context already 403'd — but
+        # keep as defence-in-depth for legacy code paths.
         raise HTTPException(404, "Project not found")
     task_id = f"t_{uuid.uuid4().hex[:12]}"
     await db.cto_tasks.insert_one({
@@ -1640,8 +1662,9 @@ async def submit_task(
         "maxx_mode": bool(body.maxx_mode),
         "created_at": time.time(),
     })
-    user_token = await _decrypt_pat(me["user_id"], proj.get("github_token")) \
-        or await _user_gh_token(me["user_id"])
+    # Iter 212m-169 — PAT comes from bin_ctx (already decrypted +
+    # validated), no more independent _decrypt_pat call.
+    user_token = bin_ctx.pat
     bg.add_task(_run_task, task_id, proj, body.task, body.files, body.context,
                 user_token, bool(body.maxx_mode))
     return {"ok": True, "task_id": task_id}

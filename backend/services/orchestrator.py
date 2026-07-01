@@ -1414,6 +1414,14 @@ async def chat_with_tools(
                                         # so end-user chats can NEVER
                                         # inspect AUREM's own codebase
                                         # (/app/backend, /app/frontend).
+    bin_ctx=None,                       # Iter 212m-169 — BINContext (or None
+                                        # for Home casual chat). Threaded into
+                                        # local_ctx["bin_ctx"] so every tool
+                                        # sees the same locked user+project+PAT
+                                        # object.  Built ONCE at the router
+                                        # entry point; no component below this
+                                        # boundary may re-fetch user/project/PAT
+                                        # from the DB directly.
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -1438,6 +1446,7 @@ async def chat_with_tools(
         "user_id":       user_id,
         "project_id":    project_id,
         "is_founder":    bool(is_founder),   # Iter 212m-168 — gates execute_bash
+        "bin_ctx":       bin_ctx,            # Iter 212m-169 — locked user+project+PAT
         "system_signals": [],
         "tool_calls":    [],
     }

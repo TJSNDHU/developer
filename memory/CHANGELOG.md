@@ -1890,3 +1890,80 @@ the meta done frame. Tavily upstream 432 (quota) — separate billing
 matter, not a code bug.
 
 ---
+
+### Iter 212m-169 — BINContext hardening (Feb 2026) ✅
+
+**Goal (founder P0)**: Introduce a single, immutable, request-scoped
+`BINContext` object that carries user + project + repo + PAT +
+is_founder through the ENTIRE request lifecycle. No component below
+the router entry may fetch user/project/PAT from the DB directly —
+the golden rule is *"BINContext built once at entry, flows unchanged,
+dies with request; no silent fallbacks."*
+
+**What landed** (10 files, 1 new module):
+
+1. **NEW `services/bin_context.py`** — Frozen dataclass with 7 fields
+   (`bin_id`, `pid`, `repo_owner`, `repo_name`, `branch`, `pat`,
+   `is_founder`) plus two factories: `build_bin_context` (hard 400/403
+   on missing/wrong user/bad PAT) and `build_bin_context_optional`
+   (soft None when project_id is Home). Reuses the existing HKDF
+   Fernet crypto via `routers.cto_projects._decrypt_pat` — the vault
+   itself is untouched.
+
+2. **`routers/chat.py`** — Both `/chat/send` (non-stream) and
+   `/chat/stream` build `BINContext` at request entry and forward it
+   into `chat_with_tools(bin_ctx=…)`. The stream endpoint's SILENT
+   AUTO-INFER block (Iter 212m-139) was REMOVED — no more "one
+   project fits all" heuristic.
+
+3. **`services/orchestrator.py::chat_with_tools`** — New kwarg
+   `bin_ctx: Optional[BINContext] = None`. Threaded into
+   `local_ctx["bin_ctx"]` so every tool sees the same locked object
+   regardless of swift/pro/maxx review mode.
+
+4. **`services/local_tools.py`** — All repo tools read
+   owner/repo/branch/PAT/is_founder from `ctx["bin_ctx"]` via a new
+   `_repo_ctx_from(ctx)` helper. Cross-user guard: if
+   `bin_ctx.bin_id != ctx["user_id"]`, refuses hard. The legacy
+   `_resolve_project()` is kept as an internal helper but its silent
+   auto-infer for null/empty/"home" project_id is REMOVED.
+
+5. **`services/repo_context.py`** — `repo_contexts` cache key now
+   includes `user_id`. Belt-and-braces so two users cannot share a
+   cache row even in the unlikely event of a project_id collision.
+
+6. **`routers/cto_projects.py::submit_task`** — Task creation now
+   builds a BINContext up front; the plaintext PAT for the
+   background worker comes from `bin_ctx.pat`.
+
+7. **`services/loop_engine.py`** — `LoopEngine.__init__` accepts
+   `bin_ctx=None` and stores on `self.bin_ctx`. EXECUTE and SHIP
+   read PAT from `self.bin_ctx.pat` directly — no DB re-fetch.
+
+8. **`routers/loop.py`** — `/loop/start` builds BINContext BEFORE
+   spawning the pipeline so a broken PAT fails-fast with a 403.
+
+9. **Tests**:
+   - NEW `tests/test_iter212m169_bin_context_isolation.py` — 20
+     tests, all pass in 0.6s. Covers factory correctness, tool-layer
+     enforcement, cache-key isolation, loop session hold, chat entry
+     hard-fail, cross-project isolation, review mode threading,
+     prompt/loop tool binding, and no-direct-DB in the LLM adapter
+     layer (Parliament Councils A/B/C + CEO judge).
+   - Iter 212m-139 obsolete auto-infer tests marked SKIPPED with
+     pointer to the reversal.
+
+**Live proof on preview** (real HTTP calls):
+- Non-founder + `project_id="home"` + casual prompt → 200 OK, no
+  tools invoked, LLM replies normally ✓
+- Non-founder + `project_id="p_fake_evil_pid"` → 403 "Project
+  access denied" ✓
+- 20-test suite green ✓
+- 8-test Iter 212m-168 execute_bash suite still green ✓
+
+**Not committed by agent** — user needs to click "Save to GitHub"
+to ship both Iter 212m-168 and Iter 212m-169 hardening.
+
+
+---
+

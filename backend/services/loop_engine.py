@@ -248,12 +248,21 @@ class LoopEngine:
     transitions, and the LLM/tool calls."""
 
     def __init__(self, db, loop_id: str, user_id: str,
-                 project_id: Optional[str], user_message: str):
+                 project_id: Optional[str], user_message: str,
+                 bin_ctx=None):
         self.db = db
         self.loop_id = loop_id
         self.user_id = user_id
         self.project_id = project_id
         self.user_message = user_message
+        # Iter 212m-169 — BINContext is the single source of truth for
+        # this loop's user + project + PAT + is_founder flag.  Built
+        # ONCE at the router entry point (see routers/loop.py) and
+        # never re-fetched from the DB inside the pipeline.  Older
+        # code paths that still call self.user_id / self.project_id
+        # are kept for backward compat but any NEW code MUST read
+        # from self.bin_ctx.
+        self.bin_ctx = bin_ctx
         self.state = LoopState.IDLE
         self.phase = "idle"
         self.queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -592,28 +601,43 @@ class LoopEngine:
         # GitHub, ask the LLM to rewrite it per the approved plan,
         # then feed the result into `submitted_files` so VERIFY can
         # lint it and SHIP can commit it.
-        proj = await self.db.cto_projects.find_one(
-            {"project_id": self.project_id, "user_id": self.user_id},
-            {"_id": 0, "github_owner": 1, "github_repo": 1,
-             "github_branch": 1, "github_token": 1},
-        )
-        if not proj:
-            logger.error("[loop %s] EXECUTE — project not found, aborting", self.loop_id)
-            await self._fail("execute", "Project not found for execute phase.")
-            return
-        owner   = proj.get("github_owner") or ""
-        repo    = proj.get("github_repo")  or ""
-        branch  = proj.get("github_branch") or "main"
-        from routers.security_scan import _decrypt_pat  # local import
-        token = await _decrypt_pat(self.user_id, proj.get("github_token"))
-        if not token:
-            try:
-                u = await self.db.dev_users.find_one(
-                    {"user_id": self.user_id}, {"_id": 0, "github": 1},
-                )
-                token = ((u or {}).get("github") or {}).get("access_token") or None
-            except Exception:
-                token = None
+        # Iter 212m-169 — Use BINContext directly.  No DB re-fetch, no
+        # re-decrypt: everything was validated at loop start.
+        if self.bin_ctx is not None:
+            owner  = self.bin_ctx.repo_owner
+            repo   = self.bin_ctx.repo_name
+            branch = self.bin_ctx.branch
+            token  = self.bin_ctx.pat
+        else:
+            # Legacy fallback for loop sessions started before bin_ctx
+            # was mandatory.  Kept behind a warning so we notice if
+            # anything still hits it.
+            logger.warning(
+                "[loop %s] EXECUTE — bin_ctx is None, falling back to DB fetch",
+                self.loop_id,
+            )
+            proj = await self.db.cto_projects.find_one(
+                {"project_id": self.project_id, "user_id": self.user_id},
+                {"_id": 0, "github_owner": 1, "github_repo": 1,
+                 "github_branch": 1, "github_token": 1},
+            )
+            if not proj:
+                logger.error("[loop %s] EXECUTE — project not found, aborting", self.loop_id)
+                await self._fail("execute", "Project not found for execute phase.")
+                return
+            owner   = proj.get("github_owner") or ""
+            repo    = proj.get("github_repo")  or ""
+            branch  = proj.get("github_branch") or "main"
+            from routers.security_scan import _decrypt_pat  # local import
+            token = await _decrypt_pat(self.user_id, proj.get("github_token"))
+            if not token:
+                try:
+                    u = await self.db.dev_users.find_one(
+                        {"user_id": self.user_id}, {"_id": 0, "github": 1},
+                    )
+                    token = ((u or {}).get("github") or {}).get("access_token") or None
+                except Exception:
+                    token = None
         if not (owner and repo and token):
             logger.error("[loop %s] EXECUTE — missing GitHub creds (owner=%s repo=%s token=%s)",
                          self.loop_id, bool(owner), bool(repo), bool(token))
@@ -1088,31 +1112,40 @@ class LoopEngine:
                                    "reason": "no_files"})
             return
 
-        # Fetch project's GitHub linkage (owner / repo / branch / token)
-        proj = await self.db.cto_projects.find_one(
-            {"project_id": self.project_id, "user_id": self.user_id},
-            {"_id": 0, "github_owner": 1, "github_repo": 1,
-             "github_branch": 1, "github_token": 1},
-        )
-        if not proj:
-            await self._fail_ship("Project not found for ship — re-link your repo in Settings.")
-            return
-        owner   = proj.get("github_owner") or ""
-        repo    = proj.get("github_repo")  or ""
-        branch  = proj.get("github_branch") or "main"
-
-        # Resolve PAT (project-scoped) then fall back to user's OAuth
-        # access_token if no per-project PAT was stored.
-        from routers.security_scan import _decrypt_pat  # local import
-        token = await _decrypt_pat(self.user_id, proj.get("github_token"))
-        if not token:
-            try:
-                u = await self.db.dev_users.find_one(
-                    {"user_id": self.user_id}, {"_id": 0, "github": 1},
-                )
-                token = ((u or {}).get("github") or {}).get("access_token") or None
-            except Exception:
-                token = None
+        # Iter 212m-169 — Use BINContext directly.  No DB re-fetch,
+        # no re-decrypt.  bin_ctx was validated at loop start.
+        if self.bin_ctx is not None:
+            owner  = self.bin_ctx.repo_owner
+            repo   = self.bin_ctx.repo_name
+            branch = self.bin_ctx.branch
+            token  = self.bin_ctx.pat
+        else:
+            # Legacy fallback (should never trigger post Iter 212m-169).
+            logger.warning(
+                "[loop %s] SHIP — bin_ctx is None, falling back to DB fetch",
+                self.loop_id,
+            )
+            proj = await self.db.cto_projects.find_one(
+                {"project_id": self.project_id, "user_id": self.user_id},
+                {"_id": 0, "github_owner": 1, "github_repo": 1,
+                 "github_branch": 1, "github_token": 1},
+            )
+            if not proj:
+                await self._fail_ship("Project not found for ship — re-link your repo in Settings.")
+                return
+            owner   = proj.get("github_owner") or ""
+            repo    = proj.get("github_repo")  or ""
+            branch  = proj.get("github_branch") or "main"
+            from routers.security_scan import _decrypt_pat  # local import
+            token = await _decrypt_pat(self.user_id, proj.get("github_token"))
+            if not token:
+                try:
+                    u = await self.db.dev_users.find_one(
+                        {"user_id": self.user_id}, {"_id": 0, "github": 1},
+                    )
+                    token = ((u or {}).get("github") or {}).get("access_token") or None
+                except Exception:
+                    token = None
         if not (owner and repo and token):
             await self._fail_ship(
                 "GitHub credentials missing. Connect a repo + PAT (or OAuth) before shipping."
@@ -1796,6 +1829,28 @@ async def lookup_or_rehydrate(
             loop_id, persisted_state,
         )
         return None
+    # Iter 212m-169 — Rebuild BINContext during rehydrate so the
+    # resumed loop keeps its request-scoped user+project+PAT
+    # invariant.  If the PAT no longer decrypts (revoked, HKDF key
+    # rotated), the loop still rehydrates but bin_ctx stays None —
+    # the fallback DB path in EXECUTE/SHIP will surface a clean
+    # "GitHub credentials missing" instead of crashing.
+    rehydrated_bin_ctx = None
+    try:
+        from services.bin_context import build_bin_context
+        rehydrated_bin_ctx = await build_bin_context(
+            user_id=doc.get("user_id") or "",
+            project_id=doc.get("project_id"),
+            db=db,
+            is_founder=False,   # rehydrated sessions default non-founder
+        )
+    except Exception as _bce:                            # noqa: BLE001
+        logger.warning(
+            "[loop %s] REHYDRATE — bin_ctx rebuild failed: %r "
+            "(engine will DB-fallback per phase)",
+            loop_id, _bce,
+        )
+
     eng = LoopEngine(
         db=db, loop_id=loop_id,
         user_id=doc.get("user_id") or "",
@@ -1803,6 +1858,7 @@ async def lookup_or_rehydrate(
         user_message=(doc.get("context") or {}).get(
             "original_request", "",
         ),
+        bin_ctx=rehydrated_bin_ctx,
     )
     # Restore state machine + accreted context.
     try:

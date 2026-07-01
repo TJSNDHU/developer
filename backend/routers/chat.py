@@ -22,6 +22,7 @@ from cto_services.db import get_db
 from services.orchestrator import chat_with_tools
 from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 from services.repo_context import get_repo_context
+from services.usage import is_founder_email  # Iter 212m-169 — BINContext role check
 # NOTE: `build_url_context` (eager URL scraper) was REMOVED.
 # URL fetching is now handled exclusively via the `fetch_url` tool
 # inside `services/orchestrator.py` (forced pre-execution when the
@@ -577,44 +578,30 @@ async def chat_send(
     # was left sequential, which is why founder's first message hit
     # 20s on prod (testing agent finding iter 212m-14).
     t_start = time.time()
-    # Fast-path: when the user has no project bound, get_repo_context
-    # is a no-op that still does a Mongo round-trip. Skip it.
+    # Iter 212m-169 — BINContext hardening.  Build the request-scoped
+    # BINContext at the entry point when the user is chatting AGAINST
+    # a project.  Home-page casual chat (no project) still works with
+    # bin_ctx=None; downstream repo tools will refuse cleanly.
     pid = (body.project_id or "").strip()
+    _db = get_db()
+    bin_ctx = None
     if pid and pid != "home":
-        # Iter 212m-27 — Vanguard hot-path hardening:
-        # (a) AUTHORIZATION: confirm the caller owns this project
-        #     BEFORE we spend a Mongo + GitHub round-trip on it. Stops
-        #     cross-user repo context leakage (Vanguard CVE-class
-        #     IDOR finding).
-        # (b) LATENCY GUARD: get_repo_context() reaches GitHub through
-        #     a chain of cache + API hops. A flaky GitHub or stale PAT
-        #     was hanging the request for the full 90 s LLM budget.
-        #     Hard cap at 12 s — if it can't return by then, ship
-        #     the turn without repo context (graceful degrade).
-        # Iter 212m-28b — fix: ownership check must read from
-        # `cto_projects` (the collection where projects actually live),
-        # not the non-existent `projects` collection. The bug was
-        # 403'ing every project-bound chat with a freshly-seeded
-        # project in preview. Caught by the live benchmark on
-        # tiangolo/fastapi.
-        _db = get_db()
-        _owned = None
-        if _db is not None:
-            try:
-                _owned = await _db.cto_projects.find_one(
-                    {"project_id": pid, "user_id": user["user_id"]},
-                    {"_id": 1},
-                )
-            except Exception as _oe:
-                logger.warning(
-                    "project ownership lookup failed for pid=%r user=%r: %r",
-                    pid, user["user_id"], _oe,
-                )
-                _owned = None
-        if not _owned:
-            raise HTTPException(
-                status_code=403, detail="Project access denied",
-            )
+        # build_bin_context does ALL of:
+        #   • ownership check (find_one {project_id, user_id})     → 403
+        #   • repo_owner / repo_name / branch pull                 → 400
+        #   • PAT decrypt via services/vault HKDF                  → 403
+        #   • OAuth fallback for legacy OAuth-only projects        → 403
+        # so the previous separate ownership guard is now redundant.
+        from services.bin_context import build_bin_context
+        bin_ctx = await build_bin_context(
+            user_id=user["user_id"],
+            project_id=pid,
+            db=_db,
+            is_founder=bool(
+                user.get("is_admin") or user.get("is_unlimited")
+                or (user.get("tier") == "founder")
+            ),
+        )
         try:
             repo_ctx = await asyncio.wait_for(
                 get_repo_context(user["user_id"], pid),
@@ -701,6 +688,7 @@ async def chat_send(
         mode=req_mode,
         task_type=body.task_type,
         is_founder=_is_fnd,
+        bin_ctx=bin_ctx,
     )
     t_llm = time.time()
     content = result.get("content", "") or ""
@@ -1042,7 +1030,6 @@ async def chat_stream(
     # Iter 212m-168 — align _is_founder with email allowlist so ORA
     # dogfood accounts (founders using their real email but not yet
     # promoted to tier=founder in DB) also get local-pod access.
-    from services.usage import is_founder_email
     _is_founder = bool(
         user.get("is_admin") or user.get("is_unlimited")
         or (user.get("tier") == "founder")
@@ -1077,6 +1064,30 @@ async def chat_stream(
     jwt_token = authorization.split(" ", 1)[1] if authorization else ""
     user_id = user.get("user_id", "")
 
+    # Iter 212m-169 — Build BINContext for the stream endpoint.
+    # Non-blank project_id → verify + decrypt PAT + freeze into bin_ctx.
+    # If project_id refers to another user's project OR PAT is broken,
+    # build_bin_context raises HTTPException(403) which the outer
+    # /stream handler surfaces as a normal HTTP error frame BEFORE the
+    # SSE stream opens — the FE sees a clean 403 not a truncated SSE.
+    # Blank/"home" → bin_ctx=None (Home casual chat still works;
+    # any tool that needs a repo will refuse cleanly).
+    _db_bc = get_db()
+    _pid_stream = (body.project_id or "").strip()
+    bin_ctx = None
+    if _pid_stream and _pid_stream != "home":
+        from services.bin_context import build_bin_context
+        bin_ctx = await build_bin_context(
+            user_id=user_id,
+            project_id=_pid_stream,
+            db=_db_bc,
+            is_founder=bool(
+                user.get("is_admin") or user.get("is_unlimited")
+                or (user.get("tier") == "founder")
+                or is_founder_email(user.get("email"))
+            ),
+        )
+
     # Iter 212m-139 — Ask Advisor "No repo connected" bug fix.
     # Iter 212m-141 — Hardened to filter by ACTUAL GitHub reachability.
     #
@@ -1087,51 +1098,16 @@ async def chat_stream(
     # then hits `_resolve_project(..., project_id=None)` and returns
     # "No project connected", which the LLM faithfully reports back as
     # "no repo is connected right now" — even though the user has one
-    # in the sidebar.
-    # FIX: if the caller passed no project AND the user has EXACTLY
-    # ONE project that is BOTH (a) wired in DB (github_owner+repo) AND
-    # (b) actually reachable on GitHub (via repo_status._CACHE or live
-    # probe), we rewrite body.project_id to that project. Stale/dead
-    # repos in the DB (e.g. PROD dogfood → 404) no longer fool the
-    # heuristic into abstaining.
-    if not (body.project_id or "").strip() or (body.project_id or "").strip() == "home":
-        try:
-            _db_ai = get_db()
-            if _db_ai is not None:
-                _cands = await _db_ai.cto_projects.find(
-                    {"user_id": user_id,
-                     "github_owner": {"$nin": [None, ""]},
-                     "github_repo":  {"$nin": [None, ""]}},
-                    {"_id": 0, "project_id": 1},
-                ).limit(20).to_list(20)
-                _picked = None
-                if len(_cands) == 1:
-                    _picked = _cands[0]["project_id"]
-                elif len(_cands) > 1:
-                    # Two or more wired candidates — disambiguate using
-                    # the live reachability cache so a stale/dead repo
-                    # doesn't block the inference.
-                    try:
-                        from routers.repo_status import _CACHE as _RS_CACHE
-                    except Exception:
-                        _RS_CACHE = {}
-                    _connected = []
-                    for _c in _cands:
-                        _pid = _c.get("project_id")
-                        _row = _RS_CACHE.get(_pid)
-                        if _row and _row.get("status") == "connected":
-                            _connected.append(_pid)
-                    if len(_connected) == 1:
-                        _picked = _connected[0]
-                if _picked:
-                    body.project_id = _picked
-                    logger.info(
-                        "chat.stream: auto-inferred sole project %s for "
-                        "user %s (candidates=%d)",
-                        body.project_id, user_id, len(_cands),
-                    )
-        except Exception as _ai_e:
-            logger.warning("chat.stream auto-infer project failed: %r", _ai_e)
+    # Iter 212m-169 — BINContext hardening: the SILENT auto-infer at
+    # this entry point is REMOVED.  When `body.project_id` is
+    # blank/"home" we simply do NOT build a bin_ctx; the caller either
+    # explicitly picked a project (bin_ctx built and validated below)
+    # or they are on the Home casual-chat surface (no repo tools —
+    # the tool dispatch layer refuses cleanly).
+    #
+    # No more silent "one project fits all" heuristic that could
+    # mis-route a chat about Project 1 into Project 2's PAT.  The FE
+    # is responsible for stamping the active project_id on every turn.
 
     # Iter 38: ORA is founder-only. The ORA API key is shared across all
     # founders, so we gate at the surface to avoid customer quota burn.
@@ -2039,6 +2015,7 @@ async def chat_stream(
                     step_hook=_step,
                     task_type=body.task_type,
                     is_founder=_is_fnd_stream,
+                    bin_ctx=bin_ctx,
                 )
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):

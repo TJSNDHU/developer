@@ -516,10 +516,11 @@ async def get_repo_context(user_id: str, project_id: str) -> str:
 
     branch = proj.get("branch") or "main"
 
-    # Iter 212m-28 — cache key now includes branch. Without this,
-    # switching from `main` to `staging` returned the stale `main`
-    # blob until TTL expiry.
-    cache_key = {"project_id": project_id, "branch": branch}
+    # Iter 212m-169 — cache key now includes user_id.  Belt-and-braces
+    # against a future refactor that removes the ownership check above:
+    # even if two users somehow ended up with the same project_id (uuid
+    # collision, malicious import), their cache entries stay separate.
+    cache_key = {"user_id": user_id, "project_id": project_id, "branch": branch}
     cache = await db.repo_contexts.find_one(cache_key)
     now = time.time()
     if cache and (now - (cache.get("ts") or 0)) < CACHE_TTL_SECONDS:
@@ -548,6 +549,7 @@ async def get_repo_context(user_id: str, project_id: str) -> str:
         await db.repo_contexts.update_one(
             cache_key,
             {"$set": {
+                "user_id":    user_id,
                 "project_id": project_id,
                 "branch":     branch,
                 "blob":       blob,

@@ -146,25 +146,26 @@ MAX_FILES_BULK = 6        # max files in one read_repo_files call
 async def _resolve_project(user_id: str, project_id: str) -> dict | None:
     """Return project doc or None if not found.
 
+    Iter 212m-169 — This helper is NOW INTERNAL to
+    `services/bin_context.py::build_bin_context`.  Every tool below
+    reads user+project+PAT from `ctx["bin_ctx"]` (a BINContext) via
+    `_repo_ctx_from(ctx)` instead of hitting the DB directly.
+
+    Kept for legacy code paths that still resolve a project outside
+    the request-scoped BINContext (e.g. `write_repo_file` fallback,
+    admin tooling).  New code MUST use BINContext.
+
     Iter 205 — Critical fix: `cto_projects.github_token` is stored as
     ENCRYPTED ciphertext (Fernet `v1:…`). Tool functions calling GitHub's
     API with the raw ciphertext got `401 Bad credentials`. We now decrypt
     in-place and, when the project has no PAT (e.g. OAuth-only flow),
     fall back to the user's GitHub OAuth `access_token`.
 
-    Iter 212m-139 — Auto-infer project when caller passed null/empty:
-    Ask Advisor (and any tool turn that hits us before the frontend has
-    explicitly set an active tab) was sending `project_id=null` even when
-    the user had exactly one repo connected. The tool then returned the
-    confusing "No project connected" error and the LLM responded
-    "connect a repo" even though one was right there. We now treat a
-    missing/empty/"home" project_id as a soft hint: when the user has
-    exactly ONE connected project (i.e. `github_owner` + `github_repo`
-    both populated), we infer it. With 2+ connected projects we still
-    return None — the LLM must explicitly disambiguate.
-
-    All downstream tools keep reading `proj.get("github_token")` and just
-    work.
+    Iter 212m-169 — REMOVED the silent auto-infer that used to pick a
+    project when caller passed null/empty project_id.  Silent inference
+    could route a chat about Project 1 into Project 2's PAT.  If the
+    caller doesn't pass a project_id we now return None and let the
+    tool raise a clean error.
     """
     if not user_id:
         return None
@@ -173,52 +174,14 @@ async def _resolve_project(user_id: str, project_id: str) -> dict | None:
         return None
 
     pid_clean = (project_id or "").strip()
-    proj = None
-    if pid_clean and pid_clean != "home":
-        proj = await db.cto_projects.find_one(
-            {"project_id": pid_clean, "user_id": user_id}
-        )
+    if not pid_clean or pid_clean == "home":
+        return None
 
+    proj = await db.cto_projects.find_one(
+        {"project_id": pid_clean, "user_id": user_id}
+    )
     if proj is None:
-        # Iter 212m-139 / 212m-141 — single-reachable-project auto-infer.
-        # Match projects with a real repo wired up (`github_owner` +
-        # `github_repo` set). When there are 2+ wired candidates, fall
-        # back to the live reachability cache to pick the ONE that is
-        # actually connected on GitHub. This handles the PROD edge
-        # case where a user has 2 DB rows but only one is reachable
-        # (the other is `repo_not_found` 404).
-        try:
-            candidates = await db.cto_projects.find(
-                {"user_id": user_id,
-                 "github_owner": {"$nin": [None, ""]},
-                 "github_repo":  {"$nin": [None, ""]}},
-            ).limit(20).to_list(20)
-        except Exception as e:                       # noqa: BLE001
-            logger.warning("local_tools._resolve_project inference failed: %r", e)
-            return None
-        picked = None
-        if len(candidates) == 1:
-            picked = candidates[0]
-        elif len(candidates) > 1:
-            try:
-                from routers.repo_status import _CACHE as _RS_CACHE
-            except Exception:
-                _RS_CACHE = {}
-            connected = []
-            for c in candidates:
-                row = _RS_CACHE.get(c.get("project_id"))
-                if row and row.get("status") == "connected":
-                    connected.append(c)
-            if len(connected) == 1:
-                picked = connected[0]
-        if picked is None:
-            return None
-        proj = picked
-        logger.info(
-            "local_tools._resolve_project: inferred sole project "
-            "%s for user %s (caller passed pid=%r, candidates=%d)",
-            proj.get("project_id"), user_id, project_id, len(candidates),
-        )
+        return None
 
     # Decrypt the per-project PAT (if present), else fall back to OAuth.
     try:
@@ -232,6 +195,61 @@ async def _resolve_project(user_id: str, project_id: str) -> dict | None:
         logger.warning("local_tools._resolve_project: token decrypt failed: %r", e)
         proj["github_token"] = None
     return proj
+
+
+def _repo_ctx_from(ctx: dict) -> Optional[dict]:
+    """Iter 212m-169 — BINContext accessor for repo tools.
+
+    Returns a normalised dict:
+      {ok, owner, repo, branch, token, is_founder, bin_id, pid}
+    when the caller's ctx carries a valid BINContext whose bin_id
+    matches ctx["user_id"] (defence in depth: rejects a ctx that was
+    mutated to a different user mid-request).
+
+    Returns None when:
+      • ctx["bin_ctx"] is missing entirely (Home casual chat surface —
+        the tool must refuse cleanly with a "select a project" hint),
+      • ctx["bin_ctx"].bin_id does not equal ctx["user_id"] (privilege
+        violation — should never happen, log-and-reject).
+
+    Tools should call `_repo_ctx_from(ctx)` FIRST and refuse
+    immediately when it returns None.  They should NEVER fall back to
+    an independent DB lookup — that's the entire point of BINContext.
+    """
+    bc = (ctx or {}).get("bin_ctx")
+    if bc is None:
+        return None
+    # Cross-user guard: bin_id MUST match ctx["user_id"].  If they
+    # differ, someone mutated the ctx post-build — refuse hard.
+    caller_uid = (ctx or {}).get("user_id") or ""
+    if getattr(bc, "bin_id", None) and caller_uid and bc.bin_id != caller_uid:
+        logger.warning(
+            "_repo_ctx_from: bin_ctx.bin_id=%s != ctx.user_id=%s — refusing",
+            bc.bin_id, caller_uid,
+        )
+        return None
+    if not (getattr(bc, "repo_owner", "") and getattr(bc, "repo_name", "")):
+        return None
+    return {
+        "ok":         True,
+        "owner":      bc.repo_owner,
+        "repo":       bc.repo_name,
+        "branch":     bc.branch or "main",
+        "token":      bc.pat,
+        "is_founder": bool(getattr(bc, "is_founder", False)),
+        "bin_id":     bc.bin_id,
+        "pid":        bc.pid,
+    }
+
+
+_NO_BIN_CTX_ERROR = {
+    "ok": False,
+    "error": (
+        "No project selected. Please select a project from the sidebar "
+        "and try again — repo tools cannot run against Home."
+    ),
+    "error_class": "no_bin_ctx",
+}
 
 
 def _slice_content(content: str, lines: list | None, max_chars: int) -> tuple[str, bool]:
@@ -439,8 +457,6 @@ async def read_repo_file(ctx: dict, args: dict) -> dict:
     """Fetch one file from the connected repo.
     args: {path: str, lines?: [start, end]}
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     path       = (args or {}).get("path")
 
     if not path or not isinstance(path, str):
@@ -448,14 +464,14 @@ async def read_repo_file(ctx: dict, args: dict) -> dict:
     if path.startswith("/") or ".." in path.split("/"):
         return {"ok": False, "error": "Invalid path — no absolute paths or traversal"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected or project not found"}
+    # Iter 212m-169 — repo tools MUST read from BINContext, never
+    # from an independent DB lookup.  Refuse hard when it's missing.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
 
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
+    project_id = rc["pid"]
 
     if not owner or not repo:
         return {"ok": False, "error": "Project has no resolved github_owner/repo"}
@@ -534,15 +550,11 @@ async def read_repo_files(ctx: dict, args: dict) -> dict:
     paths = list(dict.fromkeys(_raw_paths))[:MAX_FILES_BULK]
     _dropped = list(dict.fromkeys(_raw_paths))[MAX_FILES_BULK:]
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected or project not found"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
-
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
     if not owner or not repo:
         return {"ok": False, "error": "Project has no resolved github_owner/repo"}
 
@@ -654,13 +666,11 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
         return {"ok": False,
                 "error": "File body exceeds 200KB cap — split into smaller files."}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected. write_repo_file only works on a project (not Home)."}
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
     if not owner or not repo:
         return {"ok": False, "error": "Project has no resolved github_owner/repo."}
     if not token:
@@ -799,11 +809,15 @@ async def get_repo_structure(ctx: dict, args: dict) -> dict:
     project_id = ctx.get("project_id")
     path = (args or {}).get("path")
 
-    if not project_id or project_id == "home":
-        return {
-            "ok": False,
-            "error": "No project connected. get_repo_structure only works on a project.",
-        }
+    # Iter 212m-169 — BINContext gate.  get_repo_structure reads an
+    # in-process cache keyed by project_id, but we still require a
+    # BINContext to prove the caller owns that project (otherwise a
+    # cache poisoning by any other user with the same project_id
+    # would leak).
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    project_id = rc["pid"]
 
     bucket = _cache_get(project_id)
     if not bucket:
@@ -933,15 +947,11 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
     pattern    = (args or {}).get("pattern") or ""
     max_items  = min(int((args or {}).get("max") or 150), 500)
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected or project not found"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
-
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
     if not owner or not repo:
         return {"ok": False, "error": "Project has no resolved github_owner/repo"}
 
@@ -1048,14 +1058,11 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     if not pattern:
         return {"ok": False, "error": "Missing required arg `pattern`"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected or project not found"}
-
-    owner  = proj.get("github_owner")
-    repo   = proj.get("github_repo")
-    branch = proj.get("branch") or "main"
-    token  = proj.get("github_token") or None
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
 
     # First get the tree
     import httpx
@@ -1178,13 +1185,11 @@ async def semantic_search_repo(ctx: dict, args: dict) -> dict:
     if not query:
         return {"ok": False, "error": "query is required"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
-
-    owner = proj.get("github_owner") or ""
-    repo  = proj.get("github_repo") or ""
-    token = proj.get("github_token") or None
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, token = rc["owner"], rc["repo"], rc["token"]
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner or github_repo"}
 
@@ -1316,13 +1321,11 @@ async def get_commit_diff(ctx: dict, args: dict) -> dict:
         return {"ok": False,
                 "error": "sha is required (get it from brain context recent commits)"}
 
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected"}
-
-    owner = proj.get("github_owner") or ""
-    repo  = proj.get("github_repo") or ""
-    token = proj.get("github_token") or None
+    # Iter 212m-169 — BINContext gate.
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    owner, repo, token = rc["owner"], rc["repo"], rc["token"]
     if not owner or not repo:
         return {"ok": False, "error": "Project missing github_owner or github_repo"}
 
@@ -1374,24 +1377,40 @@ async def get_commit_diff(ctx: dict, args: dict) -> dict:
 
 async def get_repo_info(ctx: dict, args: dict) -> dict:
     """Return connected project metadata: owner, repo, branch, tech_stack, last task."""
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
-
-    proj = await _resolve_project(user_id, project_id)
-    if not proj:
-        return {"ok": False, "error": "No project connected or project not found"}
-
+    # Iter 212m-169 — BINContext gate.  This tool is read-only project
+    # metadata so we surface owner/repo/branch straight from bin_ctx.
+    # Extra metadata (tech_stack, last_task) is fetched from the DB
+    # ONLY after ownership is proven by the presence of a valid
+    # BINContext for this user (bin_ctx.pid + bin_ctx.bin_id).
+    rc = _repo_ctx_from(ctx)
+    if rc is None:
+        return _NO_BIN_CTX_ERROR
+    db = get_db()
+    extra: dict = {}
+    if db is not None:
+        try:
+            proj = await db.cto_projects.find_one(
+                {"project_id": rc["pid"], "user_id": rc["bin_id"]},
+                {"_id": 0, "name": 1, "tech_stack": 1, "last_task": 1,
+                 "tasks_done": 1},
+            )
+            if proj:
+                extra = {
+                    "name":       proj.get("name"),
+                    "tech_stack": proj.get("tech_stack", "unknown"),
+                    "last_task":  proj.get("last_task"),
+                    "tasks_done": proj.get("tasks_done", 0),
+                }
+        except Exception as e:                       # noqa: BLE001
+            logger.debug("get_repo_info metadata lookup failed: %r", e)
     return {
-        "ok":          True,
-        "project_id":  proj.get("project_id"),
-        "name":        proj.get("name"),
-        "github_owner": proj.get("github_owner"),
-        "github_repo": proj.get("github_repo"),
-        "branch":      proj.get("branch", "main"),
-        "tech_stack":  proj.get("tech_stack", "unknown"),
-        "last_task":   proj.get("last_task"),
-        "tasks_done":  proj.get("tasks_done", 0),
-        "has_pat":     bool(proj.get("github_token")),
+        "ok":           True,
+        "project_id":   rc["pid"],
+        "github_owner": rc["owner"],
+        "github_repo":  rc["repo"],
+        "branch":       rc["branch"],
+        "has_pat":      bool(rc["token"]),
+        **extra,
     }
 
 
@@ -1450,6 +1469,14 @@ async def execute_bash(ctx: dict, args: dict) -> dict:
     # regular / paid users never see this tool in the catalog either
     # (see orchestrator.py filter), but this belt-and-braces check
     # blocks any LLM that hallucinates the tool name from succeeding.
+    #
+    # Iter 212m-169 — Additional BINContext defence.  When a BINContext
+    # is present (project-scoped chat), we ALSO require bin_ctx.is_founder.
+    # This closes the theoretical bypass where a founder starts a chat
+    # session (ctx.is_founder=True from JWT) but is currently scoped to
+    # a project marked non-founder in bin_ctx — we defer to the stricter
+    # of the two.  When there is no bin_ctx (Home chat), we fall back
+    # to ctx.is_founder alone.
     if not bool(ctx.get("is_founder")):
         return {
             "ok": False,
@@ -1462,6 +1489,15 @@ async def execute_bash(ctx: dict, args: dict) -> dict:
                 "local pod paths (/app, /tmp, /var, /etc, /usr) — "
                 "those are internal AUREM server paths, not the user's "
                 "codebase."
+            ),
+        }
+    _bc = (ctx or {}).get("bin_ctx")
+    if _bc is not None and not bool(getattr(_bc, "is_founder", False)):
+        return {
+            "ok": False,
+            "error": (
+                "execute_bash is restricted to founder/admin accounts. "
+                "Use GitHub-scoped tools instead."
             ),
         }
 
