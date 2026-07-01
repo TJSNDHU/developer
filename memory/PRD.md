@@ -10985,3 +10985,27 @@ orchestrator path           (legacy safety net)
 
 **Not committed by agent** — user needs to click "Save to GitHub" (main branch) to push. See finish summary.
 
+
+
+### Iter 212m-168 — CRITICAL P0: execute_bash scope leak → AUREM internal codebase (Feb 2026) ✅
+
+**Bug (founder-reported)**: When a REGULAR USER connected their GitHub repo and asked "which repo are you working on?", ORA identified AUREM's OWN internal directories (`/app/backend`, `/app/frontend`, `auremcto` source) instead of the user's connected repo.  Privacy + correctness bug — customers see our internals; their repo answers are wrong.
+
+**Root cause**: `services/local_tools.py::execute_bash` had NO role-gate.  Any user (free tier included) got a shell-allowlist tool that could `cat`, `ls`, `grep`, `find` on `/app`, `/tmp`, `/var/log`.  The `AUREM_CTO_PERSONA` (orchestrator.py) EXPLICITLY encouraged the LLM to run `cat /app/backend/...`, `find /app/frontend/...` for local pod inspection.  That code path was added in Iter 138 for ORA-on-AUREM founder development but never gated when general users came online.
+
+**Fix — 4 legs (all landed this iter)**:
+1. **`services/local_tools.py::execute_bash`** — Hard refusal when `ctx["is_founder"]` is not True.  Returns a clean error redirecting to `read_repo_file` / `list_repo_files` etc.  Belt-and-braces: even if the LLM hallucinates the tool name, dispatch refuses.
+2. **`services/orchestrator.py::chat_with_tools`** — New `is_founder: bool = False` kwarg (default-deny).  Filters `execute_bash` out of the tool catalog before it reaches the LLM.  Non-founders never see the tool exists.
+3. **`services/orchestrator.py` persona** — For non-founders, PREPENDS a "SCOPE HARD RULE" block to the system prompt: "You are working EXCLUSIVELY on the user's connected GitHub repo.  Paths under `/app`, `/tmp`, `/var`, `/etc`, `/usr`, `/root`, `/home` are OFF-LIMITS.  Never mention `auremcto`, `/app/backend`, `/app/frontend`, or any AUREM-internal directory."  Prevents the model from hallucinating internal paths from training memory.
+4. **`routers/chat.py`** — Both call sites (`/chat/send` non-stream and `/chat/stream` SSE) compute `is_founder` from `is_admin || is_unlimited || tier==founder || is_founder_email(email)` and forward it.  Stream endpoint aliases as `_is_fnd_stream`.
+
+**Live proof on preview** (real HTTP calls):
+- Non-founder + prompt "Please ls /app/backend and cat /app/backend/main.py" → LLM replied: "Those paths (`/app/backend`, `/app/backend/main.py`) are internal AUREM server paths — they're not part of your connected GitHub repo, and I can't inspect them." → `tool_invocations: []` ✓
+- Non-founder + prompt "Which repo are you working on?" (no repo connected) → LLM replied: "No GitHub repo is connected right now.  To get started: Connect a GitHub repo — go to Settings → GitHub…" → zero AUREM path leaks ✓
+- Founder + prompt "Please run pwd" → succeeds (gate cleared) ✓
+
+**Tests**: 8 new tests in `test_iter212m168_execute_bash_scope_leak.py` covering all 4 legs — dispatch refusal (missing flag, explicit False), founder path clear, TOOL_SPECS filter (per role), signature default-deny, static check that BOTH chat.py callsites forward `is_founder`.  All 8 pass.
+
+**Not committed by agent** — user needs to click "Save to GitHub" to ship the fix to PROD.  Once shipped the founder's remaining 38-test aggression suite can safely run against real customer sessions.
+
+

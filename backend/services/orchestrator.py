@@ -1408,6 +1408,12 @@ async def chat_with_tools(
                                         #   code_fix/code_review/security/
                                         #     lint_heal                       → A (LongCat→GLM)
                                         # None/unknown → fall back to use_code_model heuristic.
+    is_founder: bool = False,           # Iter 212m-168 — privacy fix:
+                                        # gates execute_bash + strips
+                                        # local-pod hints from persona
+                                        # so end-user chats can NEVER
+                                        # inspect AUREM's own codebase
+                                        # (/app/backend, /app/frontend).
 ) -> dict:
     """Run the LLM tool-call loop until final answer (no more tool calls)
     or `max_iters` cap is hit.  Every tool call goes through `tools_bridge`
@@ -1431,6 +1437,7 @@ async def chat_with_tools(
     local_ctx: dict = {
         "user_id":       user_id,
         "project_id":    project_id,
+        "is_founder":    bool(is_founder),   # Iter 212m-168 — gates execute_bash
         "system_signals": [],
         "tool_calls":    [],
     }
@@ -1506,6 +1513,25 @@ async def chat_with_tools(
     # Local tools are always available regardless of upstream state
     tools = list(tools or []) + list(LOCAL_TOOL_SPECS)
 
+    # Iter 212m-168 — PRIVACY GATE.  `execute_bash` inspects the LOCAL
+    # POD FILESYSTEM (/app, /tmp, /var, /etc, /usr), which for AUREM
+    # contains the AUREM CTO codebase itself (our internal backend/
+    # frontend).  End-user (customer) sessions must NEVER see this
+    # tool — otherwise the LLM will happily `ls /app/backend` when a
+    # user asks "which repo am I on?" and report AUREM internals as
+    # if they were the user's repo (privacy + correctness bug).
+    #
+    # Only founder/admin sessions retain execute_bash for ORA-on-
+    # AUREM development work.  local_tools.execute_bash also gates
+    # server-side (belt-and-braces) so a hallucinated tool call from
+    # a non-founder LLM still refuses at dispatch.
+    if not is_founder:
+        _LOCAL_ONLY_TOOLS = {"execute_bash"}
+        tools = [
+            t for t in tools
+            if (t.get("name") not in _LOCAL_ONLY_TOOLS)
+        ]
+
     # Iter 212m-152 — TOOL NAMESPACE REDUCTION (Fix 1).
     # Filter the 39-tool catalog down to the slice that's actually
     # relevant to this turn.  Saves ~19.5 k tokens of schema text per
@@ -1568,6 +1594,43 @@ async def chat_with_tools(
     # tool reminder won't help). Skipping it on follow-up iters saves
     # ~4 k chars × (max_iters - 1) per turn.
     extra = system or ""
+
+    # Iter 212m-168 — PRIVACY GUARDRAIL (non-founder end-user sessions).
+    # The AUREM_CTO_PERSONA has several examples that mention `/app/`
+    # paths and encourage the LLM to inspect the local pod filesystem
+    # via execute_bash — those exist so the FOUNDER can use ORA to
+    # develop AUREM itself.  For end-user (customer) chats we've
+    # already dropped execute_bash from the tool catalog above, but
+    # we ALSO prepend a hard rule so the model refuses to describe or
+    # invent local-pod contents even when hallucinating.  Without
+    # this rule the model would sometimes reply "ls /app/backend"
+    # from training memory when asked "which repo are you working
+    # on?" — surfacing AUREM internals as if they were the user's.
+    if not is_founder:
+        extra = (
+            "=== SCOPE HARD RULE (non-negotiable) ===\n"
+            "You are working EXCLUSIVELY on the user's connected "
+            "GitHub repo (owner/repo shown in the CONNECTED REPO "
+            "CONTEXT block below, if any).  You DO NOT have access "
+            "to the AUREM server pod's local filesystem.  Any path "
+            "starting with `/app`, `/tmp`, `/var`, `/etc`, `/usr`, "
+            "`/root`, `/home` refers to AUREM'S OWN internal server "
+            "and is OFF-LIMITS.  If the user asks 'which repo are "
+            "you working on?', answer with the owner/repo of their "
+            "connected GitHub project ONLY — never mention `/app/`, "
+            "`/app/backend`, `/app/frontend`, `auremcto`, or any "
+            "AUREM-internal directory.  If no repo is connected, "
+            "say exactly that and prompt them to connect one.  "
+            "Reading files: use ONLY `read_repo_file`, "
+            "`read_repo_files`, `list_repo_files`, `search_repo`, "
+            "`semantic_search_repo`, `get_repo_structure` — every "
+            "one of these is scoped to the user's connected repo.  "
+            "Never invent shell output, never claim to have run a "
+            "local command, never quote file contents from a path "
+            "starting with `/app`.\n"
+            "=== END SCOPE HARD RULE ===\n\n"
+        ) + extra
+
     # Iter 104 — escalation memory for repeated founder-contact asks.
     founder_ask_count = _count_founder_asks(history_lines, prompt)
     if founder_ask_count >= 3:

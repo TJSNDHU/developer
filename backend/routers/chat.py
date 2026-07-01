@@ -681,6 +681,14 @@ async def chat_send(
     from services.subscription_tiers import allowed_modes_for_tier
     _allowed = allowed_modes_for_tier((user or {}).get("tier") or "free")
     req_mode = body.mode if (body.mode in _allowed) else _allowed[-1]
+    # Iter 212m-168 — surface founder/admin role to the orchestrator so
+    # only these accounts see `execute_bash` (local pod filesystem).
+    from services.usage import is_founder_email as _is_fnd_email
+    _is_fnd = bool(
+        user.get("is_admin") or user.get("is_unlimited")
+        or (user.get("tier") == "founder")
+        or _is_fnd_email(user.get("email"))
+    )
     result = await chat_with_tools(
         prompt=body.prompt,
         jwt_token=jwt_token,
@@ -692,6 +700,7 @@ async def chat_send(
         project_id=body.project_id,
         mode=req_mode,
         task_type=body.task_type,
+        is_founder=_is_fnd,
     )
     t_llm = time.time()
     content = result.get("content", "") or ""
@@ -1030,10 +1039,17 @@ async def chat_stream(
     # founder browser doesn't trigger the contract enrichment. The
     # dedicated `/loop/start` endpoint already returns 403 with
     # `coming_soon:true` for the explicit kick-off path.
+    # Iter 212m-168 — align _is_founder with email allowlist so ORA
+    # dogfood accounts (founders using their real email but not yet
+    # promoted to tier=founder in DB) also get local-pod access.
+    from services.usage import is_founder_email
     _is_founder = bool(
         user.get("is_admin") or user.get("is_unlimited")
         or (user.get("tier") == "founder")
+        or is_founder_email(user.get("email"))
     )
+    # Iter 212m-168 — alias for the orchestrator's execute_bash gate.
+    _is_fnd_stream = _is_founder
     if (body.execution_mode or "").lower() == "loop" and not _is_founder:
         body.execution_mode = "prompt"
     if (body.execution_mode or "").lower() == "loop":
@@ -2022,6 +2038,7 @@ async def chat_stream(
                     mode=req_mode_stream,
                     step_hook=_step,
                     task_type=body.task_type,
+                    is_founder=_is_fnd_stream,
                 )
                 # Snapshot final invocations so a late timeout still has data.
                 if isinstance(result, dict):

@@ -1429,9 +1429,41 @@ async def execute_bash(ctx: dict, args: dict) -> dict:
 
     args:
       command: str — the bash command (first token must be allowlisted)
+
+    SECURITY (Iter 212m-168): This tool exposes the local pod
+    filesystem (`/app`, `/tmp`, `/var/log`, etc.) — which contains
+    the internal AUREM CTO codebase.  It MUST NOT be exposed to
+    end-user (customer) chat sessions or the LLM will surface AUREM
+    internal paths when the user asks about *their* connected repo
+    ("which repo are you working on?" → LLM inspects /app/backend and
+    reports auremcto internals — privacy + correctness bug).
+
+    Only founder/admin sessions (ctx["is_founder"] is True) are
+    allowed to invoke this tool.  Regular users see a clear refusal
+    that redirects them to the GitHub-scoped tools.
     """
     import asyncio
     import shlex
+
+    # Iter 212m-168 — HARD gate.  ctx.is_founder is populated by the
+    # orchestrator from the authenticated user's role.  Anonymous /
+    # regular / paid users never see this tool in the catalog either
+    # (see orchestrator.py filter), but this belt-and-braces check
+    # blocks any LLM that hallucinates the tool name from succeeding.
+    if not bool(ctx.get("is_founder")):
+        return {
+            "ok": False,
+            "error": (
+                "execute_bash is restricted to founder/admin accounts. "
+                "For the user's connected repo, use `read_repo_file`, "
+                "`read_repo_files`, `list_repo_files`, `search_repo`, "
+                "or `semantic_search_repo` — those are the ONLY tools "
+                "that read the user's own GitHub repo.  Never inspect "
+                "local pod paths (/app, /tmp, /var, /etc, /usr) — "
+                "those are internal AUREM server paths, not the user's "
+                "codebase."
+            ),
+        }
 
     cmd = (args or {}).get("command", "").strip()
     if not cmd:
