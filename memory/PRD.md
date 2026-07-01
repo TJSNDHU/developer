@@ -10962,3 +10962,26 @@ orchestrator path           (legacy safety net)
 1. Redeploy preview → production.
 2. Then rerun Loop mode e2e test on TJSNDHU/Aurem — should now reach Execute→Ship without errno-2 crash.
 
+
+---
+
+## Iter 212m-166 (extended) — Dockerfile + boot linter probe (2026-06-30)
+
+**Dockerfile** (`backend/Dockerfile`):
+- Base `apt-get install` now includes `nodejs` + `npm` alongside `curl`.
+- New `RUN pip install --no-cache-dir ruff && ruff --version` layer (early — before COPY so it caches independently of code changes).
+- New `RUN npm install -g eslint@8 && eslint --version` — **pinned to v8** because Loop invokes eslint with `--no-eslintrc / --no-config-lookup` which v9+ (flat-config only) rejects.
+- Verify runtimes step (`node --version && npm --version`) fails the build early if apt served broken packages.
+
+**Startup probe** (`main.py::lifespan`):
+- New `_probe_loop_linters()` background task uses `shutil.which(...)` to detect `ruff` + `eslint`.
+- Missing binaries → single WARNING log with actionable fix commands (`pip install ruff` / `npm install -g eslint@8`) + stores list on `app.state.loop_linters_missing`.
+- All-present → INFO log `✅ Loop Verify OK`.
+
+**Health endpoint** (`/api/health`):
+- Now surfaces `loop_linters_missing: [str] | null` so founder dashboards can render a "Verify degraded" pill.
+
+**Tests**: 8 new tests in `test_iter212m166_dockerfile_and_boot_probe.py` + 7 existing = **15 total, all pass**.
+
+**Not committed by agent** — user needs to click "Save to GitHub" (main branch) to push. See finish summary.
+

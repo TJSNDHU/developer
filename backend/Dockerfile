@@ -2,8 +2,27 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Iter 212m-166 — add nodejs + eslint alongside ruff so the LoopEngine's
+# Verify phase (`services/loop_verify.py`) can actually lint the files
+# it generates before Ship.  When either binary is missing the loop
+# gracefully soft-skips (rc=127) but the design intent is to LINT — a
+# missing linter silently masks syntax errors on generated code.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify runtimes (fails the build early if apt served a broken node/npm)
+RUN node --version && npm --version
+
+# Install ruff (Python linter for Loop Verify — .py files)
+RUN pip install --no-cache-dir ruff \
+    && ruff --version
+
+# Install eslint (JS/TS linter for Loop Verify — .js/.jsx/.ts/.tsx files)
+# Pinned to v8 because v9+ requires a flat-config file that Loop
+# doesn't provide (Loop invokes eslint with --no-eslintrc / --no-config-lookup).
+RUN npm install -g eslint@8 \
+    && eslint --version
 
 # Install Python deps (emergentintegrations needs Emergent's extra index)
 COPY requirements.txt .

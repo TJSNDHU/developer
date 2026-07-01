@@ -504,6 +504,32 @@ async def lifespan(app: FastAPI):
                 logger.warning("LongCat probe failed: %r", _e)
         _asyncio.create_task(_probe_longcat())
 
+    # Iter 212m-166 — Loop Verify linter binary probe.  If ruff/eslint
+    # are missing on the runtime pod, `services/loop_verify.py::_run`
+    # gracefully returns rc=127 (soft-skip) but the founder needs to
+    # know because a missing linter silently masks syntax errors on
+    # generated code before Ship.
+    async def _probe_loop_linters():
+        import shutil
+        missing = []
+        for binary in ("ruff", "eslint"):
+            if not shutil.which(binary):
+                missing.append(binary)
+        if missing:
+            logger.warning(
+                "⚠️  Loop Verify degraded — linter binary(s) missing on pod: %s. "
+                "The LoopEngine will soft-skip lint for affected file types and "
+                "still Ship, but syntax errors on generated code will NOT be "
+                "caught before commit.  Fix: rebuild the pod (Dockerfile installs "
+                "them) or manually run `pip install ruff` / `npm install -g eslint@8`.",
+                ", ".join(missing),
+            )
+            app.state.loop_linters_missing = missing
+        else:
+            logger.info("✅ Loop Verify OK — ruff + eslint both installed.")
+            app.state.loop_linters_missing = []
+    _asyncio.create_task(_probe_loop_linters())
+
     yield
     if getattr(app.state, "digest_task", None):
         app.state.digest_task.cancel()
@@ -1079,6 +1105,10 @@ async def health():
         "db": app.state.db is not None,
         "build_hash": _resolve_build_hash(),
         "env": os.getenv("ENVIRONMENT", "production"),
+        # Iter 212m-166 — surface Loop Verify linter status so founder
+        # dashboards can show a "Verify phase degraded" pill when the
+        # pod is missing ruff / eslint.
+        "loop_linters_missing": getattr(app.state, "loop_linters_missing", None),
     }
 
 
