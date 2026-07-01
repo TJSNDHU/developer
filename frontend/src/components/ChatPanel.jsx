@@ -1680,6 +1680,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               progressPct: 100,
               provider: d.provider || providerSeen || "—",
               council: !!(d.council || d.provider === "mode-b-council"),
+              // Iter 212m-171 — Scope Badge: repo the reply was scoped to.
+              repo_owner: d.repo_owner || null,
+              repo_name:  d.repo_name  || null,
+              branch:     d.branch     || null,
               // Iter 161 — surface the review mode (swift/pro/maxx) on
               // the assistant bubble so MessageBubble can render the
               // "Written by …" / "Reviewed by …" agent chip.

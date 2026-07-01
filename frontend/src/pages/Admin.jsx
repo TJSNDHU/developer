@@ -19,6 +19,10 @@ import AgentTokenPanel from "../components/AgentTokenPanel";
 import AdminThinkingHints from "../components/AdminThinkingHints";
 import TwoFactorCard from "../components/TwoFactorCard";  // Iter 212m-20
 import AdminHouseRules from "../components/AdminHouseRules";  // Iter 212m-24
+import AdminBINTracker from "./AdminBINTracker";               // Iter 212m-171
+import AdminFeatureFlags from "./AdminFeatureFlags";           // Iter 212m-171
+import { LLMCreditMonitor } from "./AdminLLMCredits";          // Iter 212m-171
+import { ParliamentLivePanel } from "./AdminParliamentLive";   // Iter 212m-171
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
@@ -2105,19 +2109,29 @@ const td = { padding: "7px 10px" };
 
 //   • Warm Start + Post-scan Issues: merged into one "Reliability" tab.
 const NAV = [
+  // Iter 212m-171 — sidebar grouped by responsibility.
+  { group: "MONITOR" },
   { id: "overview", label: "Overview", Icon: Eye },
+  { id: "llm_credits", label: "LLM Credits", Icon: DollarSign },
+  { id: "parliament_live", label: "Parliament Live", Icon: Cpu },
+  { group: "USERS" },
+  { id: "bin_tracker", label: "BIN Tracker", Icon: Users },
+  { id: "users", label: "Users (Legacy)", Icon: Users },
+  { id: "support", label: "Support", Icon: Mail },
+  { id: "audit", label: "Audit Log", Icon: ShieldAlert },
+  { group: "CONFIG" },
+  { id: "feature_flags", label: "Feature Flags", Icon: Zap },
+  { id: "house_rules", label: "House Rules V2", Icon: ShieldCheck },
+  { group: "BUSINESS" },
+  { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
+  { id: "tokens", label: "Token P&L", Icon: Cpu },
+  { group: "SYSTEM" },
   { id: "dash", label: "Dashboard", Icon: LayoutDashboard },
-  { id: "users", label: "Users", Icon: Users },
   { id: "projects", label: "Projects", Icon: Folder },
   { id: "tasks", label: "Tasks", Icon: ListChecks },
-  { id: "tokens", label: "Token P&L", Icon: Cpu },
   { id: "agent_perf", label: "Agent Performance", Icon: Activity },
   { id: "mcp", label: "MCP Usage", Icon: Plug },
   { id: "reliability", label: "Reliability", Icon: ShieldAlert },
-  { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
-  { id: "support", label: "Support Emails", Icon: Mail },
-  { id: "audit", label: "Audit", Icon: ShieldAlert },
-  { id: "house_rules", label: "House Rules", Icon: ShieldCheck },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -2183,21 +2197,31 @@ export default function Admin({ initialTab = "overview" }) {
       return <UserDetail user={selectedUser} onBack={() => setSelectedUser(null)} />;
     }
     switch (page) {
-      case "overview": return <AdminOverview />;
-      case "dash": return <Dashboard />;
-      case "users": return <UsersList onSelect={setSelectedUser} />;
-      case "projects": return <ProjectsPage />;
-      case "tasks": return <TasksPage />;
-      case "tokens": return <TokenPnL />;
-      case "agent_perf": return <AgentPerformancePage />;
-      case "mcp": return <McpUsagePage />;
-      case "reliability": return <ReliabilityPage />;
-      case "payments": return <PaymentsPage />;
-      case "support": return <SupportPage />;
-      case "audit": return <AuditPage />;
-      case "house_rules": return <AdminHouseRules />;
-      case "settings": return <SettingsPage />;
-      default: return <Dashboard />;
+      case "overview":       return <AdminOverview />;
+      case "llm_credits":    return <div style={{ padding: "24px 20px", maxWidth: 900 }}>
+                                       <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: "var(--text)" }}>LLM Credits</h1>
+                                       <LLMCreditMonitor />
+                                     </div>;
+      case "parliament_live":return <div style={{ padding: "24px 20px", maxWidth: 1100 }}>
+                                       <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: "var(--text)" }}>Parliament Live</h1>
+                                       <ParliamentLivePanel />
+                                     </div>;
+      case "bin_tracker":    return <AdminBINTracker />;
+      case "feature_flags":  return <AdminFeatureFlags />;
+      case "dash":           return <Dashboard />;
+      case "users":          return <UsersList onSelect={setSelectedUser} />;
+      case "projects":       return <ProjectsPage />;
+      case "tasks":          return <TasksPage />;
+      case "tokens":         return <TokenPnL />;
+      case "agent_perf":     return <AgentPerformancePage />;
+      case "mcp":            return <McpUsagePage />;
+      case "reliability":    return <ReliabilityPage />;
+      case "payments":       return <PaymentsPage />;
+      case "support":        return <SupportPage />;
+      case "audit":          return <AuditPage />;
+      case "house_rules":    return <AdminHouseRules />;
+      case "settings":       return <SettingsPage />;
+      default:               return <AdminOverview />;
     }
   };
 
@@ -2228,7 +2252,22 @@ export default function Admin({ initialTab = "overview" }) {
           </div>
         </div>
         <div className="aurem-rail-scroll" data-testid="admin-nav-scroll">
-        {NAV.map(({ id, label, Icon }) => {
+        {NAV.map((item, idx) => {
+          // Iter 212m-171 — support group header entries.
+          if (item.group) {
+            return (
+              <div key={`group-${idx}`}
+                   data-testid={`admin-nav-group-${item.group}`}
+                   style={{
+                     fontSize: 9, letterSpacing: "0.12em",
+                     textTransform: "uppercase", color: "var(--text-faint)",
+                     padding: "10px 10px 4px", marginTop: idx > 0 ? 8 : 0,
+                   }}>
+                {item.group}
+              </div>
+            );
+          }
+          const { id, label, Icon } = item;
           const active = page === id;
           return (
             <button

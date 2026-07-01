@@ -972,6 +972,37 @@ export default function MessageBubble({
               · 5-adviser council · chairman verdict
             </div>
           )}
+          {/* Iter 212m-171 — Scope Badge.  Shows the user which repo /
+              branch this reply is scoped to, plus which council +
+              model produced it.  Data flows from the SSE response:
+              m.repo_owner / m.repo_name / m.branch (set by the
+              orchestrator's bin_ctx echo) + m.council + m.provider. */}
+          {!m.streaming && m.role === "assistant" &&
+           m.provider !== "system" && (m.repo_owner || m.provider) && (
+            <div data-testid={`scope-badge-${idx}`} style={{
+              marginTop: 8, fontSize: 10,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "var(--text-faint)",
+              display: "inline-flex", alignItems: "center", gap: 8,
+              flexWrap: "wrap",
+            }}>
+              {m.repo_owner && m.repo_name && (
+                <span style={{ color: "var(--accent-2)" }}>
+                  ↳ {m.repo_owner}/{m.repo_name}
+                  {m.branch && m.branch !== "main"
+                    ? <span style={{ color: "var(--text-faint)" }}>@{m.branch}</span>
+                    : null}
+                </span>
+              )}
+              {(m.council || m.provider) && (
+                <span>
+                  via {m.council ? `Council ${m.council}` : ""}
+                  {m.council && m.provider ? " · " : ""}
+                  {m.provider ? m.provider : ""}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action row for assistant bubbles — copy / 👍 / 👎 — visible on hover */}

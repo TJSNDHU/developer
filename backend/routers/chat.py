@@ -651,6 +651,7 @@ async def chat_send(
     try:
         from services.house_rules import (
             get_active_house_rules, format_house_rules_block,
+            get_active_chat_prompt,
         )
         _hr_prompt = await get_active_house_rules(
             "chat", (body.mode or "swift").lower(),
@@ -659,6 +660,17 @@ async def chat_send(
             extra_sys = (
                 format_house_rules_block(_hr_prompt)
                 + ("\n\n" + extra_sys if extra_sys else "")
+            )
+        # Iter 212m-171 — dedicated CHAT prompt slot (independent of the
+        # combined `prompt` field).  Injected AFTER the boundary block
+        # applied by the orchestrator, before the AUREM persona.
+        _chat_extra = await get_active_chat_prompt()
+        if _chat_extra:
+            extra_sys = (
+                "=== ADMIN CHAT PROMPT (Iter 212m-171) ===\n"
+                f"{_chat_extra}\n"
+                "=== END ADMIN CHAT PROMPT ===\n\n"
+                + (extra_sys or "")
             )
     except Exception as _hre:
         logger.debug("house_rules injection skipped (chat/send): %r", _hre)
@@ -754,6 +766,13 @@ async def chat_send(
         # without scraping Mongo / Langfuse.
         "council":   result.get("council"),
         "task_type": result.get("task_type"),
+        # Iter 212m-171 — Scope Badge echo.  FE stamps this on the
+        # assistant bubble so the user sees which repo they were
+        # scoped to.  Zero PII beyond the repo slug (already public
+        # to the user).
+        "repo_owner": getattr(bin_ctx, "repo_owner", None) if bin_ctx else None,
+        "repo_name":  getattr(bin_ctx, "repo_name", None)  if bin_ctx else None,
+        "branch":     getattr(bin_ctx, "branch", None)     if bin_ctx else None,
     }
 
 
@@ -1280,6 +1299,7 @@ async def chat_stream(
         try:
             from services.house_rules import (
                 get_active_house_rules, format_house_rules_block,
+                get_active_chat_prompt,
             )
             _hr_prompt = await get_active_house_rules(
                 "chat", (body.mode or "swift").lower(),
@@ -1288,6 +1308,15 @@ async def chat_stream(
                 extra_sys = (
                     format_house_rules_block(_hr_prompt)
                     + ("\n\n" + extra_sys if extra_sys else "")
+                )
+            # Iter 212m-171 — dedicated CHAT prompt slot.
+            _chat_extra = await get_active_chat_prompt()
+            if _chat_extra:
+                extra_sys = (
+                    "=== ADMIN CHAT PROMPT (Iter 212m-171) ===\n"
+                    f"{_chat_extra}\n"
+                    "=== END ADMIN CHAT PROMPT ===\n\n"
+                    + (extra_sys or "")
                 )
         except Exception as _hre:
             logger.debug("house_rules injection skipped (chat/stream): %r", _hre)
@@ -2434,6 +2463,10 @@ async def chat_stream(
             "session_id": body.session_id,
             "tokens_remaining": tokens_remaining,
             "council": bool(result.get("council")),
+            # Iter 212m-171 — Scope Badge echo (see /chat/send).
+            "repo_owner": getattr(bin_ctx, "repo_owner", None) if bin_ctx else None,
+            "repo_name":  getattr(bin_ctx, "repo_name", None)  if bin_ctx else None,
+            "branch":     getattr(bin_ctx, "branch", None)     if bin_ctx else None,
             # Iter 212m-49 — provenance of the last LLM hop. The frontend
             # surfaces a "⚡ free mode" pill in the chat header when this
             # turn was served by the Groq emergency fallback (i.e. both

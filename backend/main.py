@@ -53,6 +53,7 @@ from routers.repo_indexing import router as repo_indexing_router    # Iter 212m-
 from routers.founder_offer import router as founder_offer_router    # Iter 212m-30 PR-2
 from routers.onboarding import router as onboarding_router          # Iter 212m-32 nudge emails
 from routers.admin_vanguard import router as admin_vanguard_router  # Iter 212m-42 vanguard admin toggle
+from routers.admin_bin import router as admin_bin_router  # Iter 212m-171 admin panel rebuild
 from routers.security_scan import router as security_scan_router    # Iter 212m-55 1-click vuln scanner
 from routers.vanguard_ci import router as vanguard_ci_router        # Iter 212m-120 Phase 1: trufflehog CI ingest
 from routers.fix_pipeline import router as fix_pipeline_router      # Iter 212m-121 bulk + SSE fix pipeline
@@ -1304,6 +1305,7 @@ app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-
 app.include_router(founder_offer_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2
 app.include_router(onboarding_router,     prefix="/api/aurem-dev")  # Iter 212m-32 nudge emails
 app.include_router(admin_vanguard_router, prefix="/api/aurem-dev")  # Iter 212m-42 vanguard config
+app.include_router(admin_bin_router,      prefix="/api/aurem-dev")  # Iter 212m-171 admin panel rebuild
 app.include_router(security_scan_router,  prefix="/api/aurem-dev")  # Iter 212m-55 1-click vuln scanner
 app.include_router(vanguard_ci_router,    prefix="/api/aurem-dev")  # Iter 212m-120 Phase 1: trufflehog CI ingest
 app.include_router(fix_pipeline_router,   prefix="/api/aurem-dev")  # Iter 212m-121 bulk + SSE fix pipeline

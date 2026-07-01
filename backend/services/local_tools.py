@@ -1564,6 +1564,24 @@ async def execute_bash(ctx: dict, args: dict) -> dict:
             and bool(getattr(_bc, "debug_mode", False))
         )
         if not allow:
+            # Iter 212m-171 — log to audit_log so /admin/boundary-probes
+            # can surface it as an admin overview tile.
+            try:
+                from cto_services.db import get_db
+                from datetime import datetime, timezone
+                _db = get_db()
+                if _db is not None:
+                    await _db.audit_log.insert_one({
+                        "ts": datetime.now(timezone.utc),
+                        "event": "ora_boundary_violation",
+                        "user_id": ctx.get("user_id"),
+                        "is_founder": bool(getattr(_bc, "is_founder", False))
+                                      if _bc else False,
+                        "cmd_head": cmd[:120],
+                        "hit": _hit,
+                    })
+            except Exception:
+                pass
             return {
                 "ok": False,
                 "error": (

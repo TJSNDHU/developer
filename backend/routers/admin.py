@@ -3516,6 +3516,15 @@ class HouseRulesPayload(BaseModel):
     advisor_prompt:          str = ""
     advisor_prompt_enabled:  bool = False
     advisor_llm:             str = "glm-5.2"
+    # Iter 212m-171 — CHAT prompt slot + model / temperature / max_tokens
+    # overrides for both chat and advisor.
+    chat_prompt:             str = ""
+    chat_prompt_enabled:     bool = False
+    chat_model:              str = ""      # empty → orchestrator picks
+    chat_temperature:        float = 0.2
+    chat_max_tokens:         int = 4000
+    advisor_temperature:     float = 0.2
+    advisor_max_tokens:      int = 2500
 
 
 @router.get("/house-rules")

@@ -80,6 +80,18 @@ def _off_stub(reason: str = "default") -> dict:
         "advisor_prompt":          "",
         "advisor_prompt_enabled":  False,
         "advisor_llm":             "glm-5.2",
+        # Iter 212m-171 — dedicated CHAT prompt slot + model/temperature/
+        # max_tokens overrides so admin can tune ORA chat independently
+        # of the combined `prompt` field.  `chat_prompt_enabled` is the
+        # kill-switch — when False (default), orchestrator ignores
+        # chat_prompt entirely so existing behaviour stays byte-identical.
+        "chat_prompt":             "",
+        "chat_prompt_enabled":     False,
+        "chat_model":              "",       # empty → orchestrator picks per intent
+        "chat_temperature":        0.2,
+        "chat_max_tokens":         4000,
+        "advisor_temperature":     0.2,
+        "advisor_max_tokens":      2500,
         "updated_at":       None,
         "updated_by":       None,
         "_source":          reason,
@@ -173,6 +185,14 @@ async def set_house_rules_doc(payload: dict, by_user_id: str) -> dict:
         "advisor_prompt":           advisor_prompt,
         "advisor_prompt_enabled":   bool(payload.get("advisor_prompt_enabled", False)),
         "advisor_llm":              advisor_llm,
+        # Iter 212m-171 — dedicated chat prompt + tuning.
+        "chat_prompt":              (payload.get("chat_prompt") or "").strip()[:_MAX_PROMPT_LEN],
+        "chat_prompt_enabled":      bool(payload.get("chat_prompt_enabled", False)),
+        "chat_model":               (payload.get("chat_model") or "").strip()[:60],
+        "chat_temperature":         float(payload.get("chat_temperature") or 0.2),
+        "chat_max_tokens":          int(payload.get("chat_max_tokens") or 4000),
+        "advisor_temperature":      float(payload.get("advisor_temperature") or 0.2),
+        "advisor_max_tokens":       int(payload.get("advisor_max_tokens") or 2500),
         "updated_at":       datetime.now(timezone.utc),
         "updated_by":       by_user_id or "unknown",
     }
@@ -258,3 +278,15 @@ async def get_active_advisor_llm() -> str:
     un-configured advisor keeps shipping identical responses."""
     doc = await get_house_rules_doc()
     return _valid_advisor_llm(doc.get("advisor_llm") or "glm-5.2")
+
+
+# Iter 212m-171 — Dedicated CHAT prompt getter (mirrors advisor).
+async def get_active_chat_prompt() -> str:
+    """Return the admin-defined CHAT prompt when its kill-switch is on,
+    else empty string.  Injected AFTER the ORA boundary rule and
+    BEFORE the AUREM CTO persona so the admin can tune tone / behaviour
+    without polluting either layer."""
+    doc = await get_house_rules_doc()
+    if not doc.get("chat_prompt_enabled"):
+        return ""
+    return (doc.get("chat_prompt") or "").strip()

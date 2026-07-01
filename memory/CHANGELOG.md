@@ -2064,3 +2064,59 @@ to ship Iter 212m-168 + 212m-169 + 212m-170 hardening together.
 
 
 ---
+
+### Iter 212m-171 — Admin Panel Rebuild (6 sections + sidebar + boundary tile) (Feb 2026) ✅
+
+**Scope**: 6 new admin sections + sidebar reorg + Scope Badge for chat replies.
+Every screen shipped with real DB-backed data, zero mocks.
+
+**New backend router `routers/admin_bin.py`** (7 endpoints under `/admin`):
+- `GET  /admin/bin/{bin_id}/projects` — list projects with live PAT
+  validity probe (GitHub HEAD /repos) + tasks/last-activity/PAT last-4
+- `POST /admin/users/{bin_id}/tier` — change tier with audit trail
+- `POST /admin/feature-flags/{flag}/user-override` — per-user flag override
+- `DELETE /admin/feature-flags/{flag}/user-override/{bin_id}` — remove override
+- `GET  /admin/llm-credits` — OpenRouter balance (live) + 6-provider status
+  + LongCat live flag + circuit breaker + linters_missing + alert threshold
+- `POST /admin/llm-credit-alert` — persist threshold in `settings` collection
+- `GET  /admin/parliament/live` — per-council (A/B/C/CEO) model + calls + rescues
+- `GET  /admin/boundary-probes` — count today/window of `ora_boundary_violation` audit events
+
+**Backend touched**:
+- `services/local_tools.py::execute_bash` — logs `ora_boundary_violation` to `audit_log` on refusal so the tile has real data
+- `services/house_rules.py` — schema extended with `chat_prompt`, `chat_prompt_enabled`, `chat_model`, `chat_temperature`, `chat_max_tokens`, `advisor_temperature`, `advisor_max_tokens` + new `get_active_chat_prompt()` getter
+- `routers/admin.py::HouseRulesPayload` — new fields accepted
+- `routers/chat.py` (send + stream) — injects `get_active_chat_prompt()` after boundary rule, before AUREM persona; response echoes `repo_owner`/`repo_name`/`branch` for Scope Badge
+- `main.py` — mounts `admin_bin_router`
+
+**New frontend pages** (all under `/admin`):
+- `AdminBINTracker.jsx` — 77-user table with search, expandable per-user project explorer showing PAT validity (✓ Valid / ✗ Invalid / ⚠ No PAT / — No repo) + tier dropdown (live change with toast)
+- `AdminFeatureFlags.jsx` — 5-flag global toggle grid with pill switches + tier chips + Create form
+- `AdminLLMCredits.jsx` (+ `LLMCreditMonitor` reusable card) — 6-provider status matrix ($10.85 OpenRouter live, LongCat FALLBACK) + threshold input + refresh
+- `AdminParliamentLive.jsx` (+ `ParliamentLivePanel` card) — 4-council table (A/B/C/CEO) with model primary/fallback, calls, rescues, LongCat live flag, 1h/24h/7d window
+- `components/BoundaryProbesTile.jsx` — Boundary Probes · today counter (turns red when non-zero); wired to `/admin/boundary-probes`; VERIFIED end-to-end (dispatch → audit_log → tile count=1)
+
+**Existing files touched**:
+- `pages/Admin.jsx` — NAV restructured into 5 groups (MONITOR / USERS / CONFIG / BUSINESS / SYSTEM); sidebar renderer supports group headers; switch routes 5 new tabs
+- `pages/AdminOverview.jsx` — LLMCreditMonitor + BoundaryProbesTile appended after top-up alerts
+- `components/AdminHouseRules.jsx` — new "ORA Chat — dedicated rules + tuning" section (V2 pill) with 4 knobs, injected above existing Ask Advisor section
+- `components/MessageBubble.jsx` — Scope Badge added: `↳ owner/repo@branch  via Council X · provider`
+- `components/ChatPanel.jsx` — stamps `repo_owner/repo_name/branch` from SSE `done` payload onto assistant message state
+- `App.jsx` — 4 new direct URLs: `/admin/bin-tracker`, `/admin/feature-flags`, `/admin/llm-credits`, `/admin/parliament-live`
+
+**Live proof on preview** (screenshots captured):
+- `/admin` overview → 12 alerts + LLM Provider Status card (real $10.85 balance, LongCat FALLBACK ⚠, all 6 providers) + Boundary Probes tile (count=0) ✓
+- `/admin/bin-tracker` → 77 real BINs, teji.ss1986 tier=Founder, tier dropdown wired ✓
+- `/admin/feature-flags` → 5 real flags (new_analytics_v2, maxx_mode_beta, parallel_agents, chrome_extension_beta, test_flag_z) with pill toggles + Create form ✓
+- `/admin/parliament-live` → 4 councils correctly wired: A=GLM-5.2(LongCat down)→GLM-5.2, B=GLM-5.2, C=DeepSeek V3, CEO=Claude Sonnet 4.5→GLM-5.2 with 0 rescues ✓
+- House Rules V2 → chat_prompt section renders with all 4 knobs (enabled toggle, textarea, model override, temp, max_tokens) DISTINCT from Ask Advisor block ✓
+- Boundary Probes counter increments end-to-end (dispatched execute_bash refusal → audit_log entry → `/admin/boundary-probes` returns count_today=1) ✓
+- Tier change tested via curl: `test.aurem.dev` free→pro→free with proper `prev_tier`/`new_tier` echo ✓
+
+**53/53 prior regression tests still green** (Iter 168 + 169 + 170).
+
+Not committed by agent — user needs "Save to Github" to ship 212m-168, -169, -170, -171 together.
+
+
+---
+

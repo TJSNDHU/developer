@@ -9,6 +9,8 @@
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { api, getToken } from "../lib/api";
+import { LLMCreditMonitor } from "./AdminLLMCredits";       // Iter 212m-171
+import { BoundaryProbesTile } from "../components/BoundaryProbesTile";  // Iter 212m-171
 
 export default function AdminOverview() {
   const [health,  setHealth]  = useState(null);
@@ -135,6 +137,10 @@ export default function AdminOverview() {
         onRefresh={refreshHealthAndAlerts}
         onDismiss={dismissAlert}
       />
+
+      {/* ── Iter 212m-171 — LLM provider status + boundary probes ── */}
+      <LLMCreditMonitor compact={false} />
+      <BoundaryProbesTile />
 
       {/* ── System health ───────────────────────────────────── */}
       <Section title="System health">

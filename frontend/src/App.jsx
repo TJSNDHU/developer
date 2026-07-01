@@ -174,6 +174,11 @@ export default function App() {
           <Route path="/sidebar-preview"    element={<SidebarPreview />} />
           <Route path="/dashboard-preview-v2" element={<DashboardPreviewV2 />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
+          {/* Iter 212m-171 — direct URLs for new admin sections */}
+          <Route path="/admin/bin-tracker"    element={<Admin initialTab="bin_tracker" />} />
+          <Route path="/admin/feature-flags"  element={<Admin initialTab="feature_flags" />} />
+          <Route path="/admin/llm-credits"    element={<Admin initialTab="llm_credits" />} />
+          <Route path="/admin/parliament-live" element={<Admin initialTab="parliament_live" />} />
           <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
           <Route path="/terms"          element={<PolicyPage slug="terms" />} />
           <Route path="/acceptable-use" element={<PolicyPage slug="acceptable-use" />} />

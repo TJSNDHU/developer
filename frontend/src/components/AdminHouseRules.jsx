@@ -85,6 +85,14 @@ export default function AdminHouseRules() {
     advisor_prompt_enabled: false,
     advisor_llm: "glm-5.2",
     advisor_llm_choices: [],
+    // Iter 212m-171 — dedicated CHAT slot + tuning knobs.
+    chat_prompt: "",
+    chat_prompt_enabled: false,
+    chat_model: "",
+    chat_temperature: 0.2,
+    chat_max_tokens: 4000,
+    advisor_temperature: 0.2,
+    advisor_max_tokens: 2500,
     updated_at: null,
     updated_by: null,
   });
@@ -121,6 +129,14 @@ export default function AdminHouseRules() {
         advisor_prompt:         (doc.advisor_prompt || "").slice(0, MAX_LEN),
         advisor_prompt_enabled: !!doc.advisor_prompt_enabled,
         advisor_llm:            doc.advisor_llm || "glm-5.2",
+        // Iter 212m-171 — chat dedicated slot + tuning knobs.
+        chat_prompt:            (doc.chat_prompt || "").slice(0, MAX_LEN),
+        chat_prompt_enabled:    !!doc.chat_prompt_enabled,
+        chat_model:             (doc.chat_model || "").slice(0, 60),
+        chat_temperature:       Number(doc.chat_temperature ?? 0.2),
+        chat_max_tokens:        Number(doc.chat_max_tokens ?? 4000),
+        advisor_temperature:    Number(doc.advisor_temperature ?? 0.2),
+        advisor_max_tokens:     Number(doc.advisor_max_tokens ?? 2500),
       };
       const r = await api.put("/admin/house-rules", payload);
       if (r.data?.house_rules) setDoc((d) => ({ ...d, ...r.data.house_rules }));
@@ -315,6 +331,106 @@ export default function AdminHouseRules() {
           </span>
         </div>
       )}
+
+      {/* Iter 212m-171 — dedicated CHAT prompt slot (V2).
+          Injected AFTER the ORA boundary rule and BEFORE the AUREM
+          persona so admin can tune chat tone / behaviour separately
+          from the combined `prompt` field above. */}
+      <div
+        data-testid="chat-only-section"
+        style={{
+          marginTop: 8, marginBottom: 24,
+          padding: 18, borderRadius: 8,
+          border: "1px solid var(--border-strong)",
+          background: "var(--panel-2)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10,
+                       marginBottom: 6 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0,
+                        color: "var(--text)" }}>
+            ORA Chat — dedicated rules + tuning
+          </h2>
+          <span style={{
+            padding: "2px 8px", borderRadius: 999, fontSize: 9,
+            fontWeight: 700, letterSpacing: "0.06em",
+            textTransform: "uppercase", color: "var(--accent-2)",
+            background: "var(--accent-soft)",
+            border: "1px solid var(--border-strong)",
+          }}>V2</span>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)",
+                       marginBottom: 12 }}>
+          Injected into the main coding chat's system prompt after the
+          ORA boundary rule.  Temperature + max tokens knobs apply to
+          the current chat turn.
+        </div>
+        <Toggle
+          checked={!!doc.chat_prompt_enabled}
+          onChange={(v) => up({ chat_prompt_enabled: v })}
+          label="Enable chat prompt slot"
+          hint="OFF keeps orchestrator behaviour byte-identical to pre-171."
+          testid="chat-prompt-enabled-toggle"
+        />
+        <textarea
+          data-testid="chat-prompt-textarea"
+          value={doc.chat_prompt || ""}
+          onChange={(e) => up({ chat_prompt: e.target.value })}
+          rows={5}
+          placeholder="Extra instructions for the main ORA chat (tone, rules, format constraints)…"
+          style={{
+            width: "100%", marginTop: 10,
+            padding: 10, borderRadius: 4,
+            background: "var(--bg-elev)", color: "var(--text)",
+            border: "1px solid var(--border)",
+            fontSize: 12, fontFamily: "inherit", resize: "vertical",
+          }}
+        />
+        <div style={{ display: "grid",
+                       gridTemplateColumns: "1fr 1fr 1fr",
+                       gap: 10, marginTop: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: "var(--text-faint)",
+                           marginBottom: 4 }}>Chat model override</div>
+            <input data-testid="chat-model-input"
+                   type="text" placeholder="empty → auto"
+                   value={doc.chat_model || ""}
+                   onChange={(e) => up({ chat_model: e.target.value })}
+                   style={{
+                     width: "100%", padding: "6px 8px", fontSize: 11,
+                     background: "var(--bg-elev)", color: "var(--text)",
+                     border: "1px solid var(--border)", borderRadius: 3,
+                     fontFamily: "'JetBrains Mono', monospace",
+                   }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: "var(--text-faint)",
+                           marginBottom: 4 }}>Chat temperature</div>
+            <input data-testid="chat-temperature-input"
+                   type="number" step="0.05" min="0" max="1.5"
+                   value={doc.chat_temperature ?? 0.2}
+                   onChange={(e) => up({ chat_temperature: parseFloat(e.target.value) })}
+                   style={{
+                     width: "100%", padding: "6px 8px", fontSize: 11,
+                     background: "var(--bg-elev)", color: "var(--text)",
+                     border: "1px solid var(--border)", borderRadius: 3,
+                   }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: "var(--text-faint)",
+                           marginBottom: 4 }}>Chat max tokens</div>
+            <input data-testid="chat-max-tokens-input"
+                   type="number" step="100" min="100"
+                   value={doc.chat_max_tokens ?? 4000}
+                   onChange={(e) => up({ chat_max_tokens: parseInt(e.target.value || 4000) })}
+                   style={{
+                     width: "100%", padding: "6px 8px", fontSize: 11,
+                     background: "var(--bg-elev)", color: "var(--text)",
+                     border: "1px solid var(--border)", borderRadius: 3,
+                   }} />
+          </div>
+        </div>
+      </div>
 
       {/* Iter 212m-53 — Ask Advisor dedicated slot. Distinct from the
           combined block above: this prompt is injected ONLY into
