@@ -1878,7 +1878,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         return out;
       });
     } catch (e) {
-      const msg = e?.response?.data?.detail || e?.message || "Loop start failed";
+      // Iter 212m-176 — FastAPI can return `detail` as an object/array
+      // (422 validation, structured 409 lock info). Template-string on
+      // an object renders "[object Object]" — normalise to text.
+      let msg = e?.response?.data?.detail ?? e?.message ?? "Loop start failed";
+      if (typeof msg !== "string") {
+        msg = msg?.message
+          || (() => { try { return JSON.stringify(msg); } catch { return String(msg); } })();
+      }
       setMessages((m) => {
         const out = m.slice();
         for (let i = out.length - 1; i >= 0; i--) {

@@ -4,6 +4,46 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-02 — Iter 212m-176 — PROD Aggression Suite + 10 bug fixes
+
+Full 4-dimension PROD aggression test executed against auremcto.com
+(founder account). 7 REAL commits landed on TJSNDHU/Aurem (0463625,
+81f3f96, 37887ff, e1466f3, 8de126a, 91e8c42 + dup 6e54e18). Full
+report: `/app/test_reports/prod_aggression/FINAL_REPORT.md`.
+
+**Fixed in preview (needs redeploy to go live):**
+- `routers/mcp.py` — list_repo_files (`tree` key), search_repo
+  (`pattern` arg), get_repo_structure (symbols/files_cached), Vanguard
+  scan worker crash (`bin_ctx.branch` not `repo_branch`).
+- `routers/loop.py` — pause-response retry/skip 499 (set
+  AWAITING_CONFIRMATION before confirm()); confirm-ship 409 guard
+  (ValueError was swallowed inside create_task → silent no-op).
+- `services/loop_engine.py` — split-brain guard in lookup_or_rehydrate:
+  evict stale IDLE local engines when Mongo doc disagrees (root cause
+  of silent ship no-ops + one double-commit on PROD).
+- `routers/cto_projects.py` — verify-pat now checks
+  `permissions.push` (read-only fine-grained PATs used to pass and then
+  403 at ship — the exact founder-reported PAT bug).
+- PAT deep links (Projects.jsx ×2, AddProjectWizard.jsx) now pre-fill
+  `contents=write&expires_in=90`; help tooltip got a 1-click link.
+- `CodebaseHealth.jsx` + `/codebase-health/last` — page restores the
+  last persisted scan (breakdown now returned by /last); no more
+  "unscanned" after a paid scan.
+- `ChatPanel.jsx` — loop-start errors no longer render
+  "[object Object]" (dict detail normalised, prefers .message).
+- `routers/chat.py` — pre-gen timing log (>15s warns) to pinpoint the
+  intermittent zero-frame ~125s proxy-kill on analyze-health/advisor.
+
+**Open P1/P2 (see FINAL_REPORT.md Table 4):** zero-frame chat hang
+(11), Council C routing mismatch (12), mobile ship button not rendered
+via SSE + no refresh-restore of pending ship (13), task "done" with no
+edits (14), write-model hallucination rate (15), get_repo_health vs
+codebase-health score conflict (16).
+
+**PAT resolved:** user saved new fine-grained PAT (Contents: Read and
+write, expires 2026-09-29) — ship pipeline verified end-to-end on PROD.
+
+
 ## 2026-02 — Iter 212m-175 — MCP Scoped Tool Filtering
 
 - **New:** `services/mcp_scoped_tools.py` — TOOL_GROUPS (read/write/security/project),

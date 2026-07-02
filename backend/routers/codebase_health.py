@@ -722,6 +722,10 @@ async def last_scan(
         "scanned_files": doc.get("scanned_files"),
         "summary":       doc.get("summary"),
         "categories":    doc.get("categories") or [],
+        # Iter 212m-176 — return the persisted breakdown so the
+        # Codebase Health page can restore the last scan on reload
+        # instead of showing "unscanned" after the user already paid.
+        "breakdown":     doc.get("breakdown") or {},
         "created_at":    doc.get("created_at"),
     }
 

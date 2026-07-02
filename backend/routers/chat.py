@@ -1084,6 +1084,13 @@ async def chat_stream(
     user_id = user.get("user_id", "")
 
     # Iter 212m-169/170 — Build ORAContext for the stream endpoint.
+    # Iter 212m-176 — pre-gen phase timing. PROD showed intermittent
+    # zero-frame streams killed by the proxy at ~125s on repo turns
+    # ("Analyze the health…", Ask Advisor). These logs bracket every
+    # pre-StreamingResponse await so the hanging phase is identifiable
+    # from a single grep.
+    import time as _pg_time
+    _pg_t0 = _pg_time.monotonic()
     _db_bc = get_db()
     _pid_stream = (body.project_id or "").strip()
     bin_ctx = None
@@ -2496,6 +2503,13 @@ async def chat_stream(
         }
         yield f"data: {json.dumps(done_payload)}\n\n"
 
+    _pg_elapsed = _pg_time.monotonic() - _pg_t0
+    if _pg_elapsed > 15:
+        logger.warning(
+            "chat_stream PRE-GEN SLOW: %.1fs before StreamingResponse "
+            "(user=%s project=%s prompt=%.60s)",
+            _pg_elapsed, user_id, _pid_stream, (body.prompt or ""),
+        )
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",

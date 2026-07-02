@@ -1,0 +1,37 @@
+{
+ "ship_code": {
+  "ms": 2323,
+  "task_id": "t_b18ad3f3813c",
+  "resp": "{\"task_id\": \"t_b18ad3f3813c\", \"project_id\": \"p_c2b5b8a916\", \"status\": \"queued\"}"
+ },
+ "tasks": {
+  "t_aa01ad88576c": {
+   "label": "prompt+maxx",
+   "status": "done",
+   "time_s": 11.5,
+   "commit_sha": null,
+   "error": null
+  },
+  "t_f61de76aafb5": {
+   "label": "prompt+swift",
+   "status": "done",
+   "time_s": 26.2,
+   "commit_sha": "37887ff",
+   "error": null
+  },
+  "t_4922a610005b": {
+   "label": "prompt+pro",
+   "status": "failed",
+   "time_s": 23.1,
+   "commit_sha": null,
+   "error": "Vanguard verify agent blocked commit:\nregex: pass (0 findings) | verify-agent (anthropic/claude-sonnet-4.5, swift/CRITICAL): BLOCK (1 findings, 1 \u2265CRITICAL) | e2b: pass"
+  },
+  "t_b18ad3f3813c": {
+   "label": "mcp ship_code",
+   "status": "done",
+   "time_s": 29.1,
+   "commit_sha": "e1466f3",
+   "error": null
+  }
+ }
+}

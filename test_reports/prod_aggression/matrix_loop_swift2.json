@@ -1,0 +1,161 @@
+{
+ "combo": "loop_swift2",
+ "events": [
+  {
+   "t": 10.4,
+   "state": "awaiting_confirmation",
+   "phase": "plan"
+  },
+  {
+   "t": 15.7,
+   "state": "executing",
+   "phase": "execute"
+  },
+  {
+   "t": 36.4,
+   "state": "scanning",
+   "phase": "scan"
+  },
+  {
+   "t": 41.6,
+   "state": "paused_for_user",
+   "phase": "ship"
+  },
+  {
+   "t": 46.9,
+   "state": "completed",
+   "phase": "ship"
+  }
+ ],
+ "start": {
+  "http": 200,
+  "time_s": 5.2,
+  "loop_id": "loop_19f95c3c2b5b43",
+  "state": "awaiting_confirmation",
+  "phase": "plan",
+  "plan_head": "{\"title\": \"Add docstring to get_current_user\", \"files_to_change\": [\"backend/utils/auth.py\"], \"bullets\": [\"1. Open backend/utils/auth.py and locate the get_current_user function definition\", \"2. Insert a clear docstring immediately after the def line describing purpose, parameters, return value, and exceptions raised\", \"3. Ensure docstring follows existing project style (Google or reST format)\", \"4",
+  "raw_keys": [
+   "loop_id",
+   "state",
+   "phase",
+   "plan",
+   "requires_user_action"
+  ]
+ },
+ "total_s": 46.9,
+ "final_state": "completed",
+ "final": {
+  "loop_id": "loop_19f95c3c2b5b43",
+  "context": {
+   "original_request": "Add a docstring to the get_current_user function in backend/utils/auth.py",
+   "plan": {
+    "title": "Add docstring to get_current_user",
+    "files_to_change": [
+     "backend/utils/auth.py"
+    ],
+    "bullets": [
+     "1. Open backend/utils/auth.py and locate the get_current_user function definition",
+     "2. Insert a clear docstring immediately after the def line describing purpose, parameters, return value, and exceptions raised",
+     "3. Ensure docstring follows existing project style (Google or reST format)",
+     "4. Verify no logic changes are made \u2014 docstring only",
+     "5. Run a quick syntax/lint check to confirm the file still parses cleanly"
+    ],
+    "estimated_time": "~2 minutes"
+   },
+   "files_changed": [
+    "backend/utils/auth.py"
+   ],
+   "errors_encountered": [],
+   "self_heals_performed": [],
+   "verification_results": {
+    "ok": true,
+    "results": [
+     {
+      "path": "backend/utils/auth.py",
+      "ok": true,
+      "linter": "ruff",
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+     }
+    ],
+    "errors": []
+   },
+   "scan_results": {
+    "summary": {
+     "total": 0,
+     "by_severity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "info": 0
+     }
+    },
+    "findings": [],
+    "diff_mode": true,
+    "scanned_files": 1,
+    "preexisting_skipped": 0
+   },
+   "commit": {
+    "message": "feat(ora): Add a docstring to the get_current_user function in backend/ [loop-verified]",
+    "sha": "0463625",
+    "full_sha": "0463625a4263d3ed72a6c37536d29e5d6291c564",
+    "html_url": "https://github.com/TJSNDHU/Aurem/commit/0463625a4263d3ed72a6c37536d29e5d6291c564",
+    "files": [
+     "backend/utils/auth.py"
+    ]
+   },
+   "trust_level": "L2",
+   "submitted_files": [
+    {
+     "path": "backend/utils/auth.py",
+     "content": "\"\"\"\nAuthentication utilities: JWT, password hashing, token management.\n\"\"\"\nimport asyncio\nimport jwt\nimport bcrypt\nfrom datetime import datetime, timezone, timedelta\nfrom typing import Optional\nfrom fastapi import Request, HTTPException\n\nfrom config import JWT_SECRET, JWT_ALGORITHM, get_database\n\n# Super admin permissions (full access)\nSUPER_ADMIN_PERMISSIONS = {\n    \"overview\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"products\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"categories\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"orders\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"financials\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"payroll\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"customers\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"offers\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"reviews\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"sections\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"website\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"ads\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"typography\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"subscriptions\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"settings\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"ai_chat\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n    \"team\": {\"view\": True, \"create\": True, \"edit\": True, \"delete\": True},\n}\n\n\ndef hash_password(password: str) -> str:\n    \"\"\"Hash a password using bcrypt.\n\n    iter 324f \u2014 rounds=10 (down from default 12). Per OWASP 2024:\n    10 is the minimum for web logins; 12 is overkill at ~200-400ms CPU\n    per call. rounds=10 takes ~50-100ms and stays industry-secure.\n    Old passwords hashed at 12 rounds verify fine because bcrypt stores\n    the rounds value in the hash string itself.\n    \"\"\"\n    return bcrypt.hashpw(password.encode(\"utf-8\"), bcrypt.gensalt(rounds=10)).decode(\"utf-8\")\n\n\ndef verify_password(password: str, hashed: str) -> bool:\n    \"\"\"Verify a password against its hash\"\"\"\n    try:\n        return bcrypt.checkpw(password.encode(\"utf-8\"), hashed.encode(\"utf-8\"))\n    except Exception:\n        return False\n\n\nasync def averify_password(password: str, hashed: str) -> bool:\n    \"\"\"Async wrapper around verify_password. iter 325e \u2014 fixes the\n    \"first login click is slow\" bug. bcrypt.checkpw runs in a thread so\n    the event loop can keep responding to other inbound requests while\n    we burn ~50\u2013100ms on the rounds=10 hash comparison.\"\"\"\n    if not hashed:\n        return False\n    return await asyncio.to_thread(verify_password, password, hashed)\n\n\nasync def ahash_password(password: str) -> str:\n    \"\"\"Async wrapper around hash_password. Same reason as averify_password\n    \u2014 keeps the event loop responsive during signup / migration.\"\"\"\n    return await asyncio.to_thread(hash_password, password)\n\n\ndef create_token(user_id: str, is_admin: bool = False, email: str = None) -> str:\n    \"\"\"Create a JWT token for a user\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"is_admin\": is_admin,\n        \"exp\": datetime.now(timezone.utc) + timedelta(days=7),\n    }\n    if email:\n        payload[\"email\"] = email\n    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)\n\n\nasync def get_current_user(request: Request) -> Optional[dict]:\n    \"\"\"Resolve and return the currently authenticated user from the request.\n\n    The caller's identity is established from a JWT, which may be supplied\n    either as a ``Bearer`` token in the ``Authorization`` header or as the\n    ``session_token`` cookie. The token is decoded and validated using the\n    application's configured JWT secret and algorithm.\n\n    Args:\n        request: The incoming FastAPI ``Request`` containing the headers\n            and cookies used to locate the authentication token.\n\n    Returns:\n        A dictionary describing the authenticated user when a valid token\n        is present. For team members this includes their role name and\n        permissions; for super admins it includes the full\n        ``SUPER_ADMIN_PERMISSIONS`` mapping. Returns ``None`` when no\n        token is supplied, the token is invalid/expired, or the referenced\n        user or active team member cannot be found.\n\n    Raises:\n        This function does not raise exceptions on authentication failure;\n        invalid or expired tokens result in a return value of ``None``.\n        Any unexpected errors during token decoding or database lookup are\n        caught and also result in ``None``.\n    \"\"\"\n    db = get_database()\n    \n    # Try Authorization header first\n    auth_header = request.headers.get(\"Authorization\", \"\")\n    token = None\n    \n    if auth_header.startswith(\"Bearer \"):\n        token = auth_header[7:]\n    else:\n        # Try cookie\n        token = request.cookies.get(\"session_token\")\n    \n    if not token:\n        return None\n    \n    try:\n        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])\n        user_id = payload.get(\"user_id\")\n        is_team_member = payload.get(\"is_team_member\", False)\n        \n        if is_team_member:\n            # Get team member\n            team_member = await db.team_members.find_one(\n                {\"id\": user_id}, {\"_id\": 0, \"password_hash\": 0}\n            )\n            if team_member and team_member.get(\"status\") == \"active\":\n                role = await db.roles.find_one(\n                    {\"id\": team_member.get(\"role_id\")}, {\"_id\": 0}\n                )\n                team_member[\"permissions\"] = (\n                    role.get(\"permissions\", {}) if role else {}\n                )\n                team_member[\"role_name\"] = (\n                    role.get(\"name\", \"Team Member\") if role else \"Team Member\"\n                )\n                team_member[\"is_team_member\"] = True\n                team_member[\"is_admin\"] = True\n                return team_member\n            return None\n        else:\n            # Regular user or super admin\n            user = await db.users.find_one({\"id\": user_id}, {\"_id\": 0, \"password\": 0})\n            if user and user.get(\"is_admin\"):\n                user[\"is_super_admin\"] = True\n                user[\"permissions\"] = SUPER_ADMIN_PERMISSIONS\n            return user\n    except Exception:\n        return None\n\n\nasync def require_auth(request: Request) -> dict:\n    \"\"\"Require authentication - raises 401 if not authenticated\"\"\"\n    user = await get_current_user(request)\n    if not user:\n        raise HTTPException(status_code=401, detail=\"Authentication required\")\n    return user\n\n\nasync def require_admin(request: Request) -> dict:\n    \"\"\"Require admin privileges - raises 403 if not admin\"\"\"\n    user = await require_auth(request)\n    if not user.get(\"is_admin\"):\n        raise HTTPException(status_code=403, detail=\"Admin access required\")\n    return user\n\n\nasync def require_super_admin(request: Request) -> dict:\n    \"\"\"Require super admin privileges\"\"\"\n    user = await require_admin(request)\n    if not user.get(\"is_super_admin\"):\n        raise HTTPException(status_code=403, detail=\"Super admin access required\")\n    return user\n\n\nasync def require_permission(request: Request, feature: str, action: str) -> dict:\n    \"\"\"Require specific permission for a feature\"\"\"\n    user = await require_admin(request)\n    permissions = user.get(\"permissions\", {})\n    feature_perms = permissions.get(feature, {})\n    \n    if not feature_perms.get(action, False):\n        raise HTTPException(\n            status_code=403,\n            detail=f\"Permission denied: {feature}.{action}\"\n        )\n    return user"
+    }
+   ]
+  },
+  "created_at": "2026-07-02T06:17:35.078000",
+  "last_event": {
+   "loop_id": "loop_19f95c3c2b5b43",
+   "state": "completed",
+   "phase": "ship",
+   "step": 5,
+   "total_steps": 5,
+   "message": "Shipped 0463625 \u2192 TJSNDHU/Aurem@main",
+   "data": {
+    "commit_message": "feat(ora): Add a docstring to the get_current_user function in backend/ [loop-verified]",
+    "commit_sha": "0463625",
+    "full_sha": "0463625a4263d3ed72a6c37536d29e5d6291c564",
+    "html_url": "https://github.com/TJSNDHU/Aurem/commit/0463625a4263d3ed72a6c37536d29e5d6291c564",
+    "files_changed": [
+     "backend/utils/auth.py"
+    ],
+    "scan_results": {
+     "summary": {
+      "total": 0,
+      "by_severity": {
+       "critical": 0,
+       "high": 0,
+       "medium": 0,
+       "low": 0,
+       "info": 0
+      }
+     },
+     "findings": [],
+     "diff_mode": true,
+     "scanned_files": 1,
+     "preexisting_skipped": 0
+    }
+   },
+   "timestamp": "2026-07-02T06:18:18.358545+00:00",
+   "requires_user_action": false
+  },
+  "phase": "ship",
+  "project_id": "p_c2b5b8a916",
+  "state": "completed",
+  "updated_at": "2026-07-02T06:18:18.358000",
+  "user_id": "bee5a199d2bc4c49b42140fe8af80434"
+ },
+ "commit_shas": [
+  "0463625"
+ ]
+}

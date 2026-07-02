@@ -7,6 +7,8 @@ PID = "p_c2b5b8a916"
 TASK = "Add a docstring to the get_current_user function in backend/utils/auth.py"
 
 label = sys.argv[1] if len(sys.argv) > 1 else "loop"
+if len(sys.argv) > 2:
+    TASK = sys.argv[2]
 rec = {"combo": label, "events": []}
 
 t0 = time.time()

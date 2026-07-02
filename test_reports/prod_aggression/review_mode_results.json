@@ -1,0 +1,76 @@
+[
+ {
+  "label": "review-swift",
+  "steps": 6,
+  "tokens_chars": 179,
+  "http": 200,
+  "council_frame": {},
+  "meta": {
+   "provider": "longcat-2.0",
+   "mode": "code",
+   "thinking_s": 11.1,
+   "tool_calls_run": 3
+  },
+  "ttft_s": 12.4,
+  "done": {
+   "provider": "longcat-2.0",
+   "council": true,
+   "tokens_remaining": 0
+  },
+  "total_s": 12.4
+ },
+ {
+  "label": "review-pro",
+  "steps": 6,
+  "tokens_chars": 593,
+  "http": 200,
+  "council_frame": {},
+  "meta": {
+   "provider": "longcat-2.0",
+   "mode": "code",
+   "thinking_s": 26.3,
+   "tool_calls_run": 3
+  },
+  "ttft_s": 28.3,
+  "done": {
+   "provider": "longcat-2.0",
+   "council": true,
+   "tokens_remaining": 0
+  },
+  "total_s": 28.3
+ },
+ {
+  "label": "review-maxx",
+  "steps": 7,
+  "tokens_chars": 197,
+  "http": 200,
+  "council_frame": {},
+  "meta": {
+   "provider": "longcat-2.0+claude-review",
+   "mode": "code",
+   "thinking_s": 14.2,
+   "tool_calls_run": 2
+  },
+  "ttft_s": 15.2,
+  "done": {
+   "provider": "longcat-2.0+claude-review",
+   "council": true,
+   "tokens_remaining": 0
+  },
+  "total_s": 15.2
+ },
+ {
+  "label": "advisor-parliament",
+  "steps": 0,
+  "tokens_chars": 0,
+  "http": 200,
+  "total_s": 125.5
+ },
+ {
+  "label": "council-B-health",
+  "steps": 0,
+  "tokens_chars": 0,
+  "http": 200,
+  "total_s": 161.7
+ }
+]

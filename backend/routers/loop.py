@@ -240,6 +240,15 @@ async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
         raise HTTPException(404, "Loop not found or already finished")
     if engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
+    # Iter 212m-176 — validate state HERE. confirm_ship() raises
+    # ValueError inside the background task where it is silently
+    # swallowed (PROD symptom: 200 approved=true but no commit).
+    if engine.state != eng.LoopState.PAUSED_FOR_USER or engine.phase != "ship":
+        raise HTTPException(
+            409,
+            f"Loop is not awaiting ship confirmation "
+            f"(state={engine.state.value}, phase={engine.phase}).",
+        )
     try:
         # Run as a background task so the HTTP response doesn't block
         # on the GitHub commit (which can take 3-10s). The SSE stream

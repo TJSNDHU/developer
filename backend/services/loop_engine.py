@@ -1897,7 +1897,28 @@ async def lookup_or_rehydrate(
     """
     eng = _LIVE.get(loop_id)
     if eng is not None:
-        return eng
+        # Iter 212m-176 — split-brain guard. A local engine that is
+        # sitting IDLE (awaiting user input) may be a stale copy: the
+        # pipeline may have advanced on another worker (confirm landed
+        # there via rehydration). If Mongo disagrees with the idle
+        # local copy, evict it and fall through to a fresh rehydrate —
+        # otherwise confirm/confirm-ship silently no-op against the
+        # stale state (observed in PROD: ship 200 but nothing pushed).
+        _IDLE = {LoopState.AWAITING_CONFIRMATION, LoopState.PAUSED_FOR_USER}
+        if db is not None and eng.state in _IDLE:
+            _doc = await load_session(db, loop_id)
+            _dstate = (_doc or {}).get("state")
+            _dphase = (_doc or {}).get("phase") or "plan"
+            if _doc and (_dstate != eng.state.value or _dphase != eng.phase):
+                logger.warning(
+                    "[loop %s] STALE local engine (local=%s/%s mongo=%s/%s) "
+                    "— evicting and rehydrating", loop_id,
+                    eng.state.value, eng.phase, _dstate, _dphase,
+                )
+                _LIVE.pop(loop_id, None)
+                eng = None
+        if eng is not None:
+            return eng
     if db is None:
         return None
     doc = await load_session(db, loop_id)

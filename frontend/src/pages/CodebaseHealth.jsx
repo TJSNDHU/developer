@@ -364,6 +364,24 @@ function CodebaseHealthInner() {
     })();
   }, []);
 
+  // Iter 212m-176 — restore the last persisted scan on page load.
+  // Users paid tokens for the scan; a page refresh must not show
+  // "unscanned" when the backend still has the full result.
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      try {
+        const r = await api.get(
+          `/codebase-health/last?project_id=${encodeURIComponent(projectId)}`);
+        const d = r?.data || r;
+        if (d?.ok && typeof d.score === "number" && d.breakdown &&
+            Object.keys(d.breakdown).length > 0) {
+          setData((cur) => cur || d);
+        }
+      } catch { /* no-op */ }
+    })();
+  }, [projectId]);
+
   // Iter 212m-128 — Listen for the global `aurem:finding-fixed`
   // event fired by FixProgressDrawer the moment a real GitHub
   // commit lands.  We drop the matching finding from the
