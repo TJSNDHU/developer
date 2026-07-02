@@ -2336,13 +2336,29 @@ async def chat_with_tools(
                     step_hook(_step_label_for_tool(tool_name))
                 except Exception:
                     pass
-            res = await invoke_local_tool(tool_name, tool_args, local_ctx)
-            if res is None:
-                res = await invoke_tool(tool_name, tool_args, jwt_token)
-            # Mutate in-place so the ticker sees the updated status the
-            # next time it iterates `activity['invocations']`.
-            entry["ok"]         = res.get("ok")
-            entry["status"]     = "ok" if res.get("ok") else "error"
+            # Iter 212m-178 — PROD hang fix. A single slow tool call
+            # (search_repo on a 16k-file repo was ~79s) used to stall
+            # the whole agentic turn past the ingress proxy limit, so
+            # the advisor/analyze SSE stream emitted ZERO frames and
+            # was killed at ~125s. Hard-cap every tool call at 45s and
+            # surface a typed timeout the LLM can react to on the next
+            # iteration instead of hanging.
+            try:
+                res = await asyncio.wait_for(
+                    invoke_local_tool(tool_name, tool_args, local_ctx),
+                    timeout=45.0,
+                )
+                if res is None:
+                    res = await asyncio.wait_for(
+                        invoke_tool(tool_name, tool_args, jwt_token),
+                        timeout=45.0,
+                    )
+            except asyncio.TimeoutError:
+                logger.warning("orchestrator: tool %s timed out (>45s)", tool_name)
+                res = {"ok": False,
+                       "error": f"{tool_name} timed out after 45s — try a "
+                                f"narrower query (add a `path` or `ext`).",
+                       "timed_out": True}
             entry["elapsed_ms"] = res.get("elapsed_ms")
             entry["error"]      = res.get("error")
             # Iter 119 — web sources for citation chip

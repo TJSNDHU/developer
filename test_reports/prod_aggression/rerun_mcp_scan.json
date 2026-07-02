@@ -1,0 +1,152 @@
+{
+ "tools": [
+  {
+   "tool": "list_projects",
+   "ms": 1795,
+   "err": null,
+   "head": "{\"projects\": [{\"project_id\": \"p_c2b5b8a916\", \"name\": \"automation\", \"github_owner\": \"TJSNDHU\", \"github_repo\": \"Aurem\", \"branch\": \"main\", \"tasks_count\":"
+  },
+  {
+   "tool": "read_repo_file",
+   "ms": 1716,
+   "err": null,
+   "head": "{\"project_id\": \"p_c2b5b8a916\", \"file_path\": \"backend/utils/auth.py\", \"content\": \"\\\"\\\"\\\"Authentication utilities for the AUREM backend.\\\"\\\"\\\"\\n\\nimport"
+  },
+  {
+   "tool": "list_repo_files",
+   "ms": 3076,
+   "err": null,
+   "head": "{\"project_id\": \"p_c2b5b8a916\", \"path\": \"\", \"entries\": [\".agent/skills/.agents/plugins/marketplace.json\", \".agent/skills/.claude-plugin/marketplace.jso"
+  },
+  {
+   "tool": "search_repo",
+   "ms": 79095,
+   "err": null,
+   "head": "{\"project_id\": \"p_c2b5b8a916\", \"query\": \"get_current_user\", \"matches\": [{\"file\": \".agent/skills/plugins/antigravity-awesome-skills-claude/skills/007/r"
+  },
+  {
+   "tool": "get_repo_structure",
+   "ms": 1360,
+   "err": null,
+   "head": "{\"project_id\": \"p_c2b5b8a916\", \"symbols\": {\"backend/utils/auth.py\": [{\"line\": 14, \"symbol\": \"def verify_jwt(token):\"}, {\"line\": 47, \"symbol\": \"def req"
+  },
+  {
+   "tool": "get_task_status",
+   "ms": 1385,
+   "err": null,
+   "head": "{\"task_id\": \"t_08ef809ea6d5\", \"project_id\": \"p_c2b5b8a916\", \"status\": \"failed\", \"commit_sha\": null, \"error\": \"Vanguard verify agent blocked commit:\\nr"
+  }
+ ],
+ "scoping": [
+  {
+   "q": "read the auth file",
+   "ms": 1981,
+   "count": 5,
+   "tools": [
+    "list_projects",
+    "read_repo_file",
+    "list_repo_files",
+    "search_repo",
+    "get_repo_structure"
+   ],
+   "cap_ok": true
+  },
+  {
+   "q": "fix the login bug",
+   "ms": 1608,
+   "count": 7,
+   "tools": [
+    "list_projects",
+    "ship_code",
+    "get_task_status",
+    "write_repo_file",
+    "run_vanguard_scan",
+    "get_scan_status",
+    "get_repo_health"
+   ],
+   "cap_ok": true
+  },
+  {
+   "q": "run a security scan",
+   "ms": 4385,
+   "count": 4,
+   "tools": [
+    "list_projects",
+    "run_vanguard_scan",
+    "get_scan_status",
+    "get_repo_health"
+   ],
+   "cap_ok": true
+  }
+ ],
+ "scan": {
+  "start_ms": 1352,
+  "scan_id": "vg_lqMwFZViWtjZEbk2",
+  "duration_s": 6.3,
+  "final": {
+   "scan_id": "vg_lqMwFZViWtjZEbk2",
+   "project_id": "p_c2b5b8a916",
+   "status": "done",
+   "started_at": 1783012059.2767136,
+   "results": {
+    "score": 100,
+    "label": "excellent",
+    "files_scanned": 150,
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "top_findings": [
+     {
+      "name": "token_assignment",
+      "severity": "INFO",
+      "filepath": ".agent/skills/apps/web-app/src/__tests__/refresh-skills-plugin.security.test.js",
+      "line": 141,
+      "snippet": "process.env.SKILLS_REFRESH_TOKEN = 'super-secret-token';",
+      "source": "vanguard_007_secrets",
+      "downgraded": true,
+      "downgrade_reason": "demo/test/example file"
+     },
+     {
+      "name": "innerHTML_assignment",
+      "severity": "INFO",
+      "filepath": ".agent/skills/apps/web-app/src/utils/__tests__/seo.test.ts",
+      "line": 128,
+      "snippet": "document.head.innerHTML = '';",
+      "source": "vanguard_007_dangerous",
+      "downgraded": true,
+      "downgrade_reason": "demo/test/example file"
+     },
+     {
+      "name": "password_assignment",
+      "severity": "INFO",
+      "filepath": ".agent/skills/docs/contributors/examples.md",
+      "line": 462,
+      "snippet": "password: 'correct-password'",
+      "source": "vanguard_007_secrets",
+      "downgraded": true,
+      "downgrade_reason": "demo/test/example file"
+     },
+     {
+      "name": "exec_usage",
+      "severity": "INFO",
+      "filepath": ".agent/skills/docs/integrations/jetski-cortex.md",
+      "line": 124,
+      "snippet": "while ((match = SKILL_ID_REGEX.exec(msg.content)) !== null) {",
+      "source": "vanguard_007_dangerous",
+      "downgraded": true,
+      "downgrade_reason": "demo/test/example file"
+     }
+    ]
+   },
+   "error": null
+  }
+ },
+ "health": {
+  "scan_s": 32.4,
+  "score": 0,
+  "total": 144,
+  "last_score": 0,
+  "last_has_breakdown": true,
+  "mcp_score": 0
+ }
+}

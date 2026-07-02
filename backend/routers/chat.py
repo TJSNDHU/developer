@@ -23,7 +23,7 @@ from services.orchestrator import chat_with_tools
 from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 from services.repo_context import get_repo_context
 from services.usage import is_founder_email  # Iter 212m-169 — BINContext role check
-from core.parliament import infer_task_type as _infer_task_type  # Iter 212m-177 P0-3
+from core.task_type import infer_task_type as _infer_task_type  # Iter 212m-177/178 P0-3
 # NOTE: `build_url_context` (eager URL scraper) was REMOVED.
 # URL fetching is now handled exclusively via the `fetch_url` tool
 # inside `services/orchestrator.py` (forced pre-execution when the

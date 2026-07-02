@@ -27,6 +27,7 @@ Security:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -40,27 +41,42 @@ logger = logging.getLogger("aurem-dev.finding_fix_applier")
 async def _fetch_file_content(
     owner: str, repo: str, branch: str, path: str, token: str,
 ) -> tuple[str, Optional[str]]:
-    """Returns (content, error). Uses raw API for byte-exact content."""
+    """Returns (content, error). Uses raw API for byte-exact content.
+
+    Iter 212m-178 — retries GitHub 403/429 SECONDARY rate limits (which
+    bulk fixes trip after a burst of blob+tree+commit+ref writes) using
+    the server-provided Retry-After, so a rapid sequence of fixes no
+    longer fails the 2nd+ file with `github_status_403`.
+    """
     headers = {
         "Authorization": f"token {token}",
         "Accept":        "application/vnd.github.raw+json",
         "User-Agent":    "aurem-fix-applier",
     }
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    params = {"ref": branch} if branch and branch != "HEAD" else None
     try:
         async with httpx.AsyncClient(timeout=15.0) as cx:
-            r = await cx.get(
-                url,
-                params={"ref": branch} if branch and branch != "HEAD" else None,
-                headers=headers,
-            )
-            if r.status_code == 404:
-                return "", "file_not_found"
-            if r.status_code == 401:
-                return "", "github_unauthorized"
-            if r.status_code != 200:
+            for attempt in range(3):
+                r = await cx.get(url, params=params, headers=headers)
+                if r.status_code == 200:
+                    return r.text or "", None
+                if r.status_code == 404:
+                    return "", "file_not_found"
+                if r.status_code == 401:
+                    return "", "github_unauthorized"
+                if r.status_code in (403, 429) and attempt < 2:
+                    # Secondary rate limit — honour Retry-After (capped).
+                    ra = r.headers.get("Retry-After")
+                    wait = min(float(ra), 30.0) if (ra and ra.isdigit()) \
+                        else (3.0 * (attempt + 1))
+                    logger.warning(
+                        "fetch_file 403/429 for %s — secondary rate limit, "
+                        "retrying in %.1fs (attempt %d)", path, wait, attempt + 1)
+                    await asyncio.sleep(wait)
+                    continue
                 return "", f"github_status_{r.status_code}"
-            return r.text or "", None
+            return "", "github_status_403"
     except Exception as e:                                # noqa: BLE001
         logger.exception("fetch_file failed for %s/%s@%s:%s", owner, repo, branch, path)
         return "", f"network_error: {e}"

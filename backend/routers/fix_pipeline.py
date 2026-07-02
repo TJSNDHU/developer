@@ -138,6 +138,9 @@ _SEVERITY_BUCKET_ORDER    = ("critical", "high", "medium", "low")
 # unhandled exception, transient GitHub 5xx) IS retried.
 _MAX_FIX_ATTEMPTS         = 3
 _RETRY_BACKOFFS_S         = (1.0, 2.5, 5.0)
+# Iter 212m-178 — gap between consecutive GitHub-mutating fixes so a
+# bulk run doesn't trip GitHub's secondary (burst) rate limit.
+_BULK_INTER_FIX_DELAY_S   = 1.5
 _TERMINAL_ERROR_CODES     = frozenset({
     "github_credentials_missing",
     "github_unauthorized",
@@ -327,6 +330,15 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                      severities=[f.get("severity") or "" for f in batch])
             for finding in batch:
                 global_idx += 1
+                # Iter 212m-178 — pace GitHub mutations. Firing
+                # blob+tree+commit+ref for one fix and immediately
+                # reading the next file tripped GitHub's SECONDARY rate
+                # limit (bulk 2nd+ fix failed with github_status_403).
+                # A short gap between findings keeps us under the burst
+                # threshold; the read-side Retry-After handler covers
+                # the rest.
+                if global_idx > 1:
+                    await asyncio.sleep(_BULK_INTER_FIX_DELAY_S)
                 finding_id = (finding.get("id") or finding.get("rule_id")
                               or f"f_{global_idx}")
                 rule_id    = finding.get("rule_id") or finding.get("rule") or ""

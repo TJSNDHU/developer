@@ -4,6 +4,32 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-02 (run #2) — Iter 212m-178 — PROD perf/hang + bulk-fix + council vocab
+
+Second PROD aggression run (Iter-177 was live) + full feature audit.
+Report: `/app/test_reports/prod_aggression/FINAL_REPORT_v2.md`.
+Tests: `test_iter212m178_prod_perf.py` (6) — all pass; zero NEW regressions.
+
+Verified WORKING on PROD now: security scan (24s, 4 real findings),
+single fix (33s, commit 8feec75, correct minimal diff), all 7 MCP
+tools, scoped filtering (caps ≤7), health-score unify (P1-5: all 3
+surfaces = 0), council B analysis routing.
+
+Fixed in PREVIEW (need redeploy):
+- **search_repo 79s → budgeted**: capped at 400 files / 15s wall-clock,
+  prefers code/text extensions, returns budget_hit/files_fetched. This
+  was the REAL cause of the advisor/analyze zero-frame ~125s proxy hang
+  (Iter-177 pre-gen timeouts were the wrong layer — hang is in the
+  agentic tool loop inside gen()).
+- **orchestrator per-tool timeout**: every invoke_local_tool hard-capped
+  at 45s with a typed `timed_out` result.
+- **bulk-fix github_status_403**: GitHub SECONDARY rate limit from
+  burst blob+tree+commit+ref writes. Fix: `_fetch_file_content` retries
+  403/429 honouring Retry-After; bulk loop paces mutations 1.5s apart.
+- **council-C vocab gap**: CODE_OF_CONDUCT.md/LICENSE/*.md authoring now
+  → council C. Inference moved to `core/task_type.py` (routers no longer
+  import the council router — keeps the parliament-leak audit clean).
+
 ## 2026-07-02 (later) — Iter 212m-177 — P0/P1 Production Reliability Fixes
 
 All 7 items from the founder's reliability mandate, fixed at root cause

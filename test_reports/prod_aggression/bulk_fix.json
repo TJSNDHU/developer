@@ -1,0 +1,76 @@
+{
+ "preview": {
+  "s": 0.45,
+  "resp": {
+   "ok": true,
+   "count": 3,
+   "tokens_cost": 0,
+   "usd_cost": 0.0,
+   "is_unlimited": true,
+   "balance": 0,
+   "can_proceed": true,
+   "shortfall": 0
+  }
+ },
+ "bulk_start": {
+  "s": 0.52,
+  "job_id": "fx_e598996d588b4d",
+  "resp": {
+   "ok": true,
+   "job_id": "fx_e598996d588b4d",
+   "count": 3,
+   "stream": "/api/aurem-dev/fix-pipeline/stream/fx_e598996d588b4d"
+  }
+ },
+ "stream_s": 125.3,
+ "events_n": 0,
+ "summary": {
+  "ok": true,
+  "from_mongo": true,
+  "job_id": "fx_e598996d588b4d",
+  "all_findings": [
+   {
+    "rule_id": "redos_nested_quantifier",
+    "vuln": "redos",
+    "severity": "high",
+    "file": ".agent/skills/plugins/antigravity-awesome-skills-claude/skills/last30days/scripts/lib/models.py",
+    "line": 39,
+    "snippet": "if not re.match(r'^gpt-5(\\.\\d+)*$', model_lower):",
+    "desc": "Nested quantifier \u2014 vulnerable to catastrophic backtracking",
+    "category": "vanguard"
+   },
+   {
+    "rule_id": "lpdos_no_body_limit_fastapi",
+    "vuln": "lpdos",
+    "severity": "medium",
+    "file": ".agent/skills/plugins/antigravity-awesome-skills-claude/skills/api-design-principles/assets/rest-api-template.py",
+    "line": 128,
+    "snippet": "@app.post(\"/api/users\", response_model=User, status_code=status.HTTP_201_CREATED, tags=[\"Users\"])",
+    "desc": "FastAPI write endpoint \u2014 confirm body size middleware is mounted",
+    "category": "vanguard"
+   },
+   {
+    "rule_id": "lpdos_no_body_limit_fastapi",
+    "vuln": "lpdos",
+    "severity": "medium",
+    "file": ".agent/skills/plugins/antigravity-awesome-skills-claude/skills/instagram/scripts/serve_api.py",
+    "line": 208,
+    "snippet": "@app.post(\"/webhook\", summary=\"Webhook receiver (v2)\")",
+    "desc": "FastAPI write endpoint \u2014 confirm body size middleware is mounted",
+    "category": "vanguard"
+   }
+  ],
+  "completed": 0,
+  "completed_ids": [],
+  "failed": 0,
+  "failed_terminal_ids": [],
+  "kind": "bulk",
+  "project_id": "p_c2b5b8a916",
+  "results": [],
+  "started_at": 1783012172.6103675,
+  "status": "running",
+  "total": 3,
+  "updated_at": 1783012172.8167877,
+  "user_id": "bee5a199d2bc4c49b42140fe8af80434"
+ }
+}

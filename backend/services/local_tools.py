@@ -1105,6 +1105,7 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     # First get the tree
     import httpx
     import re as _re
+    import time as _time
 
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
@@ -1148,13 +1149,39 @@ async def search_repo(ctx: dict, args: dict) -> dict:
     except _re.error:
         compiled = _re.compile(_re.escape(pattern), _re.IGNORECASE)
 
+    # Iter 212m-178 — PROD perf fix. Before this, a rare pattern on a
+    # large repo (16k+ files) fetched EVERY file one-by-one until 20
+    # matches or exhaustion — 79s on TJSNDHU/Aurem, which stalled the
+    # whole agentic advisor/analyze turn past the proxy limit. Cap the
+    # number of files we actually fetch AND the wall-clock budget, and
+    # prefer real source files over binaries/assets.
+    _TEXT_EXT = (
+        ".py", ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".html",
+        ".json", ".md", ".yml", ".yaml", ".toml", ".go", ".rs", ".java",
+        ".rb", ".php", ".c", ".cpp", ".h", ".sh", ".sql", ".txt", ".env",
+        ".cfg", ".ini",
+    )
+    if not ext:
+        _code = [f for f in all_files if f.lower().endswith(_TEXT_EXT)]
+        if _code:
+            all_files = _code
+    _MAX_FILES_SCANNED = 400          # hard fetch cap
+    _SEARCH_BUDGET_S   = 15.0         # hard wall-clock cap
+    _search_started    = _time.monotonic()
+
     # Search files — cap at max_files matches, fetch in parallel batches of 10
     matches = []
     searched = 0
+    fetched = 0
     batch_size = 10
+    hit_budget = False
 
     for i in range(0, len(all_files), batch_size):
         if len(matches) >= max_files:
+            break
+        if fetched >= _MAX_FILES_SCANNED or \
+                (_time.monotonic() - _search_started) > _SEARCH_BUDGET_S:
+            hit_budget = True
             break
         batch = all_files[i:i + batch_size]
 
@@ -1181,6 +1208,7 @@ async def search_repo(ctx: dict, args: dict) -> dict:
             return hits
 
         batch_results = await asyncio.gather(*[_search_file(f) for f in batch])
+        fetched += len(batch)
         for file_hits in batch_results:
             matches.extend(file_hits)
             if file_hits:
@@ -1196,7 +1224,17 @@ async def search_repo(ctx: dict, args: dict) -> dict:
         # 30+ hits even when max_files is small (e.g. 1).
         "matches":      matches[:500],
         "total_matches": len(matches),
-        "note":         f"Found {len(matches)} matches. Use `path` or `ext` to narrow search." if matches else f"No matches for `{pattern}`",
+        "files_fetched": fetched,
+        "budget_hit":   hit_budget,
+        "note":         (
+            f"Found {len(matches)} matches across {fetched} files."
+            + (" Scan budget reached — narrow with `path`/`ext` for more."
+               if hit_budget else "")
+        ) if matches else (
+            f"No matches for `{pattern}` in {fetched} files scanned."
+            + (" Scan budget reached — narrow with `path`/`ext`."
+               if hit_budget else "")
+        ),
     }
 
 

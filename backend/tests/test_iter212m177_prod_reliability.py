@@ -260,7 +260,9 @@ CODE_PROMPTS = [
 def test_p0_3_ten_writing_prompts_route_to_council_c():
     from core.parliament import infer_task_type, TaskRouter
     router = TaskRouter()
-    for p in WRITING_PROMPTS:
+    extra = ["Write a short CODE_OF_CONDUCT.md for this repo",
+             "Write a LICENSE file", "Write an ARCHITECTURE.md"]
+    for p in WRITING_PROMPTS + extra:
         tt = infer_task_type(p)
         assert tt == "write", f"{p!r} → {tt!r} (expected 'write')"
         assert router._TASK_TYPE_TO_COUNCIL.get(tt) == "C"

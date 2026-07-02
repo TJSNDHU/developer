@@ -1,0 +1,44 @@
+{
+ "councilC": {
+  "council": "A",
+  "task_type": null,
+  "provider": "longcat-2.0",
+  "s": 24.0,
+  "expect": "C"
+ },
+ "councilB": {
+  "council": "B",
+  "task_type": "analysis",
+  "provider": "glm-5.2",
+  "s": 59.7,
+  "expect": "B"
+ },
+ "review_swift": {
+  "tokens": 0,
+  "total_s": 125.8
+ },
+ "review_pro": {
+  "tokens": 53,
+  "ttft_s": 20.1,
+  "provider": "longcat-2.0",
+  "council": true,
+  "total_s": 20.1
+ },
+ "review_maxx": {
+  "tokens": 82,
+  "ttft_s": 15.2,
+  "provider": "longcat-2.0+claude-review",
+  "council": true,
+  "total_s": 15.2
+ },
+ "advisor": {
+  "frames": 0,
+  "first_frame_s": null,
+  "total_s": 126.3
+ },
+ "analyze_health": {
+  "frames": 0,
+  "first_frame_s": null,
+  "total_s": 125.6
+ }
+}
