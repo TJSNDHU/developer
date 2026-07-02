@@ -394,7 +394,7 @@ function PatHelpTooltip() {
             How to get a GitHub PAT
           </div>
           <a
-            href="https://github.com/settings/personal-access-tokens/new?name=aurem-cto-ship&description=AUREM%20CTO%20read%20%2B%20ship%20access&expires_in=90&contents=write"
+            href="https://github.com/settings/personal-access-tokens/new?name=aurem-cto-ship&description=AUREM%20CTO%20read%20%2B%20ship%20access&expires_in=90&contents=write&pull_requests=write"
             target="_blank" rel="noreferrer"
             data-testid="pat-prefilled-link"
             style={{
@@ -407,7 +407,8 @@ function PatHelpTooltip() {
             ⚡ 1-click: open GitHub with the right permissions pre-selected
           </a>
           <div style={{ color: "var(--text-faint)", fontSize: 10, marginBottom: 8 }}>
-            Opens the token page with <code>Contents: Read and write</code> + 90-day
+            Opens the token page with <code>Contents: Read and write</code> +{" "}
+            <code>Pull requests: Read and write</code> + 90-day
             expiry already filled — you only pick the repository and click Generate.
           </div>
           <ol style={{ paddingLeft: 16, margin: "0 0 8px", color: "var(--text-dim)" }}>
@@ -424,7 +425,7 @@ function PatHelpTooltip() {
               <ul style={{ paddingLeft: 16, marginTop: 4 }}>
                 <li><code>Contents</code>: <strong>Read and write</strong> ← push code</li>
                 <li><code>Metadata</code>: <strong>Read-only</strong> (auto-added)</li>
-                <li><code>Pull requests</code>: <strong>Read and write</strong> (optional, future)</li>
+                <li><code>Pull requests</code>: <strong>Read and write</strong> ← draft-PR auto-fixes</li>
               </ul>
             </li>
             <li>Generate → copy the <code>github_pat_xxx</code> token (only shown once)</li>
@@ -1154,7 +1155,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                     "https://github.com/settings/personal-access-tokens/new" +
                     "?name=" + encodeURIComponent(`ORA · ${effectiveRepo.name}`) +
                     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
-                    "&expires_in=90&contents=write"
+                    "&expires_in=90&contents=write&pull_requests=write"
                   }
                   target="_blank" rel="noopener noreferrer"
                   data-testid="proj-step2-pat-github-link"
@@ -1175,7 +1176,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                   color: "var(--text-dim, #94a3b8)",
                 }}>
                   <li><strong style={{ color: "var(--text)" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{effectiveRepo.full_name}</code>.</li>
-                  <li><strong style={{ color: "var(--text)" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>Contents: Read and write</code>.</li>
+                  <li><strong style={{ color: "var(--text)" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>Contents: Read and write</code> + <code style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 6px", borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>Pull requests: Read and write</code> (already pre-selected via the link).</li>
                   <li>Click <em>Generate token</em>, copy it, and paste below.</li>
                 </ol>
 
@@ -1382,7 +1383,7 @@ export function PatModal({ project, onClose, onSaved }) {
     "https://github.com/settings/personal-access-tokens/new" +
     "?name=" + encodeURIComponent(`ORA · ${project.name}`) +
     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
-    "&expires_in=90&contents=write";
+    "&expires_in=90&contents=write&pull_requests=write";
 
   async function runConnectionTest() {
     setStage("testing");
@@ -1560,7 +1561,7 @@ export function PatModal({ project, onClose, onSaved }) {
               message={
                 pat && /^(ghp_|github_pat_)/.test(pat.trim())
                   ? `Looks good! Hit <strong>Save &amp; Test</strong> below — I&rsquo;ll verify the token works against your repo right after. <span class="ora-arrow">👇</span>`
-                  : `Click <strong>Open GitHub → Create PAT</strong> below — page opens in a new tab with everything pre-filled. Pick the right repo, check <strong>Contents: Read &amp; Write</strong>, then paste the token here. <span class="ora-arrow">👇</span>`
+                  : `Click <strong>Open GitHub → Create PAT</strong> below — page opens in a new tab with everything pre-filled, including <strong>Contents</strong> + <strong>Pull requests: Read &amp; Write</strong> permissions. Just pick the right repo, click Generate, then paste the token here. <span class="ora-arrow">👇</span>`
               }
             />
 
@@ -1586,7 +1587,7 @@ export function PatModal({ project, onClose, onSaved }) {
               color: "var(--text-dim, #94a3b8)",
             }}>
               <li><strong style={{ color: "#f8fafc" }}>Repository access:</strong> select <em>Only select repositories</em> → pick <code style={codeChip}>{project.github_owner}/{project.github_repo}</code>.</li>
-              <li><strong style={{ color: "#f8fafc" }}>Permissions:</strong> under <em>Repository permissions</em> set <code style={codeChip}>Contents: Read and write</code>.</li>
+              <li><strong style={{ color: "#f8fafc" }}>Permissions:</strong> <code style={codeChip}>Contents: Read and write</code> + <code style={codeChip}>Pull requests: Read and write</code> — already pre-selected by the button above.</li>
               <li>Click <em>Generate token</em>, copy it (starts with <code style={codeChip}>github_pat_…</code> or <code style={codeChip}>ghp_…</code>).</li>
               <li>Paste below and hit <strong style={{ color: "#f8fafc" }}>Save &amp; Test</strong>.</li>
             </ol>

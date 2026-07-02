@@ -329,7 +329,7 @@ export default function AddProjectWizard({ onClose, onAdded }) {
               href={
                 "https://github.com/settings/personal-access-tokens/new" +
                 "?description=" + encodeURIComponent(`ORA · ${repo.repo}`) +
-                "&expires_in=90&contents=write"
+                "&expires_in=90&contents=write&pull_requests=write"
               }
               target="_blank"
               rel="noopener noreferrer"
@@ -359,8 +359,9 @@ export default function AddProjectWizard({ onClose, onAdded }) {
               </li>
               <li>
                 <strong style={{ color: "var(--text)" }}>Permissions:</strong>{" "}
-                under <em>Repository permissions</em> set{" "}
-                <code style={codeChip}>Contents: Read and write</code>
+                <code style={codeChip}>Contents: Read and write</code> +{" "}
+                <code style={codeChip}>Pull requests: Read and write</code>{" "}
+                — already pre-selected by the button above
               </li>
               <li>
                 Click <em>Generate token</em>, copy it, paste below.
