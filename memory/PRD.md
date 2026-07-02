@@ -11312,3 +11312,7 @@ orchestrator path           (legacy safety net)
 **Not committed by agent** — user needs to click "Save to GitHub" to ship the fix to PROD.  Once shipped the founder's remaining 38-test aggression suite can safely run against real customer sessions.
 
 
+
+---
+## STATUS POINTER (Jul 3, 2026 — Iter 212m-179/179b)
+P0s closed: full-repo `search_repo` (tarball snapshot, complete results, prod-verified), empirical bulk-fix cap = 20 (36/36 real prod fixes, zero 403s), FixJobContext summary-polling fallback for multi-worker prod SSE, PAT deep-links prefill contents+pull_requests write, Meta Pixel SPA route tracking. Details: memory/CHANGELOG.md + test_reports/prod_aggression/FINAL_REPORT_v3_iter212m179.md. Awaiting one redeploy for: polling fallback, in-memory summary status, snapshot cache under /app.

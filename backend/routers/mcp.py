@@ -749,6 +749,11 @@ async def _tool_search_repo(user_id: str, args: dict) -> dict:
         "project_id": project_id, "query": query,
         "matches":    r.get("matches") or [],
         "count":      r.get("total_matches") or len(r.get("matches") or []),
+        # Iter 212m-179b — diagnostics: which path served this search.
+        "source":     r.get("source"),
+        "complete":   r.get("complete"),
+        **({"snapshot_error": r["snapshot_error"]}
+           if r.get("snapshot_error") else {}),
     }
 
 

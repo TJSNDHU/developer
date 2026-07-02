@@ -112,3 +112,6 @@ credentials.json
 .env.*
 *.env
 !frontend/.env
+
+# Iter 212m-179b — repo snapshot cache for search_repo (never commit)
+.aurem_cache/

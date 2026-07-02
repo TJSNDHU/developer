@@ -1082,7 +1082,11 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
 # HEAD SHA so repeat searches cost a single ref check until the branch
 # moves. No git binary required → works on the PROD container too.
 
-_SNAPSHOT_ROOT = "/tmp/aurem_repo_cache"
+# Iter 212m-179b — /tmp gets swept by the platform (observed on both
+# preview and prod: snapshot vanished between calls → every search
+# re-downloaded, 13-16s each). Cache under /app instead — writable and
+# stable for the container's lifetime. Gitignored via /app/.gitignore.
+_SNAPSHOT_ROOT = "/app/.aurem_cache/repo_snapshots"
 _SNAPSHOT_DL_TIMEOUT_S = 120.0
 _SNAPSHOT_MAX_BYTES = 400 * 1024 * 1024
 _PER_FILE_HIT_CAP = 50
@@ -1169,7 +1173,11 @@ async def _ensure_repo_snapshot(
 
                 def _tar_filter(member, path):
                     # Skip unsafe members (absolute symlinks etc.)
-                    # instead of aborting the whole snapshot.
+                    # instead of aborting the whole snapshot. Also skip
+                    # files > 2MB — search ignores them anyway
+                    # (--max-filesize 2M) and it trims disk footprint.
+                    if member.isfile() and member.size > 2_000_000:
+                        return None
                     try:
                         return tarfile.data_filter(member, path)
                     except tarfile.FilterError:
@@ -1193,8 +1201,13 @@ async def _ensure_repo_snapshot(
             await asyncio.to_thread(_extract)
             return dest, None
         except Exception as e:                            # noqa: BLE001
-            logger.warning("repo snapshot failed for %s/%s@%s: %r",
-                           owner, repo, branch, e)
+            try:
+                du = shutil.disk_usage(os.path.dirname(_SNAPSHOT_ROOT) or "/")
+                disk = f"disk free={du.free // 1048576}MB"
+            except OSError:
+                disk = "disk=?"
+            logger.warning("repo snapshot failed for %s/%s@%s: %r (%s)",
+                           owner, repo, branch, e, disk)
             return None, f"snapshot_failed_{type(e).__name__}"
         finally:
             try:
@@ -1341,10 +1354,12 @@ async def search_repo(ctx: dict, args: dict) -> dict:
 
     logger.warning("search_repo snapshot unavailable (%s) — using budgeted "
                    "API fallback", snap_err)
-    return await _search_repo_via_api(
+    res = await _search_repo_via_api(
         owner=owner, repo=repo, branch=branch, token=token,
         pattern=pattern, compiled=compiled, sub_path=sub_path, ext=ext,
         max_files=max_files)
+    res["snapshot_error"] = snap_err
+    return res
 
 
 async def _search_repo_via_api(*, owner: str, repo: str, branch: str,

@@ -2287,3 +2287,16 @@ Not committed by agent — user needs "Save to Github" to ship 212m-168, -169, -
 - Full pytest: 2533 passed; ~190 pre-existing stale failures in old iteration files (env-dependent/stale guards, e.g. `fake_llm` missing `db` kwarg from 212m-137, parliament hygiene guards) — NOT from this session; logged as P2 tech debt.
 
 **NEEDS REDEPLOY to reach PROD**: all of the above is preview-only until the founder redeploys.
+
+## Iter 212m-179b — Probe results + snapshot cache relocation (Jul 3, 2026)
+
+**Empirical probe FINAL (real PROD pipeline, founder, TJSNDHU/Aurem)**: n=1 ✅31s · n=5 ✅287s · n=10 ✅597s · n=20 ✅1097s — 36/36 fixes committed, ZERO GitHub rate-limit hits (~55-60s/fix ≈ 7-8 writes/min, far under 80/min burst). n=30 rejected by the NEW cap already live on prod (`bulk_limit_exceeded` max=20 — user had redeployed mid-session). Cap 20 = FINAL. Historical 403s root cause = old unpaced code + READ-ONLY PAT. Probe left 36 real `aurem/fix-*` branches + draft PRs on the repo (genuine fixes — founder to merge/close). Full report: `/app/test_reports/prod_aggression/FINAL_REPORT_v3_iter212m179.md`.
+
+**search_repo on PROD verified COMPLETE** (`def handler` prod count 18 == local complete 18) but cache never persisted (platform sweeps /tmp — observed on preview too) → every prod search paid ~13s cold download. Fixes:
+- `_SNAPSHOT_ROOT` → `/app/.aurem_cache/repo_snapshots` (gitignored via /app/.gitignore)
+- tar filter skips members >2MB (294→264MB footprint; search ignores them anyway)
+- snapshot failure logs disk free MB; fallback response carries `snapshot_error`
+- MCP `_tool_search_repo` response now includes `source`/`complete`(+`snapshot_error`) diagnostics
+- Preview verified: COLD 12.9s / WARM 0.4s. Tests 17/17 green.
+
+**AWAITING ONE MORE REDEPLOY for**: FixJobContext summary-polling fallback, fix_job_manager in-memory `status`, snapshot cache relocation + MCP diagnostics. Everything else already live on prod.
