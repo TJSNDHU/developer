@@ -23,6 +23,7 @@ from services.orchestrator import chat_with_tools
 from services.llm import call_llm_with_meta, call_emergent_watchdog, cap_for
 from services.repo_context import get_repo_context
 from services.usage import is_founder_email  # Iter 212m-169 — BINContext role check
+from core.parliament import infer_task_type as _infer_task_type  # Iter 212m-177 P0-3
 # NOTE: `build_url_context` (eager URL scraper) was REMOVED.
 # URL fetching is now handled exclusively via the `fetch_url` tool
 # inside `services/orchestrator.py` (forced pre-execution when the
@@ -698,7 +699,7 @@ async def chat_send(
         user_id=user["user_id"],
         project_id=body.project_id,
         mode=req_mode,
-        task_type=body.task_type,
+        task_type=body.task_type or _infer_task_type(body.prompt),
         is_founder=_is_fnd,
         bin_ctx=bin_ctx,
     )
@@ -1096,16 +1097,24 @@ async def chat_stream(
     bin_ctx = None
     if _pid_stream and _pid_stream != "home":
         from services.ora_context import build_ora_context
-        bin_ctx = await build_ora_context(
-            user_id=user_id,
-            project_id=_pid_stream,
-            db=_db_bc,
-            is_founder=bool(
-                user.get("is_admin") or user.get("is_unlimited")
-                or (user.get("tier") == "founder")
-                or is_founder_email(user.get("email"))
-            ),
-        )
+        try:
+            # Iter 212m-177 P1-6 — hard cap (Mongo + GitHub /repos call).
+            bin_ctx = await asyncio.wait_for(build_ora_context(
+                user_id=user_id,
+                project_id=_pid_stream,
+                db=_db_bc,
+                is_founder=bool(
+                    user.get("is_admin") or user.get("is_unlimited")
+                    or (user.get("tier") == "founder")
+                    or is_founder_email(user.get("email"))
+                ),
+            ), timeout=10.0)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                503,
+                "Repo context timed out (GitHub slow?) — try again in a "
+                "few seconds.",
+            )
 
     # Iter 212m-139 — Ask Advisor "No repo connected" bug fix.
     # Iter 212m-141 — Hardened to filter by ACTUAL GitHub reachability.
@@ -1194,9 +1203,17 @@ async def chat_stream(
     # handoff was a shell command, intercept ANY short follow-up
     # before it stalls the orchestrator. (Still active — this is
     # orthogonal to the auto-ship behaviour.)
-    _clarify_text = await _maybe_guard_shell_handoff_followup(
-        body=body, user_id=user_id,
-    )
+    # Iter 212m-177 — P1-6: hard 10s cap. This Mongo lookup ran
+    # unbounded before the stream starts; any stall here = zero-frame
+    # hang until the proxy kills the connection (~125s on PROD).
+    try:
+        _clarify_text = await asyncio.wait_for(
+            _maybe_guard_shell_handoff_followup(body=body, user_id=user_id),
+            timeout=10.0,
+        )
+    except (asyncio.TimeoutError, Exception) as _cge:
+        logger.warning("chat_stream: shell-handoff guard skipped (%r)", _cge)
+        _clarify_text = None
 
     if _clarify_text is not None:
         async def _clarify_stream():
@@ -1235,10 +1252,10 @@ async def chat_stream(
     brain_ctx = ""
     if body.project_id and body.project_id != "home":
         try:
-            _proj = await get_db().cto_projects.find_one(
+            _proj = await asyncio.wait_for(get_db().cto_projects.find_one(
                 {"project_id": body.project_id, "user_id": user_id},
                 {"_id": 0, "github_owner": 1, "github_repo": 1},
-            )
+            ), timeout=10.0)   # Iter 212m-177 P1-6 hard cap
             owner = (_proj or {}).get("github_owner") or ""
             repo = (_proj or {}).get("github_repo") or ""
             repo_full = f"{owner}/{repo}" if owner and repo else body.project_id
@@ -1249,8 +1266,12 @@ async def chat_stream(
             _pat = None
             try:
                 from routers.cto_projects import _decrypt_pat, _user_gh_token
-                _pat = await _decrypt_pat(user_id, (_proj or {}).get("github_token")) \
-                    or await _user_gh_token(user_id)
+                # Iter 212m-177 P1-6 — hard cap: PAT decrypt hits Mongo +
+                # HKDF and the OAuth fallback hits Mongo again.
+                async def _pat_lookup():
+                    return (await _decrypt_pat(user_id, (_proj or {}).get("github_token"))
+                            or await _user_gh_token(user_id))
+                _pat = await asyncio.wait_for(_pat_lookup(), timeout=10.0)
             except Exception:
                 _pat = None
             # Iter 157 — also wrap brain context in the same 12s budget;
@@ -1283,13 +1304,17 @@ async def chat_stream(
             from services.ora_council_retriever import get_council_few_shot
             _db_ref = _get_db()
             if _db_ref is not None:
-                _council_block, _council_recalled = await get_council_few_shot(
-                    _db_ref, body.prompt or "",
-                    mode=_detect_mode(body.prompt or ""),
-                    user_id=user.get("user_id"),
-                    project_id=body.project_id,
-                    k=2,
-                )
+                # Iter 212m-177 P1-6 — hard cap: the retriever's lazy
+                # _rebuild_index() can walk a large ora_council_logs
+                # collection; unbounded it stalls the whole stream.
+                _council_block, _council_recalled = await asyncio.wait_for(
+                    get_council_few_shot(
+                        _db_ref, body.prompt or "",
+                        mode=_detect_mode(body.prompt or ""),
+                        user_id=user.get("user_id"),
+                        project_id=body.project_id,
+                        k=2,
+                    ), timeout=10.0)
                 if _council_block:
                     extra_sys = (_council_block
                                  + ("\n\n" + extra_sys if extra_sys else ""))
@@ -1308,16 +1333,17 @@ async def chat_stream(
                 get_active_house_rules, format_house_rules_block,
                 get_active_chat_prompt,
             )
-            _hr_prompt = await get_active_house_rules(
+            _hr_prompt = await asyncio.wait_for(get_active_house_rules(
                 "chat", (body.mode or "swift").lower(),
-            )
+            ), timeout=10.0)   # Iter 212m-177 P1-6
             if _hr_prompt:
                 extra_sys = (
                     format_house_rules_block(_hr_prompt)
                     + ("\n\n" + extra_sys if extra_sys else "")
                 )
             # Iter 212m-171 — dedicated CHAT prompt slot.
-            _chat_extra = await get_active_chat_prompt()
+            _chat_extra = await asyncio.wait_for(
+                get_active_chat_prompt(), timeout=10.0)  # Iter 212m-177 P1-6
             if _chat_extra:
                 extra_sys = (
                     "=== ADMIN CHAT PROMPT (Iter 212m-171) ===\n"
@@ -1346,7 +1372,9 @@ async def chat_stream(
             from services.house_rules import (
                 get_active_house_rules, format_house_rules_block,
             )
-            _hr_prompt_adv = await get_active_house_rules("advisor", None)
+            _hr_prompt_adv = await asyncio.wait_for(
+                get_active_house_rules("advisor", None),
+                timeout=10.0)  # Iter 212m-177 P1-6
             if _hr_prompt_adv:
                 extra_sys = (
                     format_house_rules_block(_hr_prompt_adv)
@@ -2042,7 +2070,7 @@ async def chat_stream(
                     live_invocations_ref=_published,
                     mode=req_mode_stream,
                     step_hook=_step,
-                    task_type=body.task_type,
+                    task_type=body.task_type or _infer_task_type(body.prompt),
                     is_founder=_is_fnd_stream,
                     bin_ctx=bin_ctx,
                 )

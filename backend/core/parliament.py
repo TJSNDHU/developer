@@ -288,6 +288,41 @@ _GLOBAL_BREAKER = ParliamentCircuitBreaker()
 #  Task Router
 # ─────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────
+#  Iter 212m-177 — P0-3: automatic task_type inference.
+#  Before this, task_type was ONLY an optional client override, so
+#  every organic prompt fell through TaskRouter's keyword check and
+#  landed on Council A — writing tasks ("Write a CONTRIBUTING.md")
+#  never reached Council C. This is the single source of truth used
+#  by /chat/send and /chat/stream when the client sends no override.
+# ─────────────────────────────────────────────────────────────────────
+_WRITING_NOUNS = re.compile(
+    r"\b(email|e-mail|blog|post|readme|contributing|changelog|newsletter|"
+    r"announcement|article|tweet|press release|copywrit\w*|marketing copy|"
+    r"documentation|user guide|onboarding guide)\b", re.I)
+_WRITING_VERBS = re.compile(
+    r"\b(write|draft|compose|reword|rewrite|rephrase)\b", re.I)
+_CODE_NOUNS = re.compile(
+    r"\b(function|class|endpoint|bug|test|route|module|method|refactor|"
+    r"lint|error|exception|api|migration|schema|regex|docstring)\b", re.I)
+_ANALYSIS_PAT = re.compile(
+    r"\b(analy[sz]e|analysis|summari[sz]e|summary|assess|evaluate|"
+    r"insight|health of|codebase health|report on|breakdown of)\b", re.I)
+
+
+def infer_task_type(text: Optional[str]) -> Optional[str]:
+    """Deterministic task_type inference from the raw prompt.
+    Returns 'write' (→ Council C), 'analysis' (→ Council B) or None
+    (caller keeps the default Council A code path)."""
+    t = text or ""
+    if _WRITING_NOUNS.search(t) and (
+            _WRITING_VERBS.search(t) or not _CODE_NOUNS.search(t)):
+        return "write"
+    if _ANALYSIS_PAT.search(t) and not _CODE_NOUNS.search(t):
+        return "analysis"
+    return None
+
+
 class TaskRouter:
     """Picks which Council should handle a given task.
 

@@ -615,19 +615,23 @@ async def scan(
     # the full scan cost on every page mount.  Best-effort: a Mongo
     # failure must NEVER block the user-visible scan response.
     try:
-        await db.codebase_health_scans.insert_one({
-            "user_id":       user_id,
-            "project_id":    project_id,
-            "score":         overall_score,
-            "label":         label,
-            "tone":          tone,
-            "total":         total,
-            "scanned_files": len(text_cache),
-            "summary":       payload["summary"],
-            "categories":    list(categories),
-            "breakdown":     breakdown,
-            "created_at":    time.time(),
-        })
+        # Iter 212m-177 — P1-5: a scan that read ZERO files scores 100
+        # trivially and later contradicts real scans (PROD showed
+        # 100-HEALTHY vs 0-CRITICAL for the same repo). Never persist it.
+        if len(text_cache) > 0:
+            await db.codebase_health_scans.insert_one({
+                "user_id":       user_id,
+                "project_id":    project_id,
+                "score":         overall_score,
+                "label":         label,
+                "tone":          tone,
+                "total":         total,
+                "scanned_files": len(text_cache),
+                "summary":       payload["summary"],
+                "categories":    list(categories),
+                "breakdown":     breakdown,
+                "created_at":    time.time(),
+            })
     except Exception as e:
         logger.debug("codebase_health_scans persist failed: %r", e)
     # Iter 212m-129 — Learning hook: persist a per-rule histogram of
@@ -694,7 +698,8 @@ async def last_scan(
         return {"ok": True, "score": None}
     try:
         doc = await db.codebase_health_scans.find_one(
-            {"user_id": user_id, "project_id": project_id},
+            {"user_id": user_id, "project_id": project_id,
+             "scanned_files": {"$gt": 0}},   # Iter 212m-177 P1-5
             {"_id": 0},
             sort=[("created_at", -1)],
         )

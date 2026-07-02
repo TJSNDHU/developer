@@ -295,6 +295,10 @@ async def lifespan(app: FastAPI):
                 [("project_id", 1), ("user_id", 1), ("occurred_at", -1)],
                 name="ix_loop_fail_window",
             )
+            # Iter 212m-177 — P0-1: one session doc per loop_id, ever.
+            await app.state.db.loop_sessions.create_index(
+                [("loop_id", 1)], unique=True, name="ux_loop_sessions_loop_id",
+            )
         except Exception as e:                            # noqa: BLE001
             logger.warning("loop_safety indexes failed: %r", e)
     _asyncio.create_task(_ensure_loop_safety_indexes())

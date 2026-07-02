@@ -4,6 +4,49 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-02 (later) — Iter 212m-177 — P0/P1 Production Reliability Fixes
+
+All 7 items from the founder's reliability mandate, fixed at root cause
+and covered by `tests/test_iter212m177_prod_reliability.py` (17/17
+pass; zero regressions vs baseline). ALL PREVIEW-ONLY until redeploy.
+
+- **P0-1 double-commit**: atomic Mongo ship-claim in
+  `LoopEngine.confirm_ship` (find_one_and_update on
+  `context.ship_claimed_at` / `context.commit.sha`); route returns
+  existing commit (`already_shipped: true`) instead of re-pushing;
+  unique index `ux_loop_sessions_loop_id` at startup.
+- **P0-2 MCP tools**: wrappers fixed (prev session) + contract tests
+  with REAL recorded PROD shapes + integration test against the real
+  GitHub Trees API response shape.
+- **P0-3 council misroute**: NEW `core.parliament.infer_task_type()` —
+  deterministic write/analysis inference applied in /chat/send and
+  /chat/stream when the client sends no task_type. E2E verified on
+  preview: CONTRIBUTING.md → council C (deepseek-v3-council-c),
+  "Summarize recent commits" → council B (glm-5.2).
+- **P0-4 prompt-mode reliability**: (a) task-mentioned file paths are
+  now READ before generation (was guessing main.py/README.md → model
+  hallucinated); (b) module-level `_hallucination_reasons()` pre-push
+  gate — rewrite keeping <40% of the real file's lines → one retry
+  with real content re-injected, then hard fail; (c) empty edits can
+  NEVER produce status="done" — retry once, then status="failed" with
+  a clear error (both via_api and with_git paths).
+- **P1-5 health score conflict**: zero-file scans (score-100 false
+  positives) are never persisted and both readers filter
+  `scanned_files > 0` — one source of truth confirmed
+  (codebase_health_scans, latest record).
+- **P1-6 advisor hang**: every pre-StreamingResponse await in
+  chat_stream now hard-capped at 10s (build_ora_context, shell guard,
+  project doc, PAT lookup, council few-shot, house rules ×3) with
+  fast-fail 503 for repo context.
+- **P1-7 mobile ship/state loss**: `/loop/{id}/stream` is now
+  CROSS-WORKER — hybrid queue + Mongo `last_event` replay (no more
+  404 "not active in this worker" / missed awaiting_ship events);
+  ChatPanel reconnects the stream on refresh for mid-run loops
+  (executing/verifying/scanning/shipping/self_healing).
+
+NEXT: user redeploys → re-run the full 4-dimension aggression suite on
+PROD (target 42+/44).
+
 ## 2026-07-02 — Iter 212m-176 — PROD Aggression Suite + 10 bug fixes
 
 Full 4-dimension PROD aggression test executed against auremcto.com

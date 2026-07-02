@@ -958,7 +958,8 @@ async def _tool_get_repo_health(user_id: str, args: dict) -> dict:
     if db is None:
         raise RuntimeError("Database unavailable")
     doc = await db.codebase_health_scans.find_one(
-        {"project_id": project_id, "user_id": user_id},
+        {"project_id": project_id, "user_id": user_id,
+         "scanned_files": {"$gt": 0}},   # Iter 212m-177 P1-5
         sort=[("created_at", -1)],
     )
     if not doc:

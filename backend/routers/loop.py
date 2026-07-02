@@ -240,6 +240,17 @@ async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
         raise HTTPException(404, "Loop not found or already finished")
     if engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
+    # Iter 212m-177 — P0-1 idempotency: if this loop already committed,
+    # return the existing commit instead of 409/no-op (double-click or
+    # split-brain second worker).
+    _doc = await get_db().loop_sessions.find_one(
+        {"loop_id": loop_id}, {"_id": 0, "context.commit": 1, "state": 1})
+    _existing = ((_doc or {}).get("context") or {}).get("commit") or {}
+    if _existing.get("sha"):
+        return {
+            "loop_id": loop_id, "approved": True, "state": "completed",
+            "already_shipped": True, "commit": _existing,
+        }
     # Iter 212m-176 — validate state HERE. confirm_ship() raises
     # ValueError inside the background task where it is silently
     # swallowed (PROD symptom: 200 approved=true but no commit).
@@ -332,28 +343,61 @@ async def loop_stream(loop_id: str,
                       authorization: Optional[str] = Header(None)):
     user = await current_dev(authorization)
     engine = eng.lookup(loop_id)
-    if engine is None:
-        raise HTTPException(404, "Loop not active in this worker")
-    if engine.user_id != user["user_id"]:
+    if engine is not None and engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
+    if engine is None:
+        # Iter 212m-177 — P1-7: the loop may be running on ANOTHER
+        # worker (multi-worker PROD). Don't 404 — fall back to replaying
+        # `last_event` from Mongo, which _emit() persists on every event.
+        _doc = await get_db().loop_sessions.find_one(
+            {"loop_id": loop_id}, {"_id": 0, "user_id": 1, "state": 1})
+        if not _doc:
+            raise HTTPException(404, "Loop not found")
+        if _doc.get("user_id") != user["user_id"]:
+            raise HTTPException(403, "Not your loop")
+
+    _TERMINAL = {"completed", "failed", "aborted"}
 
     async def gen():
+        db = get_db()
+        sent_sig = None
         try:
             while True:
-                try:
-                    ev = await asyncio.wait_for(engine.queue.get(), 30.0)
-                except asyncio.TimeoutError:
-                    # Heartbeat so proxies don't kill the connection.
-                    yield ": keepalive\n\n"
+                ev = None
+                if engine is not None:
+                    try:
+                        ev = await asyncio.wait_for(engine.queue.get(), 5.0)
+                    except asyncio.TimeoutError:
+                        ev = None
+                else:
+                    await asyncio.sleep(2.0)
+                if ev is not None:
+                    sent_sig = (ev.get("ts"), ev.get("state"),
+                                ev.get("phase"), ev.get("message"))
+                    yield f"data: {json.dumps(ev)}\n\n"
                     if engine.state in {eng.LoopState.COMPLETED,
                                         eng.LoopState.FAILED,
                                         eng.LoopState.ABORTED}:
                         break
                     continue
-                yield f"data: {json.dumps(ev)}\n\n"
-                if engine.state in {eng.LoopState.COMPLETED,
-                                    eng.LoopState.FAILED,
-                                    eng.LoopState.ABORTED}:
+                # No local event — sync from Mongo. Catches BOTH the
+                # engine-on-another-worker case AND a stale local engine
+                # whose pipeline continued elsewhere after a rehydrated
+                # confirm (the mobile "ship button never appeared" bug).
+                doc = await db.loop_sessions.find_one(
+                    {"loop_id": loop_id},
+                    {"_id": 0, "last_event": 1, "state": 1})
+                if not doc:
+                    break
+                mev = doc.get("last_event") or {}
+                sig = (mev.get("ts"), mev.get("state"),
+                       mev.get("phase"), mev.get("message"))
+                if mev and sig != sent_sig:
+                    sent_sig = sig
+                    yield f"data: {json.dumps(mev)}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+                if (doc.get("state") or "").lower() in _TERMINAL:
                     break
         finally:
             eng.deregister(loop_id)

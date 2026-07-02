@@ -1329,6 +1329,32 @@ class LoopEngine:
             )
             return
 
+        # Iter 212m-177 — P0-1 idempotency: atomically claim the ship in
+        # Mongo before pushing. Split-brain can leave TWO workers each
+        # holding a PAUSED_FOR_USER engine for the same loop; only the
+        # winner of this find_one_and_update may push — every other
+        # caller becomes a no-op that surfaces the existing commit.
+        claim = await self.db.loop_sessions.find_one_and_update(
+            {
+                "loop_id": self.loop_id,
+                "context.ship_claimed_at": {"$exists": False},
+                "context.commit.sha":      {"$exists": False},
+            },
+            {"$set": {"context.ship_claimed_at": _now(), "state": "shipping"}},
+        )
+        if claim is None:
+            doc = await self.db.loop_sessions.find_one(
+                {"loop_id": self.loop_id}, {"_id": 0, "context.commit": 1, "state": 1})
+            existing = ((doc or {}).get("context") or {}).get("commit") or {}
+            logger.warning(
+                "[loop %s] SHIP already claimed/committed — idempotent no-op "
+                "(existing sha=%s)", self.loop_id, existing.get("sha"))
+            if existing:
+                self.context["commit"] = existing
+                self.context.pop("ship_pending", None)
+                self.state = LoopState.COMPLETED
+            return
+
         # Resume — push the commit for real.
         self.state = LoopState.SHIPPING
         self.phase = "ship"

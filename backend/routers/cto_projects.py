@@ -2361,6 +2361,28 @@ async def _run_task(task_id, proj, task, files, context, user_token, maxx_mode: 
     )
 
 
+def _hallucination_reasons(blocks: dict, originals: dict) -> list[str]:
+    """Iter 212m-177 — P0-4a. Flag proposed full-file rewrites that keep
+    almost none of the REAL file's lines (hallucinated content)."""
+    out: list[str] = []
+    for _p, _new in blocks.items():
+        _orig = originals.get(_p) or originals.get(_p.lstrip("./"))
+        if not _orig:
+            continue          # brand-new file — allowed
+        _olines = [l.strip() for l in _orig.splitlines() if l.strip()]
+        if len(_olines) < 10:
+            continue
+        _nset = {l.strip() for l in (_new or "").splitlines() if l.strip()}
+        _kept = sum(1 for l in _olines if l in _nset)
+        _ratio = _kept / len(_olines)
+        if _ratio < 0.4:
+            out.append(
+                f"{_p} — proposed rewrite keeps only "
+                f"{int(_ratio * 100)}% of the real file's lines "
+                f"(likely hallucinated content)")
+    return out
+
+
 async def _run_task_via_api(task_id, proj, task, files, context, user_token, maxx_mode: bool = False):
     """API-only worker — no `git` binary needed. Reads target files from
     GitHub, asks AUREM to generate edits, then commits everything as ONE
@@ -2398,6 +2420,16 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
         # 1) Read target files (or auto-pick a few likely ones) IN PARALLEL
         await _set_status(task_id, status="reading")
         target_files = list(files or [])
+        if not target_files:
+            # Iter 212m-177 — P0-4a: the task text usually NAMES the file
+            # ("…in backend/utils/auth.py"). Read THOSE files first —
+            # guessing main.py/README.md fed the model zero real context
+            # and it hallucinated file content from thin air.
+            _mentioned = re.findall(
+                r"[\w./\\-]+\.(?:py|jsx?|tsx?|css|json|md|html|yml|yaml|toml|go|rs|java|rb)",
+                f"{task}\n{context or ''}",
+            )
+            target_files = list(dict.fromkeys(_mentioned))
         if not target_files:
             target_files = [
                 "main.py", "app.py", "server.py", "index.html",
@@ -2638,12 +2670,13 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             )
 
         if not edits:
-            await _log(task_id, "⚠️ AI returned no file edits", "warning")
-            await _set_status(task_id, status="done", result=summary,
-                              completed_at=time.time())
-            return
-        await _emit(task_id, "Writing files…", kind="phase_write", pct=60)
-        await _log(task_id, f"✏️ {len(edits)} files to update", "success")
+            # Iter 212m-177 — P0-4b: NEVER report "done" without a real
+            # edit. Fall through to the auto-regenerate gate below which
+            # retries once with explicit guidance, then fails loudly.
+            await _log(task_id, "⚠️ AI returned no file edits — auto-retrying", "warning")
+        else:
+            await _emit(task_id, "Writing files…", kind="phase_write", pct=60)
+            await _log(task_id, f"✏️ {len(edits)} files to update", "success")
 
         # PRE-PUSH GATE — reject AI output that looks truncated. We'd
         # rather fail loudly here than silently push a half-file that
@@ -2712,6 +2745,63 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
             await _set_status(task_id, status="failed", error=err[:2000],
                               completed_at=time.time())
             return
+        if not edits:
+            # Iter 212m-177 — P0-4b: the auto-retry ALSO produced nothing.
+            # Fail clearly; never mark "done" without a state change.
+            err = ("AI produced no file edits after a retry — nothing was "
+                   "changed. Rephrase the task naming the exact file, e.g. "
+                   "'Edit backend/utils/auth.py and add …'.")
+            await _log(task_id, f"🚫 {err}", "error")
+            await _set_status(task_id, status="failed", error=err,
+                              completed_at=time.time())
+            return
+
+        # ── Iter 212m-177 — P0-4a HALLUCINATION GATE (pre-push, before
+        # Vanguard). If the model "rewrote" a file we actually read but
+        # kept almost none of its real lines, the content is invented.
+        # One targeted retry re-injects the REAL file; still bad → fail.
+        _hallu = _hallucination_reasons(edits, contents)
+        if _hallu:
+            await _log(task_id,
+                       "🚧 hallucination gate tripped — regenerating with the "
+                       "real file re-injected:\n  - " + "\n  - ".join(_hallu),
+                       "warning")
+            _real_blob = "\n\n".join(
+                f"FILE: {p}\n```\n{contents.get(p) or contents.get(p.lstrip('./'))}\n```"
+                for p in edits
+                if (contents.get(p) or contents.get(p.lstrip("./"))))
+            _h_nudge = (
+                "Your previous edit did NOT match the real file — it "
+                "invented code that does not exist. Below is the REAL, "
+                "current content of each file. Re-apply the requested "
+                "change as a MINIMAL modification of this exact content. "
+                "Preserve every existing line unless the task requires "
+                "changing it.\n\n" + _real_blob
+            )
+            reply3 = await _retry(
+                lambda: call_llm(
+                    messages=[{"role": "user",
+                               "content": user_msg + "\n\n" + _h_nudge}],
+                    system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                ),
+                what="AI hallucination-retry", task_id=task_id,
+            )
+            from services.llm_file_parser import parse_file_blocks as _pfb
+            _edits2 = _pfb(reply3)
+            if _edits2:
+                edits = _edits2
+            _hallu = _hallucination_reasons(edits, contents)
+            if _hallu:
+                err = ("AI kept producing content that does not match the "
+                       "real file (refusing to push):\n  - "
+                       + "\n  - ".join(_hallu))
+                await _log(task_id, f"🚫 {err}", "error")
+                await _set_status(task_id, status="failed", error=err[:2000],
+                                  completed_at=time.time())
+                return
+            await _log(task_id, "✅ hallucination-retry produced a faithful edit",
+                       "success")
+
         await _emit(task_id, "Running linter…", kind="phase_verify", pct=75)
         await _log(task_id, f"✅ {len(edits)} files passed truncation check", "success")
 
@@ -3440,8 +3530,30 @@ async def _run_task_with_git(task_id, proj, task, files, context, user_token, ma
         from services.llm_file_parser import parse_file_blocks
         edits = parse_file_blocks(reply)
         if not edits:
-            await _log(task_id, "⚠️ AI returned no file edits", "warning")
-            await _set_status(task_id, status="done", result=summary,
+            # Iter 212m-177 — P0-4b: retry once with explicit guidance,
+            # then FAIL — never report success without a real edit.
+            await _log(task_id, "⚠️ AI returned no file edits — auto-retrying", "warning")
+            _nudge = (
+                "Your previous response contained no usable file changes.\n"
+                "You MUST output complete file content using this exact "
+                "format:\nFILE: <path>\n```\n<complete file body>\n```\n"
+                "Do NOT just describe what you would do."
+            )
+            reply = await _retry(
+                lambda: call_llm(
+                    messages=[{"role": "user",
+                               "content": user_msg + "\n\n" + _nudge}],
+                    system=_AI_SYS, max_tokens=3500, temperature=0.0,
+                ),
+                what="AI codegen auto-retry", task_id=task_id,
+            )
+            edits = parse_file_blocks(reply)
+        if not edits:
+            err = ("AI produced no file edits after a retry — nothing was "
+                   "changed. Rephrase the task naming the exact file, e.g. "
+                   "'Edit backend/utils/auth.py and add …'.")
+            await _log(task_id, f"🚫 {err}", "error")
+            await _set_status(task_id, status="failed", error=err,
                               completed_at=time.time())
             return
         await _log(task_id, f"✏️ {len(edits)} files to update", "success")

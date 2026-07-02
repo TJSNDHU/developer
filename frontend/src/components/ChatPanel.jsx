@@ -454,6 +454,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         } else if (active.state === "awaiting_confirmation" && active.plan) {
           setLoopId(active.loop_id);
           setLoopPlan(active.plan);
+        } else if (["executing", "verifying", "scanning", "shipping",
+                    "self_healing"].includes(active.state)) {
+          // Iter 212m-177 — P1-7: loop is MID-RUN (user refreshed while
+          // the engine works). Reconnect the SSE stream so the ship
+          // gate / completion still reaches this tab.
+          setLoopId(active.loop_id);
+          openLoopStream(active.loop_id);
         }
       } catch (e) {
         // Best-effort hydrate; never block initial render.
