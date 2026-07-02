@@ -1,0 +1,35 @@
+{
+  "summary": "Iter 212m-179 verification: backend cap enforcement (preview + bulk), summary 404, search_repo full-snapshot unit tests, Meta Pixel SPA PageView tracking, PAT deep-link params, and app-wide smoke — ALL PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m179_api_cap.py",
+    "/app/backend/tests/test_iter212m179_full_search.py",
+    "/app/backend/tests/test_iter212m178_prod_perf.py",
+    "/app/backend/tests/test_iter212m121_fix_pipeline.py",
+    "/app/test_reports/pytest/iter212m179_api_cap.xml"
+  ],
+  "results": {
+    "unit_tests_iter212m179_full_search_178_prod_perf_121_fix_pipeline": "23/23 passed",
+    "api_preview_over_cap": "PASS — count=20, bulk_max=20, total_requested=25 for 25 findings",
+    "api_preview_under_cap": "PASS — count=5, bulk_max=20, total_requested=5 for 5 findings",
+    "api_bulk_over_cap": "PASS — 21 findings returns 400 with detail.error='bulk_limit_exceeded', max=20, requested=21",
+    "api_bulk_under_cap": "PASS — 3 findings proceeds past cap check (fails later for project_not_found, no bulk_limit_exceeded)",
+    "api_summary_nonexistent": "PASS — GET /fix-pipeline/summary/does_not_exist_xyz -> 404",
+    "frontend_login": "PASS — test@aurem.dev / AuremTest2026! -> /dashboard, 0 console errors",
+    "meta_pixel_spa_tracking": "PASS — installed recorder stub on /, clicked SPA link to /login, recorder captured fbq('track','PageView')",
+    "pat_deep_links": "PASS — grep confirms all 4 fine-grained PAT deep-links contain both 'contents=write' AND 'pull_requests=write' (Projects.jsx lines 397, 1158, 1386; AddProjectWizard.jsx line 332). Legacy classic-PAT link at Projects.jsx:890 (github.com/settings/tokens/new?scopes=repo) is a separate legacy flow and out of scope.",
+    "app_smoke": "PASS — /, /login, /dashboard, /projects all render, no runtime JS errors from MetaPixelRouteTracker or FixJobContext polling"
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Preview endpoint (fix_pipeline.py:214-238) silently truncates findings to 20 without warning field in response — the UI already shows the cap via bulk_max/total_requested comparison, so acceptable, but a boolean 'was_capped' field would be a nice explicit signal for future consumers."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter212m179_api_cap.py (new)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! (auto-promoted founder on preview) — WORKS",
+  "seed_data_creation": "None; used fake finding objects for cap tests as instructed",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend cap logic is solid. PAT link static verification is reliable — the deep-render Projects page renders PAT anchors only when a project is edited or Add-Project wizard is opened. Bulk-fix modal is authed and behind project+scan flow; testing here relied on backend cap + static frontend inspection per problem-statement guidance."
+}

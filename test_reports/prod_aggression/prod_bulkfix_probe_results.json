@@ -1,0 +1,57 @@
+{
+  "started": "2026-07-02 22:13:51",
+  "runs": [
+    {
+      "n": 1,
+      "requested": 1,
+      "fixes_ok": 1,
+      "fixes_failed": 0,
+      "ratelimit_failures": [],
+      "other_failures": [],
+      "job_id": "fx_111213232c5140",
+      "duration_s": 31.0,
+      "final_status": null,
+      "summary_raw": {
+        "status": null,
+        "completed": 1,
+        "failed": 0,
+        "total": 1
+      }
+    },
+    {
+      "n": 5,
+      "requested": 5,
+      "fixes_ok": 5,
+      "fixes_failed": 0,
+      "ratelimit_failures": [],
+      "other_failures": [],
+      "job_id": "fx_0828e8809c8c40",
+      "duration_s": 287.0,
+      "final_status": "done",
+      "summary_raw": {
+        "status": "done",
+        "completed": 5,
+        "failed": 0,
+        "total": 5
+      }
+    },
+    {
+      "n": 10,
+      "requested": 10,
+      "fixes_ok": 10,
+      "fixes_failed": 0,
+      "ratelimit_failures": [],
+      "other_failures": [],
+      "job_id": "fx_1a98a042f54446",
+      "duration_s": 596.7,
+      "final_status": "done",
+      "summary_raw": {
+        "status": "done",
+        "completed": 10,
+        "failed": 0,
+        "total": 10
+      }
+    }
+  ],
+  "findings_available": 135
+}

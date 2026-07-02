@@ -59,6 +59,9 @@ export function FixJobProvider({ children }) {
   const [eventCount,  setEventCount]  = useState(0);
 
   const esRef = useRef(null);
+  // Iter 212m-179 — mirror of lastEventAt for the poller (refs avoid
+  // effect re-subscribes on every SSE tick).
+  const lastEventAtRef = useRef(null);
 
   /* ── Derived ──────────────────────────────────────────────────── */
   const allRows = Object.values(items).sort(
@@ -99,6 +102,7 @@ export function FixJobProvider({ children }) {
     setEndedAt(null);
     setLastEventAt(t0);
     setEventCount(0);
+    lastEventAtRef.current = t0;
     try { localStorage.setItem(LS_JOB_KEY,
       JSON.stringify({ job_id, total: t || 1 }));
     } catch { /* ignore */ }
@@ -186,6 +190,7 @@ export function FixJobProvider({ children }) {
       setEndedAt(null);
       setLastEventAt(t0);
       setEventCount(0);
+      lastEventAtRef.current = t0;
     } catch { /* corrupt cache — ignore */ }
   }, []);
 
@@ -224,6 +229,7 @@ export function FixJobProvider({ children }) {
       try { data = JSON.parse(ev.data); }
       catch { return; }
       setLastEventAt(Date.now());
+      lastEventAtRef.current = Date.now();
       setEventCount((c) => c + 1);
       const fid = data.finding_id;
       const ph  = data.phase;
@@ -286,17 +292,6 @@ export function FixJobProvider({ children }) {
       }
       if (ph === "hydrated") {
         setHydrated(true);
-        setTerminal({
-          phase:     "done",
-          ok:        data.status === "done",
-          completed: data.completed || 0,
-          failed:    data.failed || 0,
-          total:     data.total || 0,
-          results:   data.results || [],
-          message:   data.message || "Resumed from history.",
-          status:    data.status,
-        });
-        setEndedAt(Date.now());
         const itemsFromResults = {};
         (data.results || []).forEach((r, idx) => {
           itemsFromResults[r.finding_id || `idx_${idx}`] = {
@@ -312,6 +307,25 @@ export function FixJobProvider({ children }) {
           };
         });
         setItems(itemsFromResults);
+        if (data.status === "running") {
+          // Iter 212m-179 — the job is ALIVE on another worker (prod
+          // runs multi-worker).  Do NOT mark terminal: keep the
+          // EventSource open (it auto-reconnects) and let the summary
+          // poller below carry live progress until a real terminal.
+          if (data.total) setTotal(data.total);
+          return;
+        }
+        setTerminal({
+          phase:     "done",
+          ok:        data.status === "done",
+          completed: data.completed || 0,
+          failed:    data.failed || 0,
+          total:     data.total || 0,
+          results:   data.results || [],
+          message:   data.message || "Resumed from history.",
+          status:    data.status,
+        });
+        setEndedAt(Date.now());
         setCanRestart(data.can_restart === true);
         try { es.close(); } catch { /* ignore */ }
         esRef.current = null;
@@ -337,6 +351,71 @@ export function FixJobProvider({ children }) {
     // because the provider lives at App root and never unmounts.
     return () => { try { es.close(); } catch { /* ignore */ } };
   }, [jobId]);
+
+  /* ── Iter 212m-179 — summary POLLING fallback ─────────────────────
+   * PROD runs multiple workers: the SSE subscriber often lands on a
+   * worker that isn't running the job (or the proxy buffers the
+   * stream) and NO live events arrive.  Whenever a job is active and
+   * no SSE event landed in the last 8s, poll /summary every 6s and
+   * merge the Mongo snapshot into the exact same state the SSE path
+   * feeds — so the drawer/bar always shows real progress. */
+  useEffect(() => {
+    if (!jobId || terminal) return undefined;
+    const iv = setInterval(async () => {
+      if (Date.now() - (lastEventAtRef.current || 0) < 8000) return;
+      let s;
+      try {
+        const r = await api.get(`/fix-pipeline/summary/${jobId}`);
+        s = r?.data || r;
+      } catch { return; }
+      if (!s || s.ok === false) return;
+      if (Array.isArray(s.results) && s.results.length) {
+        setItems((prev) => {
+          const next = { ...prev };
+          s.results.forEach((r0, idx) => {
+            const key = r0.finding_id || `idx_${idx}`;
+            next[key] = {
+              ...(next[key] || {}),
+              phase:      "fix-done",
+              finding_id: r0.finding_id,
+              ok:         r0.ok,
+              commit_sha: r0.commit_sha,
+              html_url:   r0.html_url,
+              file:       r0.file,
+              rule_id:    r0.rule_id,
+              error:      r0.error,
+              index:      idx,
+            };
+          });
+          return next;
+        });
+      }
+      if (s.total) setTotal(s.total);
+      if (s.status && s.status !== "running") {
+        setTerminal({
+          phase:     "done",
+          ok:        s.status === "done" && !(s.failed > 0),
+          completed: s.completed || 0,
+          failed:    s.failed || 0,
+          total:     s.total || 0,
+          results:   s.results || [],
+          message:   s.message
+                     || (s.status === "done" ? "Fix complete"
+                         : "Fix finished with errors"),
+          status:    s.status,
+        });
+        setEndedAt(Date.now());
+        setActiveId(null);
+        setCanRestart(s.status !== "done");
+        if (esRef.current) {
+          try { esRef.current.close(); } catch { /* ignore */ }
+          esRef.current = null;
+        }
+        try { localStorage.removeItem(LS_JOB_KEY); } catch { /* ignore */ }
+      }
+    }, 6000);
+    return () => clearInterval(iv);
+  }, [jobId, terminal]);
 
   const value = {
     // identity

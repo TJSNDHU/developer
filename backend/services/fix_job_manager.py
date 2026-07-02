@@ -217,6 +217,7 @@ async def close(db, job_id: str, *, ok: bool = True,
         })
         return
     j["closed_at"] = time.time()
+    j["status"] = status or ("done" if ok else "failed")
     final = {
         "phase":     "done",
         "ts":        j["closed_at"],
@@ -318,6 +319,10 @@ def get_summary(job_id: str) -> Optional[dict]:
         "started_at": j["started_at"],
         "closed_at":  j["closed_at"],
         "results":    j["results"],
+        # Iter 212m-179 — align the in-memory shape with the Mongo row
+        # so the frontend summary poller sees `status` on EVERY worker.
+        "status":     j.get("status")
+                      or ("running" if not j["closed_at"] else "done"),
     }
 
 
