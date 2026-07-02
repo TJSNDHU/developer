@@ -17,9 +17,9 @@
  *   • Admin pages still hydrate in <300ms once clicked (cached after
  *     first hit by the browser).
  */
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import useAutoClearConsole from "./lib/useAutoClearConsole";
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, useRef, lazy, Suspense } from "react";
 import Toaster from "./components/Toast";
 import FixProgressDrawer from "./components/FixProgressDrawer";
 import { FixJobProvider } from "./components/FixJobContext";
@@ -107,6 +107,22 @@ function AutoClearConsoleHost() {
   return null;
 }
 
+// Meta Pixel — SPA route-change tracking. The base code in index.html
+// fires PageView once on first load; this child of <BrowserRouter>
+// fires it again on EVERY client-side navigation so all pages are
+// tracked (skips the initial mount to avoid double-counting).
+function MetaPixelRouteTracker() {
+  const location = useLocation();
+  const isFirst = useRef(true);
+  useEffect(() => {
+    if (isFirst.current) { isFirst.current = false; return; }
+    if (typeof window.fbq === "function") {
+      window.fbq("track", "PageView");
+    }
+  }, [location.pathname, location.search]);
+  return null;
+}
+
 export default function App() {
   // Iter 101 — Capture `?ref=<uid>` on any landing, stash in localStorage
   // so Signup can attribute the referrer after account creation.
@@ -137,6 +153,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AutoClearConsoleHost />
+      <MetaPixelRouteTracker />
       <Toaster />
       {/* Iter 212m-148 — Global FixJob provider owns the SSE so the
           job survives panel toggles, route changes, and backdrop
