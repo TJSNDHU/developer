@@ -1,0 +1,56 @@
+[
+ {
+  "label": "council-B-analyze-sse",
+  "frames": {},
+  "council": null,
+  "provider": null,
+  "http": 200,
+  "ttfb_s": null,
+  "total_s": 125.7,
+  "content_len": 0
+ },
+ {
+  "label": "ask-advisor-sse",
+  "frames": {
+   "?": 163,
+   "mode": 1,
+   "step": 27,
+   "intent": 1
+  },
+  "council": null,
+  "provider": null,
+  "http": 200,
+  "steps": [
+   "\ud83e\udd14 Thinking\u2026",
+   "\ud83e\udd14 Thinking\u2026",
+   "\ud83d\udcd6 Searching repo\u2026",
+   "\ud83e\udd14 Thinking\u2026",
+   "\ud83d\udcd6 Searching repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\u2699\ufe0f Running get_repo_structure\u2026",
+   "\ud83d\udcd6 Reading repo\u2026",
+   "\ud83d\udcd6 Reading repo\u2026"
+  ],
+  "ttfb_s": 70.5,
+  "total_s": 70.5,
+  "content_len": 0
+ }
+]

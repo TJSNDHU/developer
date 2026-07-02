@@ -1,0 +1,118 @@
+{
+ "results": [
+  {
+   "tool": "list_projects",
+   "ms": 1126,
+   "http": 200,
+   "error": null,
+   "is_error": false,
+   "content_head": "{\"projects\": [{\"project_id\": \"p_c2b5b8a916\", \"name\": \"automation\", \"github_owner\": \"TJSNDHU\", \"github_repo\": \"Aurem\", \"branch\": \"main\", \"tasks_count\": 0, \"last_task\": 1782591340.5643218, \"created_at\": 1780182072.1722822}], \"count\": 1}",
+   "content_len": 234
+  },
+  {
+   "tool": "read_repo_file",
+   "ms": 1397,
+   "http": 200,
+   "error": {
+    "code": -32602,
+    "message": "`file_path` is required"
+   },
+   "is_error": true,
+   "content_head": "",
+   "content_len": 0
+  },
+  {
+   "tool": "list_repo_files",
+   "ms": 2053,
+   "http": 200,
+   "error": null,
+   "is_error": false,
+   "content_head": "{\"project_id\": \"p_c2b5b8a916\", \"path\": \"\", \"entries\": []}",
+   "content_len": 57
+  },
+  {
+   "tool": "search_repo",
+   "ms": 1322,
+   "http": 200,
+   "error": {
+    "code": -32002,
+    "message": "Tool execution failed: RuntimeError: Missing required arg `pattern`"
+   },
+   "is_error": true,
+   "content_head": "",
+   "content_len": 0
+  },
+  {
+   "tool": "get_repo_structure",
+   "ms": 1681,
+   "http": 200,
+   "error": null,
+   "is_error": false,
+   "content_head": "{\"project_id\": \"p_c2b5b8a916\", \"tree\": [], \"total_files\": null, \"languages\": {}}",
+   "content_len": 80
+  },
+  {
+   "tool": "run_vanguard_scan",
+   "ms": 2169,
+   "http": 200,
+   "error": null,
+   "is_error": false,
+   "content_head": "{\"scan_id\": \"vg_NQ5WwSmw0Ngj1Pb8\", \"project_id\": \"p_c2b5b8a916\", \"status\": \"pending\", \"poll_with\": \"get_scan_status\", \"note\": \"Scan started in background \u2014 poll get_scan_status for results.\"}",
+   "content_len": 191
+  }
+ ],
+ "scan_id": "vg_NQ5WwSmw0Ngj1Pb8",
+ "schemas": {
+  "list_projects": [
+   "limit"
+  ],
+  "read_repo_file": [
+   "project_id",
+   "file_path"
+  ],
+  "list_repo_files": [
+   "project_id",
+   "path"
+  ],
+  "search_repo": [
+   "project_id",
+   "query",
+   "max_results"
+  ],
+  "get_repo_structure": [
+   "project_id",
+   "max_depth"
+  ],
+  "ship_code": [
+   "project_id",
+   "task",
+   "maxx_mode"
+  ],
+  "get_task_status": [
+   "task_id"
+  ],
+  "write_repo_file": [
+   "project_id",
+   "file_path",
+   "content",
+   "commit_message"
+  ],
+  "run_vanguard_scan": [
+   "project_id",
+   "max_files"
+  ],
+  "get_scan_status": [
+   "scan_id"
+  ],
+  "get_repo_health": [
+   "project_id"
+  ],
+  "get_recent_commits": [
+   "project_id",
+   "limit"
+  ],
+  "get_project_info": [
+   "project_id"
+  ]
+ }
+}

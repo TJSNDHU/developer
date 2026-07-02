@@ -1,0 +1,35 @@
+[
+ {
+  "label": "council-B-analyze",
+  "expect_council": "B",
+  "error": "Expecting value: line 1 column 1 (char 0)",
+  "time_s": 125.2
+ },
+ {
+  "label": "council-C-contributing",
+  "expect_council": "C",
+  "http": 200,
+  "time_s": 73.0,
+  "council": "A",
+  "task_type": null,
+  "provider": "longcat-2.0",
+  "iterations": 2,
+  "content_head": "The write failed due to the GitHub PAT being rejected (401). Here's the complete file \u2014 you can commit it manually or refresh the PAT and I'll ship it.\n\n```markdown\n# Contributing to AUREM\n\nThanks for"
+ },
+ {
+  "label": "council-A-validation",
+  "expect_council": "A",
+  "http": 200,
+  "time_s": 36.7,
+  "council": "A",
+  "task_type": null,
+  "provider": "glm-5.2",
+  "iterations": 4,
+  "content_head": "I ran out of time on this broad task before I could ship a fix.\n\n**Files I read:** `backend/routers/bin_auth_router.py`, `backend/routers/biometric_auth.py`, `backend/routers/google_oauth_router.py` ("
+ },
+ {
+  "label": "ask-advisor",
+  "error": "Expecting value: line 1 column 1 (char 0)",
+  "time_s": 125.3
+ }
+]

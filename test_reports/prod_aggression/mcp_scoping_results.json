@@ -1,0 +1,103 @@
+[
+ {
+  "test": "initialize",
+  "ms": 185,
+  "http": 200,
+  "ok": true,
+  "server": {
+   "name": "ORA by Aurem CTO",
+   "version": "1.0.0"
+  }
+ },
+ {
+  "test": "tools/list baseline",
+  "ms": 141,
+  "http": 200,
+  "count": 7,
+  "tools": [
+   "list_projects",
+   "ship_code",
+   "get_recent_commits",
+   "read_repo_file",
+   "list_repo_files",
+   "search_repo",
+   "get_repo_structure"
+  ],
+  "meta": {
+   "scoped": true,
+   "source": "default",
+   "count": 7,
+   "total": 13,
+   "session_id": "qa-baseline-1"
+  }
+ },
+ {
+  "test": "tools/list scoped: 'read the auth file'",
+  "expect_group": "read",
+  "ms": 2167,
+  "http": 200,
+  "count": 7,
+  "tools": [
+   "list_projects",
+   "get_recent_commits",
+   "read_repo_file",
+   "list_repo_files",
+   "search_repo",
+   "get_repo_structure",
+   "get_project_info"
+  ],
+  "meta": {
+   "scoped": true,
+   "source": "context",
+   "count": 7,
+   "total": 13,
+   "session_id": "qa-scope-read"
+  },
+  "cap_ok": true
+ },
+ {
+  "test": "tools/list scoped: 'fix the login bug'",
+  "expect_group": "write",
+  "ms": 1480,
+  "http": 200,
+  "count": 7,
+  "tools": [
+   "list_projects",
+   "ship_code",
+   "get_task_status",
+   "write_repo_file",
+   "run_vanguard_scan",
+   "get_scan_status",
+   "get_repo_health"
+  ],
+  "meta": {
+   "scoped": true,
+   "source": "context",
+   "count": 7,
+   "total": 13,
+   "session_id": "qa-scope-write"
+  },
+  "cap_ok": true
+ },
+ {
+  "test": "tools/list scoped: 'run a security scan'",
+  "expect_group": "security",
+  "ms": 1149,
+  "http": 200,
+  "count": 4,
+  "tools": [
+   "list_projects",
+   "run_vanguard_scan",
+   "get_scan_status",
+   "get_repo_health"
+  ],
+  "meta": {
+   "scoped": true,
+   "source": "context",
+   "count": 4,
+   "total": 13,
+   "session_id": "qa-scope-security"
+  },
+  "cap_ok": true
+ }
+]

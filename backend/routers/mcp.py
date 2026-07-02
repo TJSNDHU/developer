@@ -725,7 +725,9 @@ async def _tool_list_repo_files(user_id: str, args: dict) -> dict:
     return {
         "project_id": project_id,
         "path":       path,
-        "entries":    r.get("entries") or r.get("files") or [],
+        "entries":    r.get("tree") or [],
+        "total":      r.get("total"),
+        "truncated":  bool(r.get("truncated")),
     }
 
 
@@ -740,13 +742,13 @@ async def _tool_search_repo(user_id: str, args: dict) -> dict:
         raise ValueError("`query` must be at least 3 characters")
     ctx = await _mcp_ctx_for(user_id, project_id)
     from services.local_tools import search_repo
-    r = await search_repo(ctx, {"query": query, "max_results": max_results})
+    r = await search_repo(ctx, {"pattern": query, "max": max_results})
     if not r.get("ok", True):
         raise RuntimeError(r.get("error") or "search_repo failed")
     return {
         "project_id": project_id, "query": query,
         "matches":    r.get("matches") or [],
-        "count":      len(r.get("matches") or []),
+        "count":      r.get("total_matches") or len(r.get("matches") or []),
     }
 
 
@@ -824,7 +826,7 @@ async def _execute_vanguard_scan(scan_id: str, ctx: dict, max_files: int) -> Non
         bin_ctx = ctx["bin_ctx"]
         owner   = bin_ctx.repo_owner
         repo    = bin_ctx.repo_name
-        branch  = bin_ctx.repo_branch or "main"
+        branch  = bin_ctx.branch or "main"
         token   = bin_ctx.pat
         headers = {
             "Accept":               "application/vnd.github+json",
@@ -992,9 +994,9 @@ async def _tool_get_repo_structure(user_id: str, args: dict) -> dict:
         raise RuntimeError(r.get("error") or "get_repo_structure failed")
     return {
         "project_id":   project_id,
-        "tree":         r.get("tree") or r.get("structure") or [],
-        "total_files":  r.get("total_files") or r.get("file_count"),
-        "languages":    r.get("languages") or {},
+        "symbols":      r.get("symbols") or {},
+        "files_cached": r.get("files_cached", 0),
+        "hint":         r.get("hint"),
     }
 
 

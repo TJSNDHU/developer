@@ -271,7 +271,10 @@ async def pause_response(loop_id: str, body: PauseResponseBody,
     elif body.action in ("retry", "skip"):
         # Phase C implements true retry/skip semantics; Phase B simply
         # resumes the pipeline from the next phase.
-        engine.state = eng.LoopState.EXECUTING
+        # Iter 212m-176 — confirm() guards on AWAITING_CONFIRMATION and
+        # raised ValueError when we pre-set EXECUTING (every retry/skip
+        # 499'd in PROD). Set the state confirm() expects instead.
+        engine.state = eng.LoopState.AWAITING_CONFIRMATION
         await engine.confirm(True, feedback=f"resume:{body.action}")
     return {
         "loop_id": loop_id,

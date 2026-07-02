@@ -1,0 +1,62 @@
+[
+ {
+  "combo": "prompt+swift",
+  "chat": {
+   "http": 200,
+   "time_s": 18.1,
+   "provider": "longcat-2.0",
+   "council": "A",
+   "task_type": null,
+   "iterations": 2,
+   "content_head": "The `get_current_user` function at `backend/utils/auth.py` already has a one-line docstring. I'll replace it with a proper detailed docstring covering parameters, return values, and behaviour.\n\n```aur"
+  },
+  "task": {
+   "task_id": "t_08ef809ea6d5",
+   "time_s": 26.7,
+   "status": "failed",
+   "commit_sha": null,
+   "error": "Vanguard verify agent blocked commit:\nregex: pass (0 findings) | verify-agent (anthropic/claude-sonnet-4.5, swift/CRITICAL): BLOCK (2 findings, 1 \u2265CRITICAL) | e2b: pass",
+   "maxx_mode": false
+  }
+ },
+ {
+  "combo": "prompt+pro",
+  "chat": {
+   "http": 200,
+   "time_s": 119.1,
+   "provider": "longcat-2.0",
+   "council": "A",
+   "task_type": null,
+   "iterations": 2,
+   "content_head": ""
+  },
+  "task": {
+   "task_id": "t_3eb2596f6779",
+   "time_s": 10.9,
+   "status": "done",
+   "commit_sha": null,
+   "error": null,
+   "maxx_mode": false
+  }
+ },
+ {
+  "combo": "prompt+maxx",
+  "chat": {
+   "http": 200,
+   "time_s": 52.2,
+   "provider": "longcat-2.0+claude-review",
+   "council": "A",
+   "task_type": null,
+   "iterations": 2,
+   "content_head": "The function at `backend/utils/auth.py` already has a one-liner docstring. I'll expand it into a proper docstring covering parameters, return value, and behaviour.\n\n```aurem-handoff\nIn `backend/utils/"
+  },
+  "task": {
+   "task_id": "t_6a80352bb0b3",
+   "time_s": 31.3,
+   "status": "failed",
+   "commit_sha": null,
+   "error": "Vanguard verify agent blocked commit:\nregex: pass (0 findings) | verify-agent (anthropic/claude-sonnet-4.5, maxx/CRITICAL): BLOCK (3 findings, 2 \u2265CRITICAL) | e2b: pass",
+   "maxx_mode": true
+  }
+ }
+]

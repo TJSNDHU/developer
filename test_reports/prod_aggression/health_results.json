@@ -1,0 +1,25 @@
+{
+ "health_scan": {
+  "http": 200,
+  "time_s": 17.4,
+  "keys": [
+   "ok",
+   "score",
+   "label",
+   "tone",
+   "total",
+   "scanned_files",
+   "summary",
+   "breakdown",
+   "scan_remaining"
+  ],
+  "score": null,
+  "head": "{\"ok\": true, \"score\": 0, \"label\": \"CRITICAL RISK\", \"tone\": \"critical\", \"total\": 144, \"scanned_files\": 599, \"summary\": \"144 issues found across 6 categories \\u2014 9 critical.\", \"breakdown\": {\"security\": {\"score\": 1, \"counts\": {\"critical\": 9, \"high\": 8, \"medium\": 0, \"low\": 0, \"info\": 0}, \"total\": 17, \"findings\": [{\"id\": \"sec::.agent/skills/apps/web-app/src/__tests__/refresh-skills-plugin.security.test.js:141:token_assignment\", \"category\": \"security\", \"severity\": \"critical\", \"file\": \".agent/skills/apps/web-app/src/__tests__/refresh-skills-plugin.security.test.js\", \"line\": 141, \"title\": \"token_assignment\", \"message\": \"process.env.SKILLS_REFRESH_TOKEN = 'super-secret-token';\", \"fix_hint\": \"Apply"
+ },
+ "health_last": {
+  "http": 200,
+  "time_s": 0.2,
+  "score": null,
+  "head": "{\"ok\": true, \"score\": 0, \"label\": \"CRITICAL RISK\", \"tone\": \"critical\", \"total\": 144, \"scanned_files\": 599, \"summary\": \"144 issues found across 6 categories \\u2014 9 critical.\", \"categories\": [\"security\", \"performance\", \"code_quality\", \"dependencies\", \"database\", \"bug_hunt\"], \"created_at\": 1782965443.9161074}"
+ }
+}
