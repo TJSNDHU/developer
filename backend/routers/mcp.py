@@ -62,13 +62,17 @@ _RPC_TOOL_FAILED      = -32002
 
 
 # ── Tool schemas ──────────────────────────────────────────────────────
+# Iter 212m-175 — descriptions rewritten to strict 3-part format
+# (what it does + when to use + what it returns). Per paper Section
+# VIII-B, description quality — NOT filtering — is the dominant driver
+# of tool-selection accuracy at the LLM boundary.
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_projects",
         "description": (
-            "List all ORA by Aurem CTO projects owned by the authenticated user. "
-            "Returns project_id, name, GitHub owner/repo, branch, task "
-            "count, and last-task timestamp."
+            "List all connected GitHub repos for the authenticated user. "
+            "Use to see or switch projects. "
+            "Returns project IDs, names, and repo names."
         ),
         "inputSchema": {
             "type": "object",
@@ -96,10 +100,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "ship_code",
         "description": (
-            "Queue a code-change task on the ORA by Aurem CTO worker (Mode C). "
-            "ORA will read the connected GitHub repo, plan the edit, "
-            "implement, run security scans, and commit directly to the "
-            "project's branch. Returns the task_id for polling."
+            "Submit changes through ORA's security scan + commit pipeline. "
+            "Use for production-ready changes needing verification. "
+            "Returns task ID (poll with get_task_status)."
         ),
         "inputSchema": {
             "type": "object",
@@ -139,10 +142,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_task_status",
         "description": (
-            "Fetch the live status of a previously-queued ship task. "
-            "Returns status (queued|reading|thinking|writing|committing"
-            "|done|failed), commit SHA when shipped, error text when "
-            "failed, and the list of step events."
+            "Check status of a task or Loop run. "
+            "Use after ship_code to confirm completion. "
+            "Returns state, phase, and commit SHA when shipped."
         ),
         "inputSchema": {
             "type": "object",
@@ -165,9 +167,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_recent_commits",
         "description": (
-            "Fetch the most recent commits from the project's connected "
-            "GitHub repo at the pinned branch. Returns commit SHA, "
-            "author, message, and timestamp."
+            "Get recent commit history from the project's GitHub repo. "
+            "Use to verify a ship or review changes. "
+            "Returns SHA, message, author, and timestamp."
         ),
         "inputSchema": {
             "type": "object",
@@ -197,10 +199,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_repo_file",
         "description": (
-            "Read the full contents of a file from the project's "
-            "connected GitHub repo at the pinned branch. Uses the "
-            "project's per-user encrypted PAT — never leaks repo access "
-            "across users."
+            "Read full contents of one file in the connected repo. "
+            "Use when you need to see actual code. "
+            "Returns file text and SHA."
         ),
         "inputSchema": {
             "type": "object",
@@ -225,8 +226,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_repo_files",
         "description": (
-            "List files and directories at a given path in the "
-            "project's repo (single-level; use path='' for the root). "
+            "List files and folders at a path in the connected repo "
+            "(single-level; empty path = repo root). "
+            "Use to explore structure or locate a file. "
             "Returns names, paths, and file/dir type."
         ),
         "inputSchema": {
@@ -252,9 +254,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_repo",
         "description": (
-            "Search the connected repo for occurrences of a query "
-            "string (case-insensitive, whole-word by default). Returns "
-            "matching file paths + line numbers + snippets."
+            "Search the repo code by keyword or concept "
+            "(case-insensitive, whole-word by default). "
+            "Use to find where something is implemented. "
+            "Returns files, line numbers, and matching snippets."
         ),
         "inputSchema": {
             "type": "object",
@@ -286,10 +289,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "write_repo_file",
         "description": (
-            "Commit a single file's full contents to the project's "
-            "connected repo at the pinned branch. Vanguard REGEX scan "
-            "runs first; CRITICAL findings block the write. Returns "
-            "the commit SHA + html URL on success."
+            "Write or update a file and create a GitHub commit. "
+            "Use only when changing code. "
+            "Returns commit SHA on success (blocks on CRITICAL Vanguard findings)."
         ),
         "inputSchema": {
             "type": "object",
@@ -324,10 +326,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "run_vanguard_scan",
         "description": (
-            "Trigger a Vanguard security scan on the connected repo. "
-            "Scans every text file with the Vanguard regex ruleset "
-            "(secrets, dangerous patterns, insecure defaults). Returns "
-            "score, critical count, and top findings."
+            "Run a 25-pattern Vanguard security scan on the connected repo. "
+            "Use before shipping or when checking vulnerabilities. "
+            "Returns scan_id in <1s (async — poll get_scan_status)."
         ),
         "inputSchema": {
             "type": "object",
@@ -351,12 +352,37 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_scan_status",
+        "description": (
+            "Fetch the result of an async Vanguard scan by scan_id. "
+            "Use to poll after run_vanguard_scan. "
+            "Returns status (pending|running|done|failed) and full results when done."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scan_id": {
+                    "type":        "string",
+                    "description": "The scan_id returned by run_vanguard_scan.",
+                    "minLength":   4,
+                    "maxLength":   80,
+                },
+            },
+            "required": ["scan_id"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "Get Scan Status",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
+    {
         "name": "get_repo_health",
         "description": (
-            "Fetch the latest saved codebase-health scan for this "
-            "project (score, label, issue counts, top findings). "
-            "Returns {'ok': false, 'reason': 'no_scan'} when no scan "
-            "has ever been run on this project."
+            "Get the latest cached codebase-health score without running a new scan. "
+            "Use to view the current overall health of the project. "
+            "Returns score, label, and top findings (or ok=false when no scan exists)."
         ),
         "inputSchema": {
             "type": "object",
@@ -375,9 +401,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_repo_structure",
         "description": (
-            "Return the full recursive repo tree (paths, file sizes, "
-            "detected languages, total file count). Useful for orienting "
-            "the LLM before deeper reads."
+            "Get the top-level directory tree of the connected repo. "
+            "Use before reading files to understand layout. "
+            "Returns tree, file counts, and detected languages."
         ),
         "inputSchema": {
             "type": "object",
@@ -403,10 +429,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_project_info",
         "description": (
-            "Return metadata for a single project — GitHub owner/repo, "
-            "branch, health score, task counts, and connection state. "
-            "Faster than list_projects when the client already knows "
-            "the project_id."
+            "Get metadata for one project — owner/repo, branch, health, and task counts. "
+            "Use when the client already knows the project_id (faster than list_projects). "
+            "Returns project metadata + connection state."
         ),
         "inputSchema": {
             "type": "object",
@@ -673,9 +698,14 @@ async def _tool_read_repo_file(user_id: str, args: dict) -> dict:
     r = await read_repo_file(ctx, {"path": file_path})
     if not r.get("ok", True):
         raise RuntimeError(r.get("error") or "read_repo_file failed")
+    # Iter 212m-175 — sanitise before returning to the LLM. Any line
+    # containing a known prompt-injection tripwire is redacted so a
+    # malicious file cannot rewrite the LLM's instructions via
+    # tools/call output.
+    from services.mcp_scoped_tools import sanitize_for_llm
     return {
         "project_id": project_id, "file_path": file_path,
-        "content":    r.get("content"),
+        "content":    sanitize_for_llm(r.get("content") or ""),
         "size":       r.get("size"),
         "sha":        r.get("sha"),
         "encoding":   r.get("encoding", "utf-8"),
@@ -747,121 +777,166 @@ async def _tool_write_repo_file(user_id: str, args: dict) -> dict:
 
 
 async def _tool_run_vanguard_scan(user_id: str, args: dict) -> dict:
-    """Run a live Vanguard scan on the project's repo.
+    """Enqueue an async Vanguard scan.
 
-    Uses the same tree-fetch + regex ruleset the /security-scan/run
-    admin endpoint uses, but scoped to the user's OWN project via
-    BINContext (no admin gate — the user is only ever able to scan
-    their own repo).  Caps files scanned to keep latency bounded on
-    a synchronous MCP call.
+    Iter 212m-175 — this tool used to block the MCP client for 30-90 s
+    while it fetched the entire repo, ran regex scans, and returned
+    the full findings. That violates the paper's Anti-pattern C: an
+    MCP tool should return in <1 s or provide a poll handle. We now
+    kick off the scan in `asyncio.create_task` and return the scan_id
+    immediately. The client polls `get_scan_status(scan_id)` for the
+    result — same information, non-blocking transport.
     """
     project_id = (args.get("project_id") or "").strip()
     max_files  = int(args.get("max_files") or 150)
     max_files  = max(1, min(500, max_files))
     if not project_id:
         raise ValueError("`project_id` is required")
-
+    # Ownership check up front — surfaces the auth error to the caller
+    # synchronously instead of hiding it inside the background task.
     ctx = await _mcp_ctx_for(user_id, project_id)
-    bin_ctx = ctx["bin_ctx"]
-    owner = bin_ctx.repo_owner
-    repo  = bin_ctx.repo_name
-    branch = bin_ctx.repo_branch or "main"
-    token  = bin_ctx.pat
 
-    from services.vanguard_scanner import scan_file_blocks
+    import secrets
+    from services.mcp_scoped_tools import register_scan
+    scan_id = f"vg_{secrets.token_urlsafe(12)}"
+    register_scan(scan_id, user_id, project_id)
 
-    headers = {
-        "Accept":               "application/vnd.github+json",
-        "Authorization":        f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    # 1. Fetch the repo tree at the pinned branch.
-    async with httpx.AsyncClient(timeout=25.0) as c:
-        tr = await c.get(
-            f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
-            f"{branch}?recursive=1",
-            headers=headers,
-        )
-        if tr.status_code != 200:
-            raise RuntimeError(
-                f"GitHub tree fetch failed (HTTP {tr.status_code})"
-            )
-        entries = (tr.json() or {}).get("tree") or []
-        # Only real text-ish files under 100KB.
-        text_exts = {
-            ".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yml", ".yaml",
-            ".toml", ".env", ".md", ".txt", ".sh", ".html", ".css", ".sql",
-        }
-        picks = []
-        for e in entries:
-            if e.get("type") != "blob":
-                continue
-            p = e.get("path") or ""
-            if any(p.endswith(x) for x in text_exts):
-                if int(e.get("size") or 0) < 100_000:
-                    picks.append(p)
-            if len(picks) >= max_files:
-                break
-
-        # 2. Fetch file contents in parallel batches.
-        blocks: dict[str, str] = {}
-        import asyncio as _asyncio
-        async def _fetch(p: str) -> tuple[str, str]:
-            try:
-                r = await c.get(
-                    f"https://api.github.com/repos/{owner}/{repo}/contents/{p}"
-                    f"?ref={branch}",
-                    headers=headers,
-                )
-                if r.status_code != 200:
-                    return (p, "")
-                j = r.json() or {}
-                if j.get("encoding") == "base64":
-                    import base64
-                    return (
-                        p,
-                        base64.b64decode(j.get("content", ""))
-                        .decode("utf-8", errors="ignore"),
-                    )
-            except Exception:
-                pass
-            return (p, "")
-
-        # Batch 20 at a time — avoid GitHub 429.
-        for i in range(0, len(picks), 20):
-            batch = picks[i:i + 20]
-            results = await _asyncio.gather(*(_fetch(p) for p in batch))
-            for p, body in results:
-                if body:
-                    blocks[p] = body
-
-    # 3. Scan.
-    findings = scan_file_blocks(blocks)
-    critical = [f for f in findings if str(f.get("severity", "")).lower() == "critical"]
-    high     = [f for f in findings if str(f.get("severity", "")).lower() == "high"]
-    medium   = [f for f in findings if str(f.get("severity", "")).lower() == "medium"]
-
-    # Score: 100 – (10 * critical) – (5 * high) – (1 * medium), floor 0.
-    raw_score = 100 - (10 * len(critical)) - (5 * len(high)) - len(medium)
-    score = max(0, min(100, raw_score))
-    label = "excellent" if score >= 90 else "good" if score >= 70 else "warn" if score >= 40 else "critical"
+    import asyncio as _asyncio
+    _asyncio.create_task(_execute_vanguard_scan(scan_id, ctx, max_files))
 
     return {
-        "project_id":     project_id,
-        "score":          score,
-        "label":          label,
-        "files_scanned":  len(blocks),
-        "critical_count": len(critical),
-        "high_count":     len(high),
-        "medium_count":   len(medium),
-        # Top 10 findings (highest severity first) so the RPC response stays small.
-        "top_findings":   sorted(
-            findings,
-            key=lambda f: {"critical": 0, "high": 1, "medium": 2}.get(
-                str(f.get("severity", "")).lower(), 3
-            ),
-        )[:10],
+        "scan_id":    scan_id,
+        "project_id": project_id,
+        "status":     "pending",
+        "poll_with":  "get_scan_status",
+        "note":       "Scan started in background — poll get_scan_status for results.",
     }
+
+
+async def _execute_vanguard_scan(scan_id: str, ctx: dict, max_files: int) -> None:
+    """Background worker for run_vanguard_scan. Runs the same fetch +
+    scan pipeline the old synchronous tool used, then persists the
+    result into the in-memory scan tracker."""
+    from services.mcp_scoped_tools import update_scan
+    from services.vanguard_scanner import scan_file_blocks
+    update_scan(scan_id, status="running")
+    try:
+        bin_ctx = ctx["bin_ctx"]
+        owner   = bin_ctx.repo_owner
+        repo    = bin_ctx.repo_name
+        branch  = bin_ctx.repo_branch or "main"
+        token   = bin_ctx.pat
+        headers = {
+            "Accept":               "application/vnd.github+json",
+            "Authorization":        f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        async with httpx.AsyncClient(timeout=25.0) as c:
+            tr = await c.get(
+                f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
+                f"{branch}?recursive=1",
+                headers=headers,
+            )
+            if tr.status_code != 200:
+                raise RuntimeError(
+                    f"GitHub tree fetch failed (HTTP {tr.status_code})"
+                )
+            entries = (tr.json() or {}).get("tree") or []
+            text_exts = {
+                ".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yml", ".yaml",
+                ".toml", ".env", ".md", ".txt", ".sh", ".html", ".css", ".sql",
+            }
+            picks = []
+            for e in entries:
+                if e.get("type") != "blob":
+                    continue
+                p = e.get("path") or ""
+                if any(p.endswith(x) for x in text_exts):
+                    if int(e.get("size") or 0) < 100_000:
+                        picks.append(p)
+                if len(picks) >= max_files:
+                    break
+
+            blocks: dict[str, str] = {}
+            import asyncio as _asyncio
+
+            async def _fetch(p: str) -> tuple[str, str]:
+                try:
+                    r = await c.get(
+                        f"https://api.github.com/repos/{owner}/{repo}/contents/{p}"
+                        f"?ref={branch}",
+                        headers=headers,
+                    )
+                    if r.status_code != 200:
+                        return (p, "")
+                    j = r.json() or {}
+                    if j.get("encoding") == "base64":
+                        import base64
+                        return (
+                            p,
+                            base64.b64decode(j.get("content", ""))
+                            .decode("utf-8", errors="ignore"),
+                        )
+                except Exception:
+                    pass
+                return (p, "")
+
+            for i in range(0, len(picks), 20):
+                batch = picks[i:i + 20]
+                results = await _asyncio.gather(*(_fetch(p) for p in batch))
+                for p, body in results:
+                    if body:
+                        blocks[p] = body
+
+        findings = scan_file_blocks(blocks)
+        critical = [f for f in findings if str(f.get("severity", "")).lower() == "critical"]
+        high     = [f for f in findings if str(f.get("severity", "")).lower() == "high"]
+        medium   = [f for f in findings if str(f.get("severity", "")).lower() == "medium"]
+
+        raw_score = 100 - (10 * len(critical)) - (5 * len(high)) - len(medium)
+        score = max(0, min(100, raw_score))
+        label = (
+            "excellent" if score >= 90 else
+            "good"      if score >= 70 else
+            "warn"      if score >= 40 else
+            "critical"
+        )
+        update_scan(
+            scan_id,
+            status="done",
+            results={
+                "score":          score,
+                "label":          label,
+                "files_scanned":  len(blocks),
+                "critical_count": len(critical),
+                "high_count":     len(high),
+                "medium_count":   len(medium),
+                "top_findings":   sorted(
+                    findings,
+                    key=lambda f: {"critical": 0, "high": 1, "medium": 2}.get(
+                        str(f.get("severity", "")).lower(), 3
+                    ),
+                )[:10],
+            },
+        )
+    except Exception as e:
+        logger.exception(f"[mcp] vanguard scan {scan_id} failed: {e}")
+        update_scan(scan_id, status="failed", error=str(e))
+
+
+async def _tool_get_scan_status(user_id: str, args: dict) -> dict:
+    """Poll the async Vanguard scan started by run_vanguard_scan.
+
+    Ownership is enforced inside `get_scan()` — a user cannot poll
+    another user's scan_id even if they somehow guess it."""
+    scan_id = (args.get("scan_id") or "").strip()
+    if len(scan_id) < 4:
+        raise ValueError("`scan_id` is required (min 4 chars)")
+    from services.mcp_scoped_tools import get_scan
+    scan = get_scan(scan_id, user_id)
+    if not scan:
+        raise RuntimeError(f"Scan not found: {scan_id}")
+    return scan
 
 
 async def _tool_get_repo_health(user_id: str, args: dict) -> dict:
@@ -979,6 +1054,7 @@ _TOOL_DISPATCH = {
     "search_repo":         _tool_search_repo,
     "write_repo_file":     _tool_write_repo_file,
     "run_vanguard_scan":   _tool_run_vanguard_scan,
+    "get_scan_status":     _tool_get_scan_status,
     "get_repo_health":     _tool_get_repo_health,
     "get_repo_structure":  _tool_get_repo_structure,
     "get_project_info":    _tool_get_project_info,
@@ -1067,11 +1143,16 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 async def mcp_rpc(
     request: Request,
     authorization: Optional[str] = Header(None),
+    mcp_session_id: Optional[str] = Header(None, alias="Mcp-Session-Id"),
 ) -> JSONResponse:
     """POST /mcp — JSON-RPC 2.0 dispatch.
 
     Supported methods:
         initialize, tools/list, tools/call
+
+    Iter 212m-175 — `Mcp-Session-Id` (spec 2025-03-26) is now
+    consumed by tools/list + tools/call to drive per-session scoped
+    tool exposure (max 7 tools per client per response).
     """
     try:
         body = await request.json()
@@ -1090,17 +1171,21 @@ async def mcp_rpc(
                 _rpc_err(None, _RPC_INVALID_REQUEST, "Empty batch"),
                 status_code=400,
             )
-        out = [await _handle_one(req, authorization) for req in body]
+        out = [await _handle_one(req, authorization, mcp_session_id) for req in body]
         return JSONResponse(out)
     if not isinstance(body, dict):
         return JSONResponse(
             _rpc_err(None, _RPC_INVALID_REQUEST, "Body must be an object or array"),
             status_code=400,
         )
-    return JSONResponse(await _handle_one(body, authorization))
+    return JSONResponse(await _handle_one(body, authorization, mcp_session_id))
 
 
-async def _handle_one(req: dict, authorization: Optional[str]) -> dict:
+async def _handle_one(
+    req: dict,
+    authorization: Optional[str],
+    mcp_session_id: Optional[str] = None,
+) -> dict:
     req_id = req.get("id")
     if req.get("jsonrpc") != "2.0":
         return _rpc_err(req_id, _RPC_INVALID_REQUEST, "jsonrpc must be '2.0'")
@@ -1119,8 +1204,57 @@ async def _handle_one(req: dict, authorization: Optional[str]) -> dict:
     if err:
         return _rpc_err(req_id, err["code"], err["message"])
 
+    # Iter 212m-175 — synthesise a session id when the client doesn't
+    # send one (older MCP clients). We namespace on user_id so two
+    # unauthenticated sessions from the same user share cache, but
+    # cross-user leakage is impossible.
+    session_key = (mcp_session_id or f"user:{me['user_id']}").strip() or None
+
     if method == "tools/list":
-        return _rpc_ok(req_id, {"tools": TOOLS})
+        # Scoping resolution order (paper VIII-A + step-4 spec):
+        #   1. explicit `context`/`query` param → classify & scope
+        #   2. session cache from a prior tools/call → replay
+        #   3. smart default (read + project + ship_code = 7 tools)
+        from services.mcp_scoped_tools import (
+            get_scoped_tools,
+            get_session_tools,
+            get_smart_default_tools,
+        )
+        context_hint = None
+        if isinstance(params, dict):
+            for k in ("context", "query", "hint"):
+                v = params.get(k)
+                if isinstance(v, str) and v.strip():
+                    context_hint = v.strip()
+                    break
+
+        chosen: list[dict]
+        source: str
+        if context_hint:
+            chosen = await get_scoped_tools(context_hint, TOOLS)
+            source = "context"
+        else:
+            cached = get_session_tools(session_key or "", TOOLS)
+            if cached is not None:
+                chosen = cached
+                source = "session"
+            else:
+                chosen = get_smart_default_tools(TOOLS)
+                source = "default"
+
+        return _rpc_ok(req_id, {
+            "tools": chosen,
+            # Non-spec debug fields — MCP allows additional properties
+            # on tools/list result. Clients ignore them; tests and
+            # /diag endpoints use them to observe scoping behaviour.
+            "_meta": {
+                "scoped":     True,
+                "source":     source,
+                "count":      len(chosen),
+                "total":      len(TOOLS),
+                "session_id": session_key,
+            },
+        })
 
     if method == "tools/call":
         name = params.get("name")
@@ -1137,6 +1271,17 @@ async def _handle_one(req: dict, authorization: Optional[str]) -> dict:
             )
         try:
             t0 = time.monotonic()
+            # Iter 212m-175 — populate SESSION_TOOL_CACHE from the
+            # call's arguments BEFORE dispatch so a slow tool doesn't
+            # delay the classification write. Errors are swallowed so
+            # a classifier hiccup can never fail an otherwise-valid
+            # tool call.
+            try:
+                from services.mcp_scoped_tools import update_session_from_call
+                await update_session_from_call(session_key or "", name, args)
+            except Exception as e:
+                logger.debug("mcp session-cache update failed: %r", e)
+
             result = await _TOOL_DISPATCH[name](me["user_id"], args)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             return _rpc_ok(req_id, {

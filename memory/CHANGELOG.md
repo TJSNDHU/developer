@@ -4,6 +4,35 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 212m-175 — MCP Scoped Tool Filtering
+
+- **New:** `services/mcp_scoped_tools.py` — TOOL_GROUPS (read/write/security/project),
+  CORE_ALWAYS=[list_projects], MAX_TOOLS=7, sanitize_for_llm, SESSION_TOOL_CACHE.
+- **New:** `core/intent_gateway.classify_llm_json` — public helper reusing
+  services.llm.call_llm (DeepSeek, temp=0.0, 2s timeout, None on any failure).
+- **New tool:** `get_scan_status(scan_id)` — poll async Vanguard results.
+- **Changed:** `run_vanguard_scan` is now async — returns `scan_id` in <1s and runs
+  the actual scan in `asyncio.create_task` (fix paper anti-pattern C).
+- **Changed:** `read_repo_file` output passed through `sanitize_for_llm()` — 6
+  prompt-injection tripwire lines are redacted (fix paper anti-pattern B).
+- **Changed:** All 13 tool descriptions rewritten to 3-part format
+  (what + when + returns) — paper VIII-B: description quality dominates
+  filtering as the accuracy driver.
+- **Changed:** POST `/mcp` tools/list is now scoped (max 7 tools). Resolution
+  order: (a) `params.context/query` hint → classify + scope, (b) `Mcp-Session-Id`
+  header with cached classification → replay, (c) smart default (CORE + read +
+  project + ship_code) = 7 tools. Full 13-tool catalogue still exposed on
+  GET `/mcp` manifest (used by curl + dashboards, not by LLM clients).
+- **Changed:** POST `/mcp` tools/call populates SESSION_TOOL_CACHE by
+  classifying the call's arguments (semantic) and unioning in the tool's own
+  group (deterministic) — so subsequent tools/list in that session become
+  scoped to the user's actual work.
+- **Tests:** `tests/test_iter212m175_mcp_scoped.py` (16 new tests covering
+  all 10 acceptance criteria); updated `test_iter173_mcp_server.py` and
+  `test_iter174_mcp_apikey.py` to assert `<=MAX_TOOLS` instead of `>=12`.
+- **Status:** 72/72 MCP-related tests pass locally.
+
+
 ---
 
 ## Iter 212m-72 — Phase 2 · Codebase Health Dashboard (Feb 27 2026) ✅

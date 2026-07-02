@@ -446,9 +446,82 @@ def classify_heuristic_sync(message: str) -> dict[str, Any]:
     return _classify_heuristic(message)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Iter 212m-175 — Public JSON classifier helper.
+#
+# Exposes the SAME call path `_classify_llm` uses (services.llm →
+# DeepSeek via OpenRouter, temp=0.0, 2 s hard timeout) but returns the
+# raw parsed JSON rather than the tier-shape payload. This lets other
+# modules (services.mcp_scoped_tools first) reuse the exact same LLM
+# transport WITHOUT copy-pasting classifier plumbing.
+# ─────────────────────────────────────────────────────────────────────
+async def classify_llm_json(
+    prompt: str,
+    *,
+    timeout: float = 2.0,
+    max_tokens: int = 30,
+    system: str = "",
+) -> Any:
+    """Generic DeepSeek JSON classifier — returns parsed JSON or None.
+
+    Contract:
+      • Calls services.llm.call_llm with temp=0.0 and a hard timeout.
+      • Attempts direct JSON parse first, then plucks the first {...}
+        or [...] block out of the response.
+      • Returns None on ANY failure (import, timeout, error, parse) so
+        the caller must always supply its own safe default.
+
+    Caller MUST NOT depend on any specific shape — that is the whole
+    point of a generic helper.
+    """
+    import asyncio
+    try:
+        from services.llm import call_llm
+    except Exception as e:
+        logger.debug("classify_llm_json: llm import failed %r", e)
+        return None
+
+    try:
+        raw = await asyncio.wait_for(
+            call_llm(
+                [{"role": "user", "content": prompt}],
+                system=system,
+                max_tokens=max_tokens,
+                temperature=0.0,
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("classify_llm_json: timeout after %.1fs", timeout)
+        return None
+    except Exception as e:
+        logger.warning("classify_llm_json: llm error %r", e)
+        return None
+
+    if not raw:
+        return None
+    text = raw.strip()
+    # Try direct parse first.
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    # Pluck the first array / object.
+    for pat in (r"\[[^\]]*\]", r"\{[^}]*\}"):
+        m = re.search(pat, text)
+        if not m:
+            continue
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            continue
+    return None
+
+
 __all__ = [
     "classify",
     "classify_heuristic_sync",
+    "classify_llm_json",
     "TIER_CASUAL", "TIER_QUERY", "TIER_AGENTIC", "TIER_CLARIFY",
     "VALID_TIERS",
 ]

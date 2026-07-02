@@ -66,8 +66,10 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(data["serverInfo"]["name"], "ORA by Aurem CTO")
         self.assertEqual(data["transport"], "streamable-http")
         names = sorted(t["name"] for t in data["tools"])
-        # Iter 212m-174 — 4 legacy tools + 8 repo-scoped tools = 12.
-        self.assertGreaterEqual(len(names), 12)
+        # Iter 212m-175 — 12 tools + get_scan_status (async poll) = 13.
+        # The GET manifest is the FULL catalogue (used by dashboards +
+        # curl smoke tests); scoping only applies to POST tools/list.
+        self.assertGreaterEqual(len(names), 13)
         legacy = {"list_projects", "ship_code", "get_task_status", "get_recent_commits"}
         self.assertTrue(legacy.issubset(set(names)),
             f"legacy tools missing: {legacy - set(names)}")
@@ -114,8 +116,12 @@ class TestAuthGate(unittest.TestCase):
         )
         d = r.json()
         self.assertNotIn("error", d)
-        # Iter 212m-174 — 12 tools now (was 4).
-        self.assertGreaterEqual(len(d["result"]["tools"]), 12)
+        # Iter 212m-175 — scoped tools/list caps at MAX_TOOLS=7.
+        # A no-context request returns the smart default (read + project
+        # + ship_code) which is exactly 7 tools.
+        from services.mcp_scoped_tools import MAX_TOOLS
+        self.assertLessEqual(len(d["result"]["tools"]), MAX_TOOLS)
+        self.assertGreaterEqual(len(d["result"]["tools"]), 1)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -251,8 +257,9 @@ class TestBatchAndParse(unittest.TestCase):
         self.assertIsInstance(d, list)
         self.assertEqual(len(d), 2)
         self.assertEqual([x["id"] for x in d], [1, 2])
-        # Iter 212m-174 — 12 tools now (was 4).
-        self.assertGreaterEqual(len(d[1]["result"]["tools"]), 12)
+        # Iter 212m-175 — tools/list is scoped to ≤7 tools.
+        from services.mcp_scoped_tools import MAX_TOOLS
+        self.assertLessEqual(len(d[1]["result"]["tools"]), MAX_TOOLS)
 
     def test_invalid_json_returns_parse_error(self):
         client, _ = _client()

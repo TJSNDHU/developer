@@ -232,8 +232,12 @@ class TestApiKeyAuth(unittest.TestCase):
         )
         d = r.json()
         self.assertNotIn("error", d)
-        # Iter 212m-174 — 12 tools now (was 4).
-        self.assertGreaterEqual(len(d["result"]["tools"]), 12)
+        # Iter 212m-175 — tools/list is scoped (max 7); we only assert
+        # that authorisation succeeded and a non-empty tool list came
+        # back. Tool count semantics live in test_iter212m175_mcp_scoped.
+        from services.mcp_scoped_tools import MAX_TOOLS
+        self.assertLessEqual(len(d["result"]["tools"]), MAX_TOOLS)
+        self.assertGreaterEqual(len(d["result"]["tools"]), 1)
 
     def test_revoked_key_rejected_with_rpc_unauthorized(self):
         key = "sk-aurem-revokedkey"
