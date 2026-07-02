@@ -2258,3 +2258,32 @@ Not committed by agent — user needs "Save to Github" to ship 212m-168, -169, -
 
 ---
 
+
+## Iter 212m-179 — Full-repo search + empirical bulk-fix rate-limit cap + prod SSE polling fallback (Jul 2, 2026)
+
+**P0-1 FIXED — `search_repo` full-repo search (founder rejected the 15s/400-file budget hack):**
+- New primary path in `services/local_tools.py`: `_ensure_repo_snapshot()` downloads the ENTIRE repo as ONE GitHub tarball request (`/repos/{o}/{r}/tarball/{sha}`), extracts to `/tmp/aurem_repo_cache/`, cached per HEAD SHA (refresh = 1 ref check). `_search_snapshot_sync()` greps it locally — ripgrep primary, pure-Python walk fallback (prod container has no rg). Unsafe tar members (absolute symlinks) skipped per-member via custom `data_filter` wrapper instead of aborting.
+- Live numbers on TJSNDHU/Aurem (16,542 files): COLD 13.8s (was 79s AND partial), WARM 0.4-0.5s, results 100% complete (`complete: true`, `source: full_repo_snapshot`).
+- Old budgeted per-file API scan kept ONLY as `_search_repo_via_api` fallback (`source: github_api_fallback`).
+- Tests: `tests/test_iter212m179_full_search.py` (6) + updated `test_iter212m178_prod_perf.py` budget tests to force the fallback path.
+
+**P0-2 — Empirical GitHub bulk-fix rate-limit probe (real PROD pipeline, founder account, TJSNDHU/Aurem):**
+- Old read-only PAT replaced by founder with a write PAT (Contents RW + Pull requests RW) after the probe exposed `Resource not accessible by personal access token` (also the root cause of earlier swift-loop ship 403).
+- Probe script `/app/test_reports/prod_aggression/prod_bulkfix_probe.py`: escalating REAL bulk-fix runs n=1, 5, 10, 20, 30 via `POST /fix-pipeline/bulk` on auremcto.com; polls `/summary`; results in `prod_bulkfix_probe_results.json`.
+- Results: n=1 ✅ 31s · n=5 ✅ 5/5 287s · n=10 ✅ 10/10 597s · n=20 ✅ 20/20 1097s — ZERO rate-limit hits (LLM step paces commits to ~7-8 writes/min, far under GitHub's 80/min burst). n=30 result recorded in the probe JSON.
+- HARD CAP finalized: `_BULK_MAX_FINDINGS = 20` in `routers/fix_pipeline.py` (was 500). `/bulk` > cap → 400 `{error: bulk_limit_exceeded, max, requested, message}`. `/preview` now prices only the first 20 and returns `bulk_max` + `total_requested`.
+- UI: `BulkFixConfirmModal.jsx` shows amber `bulk-fix-cap-warning` ("Max 20 fixes per run… first 20 of N will run") and slices findings to `bulk_max` on confirm; founder button becomes "⚡ Fix first 20 — FREE".
+- `loop_safety.github_request_with_retry` now honours `Retry-After` on secondary (burst) 403/429 (remaining > 0), capped 60s.
+
+**P0-3 FIXED — Bulk-fix progress invisible on PROD (SSE unreliable multi-worker):**
+- Root cause: `FixJobContext.jsx` was SSE-only; on prod the SSE subscriber often lands on a worker not running the job (earlier prod test: 0 events in 125s) and `hydrated` events marked RUNNING jobs as terminal.
+- Fix: summary POLLING fallback — polls `GET /fix-pipeline/summary/{job_id}` every 6s whenever no SSE event landed in 8s, merges results into the same state; terminal statuses close out the job. `hydrated` with `status=running` no longer sets terminal (stream stays open, poller carries progress).
+- `fix_job_manager.get_summary()` now returns `status` (was Mongo-only) so the poller sees consistent shape on every worker; `close()` stamps `j["status"]`.
+
+**Also this session:**
+- PAT generation deep-links (Projects.jsx ×3, AddProjectWizard.jsx ×1) now prefill `contents=write` AND `pull_requests=write`; instruction texts updated ("permissions pre-selected"). PRs are REQUIRED (draft-PR fixes), no longer "optional".
+- Meta Pixel (1571887197933821): added `MetaPixelRouteTracker` in App.jsx — fires `fbq('track','PageView')` on EVERY SPA route change (skips initial mount; base code in index.html covers first load). Verified live: / → /login records PageView.
+- Testing agent run `iteration_iter212m179_verify.json`: 100% backend + 100% frontend, 0 issues.
+- Full pytest: 2533 passed; ~190 pre-existing stale failures in old iteration files (env-dependent/stale guards, e.g. `fake_llm` missing `db` kwarg from 212m-137, parliament hygiene guards) — NOT from this session; logged as P2 tech debt.
+
+**NEEDS REDEPLOY to reach PROD**: all of the above is preview-only until the founder redeploys.

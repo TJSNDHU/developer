@@ -51,7 +51,35 @@
         "failed": 0,
         "total": 10
       }
+    },
+    {
+      "n": 20,
+      "requested": 20,
+      "fixes_ok": 20,
+      "fixes_failed": 0,
+      "ratelimit_failures": [],
+      "other_failures": [],
+      "job_id": "fx_87abdbd097a840",
+      "duration_s": 1096.6,
+      "final_status": null,
+      "summary_raw": {
+        "status": null,
+        "completed": 20,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    {
+      "n": 30,
+      "requested": 30,
+      "fixes_ok": 0,
+      "fixes_failed": 0,
+      "ratelimit_failures": [],
+      "other_failures": [],
+      "job_id": null,
+      "start_error": "HTTP_400: {\"detail\":{\"error\":\"bulk_limit_exceeded\",\"max\":20,\"requested\":30,\"message\":\"Max 20 files per bulk run \u2014 GitHub secondary rate-limit protection. Run the rest as the next batch.\"}}"
     }
   ],
-  "findings_available": 135
+  "findings_available": 135,
+  "finished": "2026-07-02 22:55:24"
 }
