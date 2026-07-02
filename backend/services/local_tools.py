@@ -1072,22 +1072,222 @@ async def list_repo_files(ctx: dict, args: dict) -> dict:
     }
 
 
+# ── Full-repo local snapshot (iter 212m-179) ─────────────────────────
+#
+# The old search_repo fetched files one-by-one over the GitHub API and
+# needed a hard budget (400 files / 15s) on big repos → PARTIAL results.
+# Proper fix: pull the ENTIRE repo as ONE tarball request
+# (GET /repos/{o}/{r}/tarball/{sha}), extract to /tmp, and search the
+# complete tree locally (ripgrep, Python-walk fallback). Cached per
+# HEAD SHA so repeat searches cost a single ref check until the branch
+# moves. No git binary required → works on the PROD container too.
+
+_SNAPSHOT_ROOT = "/tmp/aurem_repo_cache"
+_SNAPSHOT_DL_TIMEOUT_S = 120.0
+_SNAPSHOT_MAX_BYTES = 400 * 1024 * 1024
+_PER_FILE_HIT_CAP = 50
+_snapshot_locks: dict[str, asyncio.Lock] = {}
+
+
+def _snapshot_lock(key: str) -> asyncio.Lock:
+    if key not in _snapshot_locks:
+        _snapshot_locks[key] = asyncio.Lock()
+    return _snapshot_locks[key]
+
+
+async def _repo_head_sha(owner: str, repo: str, branch: str,
+                         token: str) -> Optional[str]:
+    import httpx
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    url = f"https://api.github.com/repos/{owner}/{repo}/git/ref/heads/{branch}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(url, headers=headers)
+            if r.status_code != 200:
+                return None
+            return ((r.json() or {}).get("object") or {}).get("sha")
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
+async def _ensure_repo_snapshot(
+    owner: str, repo: str, branch: str, token: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Returns (snapshot_dir, error). One GitHub call when cached
+    (HEAD ref check), two when the branch moved (ref + tarball)."""
+    import os
+    import shutil
+    import tarfile
+    import tempfile
+    import httpx
+
+    key = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{owner}__{repo}__{branch}")
+    dest = os.path.join(_SNAPSHOT_ROOT, key)
+    marker = os.path.join(dest, ".aurem_head_sha")
+
+    async with _snapshot_lock(key):
+        head = await _repo_head_sha(owner, repo, branch, token)
+        if not head:
+            # Ref check hiccup — a stale full snapshot beats no search.
+            if os.path.exists(marker):
+                return dest, None
+            return None, "head_sha_unavailable"
+        try:
+            with open(marker, encoding="utf-8") as fh:
+                if fh.read().strip() == head:
+                    return dest, None      # cache hit — zero downloads
+        except OSError:
+            pass
+
+        headers = {"Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"token {token}"
+        url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{head}"
+        tmp_tar = tempfile.NamedTemporaryFile(
+            suffix=".tar.gz", delete=False, dir="/tmp")
+        try:
+            total = 0
+            async with httpx.AsyncClient(
+                timeout=_SNAPSHOT_DL_TIMEOUT_S, follow_redirects=True,
+            ) as c:
+                async with c.stream("GET", url, headers=headers) as r:
+                    if r.status_code != 200:
+                        return None, f"tarball_status_{r.status_code}"
+                    async for chunk in r.aiter_bytes():
+                        total += len(chunk)
+                        if total > _SNAPSHOT_MAX_BYTES:
+                            return None, "tarball_too_large"
+                        tmp_tar.write(chunk)
+            tmp_tar.close()
+
+            def _extract() -> None:
+                tmp_dir = dest + ".extract"
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                os.makedirs(tmp_dir, exist_ok=True)
+
+                def _tar_filter(member, path):
+                    # Skip unsafe members (absolute symlinks etc.)
+                    # instead of aborting the whole snapshot.
+                    try:
+                        return tarfile.data_filter(member, path)
+                    except tarfile.FilterError:
+                        return None
+
+                try:
+                    with tarfile.open(tmp_tar.name, "r:gz") as tf:
+                        tf.extractall(tmp_dir, filter=_tar_filter)
+                    roots = [d for d in os.listdir(tmp_dir)
+                             if os.path.isdir(os.path.join(tmp_dir, d))]
+                    if not roots:
+                        raise RuntimeError("empty_tarball")
+                    os.makedirs(_SNAPSHOT_ROOT, exist_ok=True)
+                    shutil.rmtree(dest, ignore_errors=True)
+                    os.rename(os.path.join(tmp_dir, roots[0]), dest)
+                    with open(marker, "w", encoding="utf-8") as fh:
+                        fh.write(head)
+                finally:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            await asyncio.to_thread(_extract)
+            return dest, None
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("repo snapshot failed for %s/%s@%s: %r",
+                           owner, repo, branch, e)
+            return None, f"snapshot_failed_{type(e).__name__}"
+        finally:
+            try:
+                os.unlink(tmp_tar.name)
+            except OSError:
+                pass
+
+
+def _search_snapshot_sync(root: str, pattern: str, compiled,
+                          sub_path: str, ext: str) -> list[dict]:
+    """Search the local snapshot COMPLETELY. ripgrep when available,
+    pure-Python walk otherwise. Runs inside asyncio.to_thread."""
+    import os
+    import shutil as _sh
+    import subprocess
+
+    rg_bin = _sh.which("rg")
+    if rg_bin:
+        args = [rg_bin, "--no-heading", "--line-number", "--ignore-case",
+                "--no-messages", "--hidden", "--no-ignore",
+                "--max-columns", "300", "--max-columns-preview",
+                "--max-count", str(_PER_FILE_HIT_CAP),
+                "--max-filesize", "2M",
+                "-g", "!.git/**"]
+        if ext:
+            args += ["-g", f"*{ext}"]
+        if sub_path:
+            args += ["-g", f"{sub_path.strip('/')}/**"]
+        try:
+            proc = subprocess.run(args + ["-e", pattern], cwd=root,
+                                  capture_output=True, text=True, timeout=60)
+            # rc 2 = pattern not valid rust-regex → fall through to the
+            # Python walk which uses the already-compiled Python regex.
+            if proc.returncode in (0, 1):
+                matches = []
+                for raw in proc.stdout.splitlines():
+                    fpath, _, rest = raw.partition(":")
+                    line_no, _, text = rest.partition(":")
+                    if not (fpath and line_no.isdigit()):
+                        continue
+                    matches.append({"file": fpath, "line_no": int(line_no),
+                                    "line": text.strip()[:280]})
+                return matches
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    matches: list[dict] = []
+    base = os.path.join(root, sub_path.strip("/")) if sub_path else root
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for fn in filenames:
+            if ext and not fn.endswith(ext):
+                continue
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root)
+            try:
+                if os.path.getsize(full) > 2_000_000:
+                    continue
+                hits = 0
+                with open(full, encoding="utf-8", errors="replace") as fh:
+                    for line_no, line in enumerate(fh, 1):
+                        if "\x00" in line:
+                            break                          # binary
+                        if compiled.search(line):
+                            matches.append({"file": rel, "line_no": line_no,
+                                            "line": line.strip()[:280]})
+                            hits += 1
+                            if hits >= _PER_FILE_HIT_CAP:
+                                break
+            except OSError:
+                continue
+    return matches
+
+
 # ── TOOL 4: search_repo (grep across repo) ───────────────────────────────────
 
 async def search_repo(ctx: dict, args: dict) -> dict:
-    """Search for a pattern across files in the connected repo.
-    Equivalent of Emergent's mcp_execute_bash grep.
+    """Search for a pattern across ALL files in the connected repo.
+
+    Iter 212m-179 — proper full-repo search. Primary path downloads a
+    complete tarball snapshot (one API call, cached per HEAD SHA) and
+    greps it locally → COMPLETE results, no partial budgets, ~2-6s
+    even on 16k-file repos. The old per-file GitHub API scan survives
+    only as a budgeted fallback when the snapshot can't be built.
 
     args:
       pattern   str   — text or regex to search for
       path?     str   — limit search to this directory
       ext?      str   — limit to files with this extension e.g. ".py"
-      max?      int   — max matching files to return (default 20)
+      max?      int   — fallback-path cap on matching files (default 20)
 
-    Returns {ok, matches: [{file, line_no, line}], total_matches}
+    Returns {ok, matches: [{file, line_no, line}], total_matches, ...}
     """
-    user_id    = ctx.get("user_id")
-    project_id = ctx.get("project_id")
     pattern    = (args or {}).get("pattern") or ""
     sub_path   = (args or {}).get("path") or ""
     ext        = (args or {}).get("ext") or ""
@@ -1102,9 +1302,58 @@ async def search_repo(ctx: dict, args: dict) -> dict:
         return _NO_BIN_CTX_ERROR
     owner, repo, branch, token = rc["owner"], rc["repo"], rc["branch"], rc["token"]
 
-    # First get the tree
+    if ext:
+        ext = ext if ext.startswith(".") else "." + ext
+
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        compiled = re.compile(re.escape(pattern), re.IGNORECASE)
+
+    snap_dir, snap_err = await _ensure_repo_snapshot(owner, repo, branch, token)
+    if snap_dir:
+        try:
+            matches = await asyncio.to_thread(
+                _search_snapshot_sync, snap_dir, pattern, compiled,
+                sub_path, ext)
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("snapshot search failed: %r — API fallback", e)
+            matches = None
+        if matches is not None:
+            files_matched = len({m["file"] for m in matches})
+            return {
+                "ok":            True,
+                "pattern":       pattern,
+                "matches":       matches[:500],
+                "total_matches": len(matches),
+                "files_matched": files_matched,
+                "source":        "full_repo_snapshot",
+                "complete":      True,
+                "budget_hit":    False,
+                "note": (
+                    f"Searched the ENTIRE repo — {len(matches)} matches "
+                    f"in {files_matched} files."
+                    if matches else
+                    f"No matches for `{pattern}` — the ENTIRE repo was "
+                    "searched (complete scan, not a budget cut)."
+                ),
+            }
+
+    logger.warning("search_repo snapshot unavailable (%s) — using budgeted "
+                   "API fallback", snap_err)
+    return await _search_repo_via_api(
+        owner=owner, repo=repo, branch=branch, token=token,
+        pattern=pattern, compiled=compiled, sub_path=sub_path, ext=ext,
+        max_files=max_files)
+
+
+async def _search_repo_via_api(*, owner: str, repo: str, branch: str,
+                               token: str, pattern: str, compiled,
+                               sub_path: str, ext: str,
+                               max_files: int) -> dict:
+    """Legacy budgeted per-file GitHub API scan — FALLBACK ONLY when the
+    full snapshot can't be built. May return partial results."""
     import httpx
-    import re as _re
     import time as _time
 
     headers = {"Accept": "application/vnd.github.v3+json"}
@@ -1140,14 +1389,7 @@ async def search_repo(ctx: dict, args: dict) -> dict:
             )
         all_files = filtered
     if ext:
-        ext = ext if ext.startswith(".") else "." + ext
         all_files = [f for f in all_files if f.endswith(ext)]
-
-    # Compile pattern (treat as regex, fallback to literal)
-    try:
-        compiled = _re.compile(pattern, _re.IGNORECASE)
-    except _re.error:
-        compiled = _re.compile(_re.escape(pattern), _re.IGNORECASE)
 
     # Iter 212m-178 — PROD perf fix. Before this, a rare pattern on a
     # large repo (16k+ files) fetched EVERY file one-by-one until 20
@@ -1226,6 +1468,8 @@ async def search_repo(ctx: dict, args: dict) -> dict:
         "total_matches": len(matches),
         "files_fetched": fetched,
         "budget_hit":   hit_budget,
+        "source":       "github_api_fallback",
+        "complete":     not hit_budget,
         "note":         (
             f"Found {len(matches)} matches across {fetched} files."
             + (" Scan budget reached — narrow with `path`/`ext` for more."

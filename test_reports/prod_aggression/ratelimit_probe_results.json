@@ -1,0 +1,56 @@
+{
+  "started": "2026-07-02 18:36:35",
+  "runs": [
+    {
+      "n": 5,
+      "run_id": "5x1783017395",
+      "units": [
+        {
+          "i": 1,
+          "branch": "aurem/rltest-5x1783017395-1",
+          "failed_at": "branch",
+          "error": "create_branch_status_403",
+          "elapsed_s": 0.5
+        }
+      ],
+      "ok": 0,
+      "failed": 1,
+      "first_403_at": 1,
+      "duration_s": 0.5
+    },
+    {
+      "n": 10,
+      "run_id": "10x1783017521",
+      "units": [
+        {
+          "i": 1,
+          "branch": "aurem/rltest-10x1783017521-1",
+          "failed_at": "branch",
+          "error": "create_branch_status_403",
+          "elapsed_s": 0.5
+        }
+      ],
+      "ok": 0,
+      "failed": 1,
+      "first_403_at": 1,
+      "duration_s": 0.5
+    },
+    {
+      "n": 20,
+      "run_id": "20x1783017651",
+      "units": [
+        {
+          "i": 1,
+          "branch": "aurem/rltest-20x1783017651-1",
+          "failed_at": "branch",
+          "error": "create_branch_status_403",
+          "elapsed_s": 0.5
+        }
+      ],
+      "ok": 0,
+      "failed": 1,
+      "first_403_at": 1,
+      "duration_s": 0.5
+    }
+  ]
+}

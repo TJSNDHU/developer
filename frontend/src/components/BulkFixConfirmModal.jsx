@@ -55,8 +55,11 @@ export default function BulkFixConfirmModal({
     setStarting(true);
     setError(null);
     try {
+      // Iter 212m-179 — hard cap per run (GitHub secondary rate limit).
+      const capped = preview.bulk_max
+        ? findings.slice(0, preview.bulk_max) : findings;
       const r = await api.post("/fix-pipeline/bulk", {
-        project_id: projectId, findings,
+        project_id: projectId, findings: capped,
       });
       const payload = r?.data || r;
       if (payload?.job_id) {
@@ -82,6 +85,8 @@ export default function BulkFixConfirmModal({
   }
 
   const founder = !!preview?.is_unlimited;
+  const overCap = !!(preview?.bulk_max
+    && (preview?.total_requested ?? findings?.length ?? 0) > preview.bulk_max);
 
   return (
     <div
@@ -136,6 +141,23 @@ export default function BulkFixConfirmModal({
 
         {preview && !loading && (
           <div style={{ marginBottom: 18 }}>
+            {overCap && (
+              <div
+                data-testid="bulk-fix-cap-warning"
+                style={{
+                  padding: "10px 12px", marginBottom: 12, borderRadius: 8,
+                  background: "rgba(251,191,36,0.08)",
+                  border: "1px solid rgba(251,191,36,0.45)",
+                  color: "#fcd34d", fontSize: 11, lineHeight: 1.5,
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                ⚠ Max {preview.bulk_max} fixes per run (GitHub rate-limit
+                protection). Only the first {preview.count} of{" "}
+                {preview.total_requested} findings will run now — start
+                another batch for the rest.
+              </div>
+            )}
             {founder ? (
               <div
                 data-testid="bulk-fix-founder-chip"
@@ -246,7 +268,11 @@ export default function BulkFixConfirmModal({
             }}
           >
             {starting && <Loader2 size={12} className="anim-spin" />}
-            {founder ? "⚡ Fix all — FREE" : `Fix ${preview?.count ?? findings?.length} now`}
+            {founder
+              ? (overCap
+                  ? `⚡ Fix first ${preview?.count} — FREE`
+                  : "⚡ Fix all — FREE")
+              : `Fix ${preview?.count ?? findings?.length} now`}
           </button>
         </div>
       </div>

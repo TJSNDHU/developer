@@ -98,6 +98,18 @@ async def github_request_with_retry(
                            wait, attempt + 1, max_retries + 1)
             await asyncio.sleep(wait + 1)
             continue
+        # Iter 212m-179 — SECONDARY (burst) limit: 403/429 arrives with a
+        # Retry-After header while x-ratelimit-remaining is still > 0.
+        # Honour the server-provided wait (capped) instead of failing.
+        _ra = r.headers.get("retry-after")
+        if r.status_code in (403, 429) and _ra and _ra.isdigit() \
+                and attempt < max_retries:
+            wait = min(60, int(_ra))
+            logger.warning("GH SECONDARY limit — sleeping %ds "
+                           "(attempt %d/%d)", wait, attempt + 1,
+                           max_retries + 1)
+            await asyncio.sleep(wait + 1)
+            continue
         # 5xx — backoff retry.
         if 500 <= r.status_code < 600 and attempt < max_retries:
             backoff = 2 ** (attempt + 1)

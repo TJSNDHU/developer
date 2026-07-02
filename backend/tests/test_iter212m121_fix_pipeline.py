@@ -229,14 +229,20 @@ def test_bulk_rejects_no_project(client_founder):
     assert r.status_code == 400
 
 
-def test_bulk_hard_cap_at_500(client_founder):
+def test_bulk_hard_cap_at_rate_limit_max(client_founder):
+    # Iter 212m-179 — cap dropped from 500 to _BULK_MAX_FINDINGS
+    # (GitHub secondary rate-limit protection, empirically probed).
+    from routers.fix_pipeline import _BULK_MAX_FINDINGS
     c, _ = client_founder
     too_many = [{"id": f"f{i}", "rule_id": "x", "file": "a.py",
-                 "category": "vanguard"} for i in range(501)]
+                 "category": "vanguard"}
+                for i in range(_BULK_MAX_FINDINGS + 1)]
     r = c.post("/api/aurem-dev/fix-pipeline/bulk",
                json={"project_id": "p1", "findings": too_many})
     assert r.status_code == 400
-    assert "max 500" in r.json()["detail"].lower()
+    detail = r.json()["detail"]
+    assert detail["error"] == "bulk_limit_exceeded"
+    assert detail["max"] == _BULK_MAX_FINDINGS
 
 
 def test_interleave_by_severity_mixes_buckets():

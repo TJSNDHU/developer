@@ -58,6 +58,10 @@ async def test_search_repo_stops_at_file_budget(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     monkeypatch.setattr(lt, "_gh_fetch_file", _fake_fetch)
 
+    async def _no_snapshot(*a, **k):
+        return None, "test_forced_fallback"
+    monkeypatch.setattr(lt, "_ensure_repo_snapshot", _no_snapshot)
+
     ctx = {"user_id": "u_t", "project_id": "p_t", "bin_ctx": _bin_ctx()}
     r = await lt.search_repo(ctx, {"pattern": "zzz_never_matches"})
     assert r["ok"]
@@ -94,6 +98,11 @@ async def test_search_repo_prefers_text_extensions(monkeypatch):
     import httpx
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     monkeypatch.setattr(lt, "_gh_fetch_file", _fake_fetch)
+
+    async def _no_snapshot(*a, **k):
+        return None, "test_forced_fallback"
+    monkeypatch.setattr(lt, "_ensure_repo_snapshot", _no_snapshot)
+
     ctx = {"user_id": "u_t", "project_id": "p_t", "bin_ctx": _bin_ctx()}
     await lt.search_repo(ctx, {"pattern": "foo"})
     # Only the .py file should be fetched — .png assets skipped.

@@ -141,6 +141,12 @@ _RETRY_BACKOFFS_S         = (1.0, 2.5, 5.0)
 # Iter 212m-178 — gap between consecutive GitHub-mutating fixes so a
 # bulk run doesn't trip GitHub's secondary (burst) rate limit.
 _BULK_INTER_FIX_DELAY_S   = 1.5
+# Iter 212m-179 — HARD cap per bulk run.  Each fix costs ~6 GitHub
+# content-generating calls (branch ref + blob + tree + commit + ref
+# patch + draft PR) against GitHub's secondary limits (80 writes/min,
+# 500 writes/hr per user).  Value set from the empirical probe on
+# TJSNDHU/Aurem (test_reports/prod_aggression/ratelimit_probe.py).
+_BULK_MAX_FINDINGS        = 20
 _TERMINAL_ERROR_CODES     = frozenset({
     "github_credentials_missing",
     "github_unauthorized",
@@ -205,6 +211,10 @@ async def preview_cost(body: dict,
     if db is None:
         raise HTTPException(503, "DB not connected")
 
+    # Iter 212m-179 — preview prices only what one run may execute.
+    total_requested = len(findings)
+    findings = findings[:_BULK_MAX_FINDINGS]
+
     tokens_cost = sum(_token_cost_for_finding(f) for f in findings)
     is_unlim    = _is_unlimited(user)
 
@@ -214,8 +224,10 @@ async def preview_cost(body: dict,
     balance = int((me or {}).get("tokens_remaining") or 0)
 
     return {
-        "ok":           True,
-        "count":        len(findings),
+        "ok":              True,
+        "count":           len(findings),
+        "bulk_max":        _BULK_MAX_FINDINGS,
+        "total_requested": total_requested,
         "tokens_cost":  tokens_cost if not is_unlim else 0,
         "usd_cost":     round(tokens_cost * TOKEN_USD_RATE, 4)
                         if not is_unlim else 0.0,
@@ -241,14 +253,18 @@ async def start_bulk_fix(body: dict,
         raise HTTPException(400, "project_id required")
     if not findings:
         raise HTTPException(400, "findings is empty")
-    if len(findings) > 500:
-        # Iter 212m-127 — Raised cap from 50 to 500.  Findings now
-        # process in interleaved batches of 10 (see _interleave_by_
-        # severity + _BULK_BATCH_SIZE) so the user gets a mix of
-        # critical / high / medium / low fixes shipping every batch
-        # instead of "50 criticals then nothing".  Hard ceiling of
-        # 500 still protects against pathological bulk clicks.
-        raise HTTPException(400, "max 500 findings per bulk fix")
+    if len(findings) > _BULK_MAX_FINDINGS:
+        # Iter 212m-179 — HARD cap (was 500).  GitHub's secondary rate
+        # limits 403 the pipeline mid-job past this point; failing fast
+        # with a clear message beats a half-completed bulk run.
+        raise HTTPException(400, {
+            "error":     "bulk_limit_exceeded",
+            "max":       _BULK_MAX_FINDINGS,
+            "requested": len(findings),
+            "message":   (f"Max {_BULK_MAX_FINDINGS} files per bulk run — "
+                          "GitHub secondary rate-limit protection. Run the "
+                          "rest as the next batch."),
+        })
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
