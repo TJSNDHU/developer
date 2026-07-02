@@ -1084,6 +1084,22 @@ async def verify_pat(
                           "**Contents: Read and write**).",
             }
 
+        # Iter 212m-176 — WRITE capability check. GitHub's /repos/{repo}
+        # response includes `permissions.push` for the authenticated
+        # token (works for classic AND fine-grained). A fine-grained
+        # PAT with Contents: Read-only passes the 200 check but every
+        # ship/commit later 403s at git/blobs — catch it here instead.
+        perms = data.get("permissions") or {}
+        if perms and not perms.get("push"):
+            return {
+                "ok": False, "error": "missing_write",
+                "has_scopes": scopes,
+                "detail": "Token can READ this repo but cannot WRITE "
+                          "(push=false). Fine-grained PAT: set "
+                          "**Contents: Read and write**. Classic PAT: "
+                          "check the **repo** scope.",
+            }
+
         # Iter 212m-5 — multi-project security check.
         # Probe `/user/repos?per_page=1` and use the `Link: …; rel="last"`
         # header (page index) to derive total accessible-repo count
