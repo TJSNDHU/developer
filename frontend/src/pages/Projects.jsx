@@ -393,6 +393,23 @@ function PatHelpTooltip() {
           <div style={{ color: "var(--accent-2)", fontWeight: 600, marginBottom: 6 }}>
             How to get a GitHub PAT
           </div>
+          <a
+            href="https://github.com/settings/personal-access-tokens/new?name=aurem-cto-ship&description=AUREM%20CTO%20read%20%2B%20ship%20access&expires_in=90&contents=write"
+            target="_blank" rel="noreferrer"
+            data-testid="pat-prefilled-link"
+            style={{
+              display: "block", textAlign: "center", marginBottom: 8,
+              padding: "7px 10px", borderRadius: 4, fontWeight: 600,
+              background: "var(--accent-2)", color: "var(--bg)",
+              textDecoration: "none",
+            }}
+          >
+            ⚡ 1-click: open GitHub with the right permissions pre-selected
+          </a>
+          <div style={{ color: "var(--text-faint)", fontSize: 10, marginBottom: 8 }}>
+            Opens the token page with <code>Contents: Read and write</code> + 90-day
+            expiry already filled — you only pick the repository and click Generate.
+          </div>
           <ol style={{ paddingLeft: 16, margin: "0 0 8px", color: "var(--text-dim)" }}>
             <li>Open{" "}
               <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer"
@@ -1137,7 +1154,7 @@ function AddDialog({ onClose, onAdded, projects = [] }) {
                     "https://github.com/settings/personal-access-tokens/new" +
                     "?name=" + encodeURIComponent(`ORA · ${effectiveRepo.name}`) +
                     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
-                    "&expiration=" + encodeURIComponent("90")
+                    "&expires_in=90&contents=write"
                   }
                   target="_blank" rel="noopener noreferrer"
                   data-testid="proj-step2-pat-github-link"
@@ -1365,7 +1382,7 @@ export function PatModal({ project, onClose, onSaved }) {
     "https://github.com/settings/personal-access-tokens/new" +
     "?name=" + encodeURIComponent(`ORA · ${project.name}`) +
     "&description=" + encodeURIComponent("AUREM CTO (ORA) — read & commit on this repo.") +
-    "&expiration=" + encodeURIComponent("90");
+    "&expires_in=90&contents=write";
 
   async function runConnectionTest() {
     setStage("testing");

@@ -328,7 +328,8 @@ export default function AddProjectWizard({ onClose, onAdded }) {
             <a
               href={
                 "https://github.com/settings/personal-access-tokens/new" +
-                "?description=" + encodeURIComponent(`ORA · ${repo.repo}`)
+                "?description=" + encodeURIComponent(`ORA · ${repo.repo}`) +
+                "&expires_in=90&contents=write"
               }
               target="_blank"
               rel="noopener noreferrer"
