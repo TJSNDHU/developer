@@ -2300,3 +2300,10 @@ Not committed by agent — user needs "Save to Github" to ship 212m-168, -169, -
 - Preview verified: COLD 12.9s / WARM 0.4s. Tests 17/17 green.
 
 **AWAITING ONE MORE REDEPLOY for**: FixJobContext summary-polling fallback, fix_job_manager in-memory `status`, snapshot cache relocation + MCP diagnostics. Everything else already live on prod.
+
+## Iter 212m-180 — Standalone Settings window (avatar menu → no old sidebar) (Jul 3, 2026)
+- `pages/Settings.jsx` REWRITTEN as a standalone popup-style window: ds2 (v2) design, NO legacy Shell/sidebar. Header = Back pill (navigate(-1), fallback /dashboard when no in-app history) + title + user email chip. Pill tabs: Profile / Plans & Usage / Integrations / Vault (`?tab=` synced, replace-nav).
+- Content preserved: profile rows, TrustLevelCard, ReferralShare (Profile) · token wallet stat (∞ Unlimited for founder) + PricingCards + OraWrapped (Plans) · GitHubCard + VercelCard (Integrations) · vault audit log (Vault). Stripe `?session_id` polling + trackPurchase kept — redirect now lands on Plans tab.
+- Dashboard avatar dropdown rewired: Edit Profile → /settings?tab=profile, Settings → /settings, Recharge → /settings?tab=plans (was old-Shell /tokens; /tokens route still exists for legacy links).
+- data-testids: settings-window, settings-back-btn, settings-user-chip, settings-tab-{profile,plans,integrations,vault}, settings-wallet + all old ones kept.
+- Verified via Playwright: window renders (no old nav), all 4 tabs, wallet, back → /dashboard origin. NEEDS REDEPLOY for prod.

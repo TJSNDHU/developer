@@ -700,9 +700,9 @@ function SidebarReal({
         try { logout(); } catch { /* ignore */ }
         _go("/login");
       }}
-      onEditProfile={() => _go("/settings")}
+      onEditProfile={() => _go("/settings?tab=profile")}
       onSettings={() =>     _go("/settings")}
-      onRecharge={() =>     _go("/tokens")}
+      onRecharge={() =>     _go("/settings?tab=plans")}
     />
   );
 }
