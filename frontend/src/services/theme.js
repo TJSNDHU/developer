@@ -31,14 +31,13 @@ export function getThemeMode() {
 }
 
 export function getResolvedTheme(mode = getThemeMode()) {
-  if (mode === "light" || mode === "dark") return mode;
-  // auto → consult OS preference. Default to "dark" if matchMedia is
-  // unavailable so the existing Aurem aesthetic is preserved on
-  // exotic environments (server-rendered, jsdom, ancient browsers).
-  if (typeof window === "undefined" || !window.matchMedia) return "dark";
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
+  // Iter 212m-181 — DARK ONLY. The founder decided the product is
+  // dark-mode exclusively. Previously "auto" followed the OS via
+  // prefers-color-scheme, so iPhones set to Light showed a broken
+  // light UI. We now always resolve to "dark" regardless of mode /
+  // OS preference. The ThemeToggle + light tokens stay in the code
+  // (harmless) but can never flip the app to light.
+  return "dark";
 }
 
 function _apply(resolved) {

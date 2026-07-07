@@ -118,6 +118,10 @@
 }
 
 :root {
+  /* Iter 212m-181 — force native dark form controls. Without this iOS
+     Safari renders <input>/<select> with LIGHT defaults → black text
+     on our dark inputs (founder-reported login/signup bug). */
+  color-scheme: dark;
   --bg: #07080d;
   --bg-elev: #0d1018;
   --panel: #11141d;
@@ -308,14 +312,34 @@ a:hover { color: var(--accent); }
 .input {
   width: 100%;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
+  /* Iter 212m-181 — iOS Safari ignores `color` on inputs and paints
+     text with its own (dark) fill. Force the fill + caret explicitly
+     so credentials stay readable (white) on the dark field. */
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--accent-2);
   font-family: inherit;
-  font-size: 14px;
+  font-size: 16px;               /* ≥16px stops iOS zoom-on-focus */
   outline: none;
   transition: border-color 150ms, background 150ms;
+}
+.input::placeholder {
+  color: var(--text-faint);
+  -webkit-text-fill-color: var(--text-faint);
+  opacity: 1;                    /* iOS/Firefox dim placeholders by default */
+}
+/* iOS/Chrome autofill paints its own yellow bg + dark text — override
+   both so autofilled credentials match the dark field. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--panel) inset;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
 }
 .input:focus {
   border-color: var(--accent-2);

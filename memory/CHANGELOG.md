@@ -2307,3 +2307,10 @@ Not committed by agent — user needs "Save to Github" to ship 212m-168, -169, -
 - Dashboard avatar dropdown rewired: Edit Profile → /settings?tab=profile, Settings → /settings, Recharge → /settings?tab=plans (was old-Shell /tokens; /tokens route still exists for legacy links).
 - data-testids: settings-window, settings-back-btn, settings-user-chip, settings-tab-{profile,plans,integrations,vault}, settings-wallet + all old ones kept.
 - Verified via Playwright: window renders (no old nav), all 4 tabs, wallet, back → /dashboard origin. NEEDS REDEPLOY for prod.
+
+## Iter 212m-181 — iOS dark-only + readable input text (Jul 7, 2026)
+Founder-reported iOS bugs: (a) whole UI showed LIGHT mode on iPhones, (b) login/signup credential text rendered dark-on-dark (unreadable).
+- **Dark-only**: `services/theme.js` `getResolvedTheme()` now ALWAYS returns "dark" (was following OS `prefers-color-scheme` via "auto" default → iPhones set to Light broke the UI). ThemeToggle + light tokens stay in code but can never flip to light.
+- **iOS native form controls**: added global `:root { color-scheme: dark; }` + `<meta name="color-scheme" content="dark">` + theme-color `#0A0A0A` in index.html. Without color-scheme:dark iOS Safari paints inputs with LIGHT defaults (black text).
+- **`.input` hardening**: explicit `-webkit-text-fill-color: var(--text)` + `caret-color`, placeholder `-webkit-text-fill-color` + opacity:1, `:-webkit-autofill` override (text-fill white + inset box-shadow bg so autofilled creds stay readable), font-size 14→16px (stops iOS zoom-on-focus).
+- Verified via Playwright emulating iPhone viewport + `color_scheme=light`: login & signup both resolve data-theme=dark, input fill = rgb(244,236,220) on dark bg. NEEDS REDEPLOY for prod.
