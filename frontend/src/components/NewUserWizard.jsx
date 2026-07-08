@@ -75,10 +75,15 @@ export default function NewUserWizard({ onComplete }) {
           setGhLogin(r.data.login || "");
           fetchRepos();
         } else {
-          setGhStatus("disconnected");
+          // Iter 212m-182 — founder wants NEW users to land DIRECTLY on
+          // the repo-URL + PAT form (skip the "Continue with GitHub /
+          // Skip — paste a URL" choice screen). Default disconnected →
+          // "manual". The OAuth screen still appears contextually if a
+          // private repo later needs it (see submitRepo catch).
+          setGhStatus("manual");
         }
       } catch {
-        if (!cancelled) setGhStatus("disconnected");
+        if (!cancelled) setGhStatus("manual");
       }
     })();
     return () => {

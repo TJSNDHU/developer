@@ -2314,3 +2314,9 @@ Founder-reported iOS bugs: (a) whole UI showed LIGHT mode on iPhones, (b) login/
 - **iOS native form controls**: added global `:root { color-scheme: dark; }` + `<meta name="color-scheme" content="dark">` + theme-color `#0A0A0A` in index.html. Without color-scheme:dark iOS Safari paints inputs with LIGHT defaults (black text).
 - **`.input` hardening**: explicit `-webkit-text-fill-color: var(--text)` + `caret-color`, placeholder `-webkit-text-fill-color` + opacity:1, `:-webkit-autofill` override (text-fill white + inset box-shadow bg so autofilled creds stay readable), font-size 14→16px (stops iOS zoom-on-focus).
 - Verified via Playwright emulating iPhone viewport + `color_scheme=light`: login & signup both resolve data-theme=dark, input fill = rgb(244,236,220) on dark bg. NEEDS REDEPLOY for prod.
+
+## Iter 212m-182 — New-user wizard: skip OAuth-choice screen (Jul 8, 2026)
+Founder request (annotated screenshots): clicking "Connect repo →" should land NEW users DIRECTLY on the repo-URL + Branch + PAT form, skipping the intermediate "Continue with GitHub / Skip — paste a URL" choice screen.
+- `NewUserWizard.jsx` initial OAuth-status effect: disconnected default changed `"disconnected"` → `"manual"` (both success-not-connected + catch branches). New users now see the URL/PAT form immediately.
+- OAuth-connect screen still reachable CONTEXTUALLY: submitRepo catch flips to "disconnected" only when a repo returns "GitHub not connected" (private-repo case). Connected users keep the repo-picker view.
+- Verified via Playwright (Add Repository → wizard): wizard-gh-disconnected count=0, wizard-repo-input + wizard-pat-input present. NEEDS REDEPLOY for prod.
