@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LogIn, Github } from "lucide-react";
+import GoogleIcon from "../components/GoogleIcon";
 import AuthShell from "../components/AuthShell";
 import usePageMeta from "../lib/usePageMeta";
 import { api, setToken, setUser } from "../lib/api";
@@ -142,6 +143,31 @@ export default function Login() {
               GitHub sign-in cancelled. You can try again or use email below.
             </div>
           )}
+          {/* Iter 212m-183 — Google OAuth (Emergent-managed) one-click */}
+          {/* REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR
+              REDIRECT URLS, THIS BREAKS THE AUTH */}
+          <button
+            type="button"
+            data-testid="login-google-oauth"
+            onClick={() => {
+              const redirectUrl = window.location.origin + "/oauth-finish";
+              window.location.href =
+                `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+            }}
+            style={{
+              padding: "12px 14px", marginBottom: 12,
+              borderRadius: 4, cursor: "pointer",
+              background: "#fff", color: "#1f1f1f",
+              border: "1px solid #dadce0",
+              fontWeight: 600, fontSize: 13,
+              display: "flex", alignItems: "center", gap: 8,
+              justifyContent: "center", width: "100%",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <GoogleIcon size={16} /> Continue with Google
+          </button>
           {/* Iter 50 — GitHub OAuth-first CTA (signup-killer removed) */}
           <button
             type="button"

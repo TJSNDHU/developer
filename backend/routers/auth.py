@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import bcrypt
+import httpx
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel
 
@@ -209,6 +210,99 @@ async def signup(body: SignupBody) -> dict:
         "is_admin": is_founder,
         "is_unlimited": is_founder,
         "created_at": created_at.isoformat(),
+    }
+
+
+# ── Google OAuth (Emergent-managed) ──────────────────────────────────
+# One-click signup/sign-in. The frontend sends the user to
+# auth.emergentagent.com which returns a `session_id` in the URL
+# fragment; the browser posts it here and we exchange it (server-side
+# ONLY) for the verified Google profile, then bridge into our OWN
+# dev_users model + mint our OWN app JWT — same pattern as GitHub OAuth
+# so the whole app keeps a single auth/token system.
+_EMERGENT_SESSION_URL = (
+    "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+)
+
+
+class GoogleSessionBody(BaseModel):
+    session_id: str
+
+
+@router.post("/google/session")
+async def google_session(body: GoogleSessionBody) -> dict:
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    sid = (body.session_id or "").strip()
+    if not sid:
+        raise HTTPException(400, "Missing session_id")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                _EMERGENT_SESSION_URL, headers={"X-Session-ID": sid},
+            )
+    except Exception:                                       # noqa: BLE001
+        raise HTTPException(502, "Could not reach Google auth service")
+    if r.status_code != 200:
+        raise HTTPException(401, "Google session invalid or expired")
+    data = r.json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(401, "Google profile missing email")
+    name = data.get("name") or email.split("@")[0]
+    picture = data.get("picture") or ""
+
+    existing = await db.dev_users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id  = existing["user_id"]
+        is_admin = bool(existing.get("is_admin"))
+        tier     = existing.get("tier") or "free"
+        tokens   = existing.get("tokens_remaining")
+        is_new   = False
+        await db.dev_users.update_one(
+            {"user_id": user_id},
+            {"$set": {"google": {
+                "name": name, "picture": picture,
+                "connected_at": datetime.now(timezone.utc),
+            }}},
+        )
+    else:
+        is_new     = True
+        user_id    = uuid.uuid4().hex
+        is_founder = is_founder_email(email)
+        is_admin   = is_founder
+        tier       = "founder" if is_founder else "free"
+        tokens     = 10**9 if is_founder else 1000
+        created_at = datetime.now(timezone.utc)
+        await db.dev_users.insert_one({
+            "user_id":          user_id,
+            "email":            email,
+            "name":             name,
+            "password":         None,          # OAuth-only user
+            "auth_provider":    "google",
+            "tier":             tier,
+            "tokens_remaining": tokens,
+            "is_admin":         is_admin,
+            "is_unlimited":     is_admin,
+            "created_at":       created_at,
+            "google": {
+                "name": name, "picture": picture,
+                "connected_at": created_at,
+            },
+        })
+    token = create_token(user_id, email, is_admin=is_admin)
+    return {
+        "ok":               True,
+        "token":            token,
+        "user_id":          user_id,
+        "email":            email,
+        "name":             name,
+        "tier":             tier,
+        "tokens_remaining": tokens,
+        "is_admin":         is_admin,
+        "is_unlimited":     is_admin,
+        "new":              is_new,
     }
 
 

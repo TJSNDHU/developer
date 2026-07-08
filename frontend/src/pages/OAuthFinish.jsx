@@ -20,9 +20,56 @@ export default function OAuthFinish() {
   useEffect(() => {
     async function run() {
       try {
-        // Read fragment: "#token=eyJ...&login=octocat"
+        // Read fragment: "#token=eyJ...&login=octocat" (GitHub) OR
+        // "#session_id=..." (Google via Emergent-managed OAuth).
         const raw = (window.location.hash || "").replace(/^#/, "");
         const parts = new URLSearchParams(raw);
+
+        // ── Google path (Emergent-managed OAuth) ──────────────────
+        // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR
+        // REDIRECT URLS, THIS BREAKS THE AUTH
+        const sessionId = parts.get("session_id");
+        if (sessionId) {
+          let d;
+          try {
+            const resp = await api.post("/auth/google/session", {
+              session_id: sessionId,
+            });
+            d = resp.data || {};
+          } catch (e) {
+            setStatus("Google sign-in failed. Sending you back…");
+            setTimeout(() => nav("/login?google=error", { replace: true }), 1000);
+            return;
+          }
+          if (!d.token) {
+            setStatus("No sign-in token returned. Redirecting…");
+            setTimeout(() => nav("/login?google=missing_token", { replace: true }), 800);
+            return;
+          }
+          setToken(d.token);
+          setUser({
+            user_id:          d.user_id,
+            email:            d.email,
+            name:             d.name || d.email,
+            tier:             d.tier,
+            tokens_remaining: d.tokens_remaining,
+          });
+          try {
+            const ref = localStorage.getItem("aurem_ref");
+            if (ref && ref !== d.user_id) {
+              await api.post("/referrals/attribute", { ref_code: ref });
+              localStorage.removeItem("aurem_ref");
+            }
+          } catch { /* non-blocking */ }
+          try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
+          if (d.new) trackSignup();
+          try { window.history.replaceState(null, "", "/oauth-finish"); } catch {}
+          setStatus("Signed in. Redirecting to your dashboard…");
+          nav("/dashboard", { replace: true });
+          return;
+        }
+
+        // ── GitHub path (backend redirect with #token=…) ──────────
         const token = parts.get("token");
         const login = parts.get("login") || "";
         // Iter 156 — `new=1` is set by the backend only when this
