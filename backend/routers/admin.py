@@ -12,7 +12,9 @@ from __future__ import annotations
 import logging
 import os
 import asyncio
+import re
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -3562,6 +3564,74 @@ async def admin_house_rules_write(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"ok": True, "house_rules": doc}
+
+
+
+# ── Iter 212m-187 — Robot Guide messages (admin-editable ORA welcome) ─
+# Lets the admin change the ORA robot welcome wording shown on the
+# /signup and /login windows. Public read lives at GET /auth/robot-guide.
+
+class RobotGuidePayload(BaseModel):
+    signup_message: str = ""
+    login_message:  str = ""
+
+
+_SCRIPT_RE = re.compile(r"<\s*/?\s*script[^>]*>", re.IGNORECASE)
+
+
+@router.get("/robot-guide")
+async def admin_robot_guide_read(authorization: Optional[str] = Header(None)):
+    """Return the current robot-guide messages. Admin-only."""
+    await _require_admin(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    doc = await db.ui_settings.find_one({"_id": "robot_guide"}, {"_id": 0}) or {}
+    ua = doc.get("updated_at")
+    if hasattr(ua, "isoformat"):
+        doc = {**doc, "updated_at": ua.isoformat()}
+    return {
+        "signup_message": doc.get("signup_message") or "",
+        "login_message":  doc.get("login_message") or "",
+        "updated_at":     doc.get("updated_at"),
+        "updated_by":     doc.get("updated_by") or "",
+    }
+
+
+@router.put("/robot-guide")
+async def admin_robot_guide_write(
+    payload: RobotGuidePayload,
+    authorization: Optional[str] = Header(None),
+):
+    """Persist the robot-guide messages. Admin-only.
+
+    Basic HTML (<strong>, <em>, ora-arrow span) is allowed since the
+    message renders through the RobotGuide component; <script> tags are
+    stripped defensively.
+    """
+    admin = await _require_admin(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    signup_msg = _SCRIPT_RE.sub("", payload.signup_message).strip()[:600]
+    login_msg  = _SCRIPT_RE.sub("", payload.login_message).strip()[:600]
+    now = datetime.now(timezone.utc)
+    await db.ui_settings.update_one(
+        {"_id": "robot_guide"},
+        {"$set": {
+            "signup_message": signup_msg,
+            "login_message":  login_msg,
+            "updated_at":     now,
+            "updated_by":     admin.get("user_id") or "",
+        }},
+        upsert=True,
+    )
+    return {
+        "ok": True,
+        "signup_message": signup_msg,
+        "login_message":  login_msg,
+        "updated_at":     now.isoformat(),
+    }
 
 
 

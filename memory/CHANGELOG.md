@@ -2343,3 +2343,9 @@ Founder report: login failed when email typed with different capitalisation (iOS
 Founder request: remove the faint animated grid boxes on the landing background image, nothing else.
 - `Landing.jsx`: `.ora-landing::before` grid overlay (56px amber gridlines + oraGridDrift animation + mask) → `content: none`. No other visual change.
 - Verified via screenshot: background image clean, hero/nav/CTAs untouched. NEEDS REDEPLOY for prod.
+
+## Iter 212m-187 — Admin-editable robot messages + identity-only GitHub signup (Jul 9, 2026)
+Founder requests: (a) signup/login ORA robot wording editable from admin panel, (b) "Continue with GitHub" should be simple identity auth, no repo permission ask.
+- **Robot Guide editor**: new admin tab (CONFIG → Robot Guide, `AdminRobotGuide.jsx`) with 2 textareas + live RobotGuide preview + save/reset. Backend: `GET/PUT /api/aurem-dev/admin/robot-guide` (admin-only, script-tags stripped, 600 char cap, `db.ui_settings` singleton `robot_guide`) + public `GET /api/aurem-dev/auth/robot-guide`. `Signup.jsx`/`Login.jsx` fetch it on mount; custom message replaces the default WELCOME state only (contextual/error states unchanged). Empty = built-in default.
+- **GitHub identity-only auth**: `services/github_oauth.py` `auth_url()` gains `scopes` param + `IDENTITY_SCOPES = "read:user,user:email"`. Signup/login flow (`?signup=1`) now requests identity scopes only (per integration_expert playbook); Connect flow keeps `repo,read:user,user:email`. Repo access happens via PAT wizard.
+- Verified via curl + Playwright: signup redirect scope=read:user,user:email; connect scope keeps repo; admin PUT/GET works, script stripped, non-admin blocked; custom message renders on /signup; admin editor renders + saves. Test message reset to empty after verification. NEEDS REDEPLOY for prod.

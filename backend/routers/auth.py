@@ -149,6 +149,24 @@ def _email_ci(email: str) -> dict:
     return {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}
 
 
+@router.get("/robot-guide")
+async def robot_guide_public() -> dict:
+    """Public — custom ORA robot welcome messages for /signup + /login.
+
+    Admin edits these via PUT /admin/robot-guide (Iter 212m-187). Empty
+    string means "use the built-in default" on the frontend.
+    """
+    db = get_db()
+    doc = {}
+    if db is not None:
+        doc = await db.ui_settings.find_one(
+            {"_id": "robot_guide"}, {"_id": 0}) or {}
+    return {
+        "signup_message": doc.get("signup_message") or "",
+        "login_message":  doc.get("login_message") or "",
+    }
+
+
 class SignupBody(BaseModel):
     email: str
     password: str

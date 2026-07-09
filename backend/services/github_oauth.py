@@ -21,20 +21,26 @@ def client_secret() -> str: return _env("GITHUB_OAUTH_CLIENT_SECRET")
 def redirect_uri() -> str:  return _env("GITHUB_REDIRECT_URI")
 
 SCOPES = "repo,read:user,user:email"
+IDENTITY_SCOPES = "read:user,user:email"
 
 
-def auth_url(state: str, force_reauth: bool = False) -> str:
+def auth_url(state: str, force_reauth: bool = False,
+             scopes: str | None = None) -> str:
     """Build GitHub's OAuth authorize URL.
 
     When `force_reauth=True` we append `prompt=select_account` so GitHub
     re-shows the authorize page and gives the user a chance to switch
     accounts (Iter 212). GitHub honors this on github.com sessions.
+
+    `scopes` overrides the default full scope set — signup/login flows
+    pass IDENTITY_SCOPES so users aren't asked for repo access just to
+    authenticate (Iter 212m-187).
     """
     base = (
         "https://github.com/login/oauth/authorize"
         f"?client_id={client_id()}"
         f"&redirect_uri={redirect_uri()}"
-        f"&scope={SCOPES}"
+        f"&scope={scopes or SCOPES}"
         f"&state={state}"
     )
     if force_reauth:

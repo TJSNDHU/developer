@@ -1,7 +1,7 @@
 /**
  * Login.jsx — Developer sign-in.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LogIn, Github } from "lucide-react";
 import GoogleIcon from "../components/GoogleIcon";
@@ -28,6 +28,13 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Iter 212m-187 — admin-editable welcome message
+  const [welcomeMsg, setWelcomeMsg] = useState("");
+  useEffect(() => {
+    api.get("/auth/robot-guide")
+      .then((r) => setWelcomeMsg(r.data?.login_message || ""))
+      .catch(() => {});
+  }, []);
   // Iter 212m-20 — Admin 2FA challenge state. `null` = normal email/pw
   // form. `{ mfa_token, email }` = the password was correct but the
   // account has TOTP enabled, so we now collect the 6-digit code.
@@ -128,7 +135,7 @@ export default function Login() {
                     ? `Looks good — hit <strong>Sign in</strong> when you&rsquo;re ready. <span class="ora-arrow">👇</span>`
                     : email
                       ? `Now enter your <strong>password</strong> and sign in. <span class="ora-arrow">👇</span>`
-                      : `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — one tap, no password.`
+                      : (welcomeMsg || `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — one tap, no password.`)
             }
           />
           {/* Iter 113 — friendly banner when GitHub OAuth was cancelled */}

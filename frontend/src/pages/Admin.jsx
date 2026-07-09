@@ -19,6 +19,7 @@ import AgentTokenPanel from "../components/AgentTokenPanel";
 import AdminThinkingHints from "../components/AdminThinkingHints";
 import TwoFactorCard from "../components/TwoFactorCard";  // Iter 212m-20
 import AdminHouseRules from "../components/AdminHouseRules";  // Iter 212m-24
+import AdminRobotGuide from "../components/AdminRobotGuide";  // Iter 212m-187
 import AdminBINTracker from "./AdminBINTracker";               // Iter 212m-171
 import AdminFeatureFlags from "./AdminFeatureFlags";           // Iter 212m-171
 import { LLMCreditMonitor } from "./AdminLLMCredits";          // Iter 212m-171
@@ -2122,6 +2123,7 @@ const NAV = [
   { group: "CONFIG" },
   { id: "feature_flags", label: "Feature Flags", Icon: Zap },
   { id: "house_rules", label: "House Rules V2", Icon: ShieldCheck },
+  { id: "robot_guide", label: "Robot Guide", Icon: MessageCircle },
   { group: "BUSINESS" },
   { id: "payments", label: "Payments & Revenue", Icon: DollarSign },
   { id: "tokens", label: "Token P&L", Icon: Cpu },
@@ -2220,6 +2222,7 @@ export default function Admin({ initialTab = "overview" }) {
       case "support":        return <SupportPage />;
       case "audit":          return <AuditPage />;
       case "house_rules":    return <AdminHouseRules />;
+      case "robot_guide":    return <AdminRobotGuide />;
       case "settings":       return <SettingsPage />;
       default:               return <AdminOverview />;
     }

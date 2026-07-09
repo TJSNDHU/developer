@@ -1,7 +1,7 @@
 /**
  * Signup.jsx — Developer sign-up.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Rocket, Github } from "lucide-react";
 import AuthShell from "../components/AuthShell";
@@ -23,6 +23,13 @@ export default function Signup() {
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
   const [form, setForm] = useState({ name: "", email: "", password: "", password_confirm: "" });
   const [agreed, setAgreed] = useState(false);
+  // Iter 212m-187 — admin-editable welcome message
+  const [welcomeMsg, setWelcomeMsg] = useState("");
+  useEffect(() => {
+    api.get("/auth/robot-guide")
+      .then((r) => setWelcomeMsg(r.data?.signup_message || ""))
+      .catch(() => {});
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -110,7 +117,7 @@ export default function Signup() {
               error
                 ? `Hmm — <strong>${escapeHtml(error)}</strong>. Fix the highlighted field and try again.`
                 : !form.email
-                  ? `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — creates your account instantly, no password needed.`
+                  ? (welcomeMsg || `<strong>Fastest way:</strong> click <strong>Continue with GitHub</strong> below <span class="ora-arrow">👇</span> — creates your account instantly, no password needed.`)
                   : !form.password
                     ? `Pick a <strong>strong password</strong> (6+ characters) below. <span class="ora-arrow">👇</span>`
                     : form.password_confirm && form.password !== form.password_confirm

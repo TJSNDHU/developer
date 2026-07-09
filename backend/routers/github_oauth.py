@@ -18,7 +18,7 @@ from fastapi.responses import RedirectResponse
 
 from cto_services.auth import create_token, current_dev
 from cto_services.db import get_db
-from services.github_oauth import auth_url, exchange, gh_user, gh_repos
+from services.github_oauth import auth_url, exchange, gh_user, gh_repos, IDENTITY_SCOPES
 from services.usage import is_founder_email
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,11 @@ async def connect(
                 # hours, then completes auth.
                 "created_at": datetime.now(timezone.utc),
             })
-        return RedirectResponse(url=auth_url(state, force_reauth=fr))
+        # Iter 212m-187 — signup/login only needs identity (profile +
+        # email), NOT repo access. Repo connect happens later via the
+        # PAT wizard.
+        return RedirectResponse(
+            url=auth_url(state, force_reauth=fr, scopes=IDENTITY_SCOPES))
 
     # Connect mode — must be authenticated.
     if not authorization and auth:
