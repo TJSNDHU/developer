@@ -71,8 +71,10 @@ function HealthRingSkeleton() {
 export function TopBar({
   tab, onTabChange, mode, onModeChange,
   hidden = false, onNewRun,
-  // Iter 212m-82 — live breadcrumb + healthScore (null → ring hidden)
-  breadcrumb = { owner: "TJSNDHU", repo: "Aurem", branch: "main" },
+  // Iter 212m-191 — NO hardcoded repo fallback: an empty breadcrumb
+  // renders "No repo connected" instead of leaking a placeholder
+  // repo name to users with zero connected repos.
+  breadcrumb = { owner: "", repo: "", branch: "" },
   healthScore = null,
   // Iter 212m-147 — loading flag → render skeleton ring instead of nothing.
   healthScoreLoading = false,
@@ -130,13 +132,17 @@ export function TopBar({
     )} style={{ maxHeight: effectiveHidden ? 0 : 200 }}>
       <div className="flex h-[48px] items-center gap-3 px-5">
         <nav className="flex min-w-0 flex-1 items-center gap-[5px] font-mono text-[11px]">
-          {breadcrumb.owner && (
+          {breadcrumb.owner || breadcrumb.repo ? (
             <>
               <span className="text-muted-foreground truncate">{breadcrumb.owner}/{breadcrumb.repo}</span>
               <ChevronRight className="size-3 shrink-0 text-border" strokeWidth={2} />
+              <span className="truncate text-foreground">{breadcrumb.branch}</span>
             </>
+          ) : (
+            <span data-testid="ds2-breadcrumb-empty" className="truncate text-muted-foreground/50">
+              No repo connected
+            </span>
           )}
-          <span className="truncate text-foreground">{breadcrumb.branch}</span>
         </nav>
 
         <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#111111] p-[3px]">

@@ -586,11 +586,11 @@ function DashboardV2Body() {
             onModeChange={handleModeChange}
             hidden={false}
             onNewRun={handleNewRun}
-            breadcrumb={{
-              owner:  activeProject?.github_owner || "TJSNDHU",
-              repo:   activeProject?.github_repo  || activeProject?.name || "Aurem",
-              branch: activeProject?.branch       || "main",
-            }}
+            breadcrumb={activeProject ? {
+              owner:  activeProject.github_owner || "",
+              repo:   activeProject.github_repo  || activeProject.name || "",
+              branch: activeProject.branch       || "main",
+            } : { owner: "", repo: "", branch: "" }}
             healthScore={healthScore}
             healthScoreLoading={healthScoreLoading}
             streakSlot={

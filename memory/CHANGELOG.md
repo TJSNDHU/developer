@@ -2371,3 +2371,10 @@ Founder spec: 1 issue fixed = 1 task, flat (no severity pricing). Gate by TOOL +
 - **codebase_health.py /fix** (health-scan) + **security_scan.py /fix** (vanguard-scan): require_admin → current_dev + assert_can_fix, token deduction removed, 1 task on success.
 - **Frontend**: new `lib/useFixQuota.js`; CodebaseHealth — Fix buttons hidden unless health-scan in fix_tools, label "Fix this — 1 task", bulk button only when quota.bulk_fix, pre-modal 402 block message per spec; BulkFixConfirmModal — task copy "This will fix {N} issues and use {N} of your {limit} tasks this month", confirm button "Fix all {N}", tool prop sent to preview/bulk; SecurityScanDrawer — vanguard gating + "Fix · 1 task".
 - Verified: 9-scenario curl matrix + unit roll-up + vite build + testing_agent 17/17 pass (/app/test_reports/iteration_28.json, pytest file /app/backend/tests/test_iter212m190_scan_fix_quota.py). Scans still cost tokens (spec: scans don't cost TASKS). NEEDS REDEPLOY.
+
+## Iter 212m-191 — Placeholder repo-name leak fixed (Jul 9, 2026)
+Founder report: new users with 0 repos saw "TJSNDHU/Aurem main" in the TopBar breadcrumb. NOT a cross-user DB leak — it was a hardcoded frontend fallback (Dashboard.jsx breadcrumb `|| "TJSNDHU"` / `|| "Aurem"` + TopBar default prop).
+- Dashboard.jsx: breadcrumb only from activeProject; empty object when no project.
+- TopBar.jsx: default prop emptied; empty breadcrumb renders muted "No repo connected" (data-testid ds2-breadcrumb-empty).
+- Audited remaining "TJSNDHU"/"Aurem" fallbacks: only in internal preview-only components (DeveloperSidebar, dashboard-data.js → /dashboard-preview-v2, /sidebar-preview) — not user-facing.
+- Verified via Playwright with 0-repo user: no TJSNDHU anywhere, "No repo connected" shown. NEEDS REDEPLOY.
