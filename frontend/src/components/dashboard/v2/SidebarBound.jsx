@@ -11,7 +11,7 @@ import { cn } from "./cn";
 import {
   Pin, PinOff, Plus,
   GitFork, Github, LayoutGrid,
-  User, Settings, Zap, LogOut, ChevronRight,
+  Settings, LogOut, ChevronRight,
 } from "lucide-react";
 import { getToken, getUser, isAdminOrFounder } from "../../../lib/api";
 
@@ -73,7 +73,7 @@ function Tooltip({ label, children }) {
   );
 }
 
-function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, onLogout, isMobile = false }) {
+function UserDropdown({ user, onClose, onSettings, onLogout, isMobile = false }) {
   const ref = useRef(null);
   useEffect(() => {
     function handle(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
@@ -123,17 +123,9 @@ function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, on
             )}
           </div>
           <div className="py-1">
-            <button data-testid="ds2-user-edit-mobile" onClick={onEditProfile}
-              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-foreground transition-colors hover:bg-secondary">
-              <User className="size-4 text-muted-foreground" strokeWidth={2} /> Edit Profile
-            </button>
             <button data-testid="ds2-user-settings-mobile" onClick={onSettings}
               className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-foreground transition-colors hover:bg-secondary">
               <Settings className="size-4 text-muted-foreground" strokeWidth={2} /> Settings
-            </button>
-            <button data-testid="ds2-user-recharge-mobile" onClick={onRecharge}
-              className="flex w-full items-center gap-3 px-4 py-3 text-[14px] text-primary transition-colors hover:bg-secondary">
-              <Zap className="size-4" strokeWidth={2} /> Recharge Tokens
             </button>
           </div>
           <div className="border-t border-border py-1 pb-[max(env(safe-area-inset-bottom),8px)]">
@@ -159,17 +151,9 @@ function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, on
         )}
       </div>
       <div className="py-1">
-        <button data-testid="ds2-user-edit" onClick={onEditProfile}
-          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:bg-secondary">
-          <User className="size-3.5 text-muted-foreground" strokeWidth={2} /> Edit Profile
-        </button>
         <button data-testid="ds2-user-settings" onClick={onSettings}
           className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:bg-secondary">
           <Settings className="size-3.5 text-muted-foreground" strokeWidth={2} /> Settings
-        </button>
-        <button data-testid="ds2-user-recharge" onClick={onRecharge}
-          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-primary transition-colors hover:bg-secondary">
-          <Zap className="size-3.5" strokeWidth={2} /> Token Recharge
         </button>
       </div>
       <div className="border-t border-border py-1">
@@ -185,7 +169,7 @@ function UserDropdown({ user, onClose, onEditProfile, onSettings, onRecharge, on
 export default function SidebarBound({
   collapsed = false, pinned = false, onPinChange,
   repos = [], onSelectRepo, onAddRepo,
-  onToolClick, user, onEditProfile, onSettings, onRecharge, onLogout,
+  onToolClick, user, onSettings, onLogout,
   isMobile = false,
 }) {
   const isCollapsed = !pinned && collapsed;
@@ -533,8 +517,7 @@ export default function SidebarBound({
         isCollapsed ? "flex justify-center py-3" : "flex items-center gap-2.5 px-4 py-3")}>
         {dropdownOpen && !isCollapsed && (
           <UserDropdown user={user} onClose={() => setDropdownOpen(false)}
-            onEditProfile={onEditProfile} onSettings={onSettings}
-            onRecharge={onRecharge} onLogout={onLogout}
+            onSettings={onSettings} onLogout={onLogout}
             isMobile={isMobile} />
         )}
         <button onClick={() => setDropdownOpen((v) => !v)} aria-label="User menu"
