@@ -11316,3 +11316,13 @@ orchestrator path           (legacy safety net)
 ---
 ## STATUS POINTER (Jul 3, 2026 — Iter 212m-179/179b)
 P0s closed: full-repo `search_repo` (tarball snapshot, complete results, prod-verified), empirical bulk-fix cap = 20 (36/36 real prod fixes, zero 403s), FixJobContext summary-polling fallback for multi-worker prod SSE, PAT deep-links prefill contents+pull_requests write, Meta Pixel SPA route tracking. Details: memory/CHANGELOG.md + test_reports/prod_aggression/FINAL_REPORT_v3_iter212m179.md. Awaiting one redeploy for: polling fallback, in-memory summary status, snapshot cache under /app.
+
+## Iter 212m-184 — Sidebar "Connect with GitHub" now opens PAT wizard (Jul 9, 2026)
+Sidebar zero-repos CTA no longer launches legacy GitHub OAuth popup — it opens NewUserWizard (URL+Branch+PAT), matching the streamlined onboarding from 212m-182. Verified via Playwright on preview. NEEDS REDEPLOY.
+
+**Pending (priority order)**
+- P1: Cleanup 36 probe draft PRs on TJSNDHU/Aurem (created during 212m-179 empirical bulk-fix testing)
+- P1: Vanguard CI Ingest setup — BLOCKED on user's AUREM_CI_INGEST_TOKEN
+- P2: Semgrep + Trivy sidecar integrations
+- P2: GSC Indexing API integration
+- Future: POST /api/parliament/analyze endpoint
