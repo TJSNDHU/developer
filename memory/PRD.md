@@ -11326,3 +11326,6 @@ Sidebar zero-repos CTA no longer launches legacy GitHub OAuth popup — it opens
 - P2: Semgrep + Trivy sidecar integrations
 - P2: GSC Indexing API integration
 - Future: POST /api/parliament/analyze endpoint
+
+## Iter 212m-190 — Scan-fix task quota (Jul 9, 2026)
+1 fix = 1 task, flat. Tier gates: free=scan-only (Fix hidden), starter=vanguard fixes, pro=+health, team=all 4 + bulk fix (only tier with bulk button). Bulk confirm dialog shows exact "{N} of {limit} tasks" copy; 402 block before dialog when N > remaining; tasks deducted atomically per SUCCESSFUL fix only. Backend: services/scan_fix_quota.py + GET /fix-pipeline/quota. testing_agent 17/17.
