@@ -591,6 +591,7 @@ function DashboardV2Body() {
               repo:   activeProject.github_repo  || activeProject.name || "",
               branch: activeProject.branch       || "main",
             } : { owner: "", repo: "", branch: "" }}
+            hasRepo={!!activeProject}
             healthScore={healthScore}
             healthScoreLoading={healthScoreLoading}
             streakSlot={

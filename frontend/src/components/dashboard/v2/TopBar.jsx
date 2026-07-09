@@ -80,6 +80,9 @@ export function TopBar({
   healthScoreLoading = false,
   // Iter 212m-89 — optional slot for the ShipStreakWidget chip
   streakSlot = null,
+  // Iter 212m-192 — Preview/Graph tabs + "New run" hidden until a repo
+  // is connected; they appear automatically once one is.
+  hasRepo = true,
 }) {
   // Iter 212m-93 → 212m-123 — Founder spec: TopBar hides ONLY when
   // the user starts typing in the chat composer (driven by the
@@ -176,14 +179,16 @@ export function TopBar({
           </>
         )}
 
-        <button onClick={onNewRun} data-testid="ds2-new-run"
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-[6px] text-[12px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:scale-95">
-          <Plus className="size-3 shrink-0" strokeWidth={3} /> New run
-        </button>
+        {hasRepo && (
+          <button onClick={onNewRun} data-testid="ds2-new-run"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-[6px] text-[12px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:scale-95">
+            <Plus className="size-3 shrink-0" strokeWidth={3} /> New run
+          </button>
+        )}
       </div>
 
       <div className="flex h-[38px] items-end px-5">
-        {TABS.map(({ id, icon: Icon }) => (
+        {TABS.filter(({ id }) => hasRepo || id === "Chat").map(({ id, icon: Icon }) => (
           <button key={id} onClick={() => onTabChange(id)}
             data-testid={`ds2-tab-${id.toLowerCase()}`}
             className={cn("relative flex items-center gap-1.5 px-3 pb-[8px] text-[12px] font-medium transition-colors",

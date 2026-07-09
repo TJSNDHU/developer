@@ -2378,3 +2378,9 @@ Founder report: new users with 0 repos saw "TJSNDHU/Aurem main" in the TopBar br
 - TopBar.jsx: default prop emptied; empty breadcrumb renders muted "No repo connected" (data-testid ds2-breadcrumb-empty).
 - Audited remaining "TJSNDHU"/"Aurem" fallbacks: only in internal preview-only components (DeveloperSidebar, dashboard-data.js → /dashboard-preview-v2, /sidebar-preview) — not user-facing.
 - Verified via Playwright with 0-repo user: no TJSNDHU anywhere, "No repo connected" shown. NEEDS REDEPLOY.
+
+## Iter 212m-192 — Preview/Graph tabs + New Run hidden until repo connected (Jul 9, 2026)
+Founder request: hide Preview & Graph tabs and the "New run" button when no repo is connected; auto-show after connecting.
+- `TopBar.jsx`: new `hasRepo` prop — TABS filtered to Chat-only and New-run button skipped when false.
+- `Dashboard.jsx`: passes `hasRepo={!!activeProject}` — activeProject updates reactively on connect (aurem:project-changed), so tabs/button appear automatically without reload.
+- Verified via Playwright: 0-repo user → only Chat tab, no New run, no Preview/Graph; user with active project → breadcrumb owner/repo + all tabs + New run visible. Test project doc cleaned up. NEEDS REDEPLOY.
