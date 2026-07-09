@@ -2338,3 +2338,8 @@ Founder report: login failed when email typed with different capitalisation (iOS
 - `routers/github_oauth.py`: signup-flow email fallback lookup now CI.
 - Also fixed a stray corrupted line 499 (`"tokens_remaining", 0))}`) that broke backend import during editing.
 - Verified via curl (local + external): UPPERCASE login of existing acct OK, mixed-case signup stores lowercase, cross-case login OK, cross-case dup signup → 409, wrong password → 401, founder UPPERCASE login keeps is_admin=true. Passwords remain case-SENSITIVE. NEEDS REDEPLOY for prod.
+
+## Iter 212m-186 — Homepage grid overlay removed (Jul 9, 2026)
+Founder request: remove the faint animated grid boxes on the landing background image, nothing else.
+- `Landing.jsx`: `.ora-landing::before` grid overlay (56px amber gridlines + oraGridDrift animation + mask) → `content: none`. No other visual change.
+- Verified via screenshot: background image clean, hero/nav/CTAs untouched. NEEDS REDEPLOY for prod.

@@ -65,15 +65,8 @@ const LANDING_CSS = `
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
 .ora-landing::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
-  background-size: 56px 56px;
-  animation: oraGridDrift 50s linear infinite;
-  mask-image: radial-gradient(circle at 50% 30%, #000 30%, transparent 80%);
+  content: none;
 }
-@keyframes oraGridDrift { to { background-position: 56px 56px; } }
 @media (max-width: 720px) {
   .ora-landing { background-image:
     radial-gradient(700px 420px at 50% -4%, rgba(245,158,11,0.18), transparent 70%),
