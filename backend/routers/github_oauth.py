@@ -6,6 +6,7 @@ so it does not collide with the legacy /github/{status,push} surface.
 from __future__ import annotations
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -297,7 +298,9 @@ async def callback(
             )
         if not existing and gh_email:
             existing = await db.dev_users.find_one(
-                {"email": gh_email}, {"_id": 0},
+                {"email": {"$regex": f"^{re.escape(gh_email)}$",
+                           "$options": "i"}},
+                {"_id": 0},
             )
 
         if existing:

@@ -2331,3 +2331,10 @@ Founder request: add "Continue with Google" + "Continue with GitHub" one-click s
 Founder request (screenshot): sidebar zero-repos "Connect with GitHub" button opened the LEGACY GitHub OAuth popup flow. Now it opens the same NewUserWizard (URL + Branch + PAT form) used everywhere else.
 - `SidebarBound.jsx` (~line 390): onClick replaced — OAuth popup + status-polling block deleted, now just `onAddRepo?.()` (Dashboard's handleAddRepo → setShowWizard(true)). Caption "One-click OAuth · no PAT" → "Repo URL + token · 2 min setup".
 - Verified via Playwright (scope.test.regular@aurem.dev, 0 repos): button visible, click opens wizard step 1 with repo-URL + PAT inputs, NO popup. NEEDS REDEPLOY for prod.
+
+## Iter 212m-185 — Case-insensitive email sign-in/sign-up (Jul 9, 2026)
+Founder report: login failed when email typed with different capitalisation (iOS auto-capitalizes first letter).
+- `routers/auth.py`: new `_email_ci()` helper (anchored `$regex` + `$options:i`). Login lookup + failure/clear records now case-insensitive; signup normalizes email to `strip().lower()` before store + dup-check (dup-check also CI against legacy mixed-case rows). Google session lookup also CI.
+- `routers/github_oauth.py`: signup-flow email fallback lookup now CI.
+- Also fixed a stray corrupted line 499 (`"tokens_remaining", 0))}`) that broke backend import during editing.
+- Verified via curl (local + external): UPPERCASE login of existing acct OK, mixed-case signup stores lowercase, cross-case login OK, cross-case dup signup → 409, wrong password → 401, founder UPPERCASE login keeps is_admin=true. Passwords remain case-SENSITIVE. NEEDS REDEPLOY for prod.

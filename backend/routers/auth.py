@@ -3,6 +3,7 @@ routers/auth.py — AUREM Dev
 Developer signup, login, token endpoints.
 """
 from __future__ import annotations
+import re
 import uuid
 import os
 import logging
@@ -143,6 +144,11 @@ async def _clear_login_failures(db, client_ip: str, email: str) -> None:
         pass
 
 
+def _email_ci(email: str) -> dict:
+    """Case-insensitive exact-match Mongo filter for an email."""
+    return {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}
+
+
 class SignupBody(BaseModel):
     email: str
     password: str
@@ -167,11 +173,12 @@ async def signup(body: SignupBody) -> dict:
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
+    email = body.email.strip().lower()
     # Iter 212m-70 — projection: signup only needs the existence check
     # plus the email field for the duplicate-message logic.  No need
     # to pull password_hash / failed_logins / tokens_remaining etc.
     existing = await db.dev_users.find_one(
-        {"email": body.email}, {"_id": 0, "email": 1},
+        _email_ci(email), {"_id": 0, "email": 1},
     )
     if existing:
         raise HTTPException(409, "Email already registered")
@@ -180,14 +187,14 @@ async def signup(body: SignupBody) -> dict:
     # Founder allow-list: anyone on the list signs up directly into the
     # `founder` tier with admin rights so first-time onboarding doesn't
     # require a manual DB update.
-    is_founder = is_founder_email(body.email)
+    is_founder = is_founder_email(email)
     tier = "founder" if is_founder else "free"
     starting_tokens = 10**9 if is_founder else 1000
     created_at = datetime.now(timezone.utc)
     await db.dev_users.insert_one({
         "user_id": user_id,
-        "email": body.email,
-        "name": body.name or body.email.split("@")[0],
+        "email": email,
+        "name": body.name or email.split("@")[0],
         "password": hashed,
         "tier": tier,
         "tokens_remaining": starting_tokens,
@@ -198,13 +205,13 @@ async def signup(body: SignupBody) -> dict:
         # datetime so Mongo's BSON serialiser keeps the timezone intact.
         "created_at": created_at,
     })
-    token = create_token(user_id, body.email, is_admin=is_founder)
+    token = create_token(user_id, email, is_admin=is_founder)
     return {
         "ok": True,
         "token": token,
         "user_id": user_id,
-        "email": body.email,
-        "name": body.name or body.email.split("@")[0],
+        "email": email,
+        "name": body.name or email.split("@")[0],
         "tier": tier,
         "tokens_remaining": starting_tokens,
         "is_admin": is_founder,
@@ -253,7 +260,7 @@ async def google_session(body: GoogleSessionBody) -> dict:
     name = data.get("name") or email.split("@")[0]
     picture = data.get("picture") or ""
 
-    existing = await db.dev_users.find_one({"email": email}, {"_id": 0})
+    existing = await db.dev_users.find_one(_email_ci(email), {"_id": 0})
     if existing:
         user_id  = existing["user_id"]
         is_admin = bool(existing.get("is_admin"))
@@ -315,9 +322,10 @@ async def login(body: LoginBody, request: Request) -> dict:
     # lookup so an attacker can't probe for valid emails by timing.
     client_ip = client_ip_from_request(request)
     await _enforce_login_guard(db, client_ip)
-    user = await db.dev_users.find_one({"email": body.email}, {"_id": 0})
+    email = body.email.strip().lower()
+    user = await db.dev_users.find_one(_email_ci(email), {"_id": 0})
     if not user:
-        await _record_login_failure(db, client_ip, body.email)
+        await _record_login_failure(db, client_ip, email)
         raise HTTPException(401, "Invalid credentials")
     # OAuth-only accounts have no password — block password sign-in for
     # them with a clear message so they go through the GitHub button.
@@ -327,11 +335,11 @@ async def login(body: LoginBody, request: Request) -> dict:
             "This account uses GitHub sign-in. Use 'Continue with GitHub'.",
         )
     if not bcrypt.checkpw(body.password.encode(), user["password"].encode()):
-        await _record_login_failure(db, client_ip, body.email)
+        await _record_login_failure(db, client_ip, email)
         raise HTTPException(401, "Invalid credentials")
     # Iter 212m-48 — password check passed. Clear the lockout state for
     # this IP / user so a stale string of failures doesn't carry over.
-    await _clear_login_failures(db, client_ip, body.email)
+    await _clear_login_failures(db, client_ip, email)
     # Auto-promote whoever matches ADMIN_EMAIL or ADMIN_EMAILS env var
     # (cheap, idempotent). ADMIN_EMAIL kept for backward compat — single
     # address. Iter 181 — ADMIN_EMAILS added as a comma-separated list so
