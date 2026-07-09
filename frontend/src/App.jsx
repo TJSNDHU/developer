@@ -183,6 +183,8 @@ export default function App() {
           <Route path="/admin/system-stats" element={<SystemStatsPage />} />
           <Route path="/admin/observability" element={<SystemStatsPage />} />
           <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/tools/bug-hunt"    element={<BugHunt />} />
+          <Route path="/tools/health-scan" element={<CodebaseHealth />} />
           <Route path="/feature-window"     element={<FeatureWindow />} />
           <Route path="/admin/system-map"   element={<FeatureWindow />} />
           <Route path="/codebase-health"    element={<CodebaseHealth />} />

@@ -677,23 +677,10 @@ function SidebarReal({
       onAddRepo={onAddRepo}
       isMobile={isMobile}
       onToolClick={(toolId) => {
-        if (toolId === "health")        _go("/codebase-health");
-        else if (toolId === "bughunt")  _go("/bug-hunt");
-        else if (toolId === "tools")    _go("/tools");
-        else if (toolId === "graph") {
-          window.dispatchEvent(new CustomEvent("aurem:toggle-graph", {
-            detail: { open: true },
-          }));
-          onAfterAction?.();
-        }
-        else if (toolId === "vanguard") {
-          window.dispatchEvent(new CustomEvent("aurem:open-vanguard"));
-          onAfterAction?.();
-        }
-        else if (toolId === "loop") {
-          window.dispatchEvent(new CustomEvent("aurem:toggle-loop"));
-          onAfterAction?.();
-        }
+        if (toolId === "tools") _go("/tools");
+        // Iter 212m-189 — Developer tools accordion sub-items route to
+        // /tools/<slug> (only "live" tools dispatch this).
+        else if (toolId.startsWith("tool:")) _go(`/tools/${toolId.slice(5)}`);
       }}
       user={user}
       onLogout={() => {

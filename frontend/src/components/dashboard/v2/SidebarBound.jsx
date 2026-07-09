@@ -10,8 +10,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "./cn";
 import {
   Pin, PinOff, Plus,
-  GitFork, Github, LayoutGrid,
+  Github, LayoutGrid,
   Settings, LogOut, ChevronRight,
+  ShieldCheck, Activity, Lock, Bug,
 } from "lucide-react";
 import { getToken, getUser, isAdminOrFounder } from "../../../lib/api";
 
@@ -34,7 +35,21 @@ const TOOLS = [
   // Security Scan, Vanguard Scan, and Bug Hunt are listed as "Coming
   // soon" cards with notify-me.
   { id: "tools",    label: "Developer tools",   icon: LayoutGrid  },
-  { id: "graph",    label: "Codebase Graph",    icon: GitFork     },
+];
+
+// Iter 212m-189 — Developer tools accordion sub-items. `status` is the
+// single config flag per tool: "live" → clickable, routes to
+// /tools/<slug>; "soon" → status badge only, no navigation. Live tool
+// routes are admin-gated (they bounce non-admins to /dashboard), so
+// non-admin users see every tool as "soon".
+//
+// "Codebase Graph" removed: it dispatched the same `aurem:toggle-graph`
+// event as the Graph tab in the Chat/Preview/Graph top nav — duplicate.
+const DEV_TOOLS = [
+  { slug: "vanguard-scan", label: "Vanguard Scan", icon: ShieldCheck, status: "soon" },
+  { slug: "health-scan",   label: "Health Scan",   icon: Activity,    status: "live" },
+  { slug: "security-scan", label: "Security Scan", icon: Lock,        status: "soon" },
+  { slug: "bug-hunt",      label: "Bug Hunt",      icon: Bug,         status: "live" },
 ];
 
 function Dot({ tone }) {
@@ -174,6 +189,7 @@ export default function SidebarBound({
 }) {
   const isCollapsed = !pinned && collapsed;
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -473,40 +489,70 @@ export default function SidebarBound({
             <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Tools</p>
           )}
           <ul className="space-y-[1px]">
-            {TOOLS.filter((t) => {
-              // Iter 212m-110 — Codebase Graph is now available to every
-              // user (opens the GraphPanel drawer of their connected
-              // GitHub repo via aurem:toggle-graph, no longer leaks
-              // /feature-window's internal ORA map).
-              //
-              // Iter 212m-157 — Admin-only tools (Health Scanner) are
-              // hidden from the sidebar for non-admin users.  Route
-              // stays alive but the visible nav link is gone.  Admins
-              // and founders see everything.
-              if (t.adminOnly && !isAdminOrFounder(user)) return false;
-              return true;
-            }).map((tool) => {
+            {TOOLS.map((tool) => {
               const Icon = tool.icon;
-              // Iter 212m-162 — Health Scanner row deleted; tools row
-              // active-state map now only needs to handle the dynamic
-              // tools that route through /codebase-* or open drawers.
-              // The remaining "tools" + "graph" entries are dispatched
-              // by Dashboard.jsx::onToolClick — no path-based active
-              // highlight needed for either.
-              const isActive = false;
+              // Iter 212m-189 — "Developer tools" is now an accordion.
+              // Collapsed sidebar keeps the old behaviour (routes to
+              // /tools); expanded sidebar toggles the sub-item list.
               const row = (
-                <button onClick={() => onToolClick?.(tool.id)}
+                <button
+                  onClick={() => (isCollapsed
+                    ? onToolClick?.("tools")
+                    : setToolsOpen((v) => !v))}
                   data-testid={`ds2-tool-${tool.id}`}
+                  aria-expanded={toolsOpen}
                   className={cn("flex w-full items-center gap-2.5 rounded-md transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
                     isCollapsed ? "h-9 w-12 justify-center" : "px-4 py-[6px]")}>
                   <Icon className="size-3.5 shrink-0" strokeWidth={2} />
                   {!isCollapsed && <span className="flex-1 text-left text-[12px]">{tool.label}</span>}
+                  {!isCollapsed && (
+                    <ChevronRight
+                      className={cn("size-3 shrink-0 transition-transform duration-200",
+                        toolsOpen && "rotate-90")}
+                      strokeWidth={2} />
+                  )}
                 </button>
               );
-              return <li key={tool.id}>{isCollapsed ? <Tooltip label={tool.label}>{row}</Tooltip> : row}</li>;
+              return (
+                <li key={tool.id}>
+                  {isCollapsed ? <Tooltip label={tool.label}>{row}</Tooltip> : row}
+                  {!isCollapsed && toolsOpen && (
+                    <ul data-testid="ds2-devtools-list" className="mt-[1px] space-y-[1px]">
+                      {DEV_TOOLS.map((t) => {
+                        const SubIcon = t.icon;
+                        const isLive = t.status === "live" && isAdminOrFounder(user);
+                        return (
+                          <li key={t.slug}>
+                            <button
+                              data-testid={`ds2-devtool-${t.slug}`}
+                              data-status={isLive ? "live" : "soon"}
+                              disabled={!isLive}
+                              onClick={isLive ? () => onToolClick?.(`tool:${t.slug}`) : undefined}
+                              className={cn(
+                                "flex w-full items-center gap-2.5 rounded-md py-[6px] pl-8 pr-3 transition-colors",
+                                isLive
+                                  ? "cursor-pointer text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                  : "cursor-default text-muted-foreground/50",
+                              )}>
+                              <SubIcon className="size-3.5 shrink-0" strokeWidth={2} />
+                              <span className="flex-1 text-left text-[12px]">{t.label}</span>
+                              <span className={cn(
+                                "rounded-full px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wide",
+                                isLive
+                                  ? "bg-emerald-500/15 text-emerald-400"
+                                  : "bg-muted-foreground/10 text-muted-foreground/50",
+                              )}>
+                                {isLive ? "live" : "soon"}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
             })}
           </ul>
         </div>

@@ -2354,3 +2354,11 @@ Founder requests: (a) signup/login ORA robot wording editable from admin panel, 
 Founder request: avatar menu had Edit Profile / Recharge Tokens which are already inside Settings — remove extras.
 - `SidebarBound.jsx` UserDropdown (desktop + mobile bottom-sheet): removed "Edit Profile" and "Recharge Tokens" buttons; only Settings + Logout remain. Unused props (onEditProfile, onRecharge) + unused User/Zap icons removed; Dashboard.jsx call site cleaned.
 - Verified via Playwright: dropdown shows "Settings | Logout" only. NEEDS REDEPLOY for prod.
+
+## Iter 212m-189 — Developer tools accordion + Codebase Graph dedupe (Jul 9, 2026)
+Founder spec: sidebar "Developer tools" flat link → accordion with 4 sub-items + status badges; verify Codebase Graph vs Graph tab duplication.
+- `SidebarBound.jsx`: TOOLS entry now toggles an accordion (chevron rotates 90°). New `DEV_TOOLS` config — single `status: 'live'|'soon'` flag per tool: Vanguard Scan (soon), Health Scan (live), Security Scan (soon), Bug Hunt (live). "soon" = badge only, disabled, no navigation. "live" → onToolClick `tool:<slug>` → Dashboard routes `/tools/<slug>`. Live tools admin-gated (routes bounce non-admins) so non-admins see all 4 as "soon". Collapsed icon-rail keeps old /tools behaviour.
+- **Codebase Graph REMOVED from sidebar**: confirmed duplicate — both it and the Chat/Preview/Graph top-nav tab dispatch the same `aurem:toggle-graph` event opening the same GraphPanel drawer.
+- `App.jsx`: new routes `/tools/bug-hunt` → BugHunt, `/tools/health-scan` → CodebaseHealth.
+- `Dashboard.jsx` onToolClick trimmed to `tools` + `tool:*` (health/bughunt/graph/vanguard/loop branches were dead — no sidebar entries dispatch them).
+- Verified via Playwright: non-admin all SOON + disabled; admin Health/Bug Hunt LIVE, click lands on /tools/health-scan; accordion toggles; graph entry gone. NEEDS REDEPLOY for prod.
