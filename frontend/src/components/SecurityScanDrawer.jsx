@@ -24,6 +24,7 @@ import { getCachedScan, setCachedScan } from "../lib/securityScanCache";
 import { toast } from "sonner";
 import SecretScanCard from "./SecretScanCard";
 import BulkFixConfirmModal from "./BulkFixConfirmModal";
+import useFixQuota from "../lib/useFixQuota";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -67,6 +68,11 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
   const [reportOpen, setReportOpen] = useState(false);
   // Iter 212m-121 — bulk fix modal state
   const [bulkOpen, setBulkOpen] = useState(false);
+  // Iter 212m-190 — task-quota gating: vanguard fixes need Starter+,
+  // bulk fix is Team-only. 1 successful fix = 1 task.
+  const { quota } = useFixQuota();
+  const canFix = !!quota && (quota.fix_tools || []).includes("vanguard-scan");
+  const canBulk = canFix && !!quota?.bulk_fix;
 
   // Iter 212m-114 — Track which findings have been successfully fixed
   // in this session so we dim them + show a green ✓ instead of the
@@ -458,7 +464,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
             <>
               {/* Iter 212m-121 — Bulk fix button for ALL findings.
                   Opens the cost-preview modal; founders see ⚡ FREE. */}
-              {(data.findings || []).length > 0 && (
+              {canBulk && (data.findings || []).length > 0 && (
                 <button
                   type="button"
                   data-testid="security-scan-bulk-fix"
@@ -875,7 +881,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                                     )}
                                   </span>
                                 </>
-                              ) : (
+                              ) : canFix ? (
                                 <button
                                   type="button"
                                   onClick={() => handleApplyFix(f)}
@@ -905,11 +911,11 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                                   ) : (
                                     <>
                                       <Wrench size={11} />
-                                      Fix · 75 tokens
+                                      Fix · 1 task
                                     </>
                                   )}
                                 </button>
-                              )}
+                              ) : null}
                             </div>
                           </li>
                           );
@@ -944,6 +950,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
           ...f, category: "vanguard",
         }))}
         category="Vanguard"
+        tool="vanguard-scan"
       />
     </>
   );

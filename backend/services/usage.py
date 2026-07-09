@@ -123,6 +123,14 @@ async def get_usage(user_id: str) -> dict:
         "status": {"$in": ["done", "running", "pulling", "reading",
                             "fixing", "pushing", "queued"]},
     })
+    # Iter 212m-190 — Developer-Tool scan fixes each count as 1 task
+    # (see services/scan_fix_quota.py). Recorded per SUCCESSFUL fix.
+    _sf = await db.scan_fix_usage.find_one(
+        {"user_id": user_id,
+         "month": f"{month_start.year:04d}-{month_start.month:02d}"},
+        {"_id": 0, "count": 1},
+    ) or {}
+    tasks_this_month += int(_sf.get("count") or 0)
     task_cap = MONTHLY_TASK_LIMITS.get(tier, MONTHLY_TASK_LIMITS["free"])
 
     return {

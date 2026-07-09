@@ -62,6 +62,9 @@ from cto_services.db import get_db
 from services import fix_job_manager as fjm
 from services.finding_fix_applier import apply_finding_fix
 from services import ora_fix_learning
+from services.scan_fix_quota import (
+    ALL_FIX_TOOLS, assert_can_fix, get_fix_quota, record_scan_fixes,
+)
 
 logger = logging.getLogger("aurem-dev.fix_pipeline")
 router = APIRouter(prefix="/fix-pipeline", tags=["Fix Pipeline"])
@@ -113,8 +116,7 @@ def _compute_diff_lines(before: str, after: str) -> list[dict]:
     return out
 
 
-# ─── Cost model ────────────────────────────────────────────────────────
-TOKEN_USD_RATE = 0.0001         # 1 token = $0.0001 → 10 000 tokens = $1
+# ─── Pipeline pacing ───────────────────────────────────────────────────
 # Iter 212m-127 — Batched bulk-fix execution.  Findings are
 # processed in chunks of _BULK_BATCH_SIZE, each chunk interleaved
 # across severity buckets so the user sees a critical, a high,
@@ -154,34 +156,6 @@ _TERMINAL_ERROR_CODES     = frozenset({
     "insufficient_tokens_midbatch",
     "file_too_large",
 })
-# Token cost per category — must stay in sync with the CATS array in
-# frontend/src/pages/CodebaseHealth.jsx.
-_CATEGORY_TOKEN_COST = {
-    "security":     5,
-    "performance":  5,
-    "code_quality": 5,
-    "dependencies": 5,
-    "database":     5,
-    "bug_hunt":     8,
-    "vanguard":     5,   # in-process Vanguard findings (Security drawer)
-    "trufflehog":   5,   # CI secret scan findings
-}
-
-
-def _token_cost_for_finding(f: dict) -> int:
-    """Look up per-finding cost.  Falls back to 5 (the dominant
-    category)."""
-    cat = (
-        f.get("category")
-        or f.get("scanner")
-        or f.get("vuln")
-        or ""
-    ).lower()
-    # Map common vuln classes to their parent category.
-    if cat in ("secret_leak", "sql_injection", "nosql_injection",
-               "ssti", "lpdos", "redos", "chain"):
-        cat = "vanguard"
-    return _CATEGORY_TOKEN_COST.get(cat, 5)
 
 
 def _is_unlimited(user: dict) -> bool:
@@ -215,27 +189,55 @@ async def preview_cost(body: dict,
     total_requested = len(findings)
     findings = findings[:_BULK_MAX_FINDINGS]
 
-    tokens_cost = sum(_token_cost_for_finding(f) for f in findings)
-    is_unlim    = _is_unlimited(user)
+    is_unlim = _is_unlimited(user)
 
-    me = await db.dev_users.find_one(
-        {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1},
-    )
-    balance = int((me or {}).get("tokens_remaining") or 0)
+    # Iter 212m-190 — task-quota model: 1 issue fixed = 1 task.
+    tool = (body.get("tool") or "health-scan").strip()
+    if tool not in ALL_FIX_TOOLS:
+        tool = "health-scan"
+    quota = await get_fix_quota(user)
+    count = len(findings)
+    tool_allowed = tool in quota["fix_tools"]
+    bulk_allowed = count <= 1 or quota["bulk_fix"]
+    remaining = quota["tasks_remaining"]
+    enough_tasks = remaining is None or count <= remaining
+    can_proceed = tool_allowed and bulk_allowed and enough_tasks
+    reason = None
+    if not tool_allowed:
+        reason = "fix_not_available_on_tier"
+    elif not bulk_allowed:
+        reason = "bulk_fix_not_available"
+    elif not enough_tasks:
+        reason = "insufficient_tasks"
 
     return {
         "ok":              True,
-        "count":           len(findings),
+        "count":           count,
         "bulk_max":        _BULK_MAX_FINDINGS,
         "total_requested": total_requested,
-        "tokens_cost":  tokens_cost if not is_unlim else 0,
-        "usd_cost":     round(tokens_cost * TOKEN_USD_RATE, 4)
-                        if not is_unlim else 0.0,
         "is_unlimited": is_unlim,
-        "balance":      balance,
-        "can_proceed":  is_unlim or balance >= tokens_cost,
-        "shortfall":    0 if (is_unlim or balance >= tokens_cost) else tokens_cost - balance,
+        # Task-quota fields — 1 task per fix, flat.
+        "tool":               tool,
+        "tier":               quota["tier"],
+        "tasks_needed":       count,
+        "tasks_remaining":    remaining,
+        "monthly_task_limit": quota["monthly_task_limit"],
+        "tool_allowed":       tool_allowed,
+        "bulk_allowed":       bulk_allowed,
+        "can_proceed":        can_proceed,
+        "reason":             reason,
+        "shortfall":          0 if enough_tasks else count - (remaining or 0),
     }
+
+
+@router.get("/quota")
+async def fix_quota(authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 212m-190 — task-quota snapshot for the fix UI. The frontend
+    uses `fix_tools` to show/hide per-finding Fix buttons and
+    `bulk_fix` to show/hide the bulk button (Team tier only)."""
+    user = await current_dev(authorization)
+    q = await get_fix_quota(user)
+    return {"ok": True, **q}
 
 
 # ─── Bulk fix kick-off ─────────────────────────────────────────────────
@@ -269,20 +271,16 @@ async def start_bulk_fix(body: dict,
     if db is None:
         raise HTTPException(503, "DB not connected")
 
-    is_unlim   = _is_unlimited(user)
-    tokens_total = sum(_token_cost_for_finding(f) for f in findings)
-    # Founder bypass — never check balance, never deduct.
-    if not is_unlim:
-        me = await db.dev_users.find_one(
-            {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1},
-        )
-        bal = int((me or {}).get("tokens_remaining") or 0)
-        if bal < tokens_total:
-            raise HTTPException(402, {
-                "error":   "insufficient_tokens",
-                "needed":  tokens_total,
-                "balance": bal,
-            })
+    is_unlim = _is_unlimited(user)
+    # Iter 212m-190 — task-quota gate: tool access by tier, bulk (count
+    # > 1) is Team-only, and N fixes need N remaining tasks. Raises
+    # 403/402 with structured detail BEFORE any work starts. Tasks are
+    # deducted per SUCCESSFUL fix inside the worker — failures never
+    # burn quota.
+    tool = ((body or {}).get("tool") or "health-scan").strip()
+    if tool not in ALL_FIX_TOOLS:
+        tool = "health-scan"
+    await assert_can_fix(user, tool, count=len(findings))
 
     job_id = await fjm.create_job(
         db=db, user_id=user_id, kind="bulk", total=len(findings),
@@ -291,7 +289,7 @@ async def start_bulk_fix(body: dict,
     # Launch the worker — runs in the background, streams events.
     asyncio.create_task(_run_bulk_job(
         job_id=job_id, db=db, user=user, project_id=project_id,
-        findings=findings, is_unlim=is_unlim,
+        findings=findings, is_unlim=is_unlim, tool=tool,
     ))
     return {
         "ok":     True,
@@ -302,7 +300,8 @@ async def start_bulk_fix(body: dict,
 
 
 async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
-                        findings: list[dict], is_unlim: bool) -> None:
+                        findings: list[dict], is_unlim: bool,
+                        tool: str = "health-scan") -> None:
     """The actual worker.  Findings are first interleaved by severity
     so each batch carries a mix of critical/high/medium/low fixes,
     then processed in chunks of _BULK_BATCH_SIZE.  Within a chunk we
@@ -360,7 +359,6 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 rule_id    = finding.get("rule_id") or finding.get("rule") or ""
                 path       = finding.get("file") or finding.get("path") or ""
                 severity   = finding.get("severity") or ""
-                cost       = _token_cost_for_finding(finding)
 
                 fjm.emit(job_id, "queued",
                          index=global_idx, batch=batch_no,
@@ -375,33 +373,9 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                                       or finding.get("message")
                                       or rule_id))
 
-                # Token deduction is BEST-EFFORT per finding so a mid-batch
-                # 402 doesn't leak a partial commit.  Founders skip entirely.
-                if not is_unlim and cost > 0:
-                    upd = await db.dev_users.update_one(
-                        {"user_id": user_id, "tokens_remaining": {"$gte": cost}},
-                        {"$inc": {"tokens_remaining": -cost}},
-                    )
-                    if upd.modified_count == 0:
-                        fjm.emit(job_id, "fix-done",
-                                 ok=False, finding_id=finding_id,
-                                 error="insufficient_tokens_midbatch",
-                                 file=path, rule_id=rule_id,
-                                 fix_index=global_idx,
-                                 fix_total=len(ordered))
-                        await fjm.persist_event(db, job_id)
-                        total_skipped += 1
-                        fixes_summary.append({
-                            "index":      global_idx,
-                            "file":       path,
-                            "rule":       rule_id,
-                            "status":     "skipped",
-                            "error":      "insufficient_tokens_midbatch",
-                            "commit_sha": None,
-                            "github_url": None,
-                        })
-                        continue
-                    total_charged += cost
+                # Iter 212m-190 — no pre-deduction. 1 task is recorded
+                # per SUCCESSFUL fix (below), so failed fixes never
+                # burn quota. Quota was asserted before job start.
 
                 fjm.emit(job_id, "reading", finding_id=finding_id,
                          file=path,
@@ -446,16 +420,6 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                 _fix_duration_ms = int((time.time() - _t_fix_start) * 1000)
 
                 if not res.get("ok"):
-                    # Refund the per-finding deduction on failure.
-                    if not is_unlim and cost > 0:
-                        try:
-                            await db.dev_users.update_one(
-                                {"user_id": user_id},
-                                {"$inc": {"tokens_remaining": cost}},
-                            )
-                            total_charged -= cost
-                        except Exception:
-                            pass
                     fjm.emit(job_id, "fix-done",
                              ok=False, finding_id=finding_id,
                              error=res.get("error") or "unknown",
@@ -480,7 +444,7 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                         finding=finding, result=res,
                         attempts=attempts_used,
                         duration_ms=_fix_duration_ms,
-                        tokens_charged=0,   # refunded above
+                        tokens_charged=0,   # never deducted (task-quota model)
                         scanner=finding.get("scanner"),
                     )
                     continue
@@ -553,10 +517,20 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                     result={**res, "verified": verified},
                     attempts=attempts_used,
                     duration_ms=_fix_duration_ms,
-                    tokens_charged=cost if not is_unlim else 0,
+                    tokens_charged=0,
                     scanner=finding.get("scanner"),
                 )
                 total_ok += 1
+                # Iter 212m-190 — deduct exactly 1 task PER successful
+                # fix (atomic $inc). Failed fixes above never reach
+                # this line, so a 12-selected / 2-failed run deducts 10.
+                if not is_unlim:
+                    try:
+                        await record_scan_fixes(user_id, tool, 1)
+                        total_charged += 1
+                    except Exception as _e:
+                        logger.warning("task record failed user=%s: %r",
+                                       user_id, _e)
 
             # End of batch — emit a summary event the UI uses for the
             # progress-bar tick + take a short breather before the next
@@ -571,7 +545,7 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
         await fjm.close(
             db, job_id, ok=True,
             message=f"Fixed {total_ok}/{len(ordered)} "
-                    f"({total_charged} tokens charged · "
+                    f"({total_charged} tasks used · "
                     f"{len(batches)} batches of {_BULK_BATCH_SIZE})",
         )
     except asyncio.CancelledError:

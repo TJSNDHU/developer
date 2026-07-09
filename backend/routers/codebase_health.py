@@ -812,8 +812,10 @@ async def _check_scan_rate_limit(
 async def request_fix(
     body: dict, authorization: Optional[str] = Header(None),
 ) -> dict:
-    # Iter 212m-158 — Admin/founder-only (Health Scan fix path).
-    user = await require_admin(authorization)
+    # Iter 212m-190 — task-quota model: tier gate (health-scan fixes
+    # need Pro+), 1 task per successful fix. No token pricing.
+    from services.scan_fix_quota import assert_can_fix, record_scan_fixes
+    user = await current_dev(authorization)
     user_id = user["user_id"]
     project_id  = (body or {}).get("project_id")
     finding_id  = (body or {}).get("finding_id") or ""
@@ -822,46 +824,26 @@ async def request_fix(
     line        = int((body or {}).get("line") or 0)
     message     = (body or {}).get("message") or ""
     fix_hint    = (body or {}).get("fix_hint") or ""
-    tokens_cost = int((body or {}).get("tokens") or 5)
     if not project_id or not finding_id:
         raise HTTPException(400, "project_id and finding_id required")
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
-    # Iter 212m-110 — Founder / admin / unlimited accounts bypass the
-    # token deduction entirely (free Bug Hunt + Health fixes). We still
-    # surface `tokens_charged: 0` so the UI behaves consistently.
     is_unlimited_user = bool(
         user.get("is_admin")
         or user.get("is_unlimited")
         or (user.get("tier") == "founder")
     )
-    # Token deduction — simple model: dev_users.tokens_remaining.
+    # Gate BEFORE any work: tool access + 1 task remaining. Raises
+    # 403 fix_not_available_on_tier / 402 insufficient_tasks.
+    await assert_can_fix(user, "health-scan", count=1)
+    tokens_cost = 0
     me = await db.dev_users.find_one(
         {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1},
     )
     if not me:
         raise HTTPException(404, "User not found")
-    bal = int(me.get("tokens_remaining") or 0)
-    if is_unlimited_user:
-        # Founder / admin path — no check, no deduction.
-        tokens_cost = 0
-        new_balance = bal
-    else:
-        if bal < tokens_cost:
-            raise HTTPException(402, {
-                "error":   "insufficient_tokens",
-                "needed":  tokens_cost,
-                "balance": bal,
-            })
-        # Deduct atomically.
-        upd = await db.dev_users.update_one(
-            {"user_id": user_id, "tokens_remaining": {"$gte": tokens_cost}},
-            {"$inc": {"tokens_remaining": -tokens_cost}},
-        )
-        if upd.modified_count == 0:
-            raise HTTPException(402, "Concurrent token deduction — try again")
-        new_balance = bal - tokens_cost
+    new_balance = int(me.get("tokens_remaining") or 0)
 
     # Iter 212m-114 — REAL fix path. Previously this endpoint just
     # enqueued a cto_tasks record with kind:"health_fix" and returned
@@ -943,6 +925,12 @@ async def request_fix(
 
     # Also persist a row to cto_tasks so the existing audit-log UI
     # surfaces this fix in the activity feed.
+    # Iter 212m-190 — deduct exactly 1 task for the successful fix.
+    if not is_unlimited_user:
+        try:
+            await record_scan_fixes(user_id, "health-scan", 1)
+        except Exception as _e:
+            logger.warning("task record failed (health fix): %r", _e)
     import uuid as _uuid, time as _time
     task_id = f"task_{_uuid.uuid4().hex[:10]}"
     await db.cto_tasks.insert_one({

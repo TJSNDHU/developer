@@ -1,0 +1,24 @@
+{
+  "summary": "Iter 212m-190 task-quota gating for Developer-Tool scan fixes — independent re-verification. 17/17 pytest tests pass covering: /fix-pipeline/quota tier snapshots (free/starter/pro/team + founder unlimited), /fix-pipeline/bulk gating matrix (403 fix_not_available_on_tier, 403 bulk_fix_not_available, 402 insufficient_tasks w/ correct remaining/needed/message), /fix-pipeline/preview task fields + shortfall + founder infinite, bulk cap regression (25→count=20/bulk_max=20/total_requested=25), scan_fix_usage roll-up into tasks_this_month, unknown-tool fallback to health-scan gating (no 500), auth login case-insensitive regression, and public robot-guide endpoint. Cleanup executed: tier reset to 'free', all scan_fix_usage docs deleted for the regular test user. No real fixes were pushed to GitHub (bogus project_id).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m190_scan_fix_quota.py",
+    "/app/test_reports/pytest/iter212m190.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "scan_fix_quota.assert_can_fix ordering is correct: unknown_tool→400 before quota check, but bulk /fix-pipeline route pre-normalises unknown tools to 'health-scan' (line 281-282 of routers/fix_pipeline.py) so unknown_tool 400 is effectively unreachable via this route — matches spec (silent fallback). Confirmed no 500.",
+    "get_fix_quota reads usage.tier as source of truth; founder detection is via is_founder_email/is_unlimited/tier=='founder' in services/usage.py which correctly returns tasks_remaining=None. No _id leaks in any response.",
+    "record_scan_fixes atomic $inc + upsert on {user_id, month} composite key — safe against concurrent successful fixes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m190_scan_fix_quota.py (new)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "skipped"},
+  "test_credentials": "scope.test.regular@aurem.dev / ScopeReg2026! (tier reset to free); founder test@aurem.dev / AuremTest2026!",
+  "seed_data_creation": "Test file mutates dev_users.tier for the regular test user across free/starter/pro/team and upserts scan_fix_usage docs; module-scoped teardown resets tier='free' and deletes all scan_fix_usage rows for that user. Post-run mongo verify confirmed tier='free' and 0 usage docs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend gating fully verified end-to-end via HTTP. The 'starter + vanguard-scan (1 finding)' happy-path test asserts only that the gate passes (returns job_id/200) — the background worker will fail against the bogus project_id, which is intentional and harmless. If retesting, ensure MONTHLY_TASK_LIMITS in services/subscription_tiers.py still reads free=10, starter=50, pro=300, team=400 (the parametrized quota test asserts these). Auth JWT contains user_id claim only (no user object in login response); _uid_from_jwt helper handles both shapes."
+}

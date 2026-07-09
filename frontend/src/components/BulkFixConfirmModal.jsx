@@ -21,7 +21,7 @@ import { X, Zap, GitMerge, Loader2 } from "lucide-react";
 import { api } from "../lib/api";
 
 export default function BulkFixConfirmModal({
-  open, onClose, projectId, findings, category,
+  open, onClose, projectId, findings, category, tool = "health-scan",
 }) {
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -34,7 +34,7 @@ export default function BulkFixConfirmModal({
     setLoading(true);
     setError(null);
     api.post("/fix-pipeline/preview", {
-      project_id: projectId, findings,
+      project_id: projectId, findings, tool,
     })
       .then((r) => {
         if (!cancelled) setPreview(r?.data || r);
@@ -59,7 +59,7 @@ export default function BulkFixConfirmModal({
       const capped = preview.bulk_max
         ? findings.slice(0, preview.bulk_max) : findings;
       const r = await api.post("/fix-pipeline/bulk", {
-        project_id: projectId, findings: capped,
+        project_id: projectId, findings: capped, tool,
       });
       const payload = r?.data || r;
       if (payload?.job_id) {
@@ -73,7 +73,10 @@ export default function BulkFixConfirmModal({
     } catch (e) {
       const detail = e?.response?.data?.detail;
       const code   = typeof detail === "object" ? detail.error : detail;
-      if (code === "insufficient_tokens") {
+      if (code === "insufficient_tasks" || code === "fix_not_available_on_tier"
+          || code === "bulk_fix_not_available") {
+        setError(detail.message || "Upgrade your plan to run this fix.");
+      } else if (code === "insufficient_tokens") {
         setError(`Need ${detail.needed} tokens, have ${detail.balance}.`);
       } else {
         setError(typeof detail === "string" ? detail
@@ -272,7 +275,7 @@ export default function BulkFixConfirmModal({
               ? (overCap
                   ? `⚡ Fix first ${preview?.count} — FREE`
                   : "⚡ Fix all — FREE")
-              : `Fix ${preview?.count ?? findings?.length} now`}
+              : `Fix all ${preview?.count ?? findings?.length}`}
           </button>
         </div>
       </div>

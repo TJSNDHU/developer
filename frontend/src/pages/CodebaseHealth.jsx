@@ -25,6 +25,7 @@ import {
   ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug,
 } from "lucide-react";
 import { api, isAdminOrFounder } from "../lib/api";
+import useFixQuota from "../lib/useFixQuota";
 import BulkFixConfirmModal from "../components/BulkFixConfirmModal";
 
 const CATS = [
@@ -94,7 +95,7 @@ function HealthBadge({ score, label, tone }) {
   );
 }
 
-function FindingRow({ f, onFix, busy, locked }) {
+function FindingRow({ f, onFix, busy, locked, canFix = true }) {
   const meta = SEV_META[f.severity] || SEV_META.medium;
   return (
     <div
@@ -128,7 +129,7 @@ function FindingRow({ f, onFix, busy, locked }) {
           ✓ {f.fix_hint}
         </div>
       )}
-      {!locked && (
+      {!locked && canFix && (
         <button
           data-testid={`fix-btn-${f.id}`}
           onClick={() => onFix(f)}
@@ -140,14 +141,14 @@ function FindingRow({ f, onFix, busy, locked }) {
             fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          {busy ? <Loader2 size={12} className="inline anim-spin" /> : "Fix this"}{" "}— {f.fix_tokens || 5} 💎
+          {busy ? <Loader2 size={12} className="inline anim-spin" /> : "Fix this"}{" "}— 1 task
         </button>
       )}
     </div>
   );
 }
 
-function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedHigh, onUnlockHigh, onBulkFix }) {
+function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedHigh, onUnlockHigh, onBulkFix, canFix = true, canBulk = true }) {
   const Icon = cat.icon;
   const counts = data?.counts || { critical: 0, high: 0, medium: 0, low: 0 };
   const total = data?.total || 0;
@@ -210,7 +211,9 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
               when there are no visible findings; orange variant
               for founders, blue for paying users (cost preview in
               modal). */}
-          {visibleFindings.length > 0 && (
+          {/* Iter 212m-190 — bulk fix is a Team-tier feature; the
+              button is only rendered when canBulk (quota.bulk_fix). */}
+          {canBulk && visibleFindings.length > 0 && (
             <button
               type="button"
               data-testid={`bulk-fix-${cat.key}`}
@@ -235,21 +238,21 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
             <SectionLabel sev="critical" count={counts.critical} />
           )}
           {(data?.findings || []).filter((f) => f.severity === "critical").map((f) => (
-            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={false} />
+            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={false} canFix={canFix} />
           ))}
           {(counts.high || 0) > 0 && (
             <SectionLabel sev="high" count={counts.high}
                           unlock={!unlockedHigh && <UnlockBtn label="HIGH" tokens={3} onClick={() => onUnlockHigh(cat.key)} />} />
           )}
           {(data?.findings || []).filter((f) => f.severity === "high").map((f) => (
-            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} />
+            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} canFix={canFix} />
           ))}
           {(counts.medium || 0) > 0 && (
             <SectionLabel sev="medium" count={counts.medium}
                           unlock={<UnlockBtn label="MEDIUM" tokens={2} onClick={() => onUnlockHigh(cat.key)} />} />
           )}
           {(data?.findings || []).filter((f) => f.severity === "medium").map((f) => (
-            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} />
+            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} canFix={canFix} />
           ))}
           {/* Iter 212m-130 — parity with SecurityScanDrawer.
               We previously rendered only critical/high/medium and
@@ -262,7 +265,7 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
             <SectionLabel sev="low" count={counts.low} />
           )}
           {(data?.findings || []).filter((f) => f.severity === "low").map((f) => (
-            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} />
+            <FindingRow key={f.id} f={f} onFix={onFix} busy={busyIds.has(f.id)} locked={!unlockedHigh} canFix={canFix} />
           ))}
           {(() => {
             // Findings whose severity is null / unknown / not one
@@ -278,7 +281,8 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
                 {others.map((f) => (
                   <FindingRow key={f.id} f={f} onFix={onFix}
                               busy={busyIds.has(f.id)}
-                              locked={!unlockedHigh} />
+                              locked={!unlockedHigh}
+                              canFix={canFix} />
                 ))}
               </>
             );
@@ -345,11 +349,22 @@ function CodebaseHealthInner() {
   const [tokenFloat, setTokenFloat] = useState(null);
   // Iter 212m-121 — Bulk fix modal state + per-fix progress drawer.
   const [bulkModal, setBulkModal] = useState({ open: false, cat: null, findings: [] });
+  // Iter 212m-190 — task-quota gating (1 fix = 1 task, tier-gated).
+  const { quota } = useFixQuota();
+  const canFix = !!quota && (quota.fix_tools || []).includes("health-scan");
+  const canBulk = canFix && !!quota?.bulk_fix;
 
   function openBulk(cat, findings) {
     // Tag each finding with `category` so the backend cost preview
     // can charge the right rate (5 vs 8 tokens etc).
     const tagged = (findings || []).map((f) => ({ ...f, category: cat.key }));
+    // Iter 212m-190 — block BEFORE the confirm dialog when the run
+    // needs more tasks than the user has left this month.
+    const remaining = quota?.tasks_remaining;
+    if (remaining !== null && remaining !== undefined && tagged.length > remaining) {
+      setError(`You have ${remaining} tasks left this month — not enough for ${tagged.length} fixes. Upgrade or fix issues individually.`);
+      return;
+    }
     setBulkModal({ open: true, cat, findings: tagged });
   }
 
@@ -455,6 +470,7 @@ function CodebaseHealthInner() {
     try {
       const r = await api.post("/fix-pipeline/bulk", {
         project_id: projectId,
+        tool: "health-scan",
         findings: [{ ...f, category: f.category || _guessCategory(f, data) }],
       });
       const payload = r?.data || r;
@@ -475,7 +491,10 @@ function CodebaseHealthInner() {
     } catch (e) {
       const detail = e?.response?.data?.detail;
       const code   = typeof detail === "object" ? detail.error : detail;
-      if (code === "insufficient_tokens") {
+      if (code === "insufficient_tasks" || code === "fix_not_available_on_tier"
+          || code === "bulk_fix_not_available") {
+        setError(detail.message || "Upgrade your plan to fix issues.");
+      } else if (code === "insufficient_tokens") {
         setError(`Insufficient tokens (need ${detail.needed}, have ${detail.balance}).`);
       } else {
         setError(typeof detail === "string" ? detail
@@ -703,6 +722,8 @@ function CodebaseHealthInner() {
                   unlockedHigh={!!unlocked[cat.key]}
                   onUnlockHigh={(k) => setUnlocked((u) => ({ ...u, [k]: true }))}
                   onBulkFix={openBulk}
+                  canFix={canFix}
+                  canBulk={canBulk}
                 />
               );
             })}
@@ -715,6 +736,7 @@ function CodebaseHealthInner() {
         projectId={projectId}
         findings={bulkModal.findings}
         category={bulkModal.cat?.label || ""}
+        tool="health-scan"
       />
     </div>
   );

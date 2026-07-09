@@ -914,12 +914,13 @@ async def apply_security_fix(
 ) -> dict:
     """Apply a REAL fix for a single Vanguard finding.
 
-    Iter 212m-158 — Admin/founder gate (same rationale as /run)."""
-    me = await require_admin(authorization)
+    Iter 212m-190 — task-quota model: Vanguard fixes available from
+    Starter tier up, 1 task per successful fix, no token pricing."""
+    from services.scan_fix_quota import assert_can_fix, record_scan_fixes
+    me = await current_dev(authorization)
     user_id   = me["user_id"]
     project_id = (body or {}).get("project_id") or ""
     finding   = (body or {}).get("finding") or {}
-    tokens_cost = int((body or {}).get("tokens") or 75)
 
     if not (project_id and finding and finding.get("file")):
         raise HTTPException(400, "project_id + finding.file required")
@@ -934,31 +935,16 @@ async def apply_security_fix(
         or (me.get("tier") == "founder")
     )
 
+    # Gate BEFORE any work: tool access + 1 task remaining.
+    await assert_can_fix(me, "vanguard-scan", count=1)
+
     user_row = await db.dev_users.find_one(
         {"user_id": user_id}, {"_id": 0, "tokens_remaining": 1},
     )
     if not user_row:
         raise HTTPException(404, "User not found")
-    bal = int(user_row.get("tokens_remaining") or 0)
-
-    if is_unlimited_user:
-        deducted    = 0
-        new_balance = bal
-    else:
-        if bal < tokens_cost:
-            raise HTTPException(402, {
-                "error":   "insufficient_tokens",
-                "needed":  tokens_cost,
-                "balance": bal,
-            })
-        upd = await db.dev_users.update_one(
-            {"user_id": user_id, "tokens_remaining": {"$gte": tokens_cost}},
-            {"$inc": {"tokens_remaining": -tokens_cost}},
-        )
-        if upd.modified_count == 0:
-            raise HTTPException(402, "Concurrent token deduction — try again")
-        deducted    = tokens_cost
-        new_balance = bal - tokens_cost
+    deducted    = 0
+    new_balance = int(user_row.get("tokens_remaining") or 0)
 
     from services.finding_fix_applier import apply_finding_fix
     from services import ora_fix_learning as _ofl
@@ -986,18 +972,14 @@ async def apply_security_fix(
     except Exception as _e:
         logger.debug("learning hook (security) soft-failed: %r", _e)
 
+    # Iter 212m-190 — deduct exactly 1 task ONLY on success.
+    if res.get("ok") and not is_unlimited_user:
+        try:
+            await record_scan_fixes(user_id, "vanguard-scan", 1)
+        except Exception as _e:
+            logger.warning("task record failed (vanguard fix): %r", _e)
+
     if not res.get("ok"):
-        # REFUND the tokens — the fix never landed.
-        if deducted:
-            try:
-                await db.dev_users.update_one(
-                    {"user_id": user_id},
-                    {"$inc": {"tokens_remaining": deducted}},
-                )
-                new_balance += deducted
-                deducted = 0
-            except Exception as e:
-                logger.warning("refund failed for user=%s: %r", user_id, e)
         err_code = res.get("error") or "unknown_error"
         if err_code == "patch_did_not_resolve_finding":
             raise HTTPException(422, {
@@ -1031,6 +1013,7 @@ async def apply_security_fix(
         "file":           res["file"],
         "rule_id":        res["rule_id"],
         "message":        res["message"],
-        "tokens_charged": deducted,
+        "tokens_charged": 0,
+        "tasks_charged":  0 if is_unlimited_user else 1,
         "new_balance":    new_balance,
     }
