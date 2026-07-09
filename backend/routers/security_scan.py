@@ -399,8 +399,15 @@ async def run_security_scan(
             logger.warning("two_round scan failed: %r", e)
             two_round_block = {"error": f"two_round_failed: {e!r}"}
 
+    # Iter 212m-193 — split out findings already fixed (draft-PR
+    # commits) so a re-run doesn't resurrect them.
+    from services.fixed_findings import get_fixed_map, split_findings
+    _fixed_map = await get_fixed_map(db, user_id=user_id, project_id=project_id)
+    findings, fixed_findings = split_findings(findings, _fixed_map)
+
     # 4. Summary counts per vuln class for the UI.
-    summary: dict = {"total": len(findings), "by_severity": {}, "by_vuln": {}}
+    summary: dict = {"total": len(findings), "by_severity": {}, "by_vuln": {},
+                     "fixed": len(fixed_findings)}
     for f in findings:
         sev = (f.get("severity") or "").lower()
         vuln = f.get("vuln") or f.get("source") or "other"
@@ -453,6 +460,8 @@ async def run_security_scan(
         "scanned_files":   len(candidates),
         "summary":         summary,
         "findings":        findings[:500],   # cap UI payload
+        "fixed_findings":  fixed_findings[:200],
+        "fixed_count":     len(fixed_findings),
         "truncated":       len(findings) > 500,
     }
     if two_round_block is not None:
@@ -978,6 +987,17 @@ async def apply_security_fix(
             await record_scan_fixes(user_id, "vanguard-scan", 1)
         except Exception as _e:
             logger.warning("task record failed (vanguard fix): %r", _e)
+    # Iter 212m-193 — persist fixed state so a re-run of the scan
+    # doesn't resurrect this finding (fix lives on a draft-PR branch).
+    if res.get("ok"):
+        from services.fixed_findings import record_fixed as _record_fixed
+        await _record_fixed(
+            db, user_id=user_id, project_id=project_id,
+            finding=finding,
+            commit_sha=res.get("commit_sha") or "",
+            html_url=res.get("html_url") or "",
+            tool="vanguard-scan",
+        )
 
     if not res.get("ok"):
         err_code = res.get("error") or "unknown_error"

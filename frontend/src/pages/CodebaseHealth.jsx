@@ -194,6 +194,11 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
                        fontFamily: "'JetBrains Mono', monospace" }}>
           {total} issues
           {dangerous > 0 && <span style={{ color: "#fca5a5", marginLeft: 8 }}>· {dangerous} need attention</span>}
+          {(data?.fixed_count || 0) > 0 && (
+            <span data-testid={`fixed-count-${cat.key}`} style={{ color: "#86efac", marginLeft: 8 }}>
+              · ✓ {data.fixed_count} fixed
+            </span>
+          )}
         </span>
         <span style={{
           padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700,

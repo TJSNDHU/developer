@@ -462,10 +462,17 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
 
           {data && !loading && (
             <>
+              {(data.fixed_count || 0) > 0 && (
+                <div data-testid="security-scan-fixed-count" style={{
+                  marginBottom: 10, fontSize: 11.5, color: "#86efac",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  ✓ {data.fixed_count} previously fixed — excluded from results
+                </div>
+              )}
               {/* Iter 212m-121 — Bulk fix button for ALL findings.
                   Opens the cost-preview modal; founders see ⚡ FREE. */}
-              {canBulk && (data.findings || []).length > 0 && (
-                <button
+              {canBulk && (data.findings || []).length > 0 && (                <button
                   type="button"
                   data-testid="security-scan-bulk-fix"
                   onClick={() => setBulkOpen(true)}

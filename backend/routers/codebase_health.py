@@ -575,8 +575,16 @@ async def scan(
 
     breakdown: dict[str, dict] = {}
     all_findings: list[dict] = []
+    # Iter 212m-193 — findings already fixed (commits on draft-PR
+    # branches) must not resurrect on rescan: split them out, score
+    # and count ACTIVE findings only.
+    from services.fixed_findings import get_fixed_map, split_findings
+    fixed_map = await get_fixed_map(db, user_id=user_id, project_id=project_id)
+    total_fixed = 0
     for cat in categories:
-        findings = SCANNERS[cat](text_cache)
+        raw_findings = SCANNERS[cat](text_cache)
+        findings, fixed_findings = split_findings(raw_findings, fixed_map)
+        total_fixed += len(fixed_findings)
         # Cap to top 100 per category to keep the response tight.
         sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         findings.sort(key=lambda f: (sev_rank.get(f["severity"], 9),
@@ -590,6 +598,8 @@ async def scan(
             "counts":   counts,
             "total":    len(findings),
             "findings": capped,
+            "fixed_count": len(fixed_findings),
+            "fixed":       fixed_findings[:100],
         }
         all_findings.extend(findings)
 
@@ -602,10 +612,12 @@ async def scan(
         "label":         label,
         "tone":          tone,
         "total":         total,
+        "total_fixed":   total_fixed,
         "scanned_files": len(text_cache),
         "summary":       (
             f"{total} issues found across {len(categories)} categories — "
             f"{sum(1 for f in all_findings if f['severity']=='critical')} critical."
+            + (f" {total_fixed} already fixed." if total_fixed else "")
         ),
         "breakdown":     breakdown,
         "scan_remaining": remaining,
@@ -931,6 +943,15 @@ async def request_fix(
             await record_scan_fixes(user_id, "health-scan", 1)
         except Exception as _e:
             logger.warning("task record failed (health fix): %r", _e)
+    # Iter 212m-193 — persist fixed state so rescans don't resurrect it.
+    from services.fixed_findings import record_fixed as _record_fixed
+    await _record_fixed(
+        db, user_id=user_id, project_id=project_id,
+        finding=finding_payload,
+        commit_sha=res.get("commit_sha") or "",
+        html_url=res.get("html_url") or "",
+        tool="health-scan",
+    )
     import uuid as _uuid, time as _time
     task_id = f"task_{_uuid.uuid4().hex[:10]}"
     await db.cto_tasks.insert_one({

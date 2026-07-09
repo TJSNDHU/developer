@@ -2384,3 +2384,12 @@ Founder request: hide Preview & Graph tabs and the "New run" button when no repo
 - `TopBar.jsx`: new `hasRepo` prop — TABS filtered to Chat-only and New-run button skipped when false.
 - `Dashboard.jsx`: passes `hasRepo={!!activeProject}` — activeProject updates reactively on connect (aurem:project-changed), so tabs/button appear automatically without reload.
 - Verified via Playwright: 0-repo user → only Chat tab, no New run, no Preview/Graph; user with active project → breadcrumb owner/repo + all tabs + New run visible. Test project doc cleaned up. NEEDS REDEPLOY.
+
+## Iter 212m-193 — Fixed findings persist across rescans (Jul 9, 2026)
+CRITICAL founder report: after applying fixes, a rescan resurrected ALL findings (score back to 0/100). ROOT CAUSE: fixes are committed to `aurem/fix-*` draft-PR branches — the scanned base branch is unchanged until the PR merges, so every rescan legitimately re-detected the issues. Fixed state lived only in React session state.
+- **New `services/fixed_findings.py`**: persistent ledger `fixed_findings {user_id, project_id, key, commit_sha, html_url, tool, fixed_at}`. Key = finding `id` (health scan deterministic ids) or `rule|file|line` composite (vanguard). `record_fixed` upsert on success only; `get_fixed_map` + `split_findings` partition scan output into active vs fixed.
+- **Recording**: fix_pipeline worker success path (all bulk/single UI fixes), codebase_health /fix, security_scan /fix.
+- **Scan annotation (ALL scanners)**: codebase_health POST /scan — per-category score/counts/total computed from ACTIVE findings only; breakdown gains `fixed_count` + `fixed[]`; payload gains `total_fixed`; summary appends "N already fixed". Persisted /last docs therefore hold the corrected score. security_scan POST /run — findings filtered, `fixed_count` + `fixed_findings[]` + summary.fixed added.
+- **Frontend**: CategoryCard header shows green "✓ N fixed" chip; SecurityScanDrawer shows "N previously fixed — excluded from results".
+- Once the fix PR merges, tree changes → scanner stops reporting the finding → stale ledger rows never match (harmless).
+- Verified: unit tests (record/map/split/idempotent-upsert/cross-project isolation) ALL PASS, backend syntax + vite build clean, backend restarted healthy. Full e2e with a live repo not possible in preview (founder preview project unreachable) — logic is response-assembly level and unit-covered. NEEDS REDEPLOY.

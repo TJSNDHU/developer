@@ -65,6 +65,7 @@ from services import ora_fix_learning
 from services.scan_fix_quota import (
     ALL_FIX_TOOLS, assert_can_fix, get_fix_quota, record_scan_fixes,
 )
+from services.fixed_findings import record_fixed
 
 logger = logging.getLogger("aurem-dev.fix_pipeline")
 router = APIRouter(prefix="/fix-pipeline", tags=["Fix Pipeline"])
@@ -521,6 +522,19 @@ async def _run_bulk_job(*, job_id: str, db, user: dict, project_id: str,
                     scanner=finding.get("scanner"),
                 )
                 total_ok += 1
+                # Iter 212m-193 — persist the fixed state so a rescan
+                # doesn't resurrect this finding (fix lives on a draft
+                # PR branch; base branch is unchanged until merge).
+                try:
+                    await record_fixed(
+                        db, user_id=user_id, project_id=project_id,
+                        finding=finding,
+                        commit_sha=res.get("commit_sha") or "",
+                        html_url=res.get("html_url") or "",
+                        tool=tool,
+                    )
+                except Exception:
+                    pass
                 # Iter 212m-190 — deduct exactly 1 task PER successful
                 # fix (atomic $inc). Failed fixes above never reach
                 # this line, so a 12-selected / 2-failed run deducts 10.
