@@ -41,22 +41,27 @@ const BH_CSS = `
   --red:       #ef4444;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Fira Code", Menlo, monospace;
   color: var(--text);
-  background:
-    radial-gradient(900px 540px at 18% -8%,  rgba(245,158,11,0.18), transparent 70%),
-    radial-gradient(820px 480px at 86% 6%,   rgba(239,68,68,0.10), transparent 65%),
-    linear-gradient(180deg, rgba(10,14,26,0.86) 0%, rgba(5,8,17,0.96) 100%),
-    #050811;
+  background: #050811;
   min-height: 100vh;
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
+/* Fixed hero background image — only on /bug-hunt page (scoped by .bh-page) */
 .bh-page::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(circle at 50% 30%, #000 30%, transparent 80%);
+  background-image: url("/bug-hunt-bg.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.28;
+}
+/* Dark gradient overlay for readability + subtle amber glow */
+.bh-page::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(900px 540px at 18% -8%, rgba(245,158,11,0.14), transparent 70%),
+    radial-gradient(820px 480px at 86% 6%,  rgba(239,68,68,0.08), transparent 65%),
+    linear-gradient(180deg, rgba(10,14,26,0.55) 0%, rgba(5,8,17,0.92) 100%);
 }
 .bh-page * { box-sizing: border-box; }
 .bh-page .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
