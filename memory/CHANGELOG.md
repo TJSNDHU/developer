@@ -2393,3 +2393,6 @@ CRITICAL founder report: after applying fixes, a rescan resurrected ALL findings
 - **Frontend**: CategoryCard header shows green "✓ N fixed" chip; SecurityScanDrawer shows "N previously fixed — excluded from results".
 - Once the fix PR merges, tree changes → scanner stops reporting the finding → stale ledger rows never match (harmless).
 - Verified: unit tests (record/map/split/idempotent-upsert/cross-project isolation) ALL PASS, backend syntax + vite build clean, backend restarted healthy. Full e2e with a live repo not possible in preview (founder preview project unreachable) — logic is response-assembly level and unit-covered. NEEDS REDEPLOY.
+
+## 2026-06 — Architecture Context Modules
+- Added `/app/memory/architecture/` (01–06): layer-split, self-contained AI-dev context modules, each ending with hard "Rules for the AI Developer" constraints. Verified against live codebase (46 routers, 87 services, 37 pages, real tier limits & collections).
