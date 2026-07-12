@@ -15,6 +15,7 @@
  */
 import { useState, useCallback, useRef } from "react";
 import { api, getUser } from "../lib/api";
+import { getActiveProjectId, setActiveProjectId } from "../components/TabBar";
 
 // Match lib/api.js: REACT_APP_BACKEND_URL is the canonical key in this
 // codebase. VITE_API_URL is the local-dev fallback.
@@ -69,19 +70,57 @@ export function useORAPanel() {
 
   // Load user's active project on open. Uses api.* so the request
   // automatically carries the logged-in user's Authorization header.
+  //
+  // Iter 212m-190 — PROJECT CONTEXT BUG FIX. Previously this hook always
+  // grabbed `projects[0]` from the list, ignoring the user's actually
+  // selected project (stored in localStorage as `aurem_active_project`).
+  // Result: main chat showed "Project: automation / Repo: TJSNDHU/Aurem"
+  // while the Advisor claimed "No repo connected" because it was pointing
+  // at a different project entirely.
+  //
+  // New rules:
+  //   1. Prefer the localStorage active project id (TabBar's source of truth).
+  //   2. Verify it still exists in the fetched list — if not (deleted),
+  //      auto-heal by falling back to the first *wired* project and
+  //      persist that as the new active id.
+  //   3. If nothing is set at all, auto-activate the first wired project
+  //      so the Advisor is never operating on a null context when the
+  //      user actually has connected repos.
   const loadProject = useCallback(async () => {
     try {
       const r = await api.get("/cto/projects/list");
       const projects = r.data?.projects || [];
-      if (projects.length > 0) {
-        setProjectId(projects[0].project_id);
+      if (projects.length === 0) return;
+
+      const wired = projects.filter(
+        (p) => p.github_owner && p.github_repo,
+      );
+      const savedId = getActiveProjectId();
+      const savedStillExists = savedId && projects.some((p) => p.project_id === savedId);
+
+      let chosen = null;
+      if (savedStillExists) {
+        chosen = savedId;
+      } else if (wired.length > 0) {
+        chosen = wired[0].project_id;
+        // Persist so TabBar + main chat also converge on the same id.
+        setActiveProjectId(chosen);
+      } else if (projects.length > 0) {
+        chosen = projects[0].project_id;
       }
+      if (chosen) setProjectId(chosen);
     } catch (_) { /* silent — panel still works without a project */ }
   }, []);
 
   const openPanel = useCallback(() => {
     setOpen(true);
     sessionIdRef.current = `ora-panel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Iter 212m-190 — synchronously seed projectId from localStorage
+    // BEFORE the async /cto/projects/list fetch resolves. This guarantees
+    // the very first message from the user goes with a real project_id
+    // even if they open the panel and immediately hit Send.
+    const savedId = getActiveProjectId();
+    if (savedId) setProjectId(savedId);
     // Iter 151 — broadcast so Shell.jsx can shrink the main app
     // grid by `clamp(360px, 35vw, 680px)` and make room for the panel
     // instead of overlaying it on top of the composer.

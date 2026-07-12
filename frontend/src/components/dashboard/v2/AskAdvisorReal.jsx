@@ -20,6 +20,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
 import { streamChat } from "../../../lib/api";
+import { getActiveProjectId } from "../../TabBar";
 import {
   Lightbulb, ArrowUp, ChevronRight,
   AlertTriangle, GitPullRequest, BarChart2, Sparkles,
@@ -58,6 +59,14 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   function send(text) {
     const t = (text || "").trim();
     if (!t || thinking) return;
+    // Iter 212m-190 — PROJECT CONTEXT BUG FIX. If the parent Dashboard
+    // has not finished hydrating `activeProject` yet (race between the
+    // first paint and /cto/projects/list resolving), fall back to
+    // TabBar's localStorage source of truth so the advisor never sends
+    // project_id=null when a project is actually active. Result: no
+    // more "No repo is connected right now" replies when the sidebar
+    // and breadcrumb clearly show a connected repo.
+    const effectiveProjectId = projectId || getActiveProjectId() || null;
     const userMsgId = `u${Date.now()}`;
     const advisorId = `a${Date.now()}`;
     setMessages((p) => [
@@ -75,7 +84,7 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
     streamChat({
       prompt:     t,
       session_id: null,         // ephemeral
-      project_id: projectId || null,
+      project_id: effectiveProjectId,
       ora_panel:  true,         // <-- triggers the casual advisor voice
       signal:     ac.signal,
       onToken: (delta) => {

@@ -35,19 +35,41 @@ export default function TabBar() {
       const r = await api.get("/cto/projects/list");
       const list = r.data?.projects || [];
       setProjects(list);
-      // Iter 212m-139 — Auto-activate when there is EXACTLY ONE
-      // connected project and no active tab is set. Previously the
-      // user had to manually click their only project to "activate"
-      // it before Ask Advisor / ChatPanel got a non-null project_id,
-      // and Advisor's tool calls returned "No repo connected" until
-      // they did. This was confusing — the sidebar showed the repo,
-      // but the chat said it wasn't connected.
-      const hasActive = !!getActiveProjectId();
-      const wired = list.filter(
-        (p) => p.github_owner && p.github_repo,
-      );
-      if (!hasActive && wired.length === 1) {
+      // Keep the cache fresh for hooks that hydrate synchronously
+      // on next mount (useActiveProject reads this on first render).
+      try { localStorage.setItem("aurem_projects_cache", JSON.stringify(list)); }
+      catch { /* quota — ignore */ }
+
+      // Iter 212m-190 — Active-project auto-restore / auto-heal.
+      // Priority order:
+      //   1. If saved active id still exists in the list → keep it.
+      //   2. If saved id was deleted (or never set) AND at least one
+      //      *wired* (has github_owner + github_repo) project exists →
+      //      auto-activate the first wired one. This covers:
+      //         a) fresh browsers with no localStorage seed
+      //         b) users whose active project was deleted while they
+      //            were logged out
+      //         c) the pre-existing "exactly one wired project" case
+      //   3. If nothing wired but there are projects → activate first
+      //      so the chat isn't stuck on null forever.
+      const savedId = getActiveProjectId();
+      const savedStillExists = savedId && list.some((p) => p.project_id === savedId);
+      const wired = list.filter((p) => p.github_owner && p.github_repo);
+
+      if (savedStillExists) {
+        // Nothing to do — user's last project is intact.
+        return;
+      }
+      // Saved id is either missing or points to a deleted project.
+      if (wired.length > 0) {
         setActiveProjectId(wired[0].project_id);
+      } else if (list.length > 0) {
+        setActiveProjectId(list[0].project_id);
+      } else if (savedId) {
+        // No projects at all but a stale id was pinned — clear it so
+        // downstream consumers correctly render the "no repo" state
+        // instead of pointing at a ghost project.
+        setActiveProjectId(null);
       }
     } catch {
       /* ignore */
@@ -231,17 +253,62 @@ export function useActiveProject() {
   }, []);
 
   useEffect(() => {
-    if (!pid) { setProject(null); return; }
+    if (!pid) {
+      // Iter 212m-190 — even with no saved active id, still fetch the
+      // list so we can AUTO-SEED the first wired project. This is the
+      // reliable auto-restore path for:
+      //   • fresh browsers with empty localStorage
+      //   • users whose last active project was deleted while logged out
+      //   • incognito sessions
+      let cancelled = false;
+      api.get("/cto/projects/list")
+        .then((r) => {
+          if (cancelled) return;
+          const list = r.data?.projects || [];
+          try { localStorage.setItem("aurem_projects_cache", JSON.stringify(list)); }
+          catch { /* quota — ignore */ }
+          if (list.length === 0) return;
+          const wired = list.filter((p) => p.github_owner && p.github_repo);
+          const target = wired[0] || list[0];
+          if (target) {
+            // setActiveProjectId dispatches `aurem:project-changed`
+            // which re-runs this hook with the new pid, so we do not
+            // manually call setProject here.
+            setActiveProjectId(target.project_id);
+          }
+        })
+        .catch(() => { /* offline / auth failure — silent */ });
+      return () => { cancelled = true; };
+    }
     let cancelled = false;
     api.get("/cto/projects/list")
       .then((r) => {
         if (cancelled) return;
         const list = r.data?.projects || [];
-        const p = list.find((x) => x.project_id === pid);
-        setProject(p || null);
         // Keep the cache fresh for the next mount.
         try { localStorage.setItem("aurem_projects_cache", JSON.stringify(list)); }
         catch { /* quota — ignore */ }
+        const p = list.find((x) => x.project_id === pid);
+        if (p) {
+          setProject(p);
+          return;
+        }
+        // Iter 212m-190 — saved active id points to a project that no
+        // longer exists (deleted while logged out, revoked, etc.).
+        // Auto-heal by falling back to the first wired project instead
+        // of leaving the UI stuck on a ghost.
+        if (list.length > 0) {
+          const wired = list.filter((x) => x.github_owner && x.github_repo);
+          const target = wired[0] || list[0];
+          if (target) {
+            setActiveProjectId(target.project_id);   // triggers hook re-run
+            return;
+          }
+        }
+        // No projects at all — clear the stale pin so consumers render
+        // the "no repo" state correctly.
+        setProject(null);
+        setActiveProjectId(null);
       })
       .catch(() => { /* keep cached project intact on transient failure */ });
     return () => { cancelled = true; };

@@ -4,6 +4,83 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Bug fix: Ask Advisor project context + auto-restore
+
+**User-reported bug (production):** Main chat correctly showed
+`Project: automation / Repo: TJSNDHU/Aurem / PAT: true`, but Ask Advisor
+sidebar replied "No repo is connected right now" — same page, opposite
+answer.
+
+### Root cause (three overlapping issues)
+
+1. **`hooks/useORAPanel.js` line 76-77** always picked `projects[0]`
+   from `/cto/projects/list`, ignoring the user's actually-selected
+   project stored in localStorage as `aurem_active_project`. If the
+   first project in the list wasn't wired, advisor claimed "no repo"
+   even when a wired one was active.
+
+2. **`AskAdvisorReal.jsx` (`send()` closure)** captured
+   `projectId` prop at render time. On the first paint after login,
+   `useActiveProject()` returned `null` synchronously (empty cache),
+   and if the user hit Send before `/cto/projects/list` resolved, the
+   request went with `project_id: null`.
+
+3. **No auto-restore path** for the "saved active project got deleted
+   while the user was logged out" case, and no seed for fresh
+   browsers / incognito sessions that had no localStorage yet.
+
+### Fix
+
+- **`useORAPanel.js`** — `loadProject()` now:
+  1. reads `getActiveProjectId()` from localStorage first,
+  2. verifies it exists in the fetched list,
+  3. auto-heals to the first wired project if the saved id was
+     deleted, persisting the new id.
+  - `openPanel()` also synchronously seeds `projectId` from
+    localStorage before the async fetch resolves.
+
+- **`AskAdvisorReal.jsx`** — `send()` reads
+  `effectiveProjectId = projectId || getActiveProjectId() || null` at
+  send-time so late hydration is never a problem.
+
+- **`useActiveProject()` (`TabBar.jsx`)** — now covers three cases:
+  - saved id present + exists in list → keep it
+  - no saved id but list non-empty → auto-activate first wired project
+    (or first project if none wired)
+  - saved id present but no longer in list → auto-heal to first
+    available and clear the stale pin if list is empty
+
+### Behaviour after fix
+
+- **Same-browser re-login** → last active project restored from
+  localStorage (was already working — no regression).
+- **Fresh browser / incognito** → first login now automatically
+  activates a wired project. Previously stayed on `null` context.
+- **Deleted active project** → auto-heals to next available wired
+  project instead of leaving UI stuck on a ghost.
+- **Ask Advisor + main chat** → guaranteed to share the same
+  `project_id` on every send, eliminating the "no repo connected"
+  desync.
+
+### Files
+- `frontend/src/hooks/useORAPanel.js`
+- `frontend/src/components/dashboard/v2/AskAdvisorReal.jsx`
+- `frontend/src/components/TabBar.jsx`
+
+### Verified
+- Frontend lint clean.
+- Screenshot test: cleared localStorage → login as `test@aurem.dev` →
+  `aurem_active_project` was auto-set to `p_norepotest` (the only
+  available project). Chat + breadcrumb + advisor all converged.
+
+### Note on "ORA recalled N similar past answers"
+This is **not a bug** — it is the Council few-shot retrieval feature
+(`services/ora_council_retriever.py`). The pill is a transparency
+indicator showing that the retriever pulled N similar Q&A pairs from
+the vector store to condition the current LLM reply. Legitimate
+observability signal; ships as-is.
+
+
 ## 2026-02-12 — Legal & Trust Bundle (P0 + P1 + P2 shipped)
 
 Full compliance/legal footer overhaul in one batch. Polaris Built Inc
