@@ -50,10 +50,11 @@ async def run_migrations():
     )
     print("✓ issues_cache indexes + TTL")
 
-    # ── existing cto_review_logs (if exists — upsert safe) ────────
-    await db["cto_review_logs"].create_index([("timestamp", -1)])
-    await db["cto_review_logs"].create_index("task_id")
-    print("✓ cto_review_logs indexes")
+    # ── cto_review_logs was previously indexed here but the collection
+    # has zero writers and zero readers in the current codebase (dead
+    # since the `cto_review_logs` review flow was removed). Dropped
+    # from the migration on 2026-02-Session-5; re-add if the review
+    # queue is reintroduced.
 
     print("\n✅ All migrations complete.")
     client.close()

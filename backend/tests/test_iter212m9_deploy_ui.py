@@ -82,8 +82,6 @@ def _fake_db(rows=None, cfg_rows=None):
     cfg.delete_one = AsyncMock()
     db.aurem_cto_deploy_configs = cfg
 
-    db.onboarding_projects = MagicMock()
-    db.onboarding_projects.find_one = AsyncMock(return_value=None)
     return db
 
 

@@ -298,13 +298,18 @@ async def _fetch_user_repo_url(user_id: str,
     if db is None:
         return None
     if project_id:
-        proj = await db.onboarding_projects.find_one(
+        # `cto_projects` stores repo coords as separate `github_owner`
+        # and `github_repo` fields (no `github_repo_url` column).
+        # Compose the URL from those so the indexer keeps its
+        # project-scoped preference over the legacy per-user account.
+        proj = await db.cto_projects.find_one(
             {"project_id": project_id, "user_id": user_id},
-            {"_id": 0, "github_repo_url": 1},
+            {"_id": 0, "github_owner": 1, "github_repo": 1},
         )
-        url = (proj or {}).get("github_repo_url")
-        if url:
-            return url
+        owner = (proj or {}).get("github_owner")
+        repo  = (proj or {}).get("github_repo")
+        if owner and repo:
+            return f"https://github.com/{owner}/{repo}"
     legacy = await db.developer_accounts.find_one(
         {"user_id": user_id, "github_repo_url": {"$ne": None}},
         {"_id": 0, "github_repo_url": 1},

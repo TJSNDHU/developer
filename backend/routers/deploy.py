@@ -301,34 +301,12 @@ async def run_deploy(body: DeployRunBody = DeployRunBody(),
     if not cfg:
         raise HTTPException(400, "deploy_not_configured")
 
-    # D-35 — Production dogfood guard.
-    # If the caller links this run to a project flagged
-    # is_production_dogfood, the REAL deploy (mode in deploy/revert_to)
-    # is blocked until a dry-run for the SAME user has completed with
-    # status=ok in the last 24h. Rollback is always allowed (it's the
-    # emergency exit).
-    if body.project_id and body.mode in ("deploy", "revert_to"):
-        proj = await db.onboarding_projects.find_one(
-            {"project_id": body.project_id, "user_id": me["user_id"]},
-            {"_id": 0, "is_production_dogfood": 1},
-        )
-        if proj and proj.get("is_production_dogfood"):
-            from datetime import timedelta
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-            ok_dry = await db.aurem_cto_deploy_runs.find_one(
-                {"user_id":   me["user_id"],
-                 "mode":      "dry_run",
-                 "status":    "ok",
-                 "started_at": {"$gte": cutoff}},
-                {"_id": 0, "run_id": 1},
-            )
-            if not ok_dry:
-                raise HTTPException(409, {
-                    "code": "dry_run_required",
-                    "msg":  "Production dogfood requires a successful "
-                            "dry-run within the last 24h before a real "
-                            "deploy.",
-                })
+    # D-35 — Production dogfood guard was originally gated on the
+    # `is_production_dogfood` flag stored on `onboarding_projects`.
+    # That collection is defunct and no writer sets this flag anywhere
+    # in the codebase, so the guard was permanently dormant. When the
+    # dogfood workflow is revived, add the flag to `cto_projects` and
+    # re-implement the 24h dry-run check here.
 
     if body.mode == "revert_to":
         cfg = {**cfg, "_revert_sha": body.sha}

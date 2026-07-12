@@ -84,23 +84,23 @@ async def gallery() -> dict[str, Any]:
         {"_id": 0},
     ).sort("opted_in_at", -1).limit(60)
     rows = [d async for d in cur]
-    # Hydrate from onboarding_projects so the gallery shows up-to-date
-    # name/tagline/progress without duplicating data.
+    # Hydrate from the single source of truth (`cto_projects`) so the
+    # gallery shows up-to-date `name` without duplicating data. Fields
+    # that don't exist on `cto_projects` (`progress`, `phase`,
+    # `manifest.tagline`, `preview_url`) are intentionally omitted —
+    # they were never populated by any writer, so surfacing them as
+    # `None` was silently misleading. Add them here explicitly if/when
+    # `cto_projects` gains those columns.
     if rows:
         ids = [r["project_id"] for r in rows]
-        proj_cur = db.onboarding_projects.find(
+        proj_cur = db.cto_projects.find(
             {"project_id": {"$in": ids}},
-            {"_id": 0, "project_id": 1, "name": 1, "progress": 1,
-             "phase": 1, "manifest": 1, "preview_url": 1},
+            {"_id": 0, "project_id": 1, "name": 1},
         )
         proj_map = {p["project_id"]: p async for p in proj_cur}
         for r in rows:
             p = proj_map.get(r["project_id"]) or {}
-            r["name"]        = p.get("name")
-            r["tagline"]     = (p.get("manifest") or {}).get("tagline")
-            r["progress"]    = p.get("progress")
-            r["phase"]       = p.get("phase")
-            r["preview_url"] = p.get("preview_url")
+            r["name"] = p.get("name")
     return {"projects": rows}
 
 
@@ -113,7 +113,7 @@ async def gallery_opt_in(body: GalleryToggleBody,
                           authorization: str = Header(None)) -> dict[str, Any]:
     me = await current_dev(authorization)
     db = require_db()
-    proj = await db.onboarding_projects.find_one(
+    proj = await db.cto_projects.find_one(
         {"project_id": body.project_id, "user_id": me["user_id"]},
         {"_id": 0},
     )

@@ -153,10 +153,10 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
     ("thinking_hints_config", [
         ([("user_id", 1)], {"unique": True, "sparse": True}),
     ]),
-    ("onboarding_projects", [
-        ([("user_id", 1), ("created_at", -1)], {}),
-        ([("project_id", 1)],                   {"sparse": True}),
-    ]),
+    # onboarding_projects removed from init on 2026-02-Session-5: the
+    # collection had readers but zero writers, so all reads always
+    # returned None. Callers now hit `cto_projects` (single source of
+    # truth). Re-add here if a real onboarding writer is introduced.
     ("founder_offer", [
         ([("user_id", 1)], {"unique": True, "sparse": True}),
         ([("email", 1)],   {"sparse": True}),
