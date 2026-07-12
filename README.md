@@ -53,7 +53,7 @@ is the one-screen mental model.
 ┌──────────────────────────▼──────────────────────────────────┐
 │              FRONTEND — React SPA (port 3000)                │
 │  Tailwind + Shadcn UI + Context API + SSE streaming          │
-│  38 pages · 82 components  (see memory/architecture/02)      │
+│  38 pages · ~91 custom components  (see memory/architecture/02) │
 └──────────────────────────┬──────────────────────────────────┘
                            │  /api/aurem-dev/*  (Kubernetes ingress)
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -65,7 +65,7 @@ is the one-screen mental model.
      ┌─────▼─────┐   ┌─────▼──────┐  ┌─────▼──────────────┐
      │  MongoDB  │   │ GitHub API │  │ LLM Providers        │
      │ (Motor)   │   │ PAT + OAuth│  │ OpenRouter · Groq ·  │
-     │  ~74 cols │   │            │  │ Anthropic (Emergent) │
+     │  ~76 cols │   │            │  │ Anthropic (Emergent) │
      └───────────┘   └────────────┘  │ Council A primary =  │
                                      │ claude-sonnet-4.5    │
                                      └──────────────────────┘
@@ -75,7 +75,7 @@ is the one-screen mental model.
 
 | Layer | Job | Docs |
 |-------|-----|------|
-| Frontend | React SPA — chat UI, dashboards, wizards, admin suite. `REACT_APP_BACKEND_URL` only. | `memory/architecture/02_frontend_spec.md` |
+| Frontend | React SPA — chat UI, dashboards, wizards, admin suite. `REACT_APP_BACKEND_URL` only. 38 pages · ~91 custom components. | `memory/architecture/02_frontend_spec.md` |
 | Backend Core "Parliament" | Intent classification + multi-agent routing (`backend/core/`) | `memory/architecture/03_backend_core_and_routers.md` |
 | Backend Routers | 49 HTTP endpoint groups (`backend/routers/`) — auth, scanning, fixing, repo, business, deploy, admin, QA, suggestions | `03_…` |
 | Backend Services | 92 modules (`backend/services/`) — AI orchestration, scanners, fix engine, repo intelligence, safety guards, learning, billing | `memory/architecture/04_backend_services.md` |
