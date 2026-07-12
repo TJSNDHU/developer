@@ -53,12 +53,12 @@
 - Admin Council A banner rendering on `/admin`.
 
 **Pending (P1 / P2):**
-- Model swap: `meituan/longcat-2.0` is dead upstream. Replace with a
-  live Council A primary (Claude Sonnet 4.5 or GPT 5.2) via
-  `integration_playbook_expert_v2`. User has approved but wants it
-  as a separate deliberate change AFTER validating the safety net.
+- 🔴 Redeploy production — everything from Session 5+ is preview-only.
+- ✅ Council A model swap DONE — `meituan/longcat-2.0` → `anthropic/claude-sonnet-4.5` after evidence-based A/B against GPT-5.2. Test file `backend/tests/manual_ab_model_swap.py` locks the comparison for future re-runs. GPT-5.2 emits clean fenced-JSON shape too but spammed 300+ tool calls / 73 KB / >120 s on one prompt; Sonnet 4.5 was 1 call / 146 chars / 1.6 s. Preview probe now GREEN, admin banner gone.
 - Live-repo PAT test for Loop-Mode full scan (still awaiting user
   PAT + disposable test repo).
+- 401 toast in chat (proactive UI signal on tool 401) — backlogged
+  per user instruction; revisit after redeploy verify.
 - 36 draft probe PRs cleanup from empirical rate-limit testing.
 - Vanguard CI Ingest setup (awaits `AUREM_CI_INGEST_TOKEN`).
 - Semgrep + Trivy sidecar integrations.

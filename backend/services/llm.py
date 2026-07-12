@@ -379,7 +379,16 @@ COUNCIL_B_GLM_ENABLED = os.getenv("COUNCIL_B_GLM_ENABLED", "false").lower() == "
 CEO_RESCUE_ENABLED    = os.getenv("CEO_RESCUE_ENABLED", "false").lower() == "true"
 
 # OpenRouter model strings
-_LONGCAT_MODEL  = os.getenv("LONGCAT_MODEL", "meituan/longcat-2.0")
+# Iter 212m-193 — Swapped Council A primary from meituan/longcat-2.0
+# (upstream dead — HTTP 400 "is not a valid model ID") to Claude
+# Sonnet 4.5 after an A/B run against GPT-5.2 on two failing Ask
+# Advisor prompts (README read + routers/ list). Sonnet 4.5:
+#   • 2/2 clean fenced-JSON tool call emissions (parser's happy path)
+#   • sensible 1-call-per-turn behaviour (GPT-5.2 emitted 300+ globs)
+#   • ~1.85s average latency (GPT-5.2 was 100× slower)
+# Full run in `backend/tests/manual_ab_model_swap.py` — re-run to
+# compare against a future candidate before swapping again.
+_LONGCAT_MODEL  = os.getenv("LONGCAT_MODEL", "anthropic/claude-sonnet-4.5")
 
 # CEO rescue config (used when CEO_RESCUE_ENABLED=True — see core/loop hub)
 CEO_PRIMARY_TIMEOUT_S = float(os.getenv("CEO_PRIMARY_TIMEOUT_S", "2.0"))
