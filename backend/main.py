@@ -500,7 +500,8 @@ async def lifespan(app: FastAPI):
     # services.llm.LONGCAT_LIVE to False when the OpenRouter slug is
     # rejected so Council A skips the wasted round-trip and goes
     # straight to the GLM-5.2 fallback. When LongCat is published
-    # upstream, the next supervisor restart flips the flag back True.
+    # upstream, the periodic re-probe (Iter 212m-192) flips the flag
+    # back True within 15 min without a supervisor restart.
     if os.getenv("LONGCAT_ENABLED", "false").lower() == "true":
         async def _probe_longcat():
             try:
@@ -509,6 +510,21 @@ async def lifespan(app: FastAPI):
             except Exception as _e:
                 logger.warning("LongCat probe failed: %r", _e)
         _asyncio.create_task(_probe_longcat())
+
+        # Iter 212m-192 — Periodic Council A re-probe. Without this a
+        # LongCat outage that resolves upstream stays masked until the
+        # next supervisor restart. Every 15 min we re-probe and flip
+        # the live flag on state change so Ask Advisor auto-recovers
+        # to the intended primary without ops intervention.
+        async def _periodic_longcat_reprobe():
+            try:
+                from services.llm import periodic_longcat_reprobe
+                await periodic_longcat_reprobe(interval_seconds=900)
+            except Exception as _e:
+                logger.warning("periodic LongCat reprobe crashed: %r", _e)
+        app.state.longcat_reprobe_task = _asyncio.create_task(
+            _periodic_longcat_reprobe()
+        )
 
     # Iter 212m-172 — Loop Verify linter runtime auto-install.
     # Prior iters warned about missing ruff/eslint but relied on the

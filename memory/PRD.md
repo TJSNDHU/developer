@@ -25,13 +25,38 @@
   replaced with `SidebarBound` (live `/cto/projects/list`) +
   instant-paint localStorage cache. `useActiveProject` auto-restore
   already wired via `TabBar` hook.
+- **Ask Advisor "no repo access" real fix** (found by testing on
+  production as founder against real repo `TJSNDHU/Aurem`):
+  1. `/connection-status` probe was hitting the GitHub metadata
+     endpoint; sidebar dot could go green while `/contents` reads
+     returned 401 with the same token. Now probes the same endpoint
+     the tools use.
+  2. `tools_bridge.extract_tool_calls` was missing an XML fence
+     parser even though the stripper knew about the shape. When
+     Council A's LongCat primary is unavailable, GLM-5.2 fallback
+     emits `<tool_call>read_repo_file)("README.md")` — malformed
+     XML that all four existing shape parsers missed. Added
+     Shape 6 (lenient XML with three-tier recovery) so the
+     malformed prod emission now resolves to a real tool call.
+     7 regression tests locked (see `test_iter212m192_*.py`).
+- **Council A degradation now visible in the admin dashboard.**
+  Persistent probe snapshots in `council_health_probes`; periodic
+  15-min re-probe replaces "restart the backend" as the recovery
+  step; new `/admin/council/health` endpoint; orange "Council A
+  degraded" banner at the top of `/admin` overview whenever the
+  intended primary is unreachable.
 
 **Screenshot-validated (all against `/dashboard` on preview):**
 - Slash menu open + filtered variants (`/`, `/sec`).
 - ScanStatusStrip in `in_progress`, `just_completed`, and dismissed
   states — DOM removal on dismiss verified programmatically.
+- Admin Council A banner rendering on `/admin`.
 
 **Pending (P1 / P2):**
+- Model swap: `meituan/longcat-2.0` is dead upstream. Replace with a
+  live Council A primary (Claude Sonnet 4.5 or GPT 5.2) via
+  `integration_playbook_expert_v2`. User has approved but wants it
+  as a separate deliberate change AFTER validating the safety net.
 - Live-repo PAT test for Loop-Mode full scan (still awaiting user
   PAT + disposable test repo).
 - 36 draft probe PRs cleanup from empirical rate-limit testing.
@@ -41,8 +66,8 @@
 - `POST /api/parliament/analyze` endpoint.
 - Architecture docs sync (router 48 vs 45, service 91 vs 60
   mismatch in `/app/memory/architecture/`).
-- Frontend refactor: 15 files >500 LOC (ChatPanel 3383,
-  Admin 2324, Projects 2020, AdminOverview 1473).
+- Frontend refactor: 15 files >500 LOC (ChatPanel 3455,
+  Admin 2324, Projects 2020, AdminOverview 1477).
 
 ---
 

@@ -344,6 +344,45 @@ async def council_stats(authorization: Optional[str] = Header(None)):
     }
 
 
+# ── Iter 212m-192 — Council health (LongCat live-availability) ─────
+@router.get("/council/health")
+async def council_health(authorization: Optional[str] = Header(None)):
+    """Live status of Council A's LongCat primary and its GLM-5.2
+    fallback path.
+
+    Rationale — Production ran silently on the GLM-5.2 fallback for
+    an unknown time before it surfaced as an Ask Advisor bug
+    (`<tool_call>read_repo_file)("README.md")` malformed emissions).
+    This endpoint gives the admin dashboard a live badge so future
+    degradations are visible within the 15 min re-probe window.
+
+    Returns the in-memory snapshot plus the last 20 persisted probe
+    rows for a small trailing history so the on-call can see whether
+    the degradation is a hard-fail (repeated errors) or intermittent.
+    """
+    await _require_admin(authorization)
+    from services.llm import (
+        _LONGCAT_LAST_PROBE, LONGCAT_ENABLED, LONGCAT_LIVE, _LONGCAT_MODEL,
+        _GLM_MODEL, council_a_primary_model,
+    )
+    db = require_db()
+    history = await db.council_health_probes.find(
+        {"council": "A"}, {"_id": 0},
+    ).sort("checked_at", -1).limit(20).to_list(20)
+    return {
+        "council":         "A",
+        "primary_intended": _LONGCAT_MODEL,
+        "primary_actual":   council_a_primary_model(),
+        "fallback":         _GLM_MODEL,
+        "enabled":          LONGCAT_ENABLED,
+        "live":             LONGCAT_LIVE,
+        "degraded":         (LONGCAT_ENABLED and not LONGCAT_LIVE),
+        "last_probe":       _LONGCAT_LAST_PROBE,
+        "history":          history,
+        "checked_at":       time.time(),
+    }
+
+
 
 # ── Users ──────────────────────────────────────────────────────────
 @router.get("/ora-learning/weekly-summary")

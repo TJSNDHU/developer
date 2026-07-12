@@ -23,6 +23,7 @@ export default function AdminOverview() {
   const [patterns, setPatterns] = useState(null);     // iter 212m — user patterns insights
   const [funnel,  setFunnel]  = useState(null);       // iter 212m-3 — activation funnel
   const [alerts,  setAlerts]  = useState(null);       // iter 212m-17 — top-up alerts
+  const [councilHealth, setCouncilHealth] = useState(null); // iter 212m-192 — Council A live status
   const [refreshingHealth, setRefreshingHealth] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -30,7 +31,7 @@ export default function AdminOverview() {
     const h = { Authorization: `Bearer ${getToken()}` };
     const HEALTH_URL = `${process.env.REACT_APP_BACKEND_URL}/api/health`;
     try {
-      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes, funnelRes, alertsRes] =
+      const [healthRes, statsRes, wallRes, councilRes, telRes, dbHealthRes, metricsRes, patternsRes, funnelRes, alertsRes, councilHealthRes] =
         await Promise.allSettled([
           fetch(HEALTH_URL).then((r) => r.json()),
           api.get("/usage/public/stats"),
@@ -42,6 +43,7 @@ export default function AdminOverview() {
           api.get("/admin/insights/user-patterns", { headers: h }),
           api.get("/admin/insights/activation-funnel", { headers: h }),
           api.get("/admin/alerts", { headers: h }),
+          api.get("/admin/council/health", { headers: h }),  // Iter 212m-192
         ]);
       if (healthRes.status   === "fulfilled") setHealth(healthRes.value);
       if (statsRes.status    === "fulfilled") setStats(statsRes.value.data);
@@ -53,6 +55,7 @@ export default function AdminOverview() {
       if (patternsRes.status === "fulfilled") setPatterns(patternsRes.value.data);
       if (funnelRes.status   === "fulfilled") setFunnel(funnelRes.value.data);
       if (alertsRes.status   === "fulfilled") setAlerts(alertsRes.value.data);
+      if (councilHealthRes.status === "fulfilled") setCouncilHealth(councilHealthRes.value.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
@@ -109,6 +112,41 @@ export default function AdminOverview() {
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 900 }}>
+
+      {/* Iter 212m-192 — Council A degradation banner.
+          Fires when LongCat (primary) is unreachable and traffic is
+          silently rerouted to the GLM-5.2 fallback. Prod ran on this
+          for hours before it surfaced as a chat bug — this banner
+          makes future degradations visible within 15 min. */}
+      {councilHealth?.degraded && (
+        <div data-testid="council-a-degraded-banner" style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 14px", marginBottom: 12,
+          background: "rgba(251, 146, 60, 0.08)",
+          border: "1px solid rgba(251, 146, 60, 0.35)",
+          borderRadius: 6, fontSize: 12,
+          color: "#fdba74", letterSpacing: 0.15,
+        }}>
+          <span style={{ fontSize: 15 }} aria-hidden="true">▲</span>
+          <div style={{ lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 600, color: "#fed7aa" }}>
+              Council A degraded — running on fallback
+            </div>
+            <div style={{ color: "#fdba74", opacity: 0.85 }}>
+              Intended primary <code style={{ fontFamily: "'JetBrains Mono',monospace" }}>{councilHealth.primary_intended}</code>{" "}
+              is unreachable ({councilHealth.last_probe?.http_code
+                ? `HTTP ${councilHealth.last_probe.http_code}`
+                : "network error"}
+              {councilHealth.last_probe?.error && (
+                <>: {String(councilHealth.last_probe.error).slice(0, 80)}</>
+              )}
+              ). Traffic is on <code style={{ fontFamily: "'JetBrains Mono',monospace" }}>{councilHealth.primary_actual}</code>{" "}
+              fallback. Re-probe every 15 min; auto-recovers when
+              upstream is back.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Build hash banner — one-glance "am I on the right deploy?"
           Click target removed: just informational. */}

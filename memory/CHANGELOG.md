@@ -4,7 +4,7 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
-## 2026-02-Session-5 — ChatPanel Cutover + P0 audit cleanup
+## 2026-02-Session-5 — ChatPanel Cutover + P0 audit cleanup + Ask Advisor real-fix
 
 Session goal: land the chat-native scan features (slash commands +
 ScanStatusStrip) on the real `/dashboard` route without any
@@ -113,6 +113,83 @@ against `test@aurem.dev` (founder tier) with the wired test project
 
 Slash menu screenshotted at `/` (all 5 commands) and `/sec`
 (filtered to `/security-scan` only).
+
+### Ask Advisor "cannot access repo" — REAL FIX
+User reported Ask Advisor unable to read files despite a green
+sidebar connection dot. Investigation on production (as founder
+`teji.ss1986@gmail.com` against real repo `TJSNDHU/Aurem`)
+uncovered **two independent bugs stacked on top of each other**:
+
+- **Bug 1 — misleading connection-status probe.**
+  `_check_one` in `backend/routers/repo_status.py` was hitting
+  `GET /repos/{owner}/{repo}` — a metadata endpoint that returns
+  200 for any token with basic repo visibility. Ask Advisor's tools
+  actually call the `/contents/{path}` endpoint which requires
+  `Contents:Read` scope. The sidebar dot could go green while every
+  real tool call returned 401 with a healthy-looking PAT.
+  Fix: probe `/contents/` instead so a green dot reflects real
+  file-read permission.
+
+- **Bug 2 — extractor missing a shape the stripper knew about.**
+  `tools_bridge._TOOL_CALL_XML_RE` was already used by the
+  stripper but `extract_tool_calls()` had no XML shape parser. When
+  the Council A primary (`meituan/longcat-2.0`) is unavailable
+  (upstream OpenRouter returns 400 for that slug), traffic falls
+  back to GLM-5.2 which emits malformed XML fences like:
+
+      <tool_call>read_repo_file)("README.md")
+
+  (opening `<tool_call>` present, no close, bracket order broken).
+  The four existing shape parsers (fenced JSON, bare JSON,
+  OpenAI-style `{tool_calls: [...]}`, Python-style `fn(a=b)`) all
+  missed this so `tool_calls_run` stayed at 0 — the model
+  effectively became text-only and users saw a hollow "cannot
+  access repo" reply.
+  Fix: added **Shape 6 — lenient XML** with a three-tier fallback
+  (JSON envelope inside the fence → Python-style call → last-ditch
+  scan for a known tool name + first string literal; the malformed
+  prod emission resolves via tier 3). Loose stripper variant
+  (`_TOOL_CALL_XML_LOOSE_STRIP_RE`) removes orphan fences so raw
+  `<tool_call>` fragments never leak into the user-visible reply.
+  Deduplication against Shape-4 matches prevents double-counting
+  the same emission.
+
+Tests (`test_iter212m192_*.py`, 7/7 pass):
+- Exact prod malformed emission resolves to a real `read_repo_file`
+  call with `path=README.md`.
+- Well-formed XML-wrapped JSON and Python calls round-trip cleanly.
+- Unknown tool names inside XML blocks are ignored (no phantom
+  calls).
+- Fenced JSON still wins when both shapes are present.
+- `_check_one` probe URL contains `/contents/`.
+
+### Council A degradation banner + periodic re-probe
+Production ran silently on the GLM-5.2 fallback for an unknown time
+before the bug surfaced — no visible signal in the admin dashboard.
+Fixed both directions:
+
+- **Persistent probe state** — `services.llm.probe_longcat_availability`
+  now writes an in-memory snapshot (`_LONGCAT_LAST_PROBE`) plus a
+  compact record in the new `council_health_probes` Mongo
+  collection (best-effort persistence; probe never fails on
+  Mongo-down).
+- **Periodic re-probe** — `periodic_longcat_reprobe(interval_seconds=900)`
+  runs as a background task started in `main.py` lifespan. State
+  transitions (LIVE ↔ DEGRADED) log a single WARNING so ops sees
+  when upstream comes back without needing a supervisor restart.
+- **Admin API** — `GET /api/aurem-dev/admin/council/health` returns
+  `{degraded, primary_intended, primary_actual, fallback, live,
+  last_probe, history}` for the admin badge and any external
+  monitoring.
+- **Admin UI banner** — `AdminOverview.jsx` fetches the endpoint
+  in its 60s refresh loop and shows a prominent orange banner at
+  the top of `/admin` when `degraded: true`. Preview screenshot
+  confirms: banner renders with intended-vs-actual model names,
+  HTTP status, upstream error message, and the re-probe cadence.
+
+Together these mean the next time LongCat (or any future Council A
+primary) degrades, the on-call sees it in the admin dashboard
+within 15 minutes rather than through user chat bug reports.
 
 ---
 

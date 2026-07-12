@@ -394,6 +394,20 @@ CEO_RESCUE_MODEL      = os.getenv("CEO_RESCUE_MODEL", "deepseek/deepseek-chat")
 # back True without a code change.
 LONGCAT_LIVE = True
 
+# Iter 212m-192 — In-memory snapshot of the latest probe outcome so
+# the admin API can render a live badge without re-probing on every
+# request. Written by `probe_longcat_availability()` and read by
+# `routers/admin.py:council_health`. Never a source of truth over
+# `LONGCAT_LIVE` — this dict just adds context (last error, epoch).
+_LONGCAT_LAST_PROBE: dict = {
+    "live":       True,           # mirror of LONGCAT_LIVE
+    "checked_at": 0.0,             # epoch seconds
+    "http_code":  None,           # None when never probed / network error
+    "error":      None,           # short string; None on success
+    "model":      "",             # resolved model slug at probe time
+    "enabled":    False,          # LONGCAT_ENABLED at probe time
+}
+
 
 async def probe_longcat_availability() -> bool:
     """Probe OpenRouter to see whether `_LONGCAT_MODEL` is a live slug.
@@ -402,10 +416,53 @@ async def probe_longcat_availability() -> bool:
     boolean.  Logs a single WARNING when LongCat is unavailable so the
     on-call sees it once at boot (instead of a flood on every call).
 
+    Iter 212m-192 — Also writes an in-memory snapshot into
+    `_LONGCAT_LAST_PROBE` and persists a compact record to the
+    `council_health_probes` Mongo collection so the admin dashboard
+    can surface a live "Council A degraded" badge without re-probing
+    on each API call. Persistence is best-effort — if Mongo is
+    unreachable we still update the in-memory flag so callers behave
+    correctly.
+
     Safe to call from a background task — never raises.
     """
     global LONGCAT_LIVE
+    import time as _time
+
+    def _snapshot(*, live: bool, http_code, error: str | None) -> None:
+        _LONGCAT_LAST_PROBE.update({
+            "live":       live,
+            "checked_at": _time.time(),
+            "http_code":  http_code,
+            "error":      error,
+            "model":      _LONGCAT_MODEL,
+            "enabled":    LONGCAT_ENABLED,
+        })
+
+    async def _persist(*, live: bool, http_code, error: str | None) -> None:
+        # Best-effort Mongo persistence — never blocks the caller.
+        try:
+            from cto_services.db import get_db as _get_db
+            db = _get_db()
+            if db is not None:
+                await db.council_health_probes.insert_one({
+                    "council":    "A",
+                    "component":  "longcat_primary",
+                    "model":      _LONGCAT_MODEL,
+                    "enabled":    LONGCAT_ENABLED,
+                    "live":       live,
+                    "http_code":  http_code,
+                    "error":      error,
+                    "checked_at": _LONGCAT_LAST_PROBE["checked_at"],
+                })
+        except Exception:
+            pass  # persistence failure never masks the probe result
+
     if not LONGCAT_ENABLED:
+        _snapshot(live=LONGCAT_LIVE, http_code=None,
+                  error="longcat_disabled_by_env")
+        await _persist(live=LONGCAT_LIVE, http_code=None,
+                       error="longcat_disabled_by_env")
         return LONGCAT_LIVE
     api_key = _openrouter_key()
     if not api_key:
@@ -414,6 +471,10 @@ async def probe_longcat_availability() -> bool:
             "LongCat probe skipped — OPENROUTER_API_KEY missing. "
             "Council A will use GLM-5.2 fallback."
         )
+        _snapshot(live=False, http_code=None,
+                  error="openrouter_api_key_missing")
+        await _persist(live=False, http_code=None,
+                       error="openrouter_api_key_missing")
         return False
     try:
         async with httpx.AsyncClient(timeout=5.0) as c:
@@ -436,10 +497,14 @@ async def probe_longcat_availability() -> bool:
             "LongCat probe network error (%r) — assuming unavailable. "
             "Council A will use GLM-5.2 fallback until next restart.", e,
         )
+        _snapshot(live=False, http_code=None, error=f"network_error: {e!r}"[:200])
+        await _persist(live=False, http_code=None, error=f"network_error: {e!r}"[:200])
         return False
     if r.status_code == 200:
         LONGCAT_LIVE = True
         logger.info("✅ LongCat probe OK — Council A primary = %s", _LONGCAT_MODEL)
+        _snapshot(live=True, http_code=200, error=None)
+        await _persist(live=True, http_code=200, error=None)
         return True
     # 400 invalid-model / 404 no-endpoints / 5xx upstream → treat as unavailable
     try:
@@ -449,11 +514,47 @@ async def probe_longcat_availability() -> bool:
     LONGCAT_LIVE = False
     logger.warning(
         "LongCat unavailable (HTTP %s: %s) — Council A on GLM-5.2 fallback "
-        "until next restart. Re-probe by restarting the backend once "
-        "%s is published upstream.",
-        r.status_code, err_msg, _LONGCAT_MODEL,
+        "until the next probe. Re-probe runs every 15 min in the "
+        "background; a supervisor restart triggers an immediate re-probe. "
+        "Live status is exposed at /api/aurem-dev/admin/council/health.",
+        r.status_code, err_msg,
     )
+    _snapshot(live=False, http_code=r.status_code, error=str(err_msg)[:200])
+    await _persist(live=False, http_code=r.status_code, error=str(err_msg)[:200])
     return False
+
+
+async def periodic_longcat_reprobe(interval_seconds: int = 900) -> None:
+    """Re-probe LongCat on a `interval_seconds` cadence forever.
+
+    Iter 212m-192 — Startup-only probing meant a LongCat outage that
+    resolved upstream stayed masked until the next supervisor restart.
+    This coroutine keeps the flag fresh so the moment upstream comes
+    back, Council A auto-recovers within the interval window.
+
+    Runs quietly: only logs on a state transition (live ↔ degraded).
+    """
+    import asyncio
+    if not LONGCAT_ENABLED:
+        return
+    while True:
+        previous = LONGCAT_LIVE
+        try:
+            current = await probe_longcat_availability()
+        except Exception as e:  # pragma: no cover — defensive belt
+            logger.warning("periodic_longcat_reprobe unexpected error: %r", e)
+            current = LONGCAT_LIVE
+        if current != previous:
+            logger.warning(
+                "🔁 Council A state transition: %s → %s (model=%s)",
+                "LIVE" if previous else "DEGRADED",
+                "LIVE" if current else "DEGRADED",
+                _LONGCAT_MODEL,
+            )
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            return
 
 
 def council_a_primary_model() -> str:
