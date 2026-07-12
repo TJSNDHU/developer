@@ -4,6 +4,118 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-Session-5 — ChatPanel Cutover + P0 audit cleanup
+
+Session goal: land the chat-native scan features (slash commands +
+ScanStatusStrip) on the real `/dashboard` route without any
+regression, and finish the three P0 safety audits flagged in the
+previous session BEFORE the cutover.
+
+### P0 audit — RESOLVED
+- **`/deploy/status` 404**: confirmed dead reference in the audit
+  script only. Current `backend/routers/deploy.py` exposes
+  `/config`, `/run`, `/history`, `/runs`, `/log/{id}` — no `/status`
+  and no live caller (grep across `backend/` + `frontend/src/`
+  returned zero hits outside `.aurem_cache/` snapshots). No code
+  change required.
+- **10 `mock/stub` hits**: per-line inspection classified every hit
+  as either (a) documented safe fallback (DB failure → `_off_stub`,
+  LLM 10s timeout → empty remediation stub, OTEL disabled → no-op
+  span, attachment parse failure → attempted-attachment marker to
+  LLM), (b) exclusion filter (`vanguard_scanner` skips `/mocks/`
+  paths), or (c) historical docstring/comment describing a fixed
+  bug. Zero silent stubs surfaced.
+- **17 empty DB collections classified** (see §DB cleanup below).
+
+### DB cleanup — `cto_review_logs` + `onboarding_projects` dropped
+Two collections were **dead** in the current codebase and had to
+choose between being resurrected or removed:
+
+- `cto_review_logs` — genuinely dead. Only referenced by
+  `migrations/001_aurem_upgrade_indexes.py` for index creation; no
+  runtime writer or reader anywhere. Removed from the migration
+  script and physically dropped from Mongo.
+- `onboarding_projects` — read by 5 sites in `trust.py`, `deploy.py`,
+  and `cto_services/codebase_indexer.py` but never written by
+  anything. Per the "never fork a parallel implementation" rule the
+  readers were switched to `cto_projects` (single source of truth)
+  and the dead `is_production_dogfood` guard in `deploy.py` was
+  deleted (flag was never populated anywhere). Fields that don't
+  exist in `cto_projects` (`progress`, `phase`, `manifest.tagline`,
+  `preview_url`) were removed from the trust-gallery response
+  instead of being silently surfaced as `null`. `codebase_indexer`
+  now composes `https://github.com/{owner}/{repo}` from
+  `cto_projects.github_owner + .github_repo`. Legacy
+  `developer_accounts` fallback preserved.
+- The remaining 16 empty collections are live (real writers +
+  readers) but not yet exercised in preview — will populate with
+  usage.
+
+Migration file (`scripts/init_prod_collections.py`) also had the
+`onboarding_projects` seed removed so prod initialisation converges
+on the same shape.
+
+Tests: 33/33 related tests pass (`deploy_ui`, `deploy_http`,
+`hosted_deploy_and_engage`, `auto_graph_refresh_active_loop_trust_level`).
+Test fixture `test_iter212m9_deploy_ui.py` cleaned up to drop the
+now-unused `onboarding_projects` mock.
+
+### ChatPanel cutover — slash commands + ScanStatusStrip on `/dashboard`
+The v2 preview page (`/dashboard-preview-v2`) is a hardcoded visual
+demo (its own docstring calls it "Preview-only visual mock"). The
+real production wiring — SSE stream, ORA Council, tools, ship flow
+— lives in `frontend/src/components/ChatPanel.jsx`. A wholesale
+swap would have deleted all of it, so the cutover was a **surgical
+graft** into the real ChatPanel composer instead of a route swap:
+
+- Imported `SlashCommandMenu` + `matchSlashCommands` and
+  `ScanStatusStrip` + `markScanJustCompleted` at the top of
+  `ChatPanel.jsx`.
+- Added `slashOpen`, `slashIdx`, `scanState` component state.
+- Wired the textarea `onChange` to open the popover whenever input
+  starts with `/` and matches a known command; wired `onKeyDown`
+  to route ArrowUp/Down/Enter/Tab/Escape through the menu when it
+  is open, falling through to the normal Enter-to-send behaviour
+  when it is closed.
+- Added `runSlashCommand(cmd)` which POSTs `/codebase-health/scan`
+  with the command's category slice, then calls
+  `markScanJustCompleted` on success. Toast on missing project.
+- Rendered `<ScanStatusStrip …>` just above the composer form and
+  `<SlashCommandMenu …>` inside a `position:relative` composer
+  card so the popover floats above the textarea.
+- Updated the composer placeholder to hint at the new commands.
+
+### Preview page (`DashboardPreviewV2.jsx`) — real data
+While validating the strip states against real endpoints I also
+retired the static demo repo list on the preview route:
+
+- Switched the sidebar from the hardcoded `Sidebar` (`TJSNDHU/Aurem`,
+  `atlas-dashboard`, `orbit-payments`, `sdk-js` — all fake) to
+  `SidebarBound`, which reads live from
+  `GET /api/aurem-dev/cto/projects/list`.
+- Added the same instant-paint pattern used by `Dashboard.jsx`
+  (synchronous localStorage cache hydration, then background
+  refresh) so the sidebar never flickers empty.
+- `useActiveProject()` (from `TabBar`) already auto-restores the
+  last active project, so a returning user lands directly on their
+  connected repo instead of "No repo connected".
+
+### Screenshot validation
+All three ScanStatusStrip states screenshotted on `/dashboard`
+against `test@aurem.dev` (founder tier) with the wired test project
+`aurem-labs/ora-testkit`:
+
+- `in_progress` — spinner + "Scan running · ora-testkit".
+- `just_completed` — warning icon, "3 critical · 7 high · aurem-labs/ora-testkit"
+  with `Review findings →` CTA and X dismiss.
+- `dismissed` — DOM removal verified programmatically
+  (`strip count post-dismiss: 0`).
+
+Slash menu screenshotted at `/` (all 5 commands) and `/sec`
+(filtered to `/security-scan` only).
+
+---
+
 ## 2026-02-12 — Post-audit follow-ups (QA fix + weekly cron + prod safety)
 
 Real issues surfaced by the previous session's audit — fixed in this pass.

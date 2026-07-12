@@ -1,5 +1,51 @@
 # AUREM Dev / Aurem CTO — PRD
 
+## Recent session (2026-02-Session-5) — status snapshot
+
+**Landed:**
+- P0 audit (Session 4 leftover) — all resolved. `/deploy/status`
+  confirmed dead reference (no live callers). Ten `mock/stub` code
+  hits classified — zero silent stubs; every case is documented
+  safe fallback, exclusion filter, or historical comment.
+- DB cleanup: `cto_review_logs` + `onboarding_projects` were
+  effectively dead (no writers or split reader/writer ownership).
+  Readers switched to `cto_projects` (single source of truth),
+  fields that never existed on `cto_projects` removed from response
+  payloads instead of surfacing as null, dead `is_production_dogfood`
+  guard deleted from `deploy.py`. Both collections dropped from
+  Mongo and from the migration scripts. 33/33 related tests green.
+- ChatPanel cutover: `SlashCommandMenu` + `ScanStatusStrip` grafted
+  into the real production `ChatPanel.jsx` composer (not a route
+  swap — the v2 preview page is a hardcoded visual demo per its
+  own docstring). `/dashboard` now supports `/scan`, `/health-scan`,
+  `/security-scan`, `/bug-hunt`, `/docker-scan` with an anchored
+  popover, arrow-key navigation, and the scan-status strip
+  above the composer.
+- Preview page (`DashboardPreviewV2.jsx`): static demo repo list
+  replaced with `SidebarBound` (live `/cto/projects/list`) +
+  instant-paint localStorage cache. `useActiveProject` auto-restore
+  already wired via `TabBar` hook.
+
+**Screenshot-validated (all against `/dashboard` on preview):**
+- Slash menu open + filtered variants (`/`, `/sec`).
+- ScanStatusStrip in `in_progress`, `just_completed`, and dismissed
+  states — DOM removal on dismiss verified programmatically.
+
+**Pending (P1 / P2):**
+- Live-repo PAT test for Loop-Mode full scan (still awaiting user
+  PAT + disposable test repo).
+- 36 draft probe PRs cleanup from empirical rate-limit testing.
+- Vanguard CI Ingest setup (awaits `AUREM_CI_INGEST_TOKEN`).
+- Semgrep + Trivy sidecar integrations.
+- GSC (Google Search Console) Indexing API.
+- `POST /api/parliament/analyze` endpoint.
+- Architecture docs sync (router 48 vs 45, service 91 vs 60
+  mismatch in `/app/memory/architecture/`).
+- Frontend refactor: 15 files >500 LOC (ChatPanel 3383,
+  Admin 2324, Projects 2020, AdminOverview 1473).
+
+---
+
 ## Original Problem Statement
 User uploaded `aurem-dev.zip` to build a developer platform. Evolved into **Aurem CTO**: a multi-project workspace where developers connect client GitHub repos (OAuth or PAT), chat with an AI scoped per project, queue background tasks to clone repos, apply AI fixes, and push back to GitHub. Premium glassmorphic UI overhaul is the next major phase.
 

@@ -69,6 +69,8 @@ import TokenBanner       from "./chat/TokenBanner";
 import ToolButton        from "./chat/ToolButton";
 import StreamHealthPill  from "./chat/StreamHealthPill";
 import RepoHelpDialog    from "./chat/RepoHelpDialog";
+import ScanStatusStrip, { markScanJustCompleted } from "./ScanStatusStrip";        // Iter 212m-190 · Session 3
+import SlashCommandMenu, { matchSlashCommands } from "./SlashCommandMenu";         // Iter 212m-190 · Session 3
 import {
   isLoopUnlockedSync,
   extractSuggestions,
@@ -116,6 +118,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const chatStream = useChatStream();
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
+  // Iter 212m-190 · Session 3 — Chat-native scan commands. Slash-menu
+  // is a controlled popover triggered by inputs starting with "/", and
+  // ScanStatusStrip surfaces scan lifecycle events above the composer.
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashIdx, setSlashIdx]   = useState(0);
+  const [scanState, setScanState] = useState("idle");
   // Iter 212m-149 — Intent Gateway last-known tier for the indicator.
   // Updated when an SSE `intent` frame arrives during a chat turn.
   const [lastIntentTier, setLastIntentTier] = useState(null);
@@ -1810,9 +1818,74 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   }
 
   function onKeyDown(e) {
+    // Iter 212m-190 · Session 3 — Slash-menu key handling. When the
+    // menu is open the arrow keys navigate matches, Enter/Tab picks
+    // the highlighted command (fires the scan), Escape closes it.
+    if (slashOpen) {
+      const matches = matchSlashCommands(input);
+      if (matches.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashIdx((i) => Math.min(i + 1, matches.length - 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashIdx((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === "Escape") {
+          setSlashOpen(false);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          runSlashCommand(matches[slashIdx] || matches[0]);
+          return;
+        }
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
+    }
+  }
+
+  // Iter 212m-190 · Session 3 — Slash-command scan dispatcher. Maps
+  // each command to a category slice of the existing
+  // `/codebase-health/scan` endpoint (single source of truth). While
+  // the scan runs the strip shows an in-progress spinner; on success
+  // we stash a session-scoped summary via `markScanJustCompleted` so
+  // the strip surfaces the critical/high totals (or nothing at all
+  // when clean).
+  async function runSlashCommand(cmd) {
+    if (!cmd) return;
+    setSlashOpen(false);
+    setInput("");
+    const projectId = activeProject?.project_id;
+    if (!projectId) {
+      toast({ message: "Connect a repo first — /scan needs a project", kind: "warn" });
+      return;
+    }
+    setScanState("in_progress");
+    try {
+      const r = await api.post("/codebase-health/scan", {
+        project_id: projectId,
+        categories: cmd.categories || null,
+      });
+      const summary = r.data?.summary || {};
+      const bySev   = summary.by_severity || {};
+      markScanJustCompleted({
+        critical:    bySev.critical || 0,
+        high:        bySev.high || 0,
+        projectId,
+        projectName: activeProject?.github_repo || projectId,
+      });
+    } catch {
+      // Keep the strip silent on a network/auth blip — the user can
+      // retry from the Codebase Health page directly.
+    } finally {
+      setScanState("idle");
     }
   }
 
@@ -2858,6 +2931,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         }}
       />
 
+      {/* Iter 212m-190 · Session 3 — Chat-native scan strip. Sits
+          just above the composer form so scan lifecycle events
+          (in-progress, just-completed, backlog reminder) surface
+          without blocking the input. `projectId=null` hides it. */}
+      <ScanStatusStrip
+        projectId={activeProject?.project_id}
+        scanState={scanState}
+        projectName={activeProject?.github_repo || ""}
+        onReviewFindings={() => window.location.assign("/codebase-health")}
+      />
+
       <form
         data-testid="chat-form"
         onSubmit={send}
@@ -2992,7 +3076,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
         {/* Iter 147 — unified composer card: textarea + toolbar share
             one rounded surface so it reads as a single chat input. */}
-        <div className="composer-card" data-testid="composer-card">
+        <div className="composer-card" data-testid="composer-card"
+             style={{ position: "relative" }}>
+        {/* Iter 212m-190 · Session 3 — Slash-command popover. Absolute
+            positioned above the textarea; visible while `slashOpen`
+            AND the input still starts with a slash pattern. */}
+        {slashOpen && (
+          <SlashCommandMenu
+            matches={matchSlashCommands(input)}
+            selectedIndex={slashIdx}
+            onPick={(cmd) => runSlashCommand(cmd)}
+          />
+        )}
         <textarea
           ref={taRef}
           data-testid="chat-input"
@@ -3002,6 +3097,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             const v = e.target.value;
             setInput(v);
             setDetectedMode(detectMode(v));
+            // Iter 212m-190 · Session 3 — Slash-menu detection. Opens
+            // the popover the moment the user types a leading "/",
+            // filters as they keep typing, closes once the prefix is
+            // gone or the input contains a newline.
+            const isSlashy = v.startsWith("/") && !v.includes("\n") && matchSlashCommands(v).length > 0;
+            setSlashOpen(isSlashy);
+            if (!isSlashy) setSlashIdx(0);
             // Iter 212m-123 — Per founder spec: TopBar / focus chrome
             // hides ONLY once the user has actually TYPED something.
             // Pure focus (click into the input) no longer triggers
@@ -3029,7 +3131,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               handleFiles(files);
             }
           }}
-          placeholder="Ask ORA to build, fix, or scan..."
+          placeholder="Ask ORA to build, fix, or scan… (type / for scan commands)"
           rows={Math.min(6, Math.max(2, input.split("\n").length))}
           autoFocus
           disabled={busy || exhausted}

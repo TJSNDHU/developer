@@ -11,15 +11,21 @@
  * IMPORTANT: nothing here touches the real ChatPanel.jsx, auth
  * flows, or backend APIs. Approve the look, then I wire it in.
  */
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { cn } from "../components/dashboard/v2/cn";
-import { Sidebar }       from "../components/dashboard/v2/Sidebar";
+import SidebarBound from "../components/dashboard/v2/SidebarBound";
 import { TopBar }        from "../components/dashboard/v2/TopBar";
 import { ChatView }      from "../components/dashboard/v2/ChatView";
 import { PreviewPanel }  from "../components/dashboard/v2/PreviewPanel";
 import { GraphView }     from "../components/dashboard/v2/GraphView";
 import { AskAdvisor }    from "../components/dashboard/v2/AskAdvisor";
 import { shipFiles } from "../components/dashboard/v2/dashboard-data";
+import { api, getUser } from "../lib/api";
+import {
+  useActiveProject,
+  setActiveProjectId as setActiveProjectIdGlobal,
+} from "../components/TabBar";
+import { useNavigate } from "react-router-dom";
 import { X, CheckCircle2, Rocket, Menu } from "lucide-react";
 
 function ShipModal({ onClose }) {
@@ -86,6 +92,53 @@ export default function DashboardPreviewV2() {
   const [loopOn,           setLoopOn]           = useState(false);
   const [sidebarShownOnFull, setSidebarShownOnFull] = useState(false);
 
+  // Live project data — same wiring as production Dashboard.jsx.
+  // Instant paint from localStorage cache, then background refresh
+  // from `/cto/projects/list`. `useActiveProject` auto-restores the
+  // last active project (or the first wired one) on mount.
+  const activeProject = useActiveProject();
+  const [projects, setProjects] = useState(() => {
+    try {
+      const raw = localStorage.getItem("aurem_projects_cache");
+      const cached = raw ? JSON.parse(raw) : [];
+      return Array.isArray(cached) ? cached : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/cto/projects/list")
+      .then((r) => {
+        if (cancelled) return;
+        const list = r.data?.projects || [];
+        setProjects(list);
+        try { localStorage.setItem("aurem_projects_cache", JSON.stringify(list)); }
+        catch { /* quota — ignore */ }
+      })
+      .catch(() => { /* silent — cached list keeps sidebar populated */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const repoEntries = projects.map((p) => ({
+    id:     p.project_id,
+    owner:  p.github_owner || "",
+    name:   p.github_repo || p.name,
+    branch: p.default_branch || p.branch || "main",
+    dot:    p.project_id === activeProject?.project_id ? "orange" : "gray",
+    active: p.project_id === activeProject?.project_id,
+    raw:    p,
+  }));
+
+  const navigate = useNavigate();
+  const handleSelectRepo = useCallback((repo) => {
+    if (!repo?.id) return;
+    setActiveProjectIdGlobal(repo.id);
+  }, []);
+  const handleAddRepo = useCallback(() => {
+    // Preview surface routes to the real /projects wizard entrypoint
+    // instead of duplicating the wizard modal here.
+    navigate("/projects?action=connect");
+  }, [navigate]);
+
   useEffect(() => {
     function onMouseMove(e) { if (e.clientY <= 20) setTopbarHidden(false); }
     window.addEventListener("mousemove", onMouseMove);
@@ -123,8 +176,15 @@ export default function DashboardPreviewV2() {
             isFullTab && "absolute left-0 top-0 z-40 h-full shadow-xl")}
             onMouseEnter={() => sidebarCollapsed && setHovered(true)}
             onMouseLeave={() => { setHovered(false); if (isFullTab) setSidebarShownOnFull(false); }}>
-            <Sidebar collapsed={effectiveCollapsed} pinned={pinned}
-              onPinChange={setPinned} loopOn={loopOn} onLoopToggle={setLoopOn} />
+            <SidebarBound
+              collapsed={effectiveCollapsed}
+              pinned={pinned}
+              onPinChange={setPinned}
+              repos={repoEntries}
+              onSelectRepo={handleSelectRepo}
+              onAddRepo={handleAddRepo}
+              user={getUser()}
+            />
           </div>
         )}
 
