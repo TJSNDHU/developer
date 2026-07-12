@@ -16,7 +16,7 @@
                            │ /api/* (Kubernetes Ingress)
 ┌──────────────────────────▼──────────────────────────────────┐
 │              BACKEND — FastAPI (Port 8001)                   │
-│   46 Routers → Core (Parliament) → 87 Services → External    │
+│   47 Routers → Core (Parliament) → 87 Services → External    │
 │   Entry: backend/main.py (all include_router calls live here)│
 └──────────┬───────────────┬───────────────┬──────────────────┘
            │               │               │
@@ -24,13 +24,15 @@
      │  MongoDB  │   │ GitHub API │  │ LLM Providers       │
      │ (Motor)   │   │ (PAT/OAuth)│  │ OpenRouter/Groq/    │
      └───────────┘   └────────────┘  │ Anthropic (Emergent)│
+                                     │ Council A primary:  │
+                                     │ claude-sonnet-4.5   │
                                      └─────────────────────┘
 ```
 
 ## LAYER RESPONSIBILITIES (one line each)
 - **Frontend**: React SPA — chat UI, dashboards, wizards, admin suite. Talks to backend only via `/api/*` using `REACT_APP_BACKEND_URL`. → file 02
 - **Backend Core ("Parliament")**: intent classification + multi-agent routing (`backend/core/`). → file 03
-- **Backend Routers**: 46 HTTP endpoint groups (`backend/routers/`) — auth, scanning, fixing, repo, business, deploy, admin. → file 03
+- **Backend Routers**: 47 HTTP endpoint groups (`backend/routers/`) — auth, scanning, fixing, repo, business, deploy, admin, suggestions. → file 03
 - **Backend Services**: 87 modules (`backend/services/`) — AI orchestration, scanners, fix engine, repo intelligence, safety guards, learning, billing. → file 04
 - **Data Layer**: MongoDB via Motor — users, projects, tasks, fixed-findings ledger, audit logs. → file 05
 - **External Integrations**: GitHub REST API, LLM providers, Google Auth, Meta Pixel, SSE. → file 05

@@ -4,7 +4,7 @@
 ## CATEGORIES
 
 ### AI Orchestration & Routing
-`orchestrator.py`, `llm_router.py`, `smart_router.py`, `route_cache.py`, `mode_classifier.py`, `mode_b_council.py` (multi-LLM council), `mode_d_debugger.py`, `mode_e_auditor.py`, `mode_f_engage.py`, `parallel_agents.py`, `agents.py`, `llm.py`, `ora_client.py`
+`orchestrator.py`, `llm_router.py`, `smart_router.py`, `route_cache.py`, `mode_classifier.py`, `mode_b_council.py` (multi-LLM council), `mode_d_debugger.py`, `mode_e_auditor.py`, `mode_f_engage.py`, `parallel_agents.py`, `agents.py`, `llm.py` (Council A primary = `anthropic/claude-sonnet-4.5` since Iter 212m-193; on-boot probe + 15-min periodic re-probe, state persisted in `council_health_probes`), `ora_client.py`, `tools_bridge.py` (5 tool-call shape extractors incl. lenient XML fence recovery — Iter 212m-192)
 
 ### Scanners
 `vanguard_scanner.py` (security), `architecture_health.py`, `bug_hunt_rules.py`, `design_linter.py`, `code_reviewer.py`, `post_task_scanner.py`, `integration_health.py`, `scan_cache.py`
@@ -31,7 +31,7 @@
 `subscription_tiers.py` (single source of truth for tier limits), `billing_cron.py`, `financials.py`, `topup_alerts.py`, `usage.py` (monthly task meter), `founder_offer.py`-related flows
 
 ### Misc Infra
-`feature_flags.py`, `db_backup.py`, `daily_digest.py`, `onboarding_email.py`, `error_translator.py`, `langfuse_tracing.py`, `external_services_registry.py`, `seo/`, `mfa.py`, `vault.py`, `tool_executor.py`, `tools_bridge.py`, `local_tools.py`, `mcp_scoped_tools.py`, `url_fetcher.py`, `web_skills.py`, `vercel_skills.py`, `sandbox_runner.py`, `admin_analytics_cache.py`, `bin_context.py`, `deploy_logger.py`, `vanguard_audit.py`, `vanguard_config.py`
+`feature_flags.py`, `db_backup.py`, `daily_digest.py`, `onboarding_email.py`, `error_translator.py`, `langfuse_tracing.py`, `external_services_registry.py`, `seo/`, `mfa.py`, `vault.py`, `tool_executor.py`, ~~`tools_bridge.py`~~ (moved to AI Orchestration), `local_tools.py`, `mcp_scoped_tools.py`, `url_fetcher.py`, `web_skills.py`, `vercel_skills.py`, `sandbox_runner.py`, `admin_analytics_cache.py`, `bin_context.py`, `deploy_logger.py`, `vanguard_audit.py`, `vanguard_config.py`, `generation_rules.py` (Iter 212m-190 · LLM persona-injected safety rules), `loop_full_scan.py` (Iter 212m-190 · 5-scanner Loop-Mode aggregator with depth gate + 3× auto-retry)
 
 ## RULES FOR THE AI DEVELOPER (hard constraints)
 1. All LLM calls route through `llm_router.py`/`smart_router.py` — never call a provider SDK/API directly from a scanner, fixer, or feature module. Never hardcode a provider API key.

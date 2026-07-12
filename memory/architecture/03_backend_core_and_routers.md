@@ -2,7 +2,7 @@
 (Self-contained context module. System map: file 01. Services: file 04.)
 
 ## STACK
-FastAPI on port 8001 (supervisor-managed). Entry point: `backend/main.py` (all 46 `include_router` calls). Request flow: **Router → Core (Parliament) → Services → External APIs**.
+FastAPI on port 8001 (supervisor-managed). Entry point: `backend/main.py` (all 47 `include_router` calls). Request flow: **Router → Core (Parliament) → Services → External APIs**.
 
 ## CORE — `backend/core/` (the "Parliament" brain)
 | Module | Function |
@@ -14,7 +14,7 @@ FastAPI on port 8001 (supervisor-managed). Entry point: `backend/main.py` (all 4
 | `quality_monitor.py` | Response quality scoring (writes `quality_scores`) |
 | `observability.py` | Tracing/observability hooks |
 
-## ROUTERS — `backend/routers/` (46 files)
+## ROUTERS — `backend/routers/` (47 files)
 | Category | Files |
 |---|---|
 | Auth & Identity | `auth.py`, `oauth.py`, `github_oauth.py`, `mfa.py`, `onboarding.py` |
@@ -22,14 +22,18 @@ FastAPI on port 8001 (supervisor-managed). Entry point: `backend/main.py` (all 4
 | Scanning | `codebase_health.py`, `security_scan.py`, `lint_preview.py`, `vanguard_ci.py`, `harden.py` |
 | Fixing | `fix_pipeline.py` (SSE bulk fix, quota-enforced via `scan_fix_quota.py`) |
 | Repo / GitHub | `cto_projects.py`, `repo_indexing.py`, `repo_status.py`, `github_bot.py`, `mcp.py` |
-| Business | `payments.py`, `usage.py`, `founder_offer.py`, `unlock.py`, `feature_window.py`, `engagement.py`, `notify_interest.py`, `trust.py`, `trust_level.py`, `shipwall.py`, `wrapped.py` |
+| Business | `payments.py`, `usage.py`, `founder_offer.py`, `unlock.py`, `feature_window.py`, `engagement.py`, `notify_interest.py`, `trust.py`, `trust_level.py`, `shipwall.py`, `wrapped.py`, `suggestions.py` |
 | Deploy | `deploy.py`, `vercel.py`, `hosted_deploy.py`, `github_deploy.py`, `domain.py`, `stacks.py` |
 | Admin | `admin.py`, `admin_vanguard.py`, `admin_bin.py` |
+| QA / Findings | `qa_probe.py` (Iter 212m-190 Promptfoo internal QA), `findings.py` (dismiss/snooze) |
 | Misc | `automations.py`, `support.py`, `upload.py`, `vault.py` |
 
 ## KEY ENDPOINTS
 - `POST /api/aurem-dev/scan-fix-quota` — quota snapshot for fix surfaces
 - `POST /api/aurem-dev/codebase-health/fix` — apply fixes (quota-gated, SSE progress)
+- `GET  /api/aurem-dev/admin/council/health` — Iter 212m-192 · Council A live status + probe history for the degradation banner
+- `POST /api/aurem-dev/suggestions` — Iter 212m-193 · founder suggestion box (1 per UTC day per user_id)
+- `POST /api/aurem-dev/codebase-health/scan` — invoked by the chat-native slash commands `/scan`, `/health-scan`, `/security-scan`, `/bug-hunt`, `/docker-scan`
 
 ## QUOTA GATE CONTRACT (`assert_can_fix` in `services/scan_fix_quota.py`)
 Called BEFORE any fix work runs. Error codes:
