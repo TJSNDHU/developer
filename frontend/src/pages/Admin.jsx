@@ -15,6 +15,7 @@ import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import AuremAdminPanel from "../components/AuremAdminPanel";
 import AdminOverview from "./AdminOverview";
+import AdminSuggestions from "./AdminSuggestions";              // Iter 212m-193
 import AgentTokenPanel from "../components/AgentTokenPanel";
 import AdminThinkingHints from "../components/AdminThinkingHints";
 import TwoFactorCard from "../components/TwoFactorCard";  // Iter 212m-20
@@ -2119,6 +2120,7 @@ const NAV = [
   { id: "bin_tracker", label: "BIN Tracker", Icon: Users },
   { id: "users", label: "Users (Legacy)", Icon: Users },
   { id: "support", label: "Support", Icon: Mail },
+  { id: "suggestions", label: "Suggestions", Icon: MessageCircle },   // Iter 212m-193
   { id: "audit", label: "Audit Log", Icon: ShieldAlert },
   { group: "CONFIG" },
   { id: "feature_flags", label: "Feature Flags", Icon: Zap },
@@ -2220,6 +2222,7 @@ export default function Admin({ initialTab = "overview" }) {
       case "reliability":    return <ReliabilityPage />;
       case "payments":       return <PaymentsPage />;
       case "support":        return <SupportPage />;
+      case "suggestions":    return <AdminSuggestions />;
       case "audit":          return <AuditPage />;
       case "house_rules":    return <AdminHouseRules />;
       case "robot_guide":    return <AdminRobotGuide />;

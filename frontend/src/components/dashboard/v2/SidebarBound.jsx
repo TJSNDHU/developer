@@ -11,10 +11,11 @@ import { cn } from "./cn";
 import {
   Pin, PinOff, Plus,
   Github, LayoutGrid,
-  Settings, LogOut, ChevronRight,
+  Settings, LogOut, ChevronRight, MessageSquarePlus,
   ShieldCheck, Activity, Lock, Bug,
 } from "lucide-react";
 import { getToken, getUser, isAdminOrFounder } from "../../../lib/api";
+import SuggestionBoxModal from "../../SuggestionBoxModal";      // Iter 212m-193
 
 const API_BASE = `${(typeof process !== "undefined" ? process.env.REACT_APP_BACKEND_URL : "") || ""}/api/aurem-dev`;
 
@@ -88,7 +89,7 @@ function Tooltip({ label, children }) {
   );
 }
 
-function UserDropdown({ user, onClose, onSettings, onLogout, isMobile = false }) {
+function UserDropdown({ user, onClose, onSettings, onLogout, onSuggest, isMobile = false }) {
   const ref = useRef(null);
   useEffect(() => {
     function handle(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
@@ -170,6 +171,12 @@ function UserDropdown({ user, onClose, onSettings, onLogout, isMobile = false })
           className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:bg-secondary">
           <Settings className="size-3.5 text-muted-foreground" strokeWidth={2} /> Settings
         </button>
+        {onSuggest && (
+          <button data-testid="ds2-user-suggest" onClick={() => { onSuggest(); onClose?.(); }}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:bg-secondary">
+            <MessageSquarePlus className="size-3.5 text-muted-foreground" strokeWidth={2} /> Suggest a feature
+          </button>
+        )}
       </div>
       <div className="border-t border-border py-1">
         <button data-testid="ds2-user-logout" onClick={onLogout}
@@ -190,6 +197,7 @@ export default function SidebarBound({
   const isCollapsed = !pinned && collapsed;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);       // Iter 212m-193
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -564,6 +572,7 @@ export default function SidebarBound({
         {dropdownOpen && !isCollapsed && (
           <UserDropdown user={user} onClose={() => setDropdownOpen(false)}
             onSettings={onSettings} onLogout={onLogout}
+            onSuggest={() => setSuggestOpen(true)}
             isMobile={isMobile} />
         )}
         <button onClick={() => setDropdownOpen((v) => !v)} aria-label="User menu"
@@ -587,6 +596,7 @@ export default function SidebarBound({
           )}
         </button>
       </div>
+      <SuggestionBoxModal open={suggestOpen} onClose={() => setSuggestOpen(false)} />
     </aside>
   );
 }
