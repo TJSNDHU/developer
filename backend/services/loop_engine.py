@@ -1159,9 +1159,214 @@ class LoopEngine:
                     data={"summary": results.get("summary", {}),
                           "diff_mode": results.get("diff_mode", False)},
                 )
+
+            # ── Iter 212m-190 (Directive Session 2 · Part B) — Full Scan ──
+            # Extend the existing Vanguard-only scan with Bug Hunt +
+            # HTTP-headers + Docker-CIS on the SAME diff files, gated
+            # by change-size so single-file typo fixes stay fast.
+            # If Ship was already blocked above (paused_for_user on a
+            # Vanguard critical) we skip Full Scan — the user is
+            # already reviewing, running more scanners would just
+            # add noise.
+            if self.state != LoopState.PAUSED_FOR_USER and submitted_files:
+                await self._run_full_scan_pass(submitted_files)
         except Exception as e:                          # noqa: BLE001
             await _log_error(self.db, self.loop_id, "scan", repr(e))
             self.context["scan_results"] = {"error": repr(e)}
+
+    async def _run_full_scan_pass(self, submitted_files: list[dict]) -> None:
+        """Run the Full-Scan orchestrator on the just-generated files,
+        block Ship on self-generated critical/high, and self-heal up to
+        MAX_SCAN_HEALS times before surfacing to the user.
+
+        Split out from `_do_scan` so the retry logic is testable in
+        isolation and the parent method stays scannable at a glance.
+        """
+        from services.full_scan_orchestrator import (
+            run_full_scan, should_run_full_scan, files_to_text_cache,
+            group_findings_for_self_heal,
+        )
+        from services import loop_full_scan as _lfs
+
+        should_run, reason = should_run_full_scan(submitted_files)
+        if not should_run:
+            await self._emit(
+                LoopState.SCANNING, "scan", step=4, total_steps=5,
+                message=f"Full Scan skipped — {reason}",
+                data={"full_scan": {"ran": False, "reason": reason}},
+            )
+            return
+
+        await self._emit(
+            LoopState.SCANNING, "scan", step=4, total_steps=5,
+            message=f"Full Scan running — {reason}",
+        )
+        scoped_paths = {f.get("path") or "" for f in submitted_files
+                        if f.get("path")}
+        result = run_full_scan(files_to_text_cache(submitted_files))
+        _lfs.record_scan_health(result)
+
+        # Persist critical/high findings to the backlog collection so
+        # Session 3's notification strip has real data to draw from.
+        with contextlib.suppress(Exception):
+            await _lfs.persist_findings_to_backlog(
+                self.db,
+                user_id=self.user_id, project_id=self.project_id,
+                findings=result.get("findings") or [],
+            )
+
+        offending = group_findings_for_self_heal(
+            result.get("findings") or [], scoped_paths=scoped_paths,
+        )
+        self.context["full_scan_results"] = {
+            "summary":         result.get("summary"),
+            "scanner_status":  result.get("scanner_status"),
+            "degraded":        result.get("degraded"),
+            "critical_count":  result.get("critical_count"),
+            "high_count":      result.get("high_count"),
+            "elapsed_seconds": result.get("elapsed_seconds"),
+            "self_generated_findings": sum(len(v) for v in offending.values()),
+        }
+
+        if not offending:
+            await self._emit(
+                LoopState.SCANNING, "scan", step=4, total_steps=5,
+                message=(
+                    f"Full Scan clean — {result['summary']['total']} "
+                    f"finding(s) total, 0 in self-generated code "
+                    f"({result['elapsed_seconds']}s)."
+                ),
+                data={"full_scan": {
+                    "ran": True,
+                    "summary":  result.get("summary"),
+                    "degraded": result.get("degraded"),
+                    "scanner_status": result.get("scanner_status"),
+                }},
+            )
+            return
+
+        # Ship-block path: run up to MAX_SCAN_HEALS self-heal rounds.
+        # The healer used here is the same Parliament-backed healer
+        # already used for lint failures — reusing it means one code
+        # path, one prompt shape, one behaviour under retry.
+        remaining_files = dict(offending)  # {path: [findings]}
+        attempt = 0
+        while remaining_files and attempt < _lfs.MAX_SCAN_HEALS:
+            attempt += 1
+            await self._emit(
+                LoopState.SCANNING, "scan", step=4, total_steps=5,
+                message=_lfs.format_retry_message(attempt, remaining_files),
+                data={"full_scan_retry": attempt,
+                      "max_retries": _lfs.MAX_SCAN_HEALS,
+                      "affected_files": list(remaining_files.keys())},
+            )
+            healed_any = await self._heal_full_scan_findings(
+                remaining_files, submitted_files,
+            )
+            if not healed_any:
+                # Healer returned nothing usable — no point in more retries.
+                break
+            # Re-scan JUST the changed files after healing so we don't
+            # linearly grow scan cost on each retry.
+            result = run_full_scan(files_to_text_cache(submitted_files))
+            _lfs.record_scan_health(result)
+            remaining_files = group_findings_for_self_heal(
+                result.get("findings") or [], scoped_paths=scoped_paths,
+            )
+            self.context["full_scan_results"]["retry_attempts"] = attempt
+            self.context["full_scan_results"]["remaining_after_retry"] = (
+                sum(len(v) for v in remaining_files.values())
+            )
+
+        if remaining_files:
+            self.state = LoopState.PAUSED_FOR_USER
+            await _persist_session(self.db, self._doc())
+            await self._emit(
+                LoopState.PAUSED_FOR_USER, "scan", step=4, total_steps=5,
+                message=_lfs.format_ship_block_reason(remaining_files),
+                data={"full_scan_blocked": True,
+                      "attempts_used":     attempt,
+                      "affected_files":    list(remaining_files.keys()),
+                      "findings":          [f
+                                            for hits in remaining_files.values()
+                                            for f in hits][:25]},
+                requires_user_action=True,
+            )
+            return
+
+        # Cleared after 1+ retries → carry on to Ship.
+        await self._emit(
+            LoopState.SCANNING, "scan", step=4, total_steps=5,
+            message=(f"Full Scan cleared after {attempt} self-heal "
+                     f"attempt(s) — proceeding to Ship."),
+            data={"full_scan": {
+                "ran": True,
+                "self_healed": True,
+                "attempts": attempt,
+                "summary":  result.get("summary"),
+                "degraded": result.get("degraded"),
+                "scanner_status": result.get("scanner_status"),
+            }},
+        )
+
+    async def _heal_full_scan_findings(
+        self,
+        offending: dict[str, list[dict]],
+        submitted_files: list[dict],
+    ) -> bool:
+        """Rewrite each offending file via the Parliament healer,
+        mutating `submitted_files` in place so the next scan pass sees
+        the healed content. Returns True iff at least one file was
+        actually changed."""
+        healed_any = False
+        for path, hits in offending.items():
+            # Find the original file object so we can update it in place.
+            target = next((f for f in submitted_files
+                           if f.get("path") == path), None)
+            if target is None:
+                continue
+            error_lines = [
+                f"L{h.get('line')} [{h.get('severity', '').upper()}] "
+                f"{h.get('rule_id')}: {h.get('message') or ''}"
+                for h in hits[:10]
+            ]
+            heal_task = (
+                f"Original user request:\n{self.user_message}\n\n"
+                f"File path: {path}\n\n"
+                f"The Full Scan flagged the following critical/high "
+                f"security findings in the code you just wrote. Rewrite "
+                f"the file so ALL of these are resolved WITHOUT "
+                f"changing the intended functionality. Do not "
+                f"introduce new vulnerabilities.\n\n"
+                f"--- FULL SCAN FINDINGS ---\n"
+                + "\n".join(error_lines) +
+                "\n--- END FINDINGS ---"
+            )
+            try:
+                from core.parliament import Parliament as _P
+                _parl = _P(db=self.db)
+                heal_result = await _parl.heal(
+                    task=heal_task,
+                    file_path=path,
+                    current_content=target.get("content") or "",
+                    last_error="\n".join(error_lines),
+                    user_id=self.user_id,
+                )
+                new_content = (heal_result or {}).get("content") or ""
+                if new_content and new_content != target.get("content"):
+                    with contextlib.suppress(Exception):
+                        await record_backup(
+                            self.db, self.loop_id, path,
+                            target.get("content") or "",
+                        )
+                    target["content"] = new_content
+                    healed_any = True
+            except Exception as e:                      # noqa: BLE001
+                logger.warning(
+                    "[full-scan-heal] Parliament healer failed on %s: %r",
+                    path, e,
+                )
+        return healed_any
 
     # ── Phase 5 — Ship (commits via existing GitHub writer) ──────────
     async def _do_ship(self) -> None:

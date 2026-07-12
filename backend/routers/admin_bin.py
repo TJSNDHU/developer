@@ -332,6 +332,19 @@ async def llm_credits(
     except Exception:
         pass
 
+    # Iter 212m-190 (Directive Session 2 · Part B) — Full-Scan health.
+    # Extends the existing linter degraded surface to also reflect
+    # scanner availability. If Bug Hunt or HTTP-headers or Docker CIS
+    # errored on the last run, `full_scan_health.status == "degraded"`
+    # so the dashboard shows an honest "not full coverage" state
+    # rather than claiming green.
+    full_scan_health: dict = {"status": "unknown"}
+    try:
+        from services.loop_full_scan import get_full_scan_health
+        full_scan_health = get_full_scan_health()
+    except Exception:
+        pass
+
     # Threshold from settings collection
     threshold = 5.0
     db = get_db()
@@ -368,6 +381,7 @@ async def llm_credits(
         "longcat_live": longcat_live,
         "circuit_breaker": breaker_state,
         "linters_missing": linters_missing,
+        "full_scan_health": full_scan_health,
         "threshold_usd": threshold,
         "last_checked": datetime.now(timezone.utc).isoformat(),
     }

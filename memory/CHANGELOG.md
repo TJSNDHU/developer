@@ -4,6 +4,80 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Chat-Native Scan Integration · Session 2 (Full Scan)
+
+Directive Part B shipped end-to-end. User chose option (c) for live-repo
+acceptance — code + synthetic-fixture verification only; live GitHub
+end-to-end deferred to a later session with a PAT-attached preview
+project.
+
+### Loop Mode extension — Plan → Execute → Verify → Full Scan → Ship
+- New `services/full_scan_orchestrator.py` (~280 LOC) — depth gate +
+  4-scanner aggregator (Vanguard · Bug Hunt · HTTP headers · Docker
+  CIS). Excludes Health-Scan categories (dependencies / performance
+  / code-quality / database) since they need full-repo context that
+  a per-diff cache cannot supply reliably.
+- New `services/loop_full_scan.py` (~200 LOC) — Loop-mode glue:
+  backlog persistence, 3× self-heal retry contract with format
+  helpers, module-scoped health cache for the dashboard.
+- `services/loop_engine.py::_do_scan` extended with
+  `_run_full_scan_pass` and `_heal_full_scan_findings`. Behaviour:
+    • Depth gate: skip if ≤1 file AND ≤50 lines AND no entrypoint/
+      Dockerfile touched. Constants `DEPTH_GATE_MAX_FILES=1` and
+      `DEPTH_GATE_MAX_LINES=50` live in the orchestrator (grep-able).
+    • Only findings on files ORA just generated block Ship — legacy
+      vulns in untouched files never gate a commit.
+    • Auto-retry via existing Parliament healer path (same healer
+      already used for lint failures — one code path, one prompt
+      shape). `MAX_SCAN_HEALS = 3`.
+    • After 3 exhausted retries → `paused_for_user` with a
+      formatted, per-file ship-block reason. No silent Ship with a
+      known critical/high finding.
+    • Every critical/high finding on scoped files is persisted to
+      `cto_open_findings` (Session 1 collection) so Session 3's
+      notification strip has real backlog data. Upsert semantics
+      honor `exposure_count` cap-at-4 and `aged-out` immutability.
+
+### Dashboard honesty — Directive Part B "status honesty" bullet
+- `routers/admin_bin.py::llm_provider_status` (endpoint
+  `/api/aurem-dev/admin/llm-credits`) now includes `full_scan_health`
+  in its response — reflects last run's scanner_status, elapsed,
+  finding count, and overall `ok`/`degraded`/`unknown`. Frontend
+  admin dashboards can render an honest "Full Scan: Active ✅ /
+  Degraded ⚠️" chip using this exact field.
+
+### Synthetic-fixture acceptance (Directive Part F, non-live subset)
+`tests/test_iter212m190_full_scan_pipeline.py` — 11 tests, all pass:
+- Depth gate: small single-file skip, 2-file trigger, 51-line
+  trigger, Dockerfile forces even if small, FastAPI entrypoint forces
+  even if small.
+- Aggregator: finds Stripe live key + Docker ENV secret in one pass,
+  scanner_status all-ok, degraded=false on a clean run.
+- Scoping: `group_findings_for_self_heal` drops findings on files
+  not in the submitted-files set (legacy-vuln exemption).
+- Summary invariants: `total == sum(by_severity)`.
+- Retry + ship-block message formatting.
+- **Real Motor persistence test**: upsert semantics, exposure_count
+  cap at 4, medium/low excluded from backlog, `aged-out` findings
+  not re-opened even on repeated scan hits.
+- Health cache: `record_scan_health` correctly flips
+  `unknown → ok → degraded` based on scanner_status.
+
+### Deferred to Session 3 (or a future PAT-attached session)
+- Live-repo verification: "Full Scan triggers correctly on a real
+  multi-file change to a real connected repo; deliberately-introduced
+  critical finding blocks Ship and triggers real auto-retry." User
+  chose option (c); this remains open. Non-blocking for Session 2
+  ship — every code path is exercised by the synthetic fixtures.
+
+### Files
+- `backend/services/full_scan_orchestrator.py` — new (280 LOC)
+- `backend/services/loop_full_scan.py` — new (200 LOC)
+- `backend/services/loop_engine.py` — `_do_scan` extended
+- `backend/routers/admin_bin.py` — `full_scan_health` in response
+- `backend/tests/test_iter212m190_full_scan_pipeline.py` — new (11 tests)
+
+
 ## 2026-02-12 — Chat-Native Scan Integration · Session 1 (Foundation)
 
 Foundation-first delivery of the 4-part directive. Session 1 ships only
