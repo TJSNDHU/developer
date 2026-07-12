@@ -4,6 +4,112 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Chat-Native Scan Integration · Session 3 (Slash + Strip)
+
+Directive Parts C + D shipped. Both entry point (slash commands) and
+output surface (real-time scan status strip) live in the v2 chat
+composer at `/dashboard-preview-v2`. Wiring to production
+`ChatPanel.jsx` is a follow-up cutover (component-for-component
+replacement — deferred to keep Session 3 focused).
+
+### Part C — Slash-command entry points
+- New `components/SlashCommandMenu.jsx` (~120 LOC) — anchored
+  popover ABOVE the composer with 5 discoverable commands:
+  `/scan`, `/health-scan`, `/security-scan`, `/bug-hunt`,
+  `/docker-scan`. Full arrow-key navigation, Enter to pick, Escape
+  to dismiss. Icons from lucide-react, data-testids on every item.
+- Composer refactored in `ChatView.jsx` — detects `/` prefix,
+  filters commands, dispatches directly to
+  `POST /codebase-health/scan` with the appropriate `categories`
+  slice per command. No LLM round-trip for slash commands (they're
+  deterministic API calls, not natural-language prompts).
+- Placeholder updated to hint: "…type / for scan commands".
+
+### Part D — Real-time scan status strip
+- New `components/ScanStatusStrip.jsx` (~230 LOC) — 3-state machine
+  exactly per directive:
+    1. **In progress** — spinner + project name, live while a scan
+       is running (SSE-agnostic — reads parent's `scanState` prop).
+    2. **Just completed** — session-scoped (`sessionStorage`),
+       clears on tab close, only renders when critical/high > 0.
+       Auto-expires at 4 h to catch pinned-tab edge cases.
+    3. **Backlog reminder** — server-decided via
+       `/findings/backlog?project_id=…`. Client does zero policy
+       math; backend returns `should_show_strip` + `reason`.
+- Category filter: **only critical/high ever surface** (medium/low
+  live in the dashboard but never on the strip). Verified in the
+  backend backlog query.
+- Dismiss (X) — 24 h cross-device persistence via DB. Fire-and-
+  forget POST to `/findings/dismiss` with the deterministic
+  `batch_id`; locally hidden immediately so the user doesn't see a
+  network round-trip.
+- Backlog cadence — once-per-week per project, enforced server-side.
+  Client hits `/findings/expose-batch` immediately before opening
+  the review drawer so `last_exposed_at` + `exposure_count` bump
+  honestly. Cap at 4 exposures → `status="aged-out"` (backend flip).
+- Project scoping — strip renders project name inline
+  ("3 critical · TJSNDHU/Aurem"), never a cross-project aggregate.
+
+### Backend endpoints (5 new routes, all founder-gated)
+`routers/findings.py` (~230 LOC):
+- `GET  /findings/backlog?project_id=…` — eligible-for-strip list +
+  `should_show_strip` + `reason` (`ok` / `no_eligible_findings` /
+  `cadence_wait_weekly` / `dismissed_active`).
+- `POST /findings/expose-batch` — bump `exposure_count` per
+  finding-id (cap 4 → aged-out), stamp `last_exposed_at`.
+- `POST /findings/dismiss` — batch-id, 24 h TTL row in
+  `cto_notification_dismissals` (TTL index does the auto-purge).
+- `POST /findings/snooze` — per finding, default 7 days; also
+  resets the 30-day idle clock so a snoozed finding doesn't
+  re-surface Monday.
+- `POST /findings/resolve` — per finding, sets `status="fixed"` so
+  it drops out of the backlog query permanently.
+- Ownership guard: every endpoint calls `_assert_owns_project` —
+  a user can never touch another user's findings even via
+  crafted IDs.
+
+### Curl-verified end-to-end (real Mongo, seeded fixture)
+- 5 seed findings inserted (2 idle critical + 1 idle high + 1
+  recent critical + 1 medium). Backlog query returned
+  `critical=2, high=1, total_open=4, eligible=3, should_show=true`.
+  Medium correctly excluded, recent correctly excluded.
+- `expose-batch` returned `exposed=3, aged_out=0`.
+- `dismiss` returned `expires_at=+24h`; subsequent backlog query
+  returned `should_show=false, reason=cadence_wait_weekly`
+  (cadence + dismiss both fired — either alone suppresses).
+- `snooze` returned `snoozed_until=+7d`.
+- `resolve` returned `status=fixed`. Both were cleaned up post-test.
+
+### Frontend smoke test
+- `data-testid="slash-command-menu"` renders on `/` press with all
+  5 commands.
+- Menu is arrow-key navigable, Enter picks the highlighted item.
+- Strip is silent (returns null) when no eligible findings — no
+  chrome tax on the default state per Directive Part D §1.
+
+### Files
+- `backend/routers/findings.py` — new
+- `backend/main.py` — router registered
+- `frontend/src/components/ScanStatusStrip.jsx` — new
+- `frontend/src/components/SlashCommandMenu.jsx` — new
+- `frontend/src/components/dashboard/v2/ChatView.jsx` — Composer
+  extended with slash-menu + strip mounted above composer
+
+### Deferred (explicit, honest)
+- **Live-repo end-to-end** (real GitHub commit path through Loop +
+  Full Scan + strip surfacing) — waits on PAT per Session 2's
+  option-c decision.
+- **ChatPanel.jsx cutover** — production chat currently renders
+  `ChatPanel.jsx` on `/dashboard`; Session 3's slash + strip live
+  on the v2 preview `/dashboard-preview-v2`. Cutover to production
+  is a next-session ~2 h task (component-for-component swap).
+- **Findings drawer** — the "Review findings →" CTA currently
+  routes to the existing `/codebase-health` page which already
+  provides per-finding fix/snooze/dismiss controls. A composed
+  in-drawer review UI is a follow-up (spec allows for reusing the
+  existing findings list).
+
+
 ## 2026-02-12 — Chat-Native Scan Integration · Session 2 (Full Scan)
 
 Directive Part B shipped end-to-end. User chose option (c) for live-repo

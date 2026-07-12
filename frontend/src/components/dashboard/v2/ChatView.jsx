@@ -11,6 +11,10 @@ import {
   ArrowUp, Check, CheckCircle2, Circle, FileCode2, GitPullRequest,
   Loader2, RefreshCw, ShieldAlert, GitBranch, Paperclip, BarChart2, Zap,
 } from "lucide-react";
+import ScanStatusStrip, { markScanJustCompleted } from "../../ScanStatusStrip";
+import SlashCommandMenu, { matchSlashCommands, SLASH_COMMANDS } from "../../SlashCommandMenu";
+import { getActiveProjectId, useActiveProject } from "../../TabBar";
+import { api } from "../../../lib/api";
 
 const LOOP_STEPS = [
   { label: "PLAN",    status: "done" },
@@ -155,19 +159,70 @@ function AgentMessage({ onShip }) {
   );
 }
 
-function Composer({ onSend, loopOn, onLoopToggle }) {
+function Composer({ onSend, loopOn, onLoopToggle, onScanTrigger }) {
   const [input, setInput] = useState("");
+  const [slashIdx, setSlashIdx] = useState(0);
+  const matches = matchSlashCommands(input);
+  const menuOpen = matches.length > 0;
+
+  function submitCommand(cmd) {
+    // Selecting a slash command fires the scan directly — no LLM
+    // round-trip. The strip's `scanState=in_progress` will render
+    // from parent state until the promise resolves.
+    onScanTrigger?.(cmd);
+    setInput("");
+    setSlashIdx(0);
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     if (!input.trim()) return;
+    if (menuOpen) {
+      // Enter while menu is open = pick highlighted command.
+      const cmd = matches[slashIdx] || matches[0];
+      submitCommand(cmd);
+      return;
+    }
     onSend?.(input);
     setInput("");
   }
+
+  function handleKeyDown(e) {
+    if (menuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIdx((i) => (i + 1) % matches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIdx((i) => (i - 1 + matches.length) % matches.length);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setInput("");
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="rounded-xl border border-[#222222] bg-[#161616] p-3">
+    <form onSubmit={handleSubmit} className="relative rounded-xl border border-[#222222] bg-[#161616] p-3">
+      {menuOpen && (
+        <SlashCommandMenu
+          matches={matches}
+          selectedIndex={slashIdx}
+          onPick={(cmd) => submitCommand(cmd)}
+        />
+      )}
       <textarea value={input} onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
-        rows={2} placeholder="Ask ORA to build, fix, or scan..."
+        onKeyDown={handleKeyDown}
+        rows={2} placeholder="Ask ORA to build, fix, or scan… (type / for scan commands)"
         data-testid="ds2-composer-input"
         className="w-full resize-none bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none" />
       <div className="flex items-center gap-2 pt-2">
@@ -199,10 +254,55 @@ function Composer({ onSend, loopOn, onLoopToggle }) {
 
 export function ChatView({ onChatStart, onShip, loopOn, onLoopToggle }) {
   const scrollRef = useRef(null);
+  const activeProject = useActiveProject();
+  const [scanState, setScanState] = useState("idle");   // "idle" | "in_progress"
+
   function handleSend() {
     onChatStart?.();
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }
+
+  // Iter 212m-190 (Directive Session 3 · Part C) — Slash-command
+  // dispatcher. Each command maps to a category slice of the
+  // existing `/codebase-health/scan` endpoint (single source of truth).
+  // `scanState="in_progress"` triggers the strip's live-progress
+  // branch; on completion we stash a session-scoped result via
+  // `markScanJustCompleted` so the strip surfaces the critical/high
+  // totals (or nothing at all when clean).
+  async function runScanCommand(cmd) {
+    const projectId = activeProject?.project_id || getActiveProjectId();
+    if (!projectId) return;   // never scan a null project
+    setScanState("in_progress");
+    try {
+      const r = await api.post("/codebase-health/scan", {
+        project_id: projectId,
+        categories: cmd.categories || null,   // null = default full sweep
+      });
+      const summary = r.data?.summary || {};
+      const bySev   = summary.by_severity || {};
+      markScanJustCompleted({
+        critical:    bySev.critical || 0,
+        high:        bySev.high || 0,
+        projectId,
+        projectName: activeProject?.github_repo || projectId,
+      });
+    } catch {
+      // Network / auth blip — keep the strip silent rather than
+      // surfacing a fake-critical or a scary error banner. The user
+      // can retry from /codebase-health or the sidebar directly.
+    } finally {
+      setScanState("idle");
+    }
+  }
+
+  function openFindingsDrawer() {
+    // Session 3 leaves the review-drawer wiring to a follow-up UI
+    // task — for now the CTA routes the user to the existing
+    // dedicated Codebase Health page which already lists every
+    // finding with fix/snooze/dismiss controls.
+    window.location.assign("/codebase-health");
+  }
+
   return (
     <div data-testid="ds2-chatview" className="flex h-full flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-6" onScroll={onChatStart}>
@@ -215,7 +315,18 @@ export function ChatView({ onChatStart, onShip, loopOn, onLoopToggle }) {
         <StreamHealthPill visible />
         <LoopBar />
         <div className="mx-auto max-w-3xl">
-          <Composer onSend={handleSend} loopOn={loopOn} onLoopToggle={onLoopToggle} />
+          <ScanStatusStrip
+            projectId={activeProject?.project_id || getActiveProjectId()}
+            scanState={scanState}
+            projectName={activeProject?.github_repo || ""}
+            onReviewFindings={openFindingsDrawer}
+          />
+          <Composer
+            onSend={handleSend}
+            loopOn={loopOn}
+            onLoopToggle={onLoopToggle}
+            onScanTrigger={runScanCommand}
+          />
         </div>
       </div>
     </div>
