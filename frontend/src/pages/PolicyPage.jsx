@@ -14,9 +14,16 @@ import { useParams, Link } from "react-router-dom";
 import { marked } from "marked";
 
 const POLICY_MAP = {
-  "privacy":         { file: "privacy-policy.md",       title: "Privacy Policy" },
-  "terms":           { file: "terms-of-service.md",     title: "Terms of Service" },
-  "acceptable-use":  { file: "acceptable-use-policy.md", title: "Acceptable Use Policy" },
+  "privacy":            { file: "privacy-policy.md",        title: "Privacy Policy" },
+  "terms":              { file: "terms-of-service.md",      title: "Terms of Service" },
+  "acceptable-use":     { file: "acceptable-use-policy.md", title: "Acceptable Use Policy" },
+  "cookie-policy":      { file: "cookie-policy.md",         title: "Cookie Policy" },
+  "refund-policy":      { file: "refund-policy.md",         title: "Refund, Billing & Cancellation Policy" },
+  "ai-code-processing": { file: "ai-code-processing.md",    title: "AI & Code Processing Disclosure" },
+  "subprocessors":      { file: "subprocessors.md",         title: "Subprocessor List" },
+  "dpa":                { file: "dpa.md",                   title: "Data Processing Agreement" },
+  "security":           { file: "security.md",              title: "Security & Trust" },
+  "status":             { file: "status.md",                title: "System Status" },
 };
 
 export default function PolicyPage({ slug }) {

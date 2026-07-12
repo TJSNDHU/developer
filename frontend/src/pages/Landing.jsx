@@ -1021,18 +1021,105 @@ export default function Landing() {
       </div>
 
       {/* ─── Footer ─── */}
-      <footer className="footer" data-testid="ora-footer">
+      <footer className="footer" data-testid="ora-footer" style={{ flexDirection: "column", alignItems: "stretch", gap: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src="/ora-icon.png" alt="ORA" className="logo-img" />
           <div className="footer-text">ORA by Aurem CTO — Built for developers · MIT extension</div>
         </div>
-        <div className="footer-links">
-          <Link to="/privacy"        data-testid="footer-privacy">Privacy</Link>
-          <Link to="/terms"          data-testid="footer-terms">Terms</Link>
-          <Link to="/acceptable-use" data-testid="footer-aup">Acceptable use</Link>
-          <Link to="/wall">Ship Wall</Link>
-          <Link to="/login">Sign in</Link>
-          <a   href="mailto:ora@auremcto.com" data-testid="footer-support">Contact: ora@auremcto.com</a>
+
+        {/* Legal + product links grouped */}
+        <div
+          data-testid="footer-legal-grid"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: "16px 32px",
+            paddingTop: 12,
+            borderTop: "1px solid rgba(255,200,120,0.10)",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Product</div>
+            <div className="footer-links" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <Link to="/wall" data-testid="footer-wall">Ship Wall</Link>
+              <Link to="/pricing" data-testid="footer-pricing">Pricing</Link>
+              <Link to="/vs/devin" data-testid="footer-vs">Compare</Link>
+              <Link to="/login" data-testid="footer-signin">Sign in</Link>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Legal</div>
+            <div className="footer-links" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <Link to="/privacy"         data-testid="footer-privacy">Privacy Policy</Link>
+              <Link to="/terms"           data-testid="footer-terms">Terms of Service</Link>
+              <Link to="/cookie-policy"   data-testid="footer-cookies">Cookie Policy</Link>
+              <Link to="/refund-policy"   data-testid="footer-refund">Refund &amp; Billing</Link>
+              <Link to="/acceptable-use"  data-testid="footer-aup">Acceptable Use</Link>
+              <Link to="/dpa"             data-testid="footer-dpa">Data Processing (DPA)</Link>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Trust</div>
+            <div className="footer-links" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <Link to="/ai-code-processing" data-testid="footer-ai-disclosure">AI &amp; Code Processing</Link>
+              <Link to="/subprocessors"      data-testid="footer-subprocessors">Subprocessors</Link>
+              <Link to="/security"           data-testid="footer-security">Security</Link>
+              <Link to="/status"             data-testid="footer-status">System Status</Link>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Contact</div>
+            <div className="footer-links" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <a href="mailto:ora@auremcto.com"      data-testid="footer-support">ora@auremcto.com</a>
+              <a href="mailto:privacy@auremcto.com"  data-testid="footer-privacy-email">privacy@auremcto.com</a>
+              <a href="mailto:security@auremcto.com" data-testid="footer-security-email">security@auremcto.com</a>
+              <a href="mailto:billing@auremcto.com"  data-testid="footer-billing-email">billing@auremcto.com</a>
+            </div>
+          </div>
+        </div>
+
+        {/* Copyright + legal entity block */}
+        <div
+          data-testid="footer-legal-block"
+          style={{
+            paddingTop: 14,
+            borderTop: "1px solid rgba(255,200,120,0.10)",
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "space-between",
+            gap: 12,
+            fontSize: 11,
+            color: "var(--text-faint)",
+            lineHeight: 1.6,
+          }}
+        >
+          <div>
+            © 2026 <strong style={{ color: "var(--text-dim)" }}>Polaris Built Inc</strong> · Incorporated in Canada · All rights reserved.
+          </div>
+          <div>
+            <button
+              type="button"
+              data-testid="footer-cookie-prefs"
+              onClick={() => {
+                try { localStorage.removeItem("aurem_consent"); } catch (_) {}
+                window.dispatchEvent(new CustomEvent("aurem:reopen-consent"));
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "inherit",
+                font: "inherit",
+                textDecoration: "underline",
+              }}
+            >
+              Cookie preferences
+            </button>
+          </div>
         </div>
       </footer>
     </div>

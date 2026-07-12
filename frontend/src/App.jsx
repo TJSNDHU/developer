@@ -24,6 +24,7 @@ import Toaster from "./components/Toast";
 import FixProgressDrawer from "./components/FixProgressDrawer";
 import { FixJobProvider } from "./components/FixJobContext";
 import PersistentFixBar from "./components/PersistentFixBar";
+import CookieConsentBanner from "./components/CookieConsentBanner";
 
 // Eager — these three are the first surfaces every visitor sees and
 // they share layout (AuthShell). Keeping them in the initial bundle
@@ -198,9 +199,17 @@ export default function App() {
           <Route path="/admin/feature-flags"  element={<Admin initialTab="feature_flags" />} />
           <Route path="/admin/llm-credits"    element={<Admin initialTab="llm_credits" />} />
           <Route path="/admin/parliament-live" element={<Admin initialTab="parliament_live" />} />
-          <Route path="/privacy"        element={<PolicyPage slug="privacy" />} />
-          <Route path="/terms"          element={<PolicyPage slug="terms" />} />
-          <Route path="/acceptable-use" element={<PolicyPage slug="acceptable-use" />} />
+          <Route path="/privacy"            element={<PolicyPage slug="privacy" />} />
+          <Route path="/terms"              element={<PolicyPage slug="terms" />} />
+          <Route path="/acceptable-use"     element={<PolicyPage slug="acceptable-use" />} />
+          <Route path="/cookie-policy"      element={<PolicyPage slug="cookie-policy" />} />
+          <Route path="/cookie-preferences" element={<PolicyPage slug="cookie-policy" />} />
+          <Route path="/refund-policy"      element={<PolicyPage slug="refund-policy" />} />
+          <Route path="/ai-code-processing" element={<PolicyPage slug="ai-code-processing" />} />
+          <Route path="/subprocessors"      element={<PolicyPage slug="subprocessors" />} />
+          <Route path="/dpa"                element={<PolicyPage slug="dpa" />} />
+          <Route path="/security"           element={<PolicyPage slug="security" />} />
+          <Route path="/status"             element={<PolicyPage slug="status" />} />
           <Route path="/admin/architecture" element={<Admin initialTab="arch" />} />
           <Route path="/admin/ops" element={<OpsRecipes />} />
           <Route path="/admin/brain/:projectId" element={<BrainDump />} />
@@ -225,6 +234,7 @@ export default function App() {
         </Routes>
       </Suspense>
       </FixJobProvider>
+      <CookieConsentBanner />
     </BrowserRouter>
   );
 }

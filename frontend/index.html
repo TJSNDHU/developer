@@ -6,18 +6,46 @@
     <meta name="theme-color" content="#0A0A0A" />
     <meta name="color-scheme" content="dark" />
 
-    <!-- Meta Pixel Code -->
+    <!-- Meta Pixel Code — consent-gated (GDPR / DPDP / CCPA)
+         The pixel loader script is only executed if either:
+           (a) the user has previously granted "marketing" consent, or
+           (b) the visitor is outside a known opt-in jurisdiction AND
+               has not signalled Global Privacy Control (GPC).
+         Until then, `window.fbq` is a queue no-op so any React call
+         sites (`fbq("track","PageView")` on route change) don't crash. -->
     <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1571887197933821');
-    fbq('track', 'PageView');
+    (function(){
+      // Establish a no-op queue immediately so downstream code
+      // (e.g. src/App.jsx MetaPixelRouteTracker) never throws even
+      // if the real pixel never loads.
+      window.fbq = window.fbq || function(){ (window.fbq.q = window.fbq.q || []).push(arguments); };
+      window.fbq.q = window.fbq.q || [];
+
+      // Consent gate: check localStorage for prior marketing consent.
+      var canLoad = false;
+      try {
+        var raw = localStorage.getItem("aurem_consent");
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && parsed.cats && parsed.cats.marketing === true) canLoad = true;
+        }
+      } catch (_) { /* ignore */ }
+      // Respect Global Privacy Control regardless of stored consent.
+      try { if (navigator && navigator.globalPrivacyControl) canLoad = false; } catch (_) {}
+
+      if (!canLoad) return;
+
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq && f.fbq.loaded)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=n.queue||[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '1571887197933821');
+      fbq('track', 'PageView');
+    })();
     </script>
     <!-- Note: <noscript> fallback for the pixel lives at the very top of
          <body> (HTML5 spec disallows <img> inside <head><noscript>). -->
@@ -464,6 +492,19 @@
       window.dataLayer = window.dataLayer || [];
       function gtag(){ dataLayer.push(arguments); }
       window.gtag = gtag;
+      // Consent Mode v2: default DENY for ads + analytics until the
+      // CookieConsentBanner (or GPC) explicitly grants. This is
+      // required for GDPR/DPDP compliance. The banner flips these
+      // to 'granted' via gtag('consent', 'update', ...).
+      gtag('consent', 'default', {
+        ad_storage:            'denied',
+        analytics_storage:     'denied',
+        ad_user_data:          'denied',
+        ad_personalization:    'denied',
+        functionality_storage: 'granted',
+        security_storage:      'granted',
+        wait_for_update:       500
+      });
       gtag('js', new Date());
       gtag('config', 'AW-18239920865', { 'send_page_view': true });
     </script>

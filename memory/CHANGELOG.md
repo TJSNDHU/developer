@@ -4,6 +4,63 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Legal & Trust Bundle (P0 + P1 + P2 shipped)
+
+Full compliance/legal footer overhaul in one batch. Polaris Built Inc
+is Canada-incorporated with global reach → GDPR + CCPA + DPDP Act +
+PIPEDA all addressed in-copy.
+
+### New static policy pages (rendered via existing PolicyPage.jsx)
+- `/cookie-policy` (+ `/cookie-preferences` alias)
+- `/refund-policy`
+- `/ai-code-processing`
+- `/subprocessors`
+- `/dpa`
+- `/security`
+- `/status`
+
+Files: `/app/frontend/public/policies/{cookie-policy,refund-policy,ai-code-processing,subprocessors,dpa,security,status}.md`.
+
+### PolicyPage.jsx — expanded POLICY_MAP to 10 slugs.
+
+### App.jsx — 7 new routes wired.
+
+### Landing.jsx footer — full rebuild:
+- 4-column grid: Product · Legal · Trust · Contact.
+- Copyright block: `© 2026 Polaris Built Inc · Incorporated in Canada`.
+- "Cookie preferences" button (dispatches `aurem:reopen-consent` event).
+
+### CookieConsentBanner.jsx — new component
+- 3 CTAs: Accept all / Reject non-essential / Manage preferences.
+- Category granularity: necessary (locked) / functional / analytics / marketing.
+- Persisted in `aurem_consent` localStorage (v=1 schema).
+- Honours Global Privacy Control (`navigator.globalPrivacyControl`) — silent essential-only, no banner nag.
+- Wired into Meta Pixel + Google Ads gtag Consent Mode v2:
+  - `index.html` sets `gtag('consent','default', {ad_storage:'denied',...})`.
+  - Meta Pixel loader in `index.html` now consent-gated — only fires if `aurem_consent.cats.marketing === true`.
+  - Banner dynamically loads Meta Pixel on `Accept all` if it hadn't loaded yet.
+
+### Langfuse scope confirmation
+- Langfuse is **server-side only** (backend `services/langfuse_tracing.py`).
+- Excluded from Cookie Policy (no browser cookies).
+- Included in `/subprocessors` list per data-processing scope.
+
+### Ownership metadata
+- Entity: **Polaris Built Inc**, incorporated in Canada.
+- Contact emails: `ora@` / `privacy@` / `security@` / `billing@` / `support@` @ `auremcto.com` (documented in all 7 policies + footer).
+- Payment processor: Stripe (documented in Refund Policy + Subprocessors).
+
+### Tests / smoke
+- Frontend lint clean (ESLint) on all 4 touched files.
+- Screenshot verified: banner renders on first visit + all 7 new routes render the markdown correctly.
+- data-testids added: `cookie-consent-banner`, `cookie-accept-btn`, `cookie-reject-btn`, `cookie-manage-btn`, `cookie-save-btn`, `cookie-cat-{necessary,functional,analytics,marketing}`, `footer-{cookies,refund,dpa,ai-disclosure,subprocessors,security,status,legal-block,cookie-prefs}`.
+
+### Follow-ups
+- DPA countersigned copies: workflow via `privacy@auremcto.com`, no self-serve UI yet (planned for enterprise page).
+- `/status` is a static markdown snapshot; migrating to real StatusPage.io or in-app dynamic status → Q2 2026.
+- SOC 2 Type I / ISO 27001 — planned per `/security` roadmap.
+
+
 ## 2026-07-02 (run #2) — Iter 212m-178 — PROD perf/hang + bulk-fix + council vocab
 
 Second PROD aggression run (Iter-177 was live) + full feature audit.
