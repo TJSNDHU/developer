@@ -1,0 +1,142 @@
+name: Weekly Simulated-User QA (regression detection)
+
+# Passive regression detector — runs the promptfoo suite every
+# Monday 09:00 UTC (~14:30 IST) even when no PR is open, so an
+# upstream LLM provider drift (Anthropic model rev, OpenRouter route
+# change) doesn't silently degrade our agent behaviour until a
+# customer complains.
+#
+# Cost: ~$0.007 per run (4-6 LLM calls) — negligible.
+# On failure: posts to the CI-alerts Slack webhook (same one deploy
+# events already use) so the founder sees a real diff-diff report
+# within hours of a regression, not weeks.
+#
+# Directive Session 5 · post-audit follow-up.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"    # every Monday 09:00 UTC
+  workflow_dispatch: {}    # allow manual triggering from Actions tab
+
+concurrency:
+  group: qa-weekly
+  cancel-in-progress: false   # weekly runs must not cancel each other
+
+jobs:
+  qa-weekly:
+    name: Weekly QA baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PROMPTFOO_DISABLE_REMOTE_GENERATION: "true"
+      PROMPTFOO_DISABLE_SHARE:              "true"
+      PROMPTFOO_DISABLE_TELEMETRY:          "true"
+      AUREM_QA_MODE:  "true"
+      AUREM_QA_TOKEN: "qa-weekly-cron-token-must-be-32-chars!"
+      MONGO_URL:            mongodb://localhost:27017
+      DB_NAME:              aurem_qa_weekly
+      JWT_SECRET:           ci-test-secret-32-chars-minimum!!
+      OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
+      EMERGENT_LLM_KEY:     ${{ secrets.EMERGENT_LLM_KEY }}
+      AUREM_CTO_MASTER_KEY: ci-test-master-key-32-chars-long!!
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: qa/simulated-user/package-lock.json
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Boot backend
+        working-directory: backend
+        run: |
+          uvicorn main:app --host 0.0.0.0 --port 8001 &
+          echo $! > /tmp/backend.pid
+          for i in {1..60}; do
+            curl -sf http://127.0.0.1:8001/health && break
+            sleep 1
+          done
+
+      - name: Install promptfoo
+        working-directory: qa/simulated-user
+        run: npm ci --no-audit --no-fund
+
+      - name: Run suite
+        id: run_suite
+        working-directory: qa/simulated-user
+        env: { CI: "true" }
+        # `|| true` so a failure doesn't kill the workflow — we WANT
+        # to reach the Slack notify step and report the failure.
+        run: |
+          bash run.sh || echo "SUITE_FAILED=1" >> "$GITHUB_ENV"
+
+      - name: Compute pass/fail summary
+        id: summary
+        run: |
+          if [[ -f /tmp/aurem_qa_report.json ]]; then
+            PY_SCRIPT='import json,sys
+d=json.load(open("/tmp/aurem_qa_report.json"))
+r=d.get("results",{}).get("results") or []
+p=sum(1 for x in r if x.get("success"))
+f=sum(1 for x in r if not x.get("success"))
+print(f"{p}/{p+f}")'
+            SUMMARY=$(python3 -c "$PY_SCRIPT")
+            echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+          else
+            echo "summary=report-missing" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post to Slack — success
+        if: env.SUITE_FAILED != '1' && env.SLACK_WEBHOOK != ''
+        env: { SLACK_WEBHOOK: "${{ secrets.CI_ALERTS_SLACK_WEBHOOK }}" }
+        run: |
+          curl -sS -X POST "$SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\":white_check_mark: AUREM weekly QA baseline: ${{ steps.summary.outputs.summary }} pass — no regressions.\"}" \
+            || true
+
+      - name: Post to Slack — failure
+        if: env.SUITE_FAILED == '1' && env.SLACK_WEBHOOK != ''
+        env: { SLACK_WEBHOOK: "${{ secrets.CI_ALERTS_SLACK_WEBHOOK }}" }
+        run: |
+          curl -sS -X POST "$SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\":rotating_light: AUREM weekly QA baseline DEGRADED: ${{ steps.summary.outputs.summary }} pass. Report artifact + logs: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|open run>. Likely cause: upstream LLM provider drift OR recent orchestrator change.\"}" \
+            || true
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-qa-report
+          path: /tmp/aurem_qa_report.json
+          retention-days: 90    # 3 months of weekly baselines for drift analysis
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [[ -f /tmp/backend.pid ]]; then kill "$(cat /tmp/backend.pid)" || true; fi
+
+      - name: Fail the workflow if suite failed
+        if: env.SUITE_FAILED == '1'
+        run: exit 1

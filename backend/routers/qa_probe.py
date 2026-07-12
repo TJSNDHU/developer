@@ -42,7 +42,27 @@ class ProbeBody(BaseModel):
 
 
 def _qa_enabled() -> bool:
-    return (os.environ.get("AUREM_QA_MODE") or "").lower() == "true"
+    # Iter 212m-190 — production-safety: AUREM_QA_MODE must be explicit
+    # AND we must NOT be running in a production-signaled environment.
+    # `PRODUCTION_ENV` / `RENDER_ENV=production` / hostname ending in
+    # auremcto.com auto-disables the probe even if AUREM_QA_MODE=true
+    # was set by mistake. Defence-in-depth: token gate + JWT gate are
+    # already required, this is the third layer.
+    if (os.environ.get("AUREM_QA_MODE") or "").lower() != "true":
+        return False
+    prod_signals = [
+        (os.environ.get("PRODUCTION_ENV")   or "").lower() == "true",
+        (os.environ.get("NODE_ENV")         or "").lower() == "production",
+        (os.environ.get("RENDER_ENV")       or "").lower() == "production",
+        "auremcto.com" in (os.environ.get("HOSTNAME") or "").lower(),
+    ]
+    if any(prod_signals):
+        logger.error(
+            "[qa-probe] REFUSING to enable — AUREM_QA_MODE=true but "
+            "environment signals production. Disable AUREM_QA_MODE."
+        )
+        return False
+    return True
 
 
 def _valid_probe_token(header_value: Optional[str]) -> bool:
@@ -73,17 +93,45 @@ async def chat_probe(
     # `chat_with_tools` already exposes `live_invocations_ref` — a
     # mutable list that captures every tool call during the run. We
     # reuse it as our QA tool-trail with zero orchestrator patching.
+    #
+    # Iter 212m-190 (post-audit) — MUST build the ORAContext (bin_ctx)
+    # before invoking chat_with_tools, otherwise repo tools return
+    # `_NO_BIN_CTX_ERROR = "No project selected"`. Production
+    # chat_stream / chat_send both call `build_ora_context` first;
+    # the probe endpoint was skipping that step, which is why the
+    # QA suite kept hitting the scoping guard on scenarios that
+    # DID pass a project_id in the body. Real chat path was never
+    # affected — this bug is probe-path-only.
     try:
         from services.orchestrator import chat_with_tools
-        # Extract the raw bearer token for chat_with_tools' jwt_token param.
+        from services.ora_context   import build_ora_context
         raw_jwt = (authorization or "").replace("Bearer ", "", 1).strip()
+        bin_ctx = None
+        if project_id_used:
+            try:
+                bin_ctx = await build_ora_context(
+                    user_id=user_id,
+                    project_id=project_id_used,
+                    jwt_token=raw_jwt,
+                )
+            except Exception as _bctx_err:               # noqa: BLE001
+                # If ORAContext build fails (project deleted, PAT
+                # revoked, etc.) we intentionally continue with
+                # bin_ctx=None so the QA suite can observe how the
+                # agent handles a scoping failure — that's a valid
+                # scenario, not an infra bug.
+                logger.info(
+                    "[qa-probe] build_ora_context returned None: %r",
+                    _bctx_err,
+                )
         raw_reply = await chat_with_tools(
             prompt=body.prompt,
             jwt_token=raw_jwt,
             session_id=body.session_id,
             user_id=user_id,
             project_id=project_id_used,
-            live_invocations_ref=tool_trail,   # <── mutated during the run
+            bin_ctx=bin_ctx,                             # <── the fix
+            live_invocations_ref=tool_trail,
         )
         # Normalise reply to a plain string so QA assertions can
         # treat it uniformly. chat_with_tools historically returned

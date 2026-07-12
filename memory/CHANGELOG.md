@@ -4,6 +4,80 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Post-audit follow-ups (QA fix + weekly cron + prod safety)
+
+Real issues surfaced by the previous session's audit — fixed in this pass.
+
+### QA probe bug — CONFIRMED probe-path-only, NOT a prod bug
+Root cause traced:
+- Production `chat_stream` / `chat_send` (in `routers/chat.py`) call
+  `services.ora_context.build_ora_context(...)` FIRST to build a
+  `bin_ctx` (BINContext with project + PAT + role), then pass it into
+  `chat_with_tools(bin_ctx=…)`. Tools read `local_ctx["bin_ctx"]` and
+  use it to resolve project/repo/PAT.
+- My QA probe was calling `chat_with_tools` WITHOUT building
+  `bin_ctx` first, so tools always saw `bin_ctx=None` → returned
+  `_NO_BIN_CTX_ERROR = "No project selected"`.
+- **Real user chat is unaffected** — grep-confirmed `chat_stream`
+  and `chat_send` both call `build_ora_context` on every request.
+
+Fix landed in `routers/qa_probe.py`:
+- Now calls `build_ora_context(user_id, project_id, jwt_token)`
+  before invoking `chat_with_tools`.
+- Passes the resulting `bin_ctx=…` through so tools resolve
+  correctly (fake PAT / deleted-project scenarios still return a
+  soft error envelope, which is valid QA behaviour to observe).
+
+### QA probe — production safety guard
+Added defence-in-depth in `qa_probe._qa_enabled()`. AUREM_QA_MODE=true
+alone is no longer sufficient. Production signals HARD-DISABLE:
+- `PRODUCTION_ENV=true`
+- `NODE_ENV=production`
+- `RENDER_ENV=production`
+- `HOSTNAME` contains `auremcto.com`
+
+If any prod signal is detected while `AUREM_QA_MODE=true`, the probe
+logs a hard-error and refuses to enable — even if the token + JWT
+gates would otherwise let a request through. This closes the "what
+if a config file leaks to prod" gap that file `05_data_and_integrations.md`
+rules already require for internal-only surfaces.
+
+### Weekly regression cron — `qa-weekly.yml`
+New GitHub Actions workflow. Fires every Monday 09:00 UTC (~14:30 IST)
+with the full simulated-user suite, plus `workflow_dispatch` for
+manual runs. Reports:
+- ✅ success → Slack: "AUREM weekly QA baseline: X/Y pass — no
+  regressions."
+- 🚨 failure → Slack: "AUREM weekly QA baseline DEGRADED: X/Y pass"
+  with a link to the run + artifact.
+- Reports uploaded as `weekly-qa-report` artifacts with 90-day
+  retention so drift over time is analysable.
+- Cost budget: ~$0.007 per run × 52 weeks/year = ~$0.36/year.
+- Slack webhook: reuses existing `CI_ALERTS_SLACK_WEBHOOK` secret
+  (same one deploy events already use).
+
+### Live verification (real end-to-end after fixes)
+- Backend restart clean, `/health` = 200.
+- QA probe with valid token + JWT + project_id now returns:
+    - `tool_trail: [1 entry]` (was 0 before the fix — tool DID run)
+    - reply text no longer contains the raw "no project selected"
+      error string (fake-repo scenarios now degrade gracefully via
+      the tool's own error envelope, not the missing-bin_ctx guard).
+- Full promptfoo suite: **15/15 pass, exit 0, 58s** after the fix.
+  Baseline unchanged — the fix is additive (didn't shift any
+  assertion from pass → fail or vice versa).
+
+### Follow-ups still open (unchanged from audit)
+- ChatPanel.jsx cutover to production `/dashboard` (Session 3
+  leftover)
+- Live-repo Loop Full Scan verification (whenever PAT available)
+- Docs-sync task per audit (routers 45 → 48, services 60 → 91,
+  76 collections with 17 empty)
+- Per-line audit of the 10 `mock`/`stub` keyword hits
+- 17 empty Mongo collections — drop or document
+- Existing product backlog
+
+
 ## 2026-02-12 — Simulated-User QA (Promptfoo) shipped
 
 Directive: internal-only QA suite using promptfoo self-hosted.
