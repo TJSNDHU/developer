@@ -834,6 +834,19 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                               }}>
                                 {f.file}:{f.line}
                               </code>
+                              {f.vuln === "http_headers" ? (
+                                <span data-testid="http-headers-badge" style={{
+                                  marginLeft: "auto", fontSize: 9.5, fontWeight: 800,
+                                  padding: "2px 7px", borderRadius: 4, letterSpacing: 0.5,
+                                  background: "rgba(250,204,21,0.16)",
+                                  border: "1px solid rgba(250,204,21,0.5)",
+                                  color: "#fde047",
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                  whiteSpace: "nowrap",
+                                }}>
+                                  HTTP HEADERS · NEW
+                                </span>
+                              ) : (
                               <span style={{
                                 marginLeft: "auto", fontSize: 10,
                                 color: "var(--text-dim, #9aa3b2)",
@@ -841,6 +854,7 @@ export default function SecurityScanDrawer({ open, onClose, projectId, projectLa
                               }}>
                                 {f.vuln}
                               </span>
+                              )}
                             </div>
                             <div style={{
                               fontSize: 12, color: "var(--text, #e8ecf3)",

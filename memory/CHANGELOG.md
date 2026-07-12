@@ -2396,3 +2396,8 @@ CRITICAL founder report: after applying fixes, a rescan resurrected ALL findings
 
 ## 2026-06 — Architecture Context Modules
 - Added `/app/memory/architecture/` (01–06): layer-split, self-contained AI-dev context modules, each ending with hard "Rules for the AI Developer" constraints. Verified against live codebase (46 routers, 87 services, 37 pages, real tier limits & collections).
+
+## 2026-06 — HTTP Security Headers + Docker CIS scan rules
+- Security Scan: new `http_headers` vuln class — repo-level check flags FastAPI/Flask/Express apps with zero security headers (max 3 findings). Amber "HTTP HEADERS · NEW" badge in SecurityScanDrawer.
+- Health Scan: new 6th category `docker` (Docker CIS) — 9 CIS Benchmark rules (no USER, no HEALTHCHECK, :latest tag, ADD vs COPY, ENV secrets, curl|sh, apt upgrade, privileged:true, docker.sock mount). Dockerfiles now included in text cache. Cyan "Docker CIS" card + NEW badges in CodebaseHealth UI; Full Scan = 7 categories.
+- Unit-tested backend rules (all pass); UI verified via screenshot. PayPal integration cancelled by user.

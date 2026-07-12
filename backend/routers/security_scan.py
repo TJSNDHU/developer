@@ -188,6 +188,57 @@ def _scan_text(path: str, text: str) -> list[dict]:
     return findings
 
 
+# ─── HTTP Security Headers — repo-level check ─────────────────────────
+# Fires when the repo contains a web-app entrypoint (FastAPI / Flask /
+# Express) but NO file anywhere sets the standard security headers
+# (helmet, secure-headers middleware, or raw header names).
+_HDR_SIGNALS = re.compile(
+    r"helmet\s*\(|secure_headers|SecureHeaders|SecurityMiddleware"
+    r"|Strict-Transport-Security|X-Frame-Options|Content-Security-Policy"
+    r"|X-Content-Type-Options|Referrer-Policy|Permissions-Policy",
+    re.IGNORECASE,
+)
+_APP_ENTRIES: list[tuple[re.Pattern, tuple, str]] = [
+    (re.compile(r"\bFastAPI\s*\("), (".py",), "FastAPI app"),
+    (re.compile(r"\bFlask\s*\(\s*__name__"), (".py",), "Flask app"),
+    (re.compile(r"\bexpress\s*\(\s*\)"), (".js", ".ts", ".mjs"), "Express app"),
+]
+
+
+def _scan_http_headers(text_cache: dict[str, str]) -> list[dict]:
+    """Repo-level finding: web app without HTTP security headers."""
+    if any(_HDR_SIGNALS.search(t or "") for t in text_cache.values()):
+        return []
+    findings: list[dict] = []
+    for path, text in text_cache.items():
+        if not text:
+            continue
+        lower = path.lower()
+        for rx, exts, label in _APP_ENTRIES:
+            if not lower.endswith(exts):
+                continue
+            m = rx.search(text)
+            if not m:
+                continue
+            line = text[:m.start()].count("\n") + 1
+            findings.append({
+                "rule_id":  "http_headers_missing",
+                "vuln":     "http_headers",
+                "severity": "medium",
+                "file":     path,
+                "line":     line,
+                "snippet":  text.splitlines()[line - 1].strip()[:200],
+                "desc":     (f"{label} found but no HTTP security headers set anywhere "
+                             "in the repo (HSTS, X-Frame-Options, CSP, "
+                             "X-Content-Type-Options). Add a security-headers "
+                             "middleware (helmet / secure-headers)."),
+            })
+            if len(findings) >= 3:
+                return findings
+            break
+    return findings
+
+
 async def _gh_get(client: httpx.AsyncClient, url: str, pat: str):
     r = await client.get(url, headers=_gh_headers(pat), timeout=_GH_TIMEOUT)
     if r.status_code == 401:
@@ -361,6 +412,14 @@ async def run_security_scan(
         )
 
     findings: list[dict] = [f for sub in results for f in sub]
+
+    # 3a-bis — HTTP Security Headers repo-level check (vuln class
+    # `http_headers`). Uses the already-fetched text_cache; zero extra
+    # GitHub calls.
+    try:
+        findings.extend(_scan_http_headers(text_cache))
+    except Exception as e:
+        logger.warning("http_headers check failed: %r", e)
 
     # 3b. Iter 212m-66 — opt-in deep two-round Vanguard scan.
     # Runs the new vanguard_scanner.run_two_round_scan() over the

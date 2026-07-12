@@ -27,7 +27,7 @@ Source of truth: `services/subscription_tiers.py` (limits) + `services/scan_fix_
 ## OPEN DECISIONS (resolve or explicitly flag as still-open before building on these areas)
 1. **36 probe draft PRs** — created during empirical rate-limit testing, need cleanup. Do NOT build new fix-pipeline features until confirmed these stale PRs won't conflict.
 2. **Vanguard CI ingest token (`AUREM_CI_INGEST_TOKEN`)** — waiting on user. Do NOT hardcode a placeholder token or assume an auth mechanism for `vanguard_ci.py` ingestion until resolved.
-3. **HTTP Security Headers finding + Docker CIS Benchmark rules** — proposed scanner additions, user has NOT confirmed. Do NOT add these rules until the decision is finalized; flag any task that depends on them.
+3. ~~HTTP Security Headers + Docker CIS rules~~ — **RESOLVED (2026-06)**: implemented. `http_headers` vuln class in Security Scan (`_scan_http_headers`, repo-level) + `docker` category in Health Scan (`_scan_docker_cis`, 9 CIS rules) with NEW badges in UI.
 
 ## STRICT INSTRUCTION FOR THE AI DEVELOPER
 Before any task touching quota, tier gating, Vanguard CI, or security-header/CIS scanning: read this file first. If the task depends on one of the 3 open decisions above, STOP and flag it — never guess the intended behavior.

@@ -22,7 +22,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import {
   Shield, Zap, Code2, Package, Database, RefreshCw, Loader2,
-  ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug,
+  ChevronDown, ChevronRight, Sparkles, ExternalLink, Bug, Container,
 } from "lucide-react";
 import { api, isAdminOrFounder } from "../lib/api";
 import useFixQuota from "../lib/useFixQuota";
@@ -41,6 +41,8 @@ const CATS = [
     blurb: "These will cause outages when your user count grows" },
   { key: "bug_hunt",     label: "Bug Hunt",      icon: Bug,       tone: "#f472b6", cost: 8,
     blurb: "Nuclei-template-inspired deep scan: 50+ patterns for leaked secrets, RCE primitives, exposed admin endpoints, and CVE-vulnerable dependencies" },
+  { key: "docker",       label: "Docker CIS",    icon: Container, tone: "#22d3ee", cost: 5, isNew: true,
+    blurb: "CIS Docker Benchmark checks: root containers, unpinned images, baked-in secrets, privileged mode, and docker.sock exposure" },
 ];
 
 const SEV_META = {
@@ -190,6 +192,13 @@ function CategoryCard({ cat, data, expanded, onToggle, onFix, busyIds, unlockedH
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         <Icon size={18} color={cat.tone} />
         <span style={{ fontSize: 14, fontWeight: 700, color: "#e8ecf3" }}>{cat.label}</span>
+        {cat.isNew && (
+          <span data-testid={`new-badge-${cat.key}`} style={{
+            fontSize: 9.5, fontWeight: 800, padding: "2px 6px", borderRadius: 4,
+            letterSpacing: 0.6, background: cat.tone, color: "#0a0a0a",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>NEW</span>
+        )}
         <span style={{ flex: 1, color: "#94a3b8", fontSize: 11.5,
                        fontFamily: "'JetBrains Mono', monospace" }}>
           {total} issues
@@ -629,7 +638,7 @@ function CodebaseHealthInner() {
                           gap: 12, marginBottom: 18 }}>
               {CATS.map((c) => {
                 const Icon = c.icon;
-                const isNew = c.key === "bug_hunt";
+                const isNew = c.key === "bug_hunt" || c.isNew;
                 return (
                   <button
                     key={c.key}
@@ -646,7 +655,7 @@ function CodebaseHealthInner() {
                       <span style={{
                         position: "absolute", top: 8, right: 8, fontSize: 9.5, fontWeight: 800,
                         padding: "2px 6px", borderRadius: 4, letterSpacing: 0.6,
-                        background: "#f472b6", color: "#0a0a0a",
+                        background: c.tone, color: "#0a0a0a",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}>NEW</span>
                     )}
