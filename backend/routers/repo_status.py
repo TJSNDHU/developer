@@ -62,23 +62,43 @@ async def _decrypt_pat(user_id: str, ciphertext: Optional[str]) -> Optional[str]
 async def _check_one(client: httpx.AsyncClient, *, project_id: str,
                       owner: str, repo: str, token: str,
                       auth: str) -> dict:
-    """Hit `GET /repos/{owner}/{repo}` once with a short timeout."""
+    """Probe GitHub with the SAME permission surface the ORA tools use.
+
+    Iter 212m-192 — Previously this hit `GET /repos/{owner}/{repo}`
+    which is a metadata endpoint that returns 200 for any token with
+    basic repo visibility. Ask Advisor tools (`read_repo_file`,
+    `list_repo_files`, `search_repo`) actually call
+    `GET /repos/{owner}/{repo}/contents/{path}`, which requires the
+    `Contents: Read` scope for private repos (or `public_repo` scope
+    for public). The mismatch let a green "connected" dot lie: users
+    saw green in the sidebar while every actual tool call returned
+    401 in the chat.
+
+    New behaviour: probe the **contents** endpoint (root listing)
+    instead. Any success is a hard guarantee the tools will succeed;
+    401/403 now correctly surface as `disconnected · github_rejected`,
+    which the UI already renders as a red dot with the "click to
+    re-link" tooltip.
+    """
     now = time.time()
     try:
         r = await client.get(
-            f"https://api.github.com/repos/{owner}/{repo}",
+            f"https://api.github.com/repos/{owner}/{repo}/contents/",
             headers={
                 "Authorization": f"token {token}",
                 "Accept":        "application/vnd.github+json",
                 "User-Agent":    "aurem-repo-status",
             },
         )
-        # Anything 2xx = repo reachable + token authorised.
+        # Anything 2xx = repo reachable AND contents-scope granted —
+        # same permission surface the ORA tools rely on.
         if 200 <= r.status_code < 300:
             return {"project_id": project_id, "status": "connected",
                     "http_code": r.status_code, "checked_at": now,
                     "auth": auth, "owner": owner, "repo": repo}
-        # 401/403 = bad/expired token; 404 = no access or deleted.
+        # 401/403 = bad/expired token or missing Contents:Read scope.
+        # 404 = repo doesn't exist for this token (private + no access
+        # or deleted). Every non-2xx maps to disconnected + a reason.
         return {"project_id": project_id, "status": "disconnected",
                 "http_code": r.status_code, "checked_at": now,
                 "auth": auth, "owner": owner, "repo": repo,

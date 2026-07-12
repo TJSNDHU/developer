@@ -78,6 +78,19 @@ _TOOL_CALL_XML_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+# Iter 212m-192 — lenient variant with no closing-tag requirement.
+# glm-5.2 has been observed emitting an opening `<tool_call>` fence
+# with malformed body and no close, which the strict regex above
+# leaves in place — surfacing raw `<tool_call>…` fragments to the
+# user. This variant chews up to the next blank line, next XML tag,
+# or end-of-string so the leak stops at a natural boundary.
+_TOOL_CALL_XML_LOOSE_STRIP_RE = re.compile(
+    r'<\s*(?:tool_call|function_call|tool|function)\b[^>]*>'
+    r'.*?'
+    r'(?=\n\s*\n|<\s*/?\s*(?:tool_call|function_call|tool|function)\b|$)',
+    re.DOTALL | re.IGNORECASE,
+)
+
 # Bare JSON object whose top-level key looks like a tool invocation.
 # We anchor on the keys we care about so we don't strip legitimate
 # JSON the user might be discussing (e.g. an API response sample).
@@ -251,6 +264,15 @@ def extract_tool_calls(text: str) -> list[dict]:
         "web_search", "fetch_url", "web_search_and_summarize",
         "firecrawl_scrape", "firecrawl_crawl_site",
     }
+    # Hoisted so both Shape-4 and Shape-6 (XML block below) share it
+    # without redefining per-iteration.
+    kw_re = _re.compile(
+        r"(\w+)\s*=\s*("
+        r"'[^']*'|\"[^\"]*\"|"     # single/double quoted string
+        r"\[[^\]]*\]|"              # list
+        r"\d+|True|False|None"      # primitives
+        r")"
+    )
     for match in _PY_CALL_RE.finditer(text):
         fn_name = match.group(1).strip()
         if fn_name not in _KNOWN_TOOLS:
@@ -261,13 +283,6 @@ def extract_tool_calls(text: str) -> list[dict]:
             continue
         # Parse keyword args: key='val' or key=["a","b"]
         args_dict = {}
-        kw_re = _re.compile(
-            r"(\w+)\s*=\s*("
-            r"'[^']*'|\"[^\"]*\"|"     # single/double quoted string
-            r"\[[^\]]*\]|"              # list
-            r"\d+|True|False|None"      # primitives
-            r")"
-        )
         for kw in kw_re.finditer(raw_args):
             k = kw.group(1)
             v_raw = kw.group(2)
@@ -293,6 +308,108 @@ def extract_tool_calls(text: str) -> list[dict]:
     # Shapes 1-4 cover every real emission format (fenced JSON, bare
     # JSON, OpenAI-style {tool_calls:[...]}, Python-style fn(a=b)).
 
+    # Iter 212m-192 — Shape 6 (XML-fenced tool calls). GLM-5.2, invoked
+    # as the Council A fallback when LongCat is unavailable, has been
+    # observed emitting `<tool_call>read_repo_file)("README.md")` in
+    # Ask Advisor turns. The stripper already knew about `<tool_call>`
+    # fences (`_TOOL_CALL_XML_RE`) but the extractor did not — so the
+    # user saw a healthy chat that quietly ran zero tools
+    # (`tool_calls_run: 0`) and got "cannot access repo" style
+    # responses even with a perfectly valid PAT. This shape is
+    # deliberately lenient:
+    #   • Accepts `<tool_call>…</tool_call>`, `<tool_call>…` (no close)
+    #     and `<function_call>…</function_call>` variants.
+    #   • Inner content is re-parsed through the JSON/Python parsers
+    #     already defined above — so an XML-wrapped-JSON emission
+    #     works too. If that fails we fall back to finding the first
+    #     `_KNOWN_TOOLS` name inside the block; args become empty.
+    _TOOL_CALL_XML_LOOSE_RE = re.compile(
+        r'<\s*(?:tool_call|function_call|tool|function)\b[^>]*>'
+        r'(.*?)'
+        r'(?:</\s*(?:tool_call|function_call|tool|function)\s*>|$)',
+        re.DOTALL | re.IGNORECASE,
+    )
+    xml_calls: list[dict] = []
+    for m in _TOOL_CALL_XML_LOOSE_RE.finditer(text):
+        inner = (m.group(1) or "").strip()
+        if not inner:
+            continue
+        # 1. Try JSON envelope first.
+        parsed = False
+        try:
+            data = json.loads(inner)
+            if isinstance(data, dict):
+                tool_name = data.get("tool") or data.get("name") or data.get("function")
+                if isinstance(tool_name, str):
+                    tool_args = (
+                        data.get("args") or data.get("parameters")
+                        or data.get("arguments") or {}
+                    )
+                    if isinstance(tool_args, str):
+                        try: tool_args = json.loads(tool_args)
+                        except json.JSONDecodeError: tool_args = {}
+                    xml_calls.append({"tool": tool_name, "args": tool_args})
+                    parsed = True
+        except json.JSONDecodeError:
+            pass
+        if parsed:
+            continue
+        # 2. Try Python-style call inside the block, e.g.
+        #    `read_repo_file(path="x")`. The `_PY_CALL_RE` requires
+        #    `name(` — malformed shapes like `name)("x")` won't match,
+        #    so also do a plain scan for a known tool name and any
+        #    string literals to use as positional args.
+        py_hit = False
+        for pm in _PY_CALL_RE.finditer(inner):
+            fn = pm.group(1).strip()
+            if fn not in _KNOWN_TOOLS:
+                continue
+            raw = pm.group(2).strip()
+            args_dict: dict = {}
+            for kw in kw_re.finditer(raw):
+                k, v_raw = kw.group(1), kw.group(2)
+                try:
+                    import ast as _ast
+                    v = _ast.literal_eval(v_raw)
+                except Exception:
+                    v = v_raw.strip("'\"")
+                args_dict[k] = v
+            xml_calls.append({"tool": fn, "args": args_dict})
+            py_hit = True
+        if py_hit:
+            continue
+        # 3. Last-ditch: scan the block for the first known tool name
+        #    and pull the first string literal as the positional arg.
+        #    This is what saves the malformed
+        #    `<tool_call>read_repo_file)("README.md")` case.
+        fn_match = None
+        for known in _KNOWN_TOOLS:
+            if _re.search(rf'\b{_re.escape(known)}\b', inner):
+                fn_match = known
+                break
+        if fn_match:
+            lit = _re.search(r'''["']([^"']+)["']''', inner)
+            args_dict = {}
+            if lit:
+                # Best-effort positional → most tools that take one
+                # string arg name it `path` (files) or `query` (search).
+                if fn_match in {"search_repo", "semantic_search_repo"}:
+                    args_dict["query"] = lit.group(1)
+                else:
+                    args_dict["path"] = lit.group(1)
+            xml_calls.append({"tool": fn_match, "args": args_dict})
+    if xml_calls:
+        # Dedupe against Shape-4 matches: the Shape-4 scan runs across
+        # the whole text and will happen to catch valid Python-style
+        # calls that are also inside an XML fence, so we filter out
+        # duplicates that already landed in `calls`.
+        seen = {(c["tool"], json.dumps(c.get("args", {}), sort_keys=True)) for c in calls}
+        for xc in xml_calls:
+            key = (xc["tool"], json.dumps(xc.get("args", {}), sort_keys=True))
+            if key not in seen:
+                calls.append(xc)
+                seen.add(key)
+
     return calls
 
 
@@ -309,6 +426,11 @@ def strip_tool_calls(text: str) -> str:
         return text
     cleaned = _TOOL_CALL_RE.sub("", text)
     cleaned = _TOOL_CALL_XML_RE.sub("", cleaned)
+    # Iter 212m-192 — catch orphaned `<tool_call>…` fences with no
+    # close tag (observed from glm-5.2 fallback). The extractor already
+    # ran the recovery path; here we simply hide the raw fragment from
+    # the user-visible reply.
+    cleaned = _TOOL_CALL_XML_LOOSE_STRIP_RE.sub("", cleaned)
     cleaned = _TOOL_CALL_BARE_JSON_RE.sub("\n", cleaned)
     cleaned = _TOOL_CALL_PREAMBLE_RE.sub("\n", cleaned)
     # Collapse runs of >2 blank lines that the strips might have left
