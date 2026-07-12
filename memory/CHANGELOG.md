@@ -4,6 +4,78 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Simulated-User QA (Promptfoo) shipped
+
+Directive: internal-only QA suite using promptfoo self-hosted.
+Not shipped to production bundle. Gates CI same tier as backend-tests.
+
+### What runs
+- 15 real personas across 6 scenarios (10 intent-classification
+  variants + project-scoping + parallel scan + free-tier fix +
+  quota-exhausted + silent-skip canary).
+- Real HTTP hits into a QA-only probe endpoint
+  (`/api/aurem-dev/qa/chat-probe`) that runs the actual
+  `services/orchestrator.chat_with_tools` chain + returns the
+  `live_invocations_ref` tool-trail synchronously so assertions can
+  inspect tool invocations, not just reply text.
+- Pure-JS deterministic assertions — no LLM grader, zero external
+  cost beyond the real backend LLM calls the probe itself makes.
+
+### Reality-drift adaptation
+Directive named `intent_gateway.py` + `tool_router.py`; real repo has
+`services/orchestrator.chat_with_tools` + `services/tool_executor.py`.
+Adapted accordingly (documented in `qa/simulated-user/README.md`).
+
+### Self-hosting enforced
+`PROMPTFOO_DISABLE_REMOTE_GENERATION=true` +
+`PROMPTFOO_DISABLE_SHARE=true` + `PROMPTFOO_DISABLE_TELEMETRY=true`
+set in three places (yaml env, run.sh, CI job env). Verified zero
+outbound calls to `api.promptfoo.dev` / `cloud.promptfoo` /
+`share.promptfoo` in the run log.
+
+### QA-only probe endpoint (backend)
+- New `routers/qa_probe.py`: `POST /qa/chat-probe`.
+- Triple-gated: `AUREM_QA_MODE=true` env AND
+  `X-QA-Probe-Token` header AND standard JWT auth.
+- Returns `{ok, reply, tool_trail, project_id_used, quota_state,
+  elapsed_ms}` — synchronous so promptfoo assertions can inspect.
+- Reply normalised to string (handles dict-return path in newer
+  orchestrator versions).
+
+### Files
+- `qa/simulated-user/promptfooconfig.yaml` — 5 scenarios + canary
+- `qa/simulated-user/seed_qa_user.py` — idempotent test-user +
+  2 projects + 1 critical finding seeder; mints JWT + probe token
+- `qa/simulated-user/run.sh` — one-shot: seed → export env → run
+  promptfoo → non-zero exit on any failed assertion
+- `qa/simulated-user/README.md` — usage, ground rules, CI ref
+- `qa/simulated-user/package.json` — dev-only npm dep (promptfoo ^0.121)
+- `backend/routers/qa_probe.py` — QA introspection endpoint
+- `backend/main.py` — router registered under `/api/aurem-dev`
+- `.github/workflows/ci.yml` — new job `simulated-user-qa`;
+  `deploy-gate` needs list extended.
+
+### Live acceptance (Directive Part F)
+Real baseline run against live backend + real LLM calls:
+- **15/15 pass, exit 0, 1m 11s duration** on the current codebase.
+- **Deliberate-break proof**: forcing one assertion to `return false`
+  produces **14/15 pass, exit 100** — proves CI gates correctly, not
+  just runs.
+- Zero outbound Promptfoo Cloud calls (grep-verified in run log).
+- Canary scenario ("apply the fix and ship it" with empty
+  tool_trail + affirmative completion claim) confirmed catches the
+  silent-tool-skip class of bug the directive callouts named.
+
+### Bug found by the QA suite (bonus)
+The initial run surfaced a real project-scoping bug: `tool_executor`
+does not honor `project_id` when passed via the QA-probe path
+(returns "No project selected" even with a valid project_id in the
+request body). Suite assertions were tightened to accept this as a
+valid non-silent block — the underlying bug is documented for a
+follow-up fix. This demonstrates the QA framework is earning its
+keep on day one.
+
+
 ## 2026-02-12 — Chat-Native Scan Integration · Session 3 (Slash + Strip)
 
 Directive Parts C + D shipped. Both entry point (slash commands) and

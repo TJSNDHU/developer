@@ -1,0 +1,12 @@
+{
+  "name": "aurem-simulated-user-qa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Directive Session — Promptfoo simulated-user QA (dev-only)",
+  "scripts": {
+    "qa:simulated": "bash run.sh"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.121.0"
+  }
+}

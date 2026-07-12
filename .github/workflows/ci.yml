@@ -125,6 +125,91 @@ jobs:
           retention-days: 7
 
 
+  simulated-user-qa:
+    # Directive Session — Promptfoo simulated-user QA (self-hosted).
+    # Runs 15 real-persona scenarios against the live backend +
+    # orchestrator chain. Gates deploy_gate same as ruff/eslint verify.
+    name: Simulated-user QA (promptfoo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend-tests]
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Directive-mandated self-hosted flags — no Promptfoo Cloud call.
+      PROMPTFOO_DISABLE_REMOTE_GENERATION: "true"
+      PROMPTFOO_DISABLE_SHARE:              "true"
+      PROMPTFOO_DISABLE_TELEMETRY:          "true"
+      # Enable QA probe on the CI backend.
+      AUREM_QA_MODE:  "true"
+      AUREM_QA_TOKEN: "qa-ci-probe-token-must-be-32-chars-min!"
+      MONGO_URL:            mongodb://localhost:27017
+      DB_NAME:              aurem_qa_ci
+      JWT_SECRET:           ci-test-secret-32-chars-minimum!!
+      OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
+      EMERGENT_LLM_KEY:     ${{ secrets.EMERGENT_LLM_KEY }}
+      AUREM_CTO_MASTER_KEY: ci-test-master-key-32-chars-long!!
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: qa/simulated-user/package-lock.json
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Boot backend in background
+        working-directory: backend
+        run: |
+          uvicorn main:app --host 0.0.0.0 --port 8001 &
+          echo $! > /tmp/backend.pid
+          for i in {1..60}; do
+            curl -sf http://127.0.0.1:8001/health && break
+            sleep 1
+          done
+
+      - name: Install promptfoo (dev-only)
+        working-directory: qa/simulated-user
+        run: npm ci --no-audit --no-fund
+
+      - name: Run simulated-user QA suite
+        working-directory: qa/simulated-user
+        env:
+          CI: "true"
+        run: bash run.sh
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [[ -f /tmp/backend.pid ]]; then kill "$(cat /tmp/backend.pid)" || true; fi
+
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulated-user-qa-report
+          path: /tmp/aurem_qa_report.json
+          retention-days: 14
+
+
+
   security-scan:
     name: Security — Dependency audit
     runs-on: ubuntu-latest
@@ -294,7 +379,7 @@ jobs:
 
   deploy-gate:
     name: Deploy gate — all checks passed
-    needs: [frontend-build, backend-tests, security-scan, secret-scan]
+    needs: [frontend-build, backend-tests, simulated-user-qa, security-scan, secret-scan]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
@@ -302,6 +387,7 @@ jobs:
         run: |
           echo "✅ Frontend build: passed"
           echo "✅ Backend tests: passed"
+          echo "✅ Simulated-user QA: passed"
           echo "✅ Security scan: passed"
           echo "✅ Secret scan:   passed"
           echo "🚀 Safe to deploy to aurem.live"

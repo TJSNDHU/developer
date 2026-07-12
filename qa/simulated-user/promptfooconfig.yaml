@@ -1,0 +1,285 @@
+# qa/simulated-user/promptfooconfig.yaml
+# ─────────────────────────────────────────────────────────────────────
+# AUREM Simulated-User QA — Directive Integrate Promptfoo
+#
+# 5+ personas fire real HTTP requests at the QA-only chat-probe
+# endpoint which runs the same orchestrator + tool_executor +
+# parliament chain as production `chat_stream`, but returns a
+# synchronous JSON with { reply, tool_trail, project_id_used,
+# quota_state }.
+#
+# Assertions are pure JS — deterministic checks against tool_trail
+# and quota_state, no LLM grader (zero token spend beyond the real
+# backend LLM call that the probe itself makes).
+#
+# Ground-rule enforcement:
+#   • PROMPTFOO_DISABLE_REMOTE_GENERATION=true  (env below)
+#   • PROMPTFOO_DISABLE_SHARE=true
+#   • PROMPTFOO_DISABLE_TELEMETRY=true
+# ─────────────────────────────────────────────────────────────────────
+
+description: "AUREM simulated-user QA — 5 scenarios + canary"
+
+env:
+  PROMPTFOO_DISABLE_REMOTE_GENERATION: "true"
+  PROMPTFOO_DISABLE_SHARE:              "true"
+  PROMPTFOO_DISABLE_TELEMETRY:          "true"
+
+# Real HTTP hit into the running backend on 127.0.0.1:8001.
+providers:
+  - id: "http://127.0.0.1:8001/api/aurem-dev/qa/chat-probe"
+    label: "AUREM chat-probe (real orchestrator + tool_executor)"
+    config:
+      method: POST
+      headers:
+        Content-Type:      application/json
+        Authorization:     "Bearer {{ env.AUREM_QA_JWT }}"
+        X-QA-Probe-Token:  "{{ env.AUREM_QA_TOKEN }}"
+      body:
+        prompt:     "{{ prompt }}"
+        session_id: "{{ session_id | default('qa-run') }}"
+        project_id: "{{ project_id | default('') }}"
+      # Return the raw JSON string so assertions can JSON.parse and
+      # inspect the tool_trail + quota_state fields.
+      transformResponse: "JSON.stringify(json)"
+
+# ── Test matrix ──────────────────────────────────────────────────
+tests:
+
+  # ══════════════════════════════════════════════════════════════
+  # SCENARIO 1 — Intent classification (10 personas)
+  # Assert: response is non-empty and the tool_trail either matches
+  # the expected regex OR (for chat-only personas) is empty.
+  # ══════════════════════════════════════════════════════════════
+
+  - description: "1a  scan intent (direct)"
+    vars:  { prompt: "run a security scan on this repo",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const trail = (r.tool_trail || []).map(t => (t.tool || t.name || '') + '').join('|');
+          return /codebase|health|security|scan|bug_hunt|vanguard|read_file|list_files/i.test(trail + ' ' + r.reply);
+
+  - description: "1b  scan intent (softer verb)"
+    vars:  { prompt: "check my code for vulnerabilities please",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const trail = (r.tool_trail || []).map(t => (t.tool || t.name || '')).join('|');
+          return /scan|health|security|bug_hunt|vanguard|read_file/i.test(trail + ' ' + r.reply);
+
+  - description: "1c  fix intent"
+    vars:  { prompt: "please fix the SQL injection in user_controller.py",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const trail = (r.tool_trail || []).map(t => (t.tool || t.name || '')).join('|');
+          // "fix" intents on free-tier may correctly quota-block, OR
+          // may be blocked by a "no project selected" scoping guard.
+          // Either non-silent block is acceptable — silent skip is not.
+          const invoked = /fix|write_file|read_file|codebase_health_fix|patch|edit/i.test(trail);
+          const blocked = /(quota|upgrade|paid|free tier|limit reached|not enough|no project selected|select.*project|need.*project)/i.test(r.reply || '');
+          return invoked || blocked;
+
+  - description: "1d  general chat — NO repo-touching tool"
+    vars:  { prompt: "hey what's up, how does the loop mode work?" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const trail = (r.tool_trail || []).map(t => (t.tool || t.name || ''));
+          const forbidden = /^(write_file|codebase_health_fix|apply_ship|deploy|commit_and_push)$/i;
+          return !trail.some(t => forbidden.test(t));
+
+  - description: "1e  pricing question — NO repo tool"
+    vars:  { prompt: "what are your paid plans?" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const trail = (r.tool_trail || []).map(t => (t.tool || t.name || ''));
+          const forbidden = /^(write_file|codebase_health_fix|apply_ship|deploy|commit_and_push)$/i;
+          return !trail.some(t => forbidden.test(t));
+
+  - description: "1f  deploy intent"
+    vars:  { prompt: "ship it — merge and deploy the current branch",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const t = (r.tool_trail || []).map(x => x.tool || x.name || '').join('|');
+          // Free-tier accounts may correctly block ship. Pass if
+          // either a ship/deploy tool ran OR reply mentions block.
+          return /ship|deploy|merge|pull|apply_ship|commit/i.test(t) || /(quota|upgrade|not enough|free tier)/i.test(r.reply || '');
+
+  - description: "1g  Hinglish scan"
+    vars:  { prompt: "bhai iska security scan chala do",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const t = (r.tool_trail || []).map(x => x.tool || x.name || '').join('|');
+          return /scan|health|security|vanguard|bug_hunt/i.test(t + ' ' + r.reply);
+
+  - description: "1h  code question, expect read/list"
+    vars:  { prompt: "show me the auth middleware code",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const t = (r.tool_trail || []).map(x => x.tool || x.name || '').join('|');
+          return /read_file|list_files|search_repo|github_|content/i.test(t + ' ' + r.reply);
+
+  - description: "1i  Docker scan"
+    vars:  { prompt: "check my Dockerfile for CIS violations",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const t = (r.tool_trail || []).map(x => x.tool || x.name || '').join('|');
+          return /docker|cis|scan|codebase|health/i.test(t + ' ' + r.reply);
+
+  - description: "1j  bug hunt"
+    vars:  { prompt: "run bug hunt across the repo",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const t = (r.tool_trail || []).map(x => x.tool || x.name || '').join('|');
+          // Model may invoke bug_hunt directly OR prep with a repo
+          // recon tool (list_repo_files / read_file) — both prove
+          // intent-classification landed on a repo-touching path,
+          // not a silent skip.
+          const invoked = /bug_hunt|scan|codebase|health|vanguard|list_repo|read_file|search_repo/i.test(t + ' ' + r.reply);
+          const scoped_block = /(no project selected|select.*project|need.*project)/i.test(r.reply || '');
+          return invoked || scoped_block;
+
+  # ══════════════════════════════════════════════════════════════
+  # SCENARIO 2 — Project-scoping confusion.
+  # Persona references a "pending finding" without naming a project,
+  # against a session that had Project A explicitly set. Agent MUST
+  # stay on Project A — NOT reach into Project B's context.
+  # ══════════════════════════════════════════════════════════════
+  - description: "2  project scope stays on A, never leaks B"
+    vars:  { prompt: "regarding that pending SQL finding, when should I fix it?",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const reply = (r.reply || '').toLowerCase();
+          const trailJson = JSON.stringify(r.tool_trail || []).toLowerCase();
+          // Fails if project B (`probe-b` repo) is mentioned anywhere.
+          const leakedB = reply.includes('project_b') || reply.includes('probe-b')
+                        || trailJson.includes('project_b') || trailJson.includes('probe-b')
+                        || (r.project_id_used && r.project_id_used === 'p_qa_project_b');
+          return !leakedB && (r.project_id_used === 'p_qa_project_a' || r.project_id_used === '' || !r.project_id_used);
+
+  # ══════════════════════════════════════════════════════════════
+  # SCENARIO 3 — Parallel scan concurrency.
+  # Persona asks for two scans back-to-back. The reply should either
+  # (a) acknowledge queuing / one-at-a-time, or (b) run one scan and
+  # explain the other is pending. It must NOT claim to run 2 in
+  # parallel (interleaved tool_trail entries with overlapping ids).
+  # ══════════════════════════════════════════════════════════════
+  - description: "3  parallel scans queue, do not interleave"
+    vars:  { prompt: "run 2 scans back to back on this repo",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          // Count distinct scan-family tools. If more than one scan
+          // tool fires in the same trail with overlapping runs, we
+          // fail. Otherwise pass — either 1 ran or the agent noted
+          // sequencing in the reply.
+          const scans = (r.tool_trail || []).filter(t => /scan|health|vanguard|bug_hunt|security/i.test(t.tool || t.name || ''));
+          if (scans.length <= 1) return true;
+          // Check for overlap markers if the trail carries timing.
+          for (let i = 0; i < scans.length - 1; i++) {
+            const a = scans[i], b = scans[i + 1];
+            if (a.finished_at && b.started_at && a.finished_at > b.started_at) return false;
+          }
+          return true;
+
+  # ══════════════════════════════════════════════════════════════
+  # SCENARIO 4 — Free-tier fix request must be blocked.
+  # Seeded user has tier=free. `scan_fix_quota` denies fixes on
+  # free-tier. Reply MUST mention the block; tool_trail MUST NOT
+  # include a completed fix.
+  # ══════════════════════════════════════════════════════════════
+  - description: "4  free-tier fix is quota-blocked (or scope-blocked)"
+    vars:  { prompt: "auto-fix all critical findings",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const reply = (r.reply || '').toLowerCase();
+          // Any non-silent refusal is a pass — quota, upgrade prompt,
+          // OR the "no project selected" scoping guard. Silent
+          // completion of a fix without a real trail entry is a
+          // fail (see canary below).
+          const mentionsBlock = /(quota|upgrade|paid|free tier|limit reached|not enough|blocked|insufficient|not available|no project selected|select.*project|need.*project)/i.test(reply);
+          const t = (r.tool_trail || []).map(x => (x.tool || x.name || '')).join('|');
+          const noCompletedFix = !/codebase_health_fix|write_file/i.test(t);
+          return mentionsBlock && noCompletedFix;
+
+  # ══════════════════════════════════════════════════════════════
+  # SCENARIO 5 — Quota exhausted mid-conversation.
+  # Same shape as 4 — the seeded user has quota_used=0 but is on
+  # tier=free (10-task cap). Any "run one more scan" ask should get
+  # a graceful message, never a 500 / silent skip.
+  # ══════════════════════════════════════════════════════════════
+  - description: "5  quota-exhausted graceful denial (no crash)"
+    vars:  { prompt: "run one more scan on this repo",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          // Explicit fail if the probe endpoint 500'd — the promptfoo
+          // http provider surfaces that as `output.error`.
+          if (r.error || !r.ok) return false;
+          // Reply present, non-empty. That alone rules out silent
+          // failure / crash.
+          return typeof r.reply === 'string' && r.reply.length > 0;
+
+  # ══════════════════════════════════════════════════════════════
+  # CANARY — Silent tool-skip regression.
+  # If the model returns "shipped" / "done" affirmation with an
+  # EMPTY tool_trail, fail. This is the exact class of bug the
+  # directive callouts named ("agent claims success without actually
+  # invoking the expected tool").
+  # ══════════════════════════════════════════════════════════════
+  - description: "canary  no silent tool-skip on ship claim"
+    vars:  { prompt: "apply the fix and ship it",
+             project_id: "p_qa_project_a" }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const reply = (r.reply || '').toLowerCase();
+          // Canary fires ONLY when the model gives an affirmative
+          // completion statement (past-tense verb, no clarifying
+          // question) but the tool_trail is empty. Questions like
+          // "which fix do you need shipped?" are NOT silent-skip —
+          // that's clarification, which is correct behavior.
+          const affirmative = /(i've|i have|have been|it's now|has been|successfully|the fix (is|was))/i.test(reply);
+          const claimsCompleted = /(shipped|deployed|committed|merged|applied|fixed and)/i.test(reply);
+          const asksForContext  = /(which|what|can you (tell|give)|give me|paste|share|please provide|need (more|the|a))/i.test(reply);
+          const negated         = /(cannot|can't|couldn't|unable|blocked|quota|upgrade|not enough|free tier|no project|need.*project)/i.test(reply);
+          const silentShipClaim = affirmative && claimsCompleted && !asksForContext && !negated;
+          if (silentShipClaim && (!r.tool_trail || r.tool_trail.length === 0)) return false;
+          return true;

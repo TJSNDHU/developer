@@ -115,3 +115,5 @@ credentials.json
 
 # Iter 212m-179b — repo snapshot cache for search_repo (never commit)
 .aurem_cache/
+qa/simulated-user/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex
+qa/simulated-user/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude
