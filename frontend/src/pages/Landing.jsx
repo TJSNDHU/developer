@@ -651,7 +651,7 @@ export default function Landing() {
                 <span style={{ opacity: 0.5 }}>·</span>
                 <span>GDPR · PIPEDA · DPDP · CCPA aligned</span>
                 <span style={{ opacity: 0.5 }}>·</span>
-                <span style={{ color: "var(--accent, #ff8a2a)" }}>SOC 2 in progress</span>
+                <span style={{ color: "var(--accent, #ff8a2a)" }}>SOC 2 Type I · Q4 2026</span>
               </Link>
             </div>
             <div className="hero-stats">
