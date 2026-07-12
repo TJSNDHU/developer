@@ -189,6 +189,57 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         ([("user_id", 1), ("campaign", 1), ("stage", 1)], {}),
         ([("sent_at", -1)], {"sparse": True}),
     ]),
+    # ─────────────────────────────────────────────────────────────
+    # Iter 212m-190 (Directive Session 1 · Part E) — Scan backlog +
+    # notification-strip persistence.
+    #
+    # cto_open_findings: canonical store for UNFIXED critical/high
+    # findings across scans (Vanguard, Bug Hunt, Health, HTTP headers,
+    # Docker CIS). Powers:
+    #   • The scan-status strip's "30-day idle" backlog reminder
+    #   • The Review-findings drawer
+    #   • Auto-archive after 4 exposures ("aged-out" status)
+    # Distinct from `cto_fixed_findings` (post-fix audit trail).
+    #
+    # Schema:
+    #   { user_id, project_id, finding_id,
+    #     category, severity ("critical"|"high"|"medium"|"low"),
+    #     rule_id, file, line, title, message, fix_hint,
+    #     status ("open"|"snoozed"|"fixed"|"aged-out"),
+    #     first_seen_at, last_seen_at,
+    #     exposure_count (int, caps at 4),
+    #     last_exposed_at, snoozed_until }
+    # ─────────────────────────────────────────────────────────────
+    ("cto_open_findings", [
+        # Hot path: dashboard + strip both filter by user + project +
+        # status, sorted by severity/age. This composite covers those.
+        ([("user_id", 1), ("project_id", 1), ("status", 1)], {}),
+        # Per-finding upsert key. Sparse because pre-existing rows in
+        # test fixtures may lack a canonical finding_id.
+        ([("user_id", 1), ("project_id", 1), ("finding_id", 1)],
+         {"unique": True, "sparse": True}),
+        # Backlog-reminder scheduler query: findings idle 30+ days.
+        ([("last_seen_at", 1), ("status", 1)], {}),
+        # Severity dashboards.
+        ([("severity", 1), ("last_seen_at", -1)], {}),
+    ]),
+    # cto_notification_dismissals: strip "X" (dismiss) persistence.
+    # DB-backed (not sessionStorage) so a dismiss carries across
+    # devices / logout+login.
+    #
+    # Schema:
+    #   { user_id, project_id, finding_batch_id, dismissed_at,
+    #     expires_at }   # 24 h TTL — see index below.
+    ("cto_notification_dismissals", [
+        # Fast lookup for "is this batch dismissed right now?"
+        ([("user_id", 1), ("project_id", 1), ("finding_batch_id", 1)],
+         {"unique": True, "sparse": True}),
+        # TTL: MongoDB will delete docs automatically after
+        # expires_at, so we don't accumulate stale dismissals forever.
+        # `expireAfterSeconds=0` means "delete when expires_at is in
+        # the past" — the doc supplies the actual timestamp.
+        ([("expires_at", 1)], {"expireAfterSeconds": 0}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.

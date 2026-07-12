@@ -4,6 +4,92 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-12 — Chat-Native Scan Integration · Session 1 (Foundation)
+
+Foundation-first delivery of the 4-part directive. Session 1 ships only
+the substrate; Parts B/C/D layer on top in Sessions 2 & 3.
+
+### Part A — Generation-time safety rules
+- New `services/generation_rules.py` (351 LOC): machine-readable
+  manifest built at import time from the *actual* scanner rule
+  tables in `bug_hunt_rules.py` + `vanguard_scanner.py`, plus a
+  hand-curated one-line trigger index. Auto-picks up any new rule
+  added to the scanners — no duplicate hand-maintained list.
+- `build_condensed_manifest()` returns a 7.5 KB prompt-ready block
+  covering 87 rules (42 CRITICAL + 30 HIGH + 15 MEDIUM by default;
+  LOW available via `include_low=True`).
+- Injected into `services/orchestrator.py::build_persona()` when
+  BOTH `_is_code_task()` returns true AND the EXECUTE layer is
+  active. Chat-only turns pay zero manifest tokens (verified).
+- Injected into `services/loop_execute.py` Loop-Mode execute-phase
+  system prompt so code-writing rewrites see the manifest.
+- Idempotent — `already_injected()` sentinel check prevents
+  duplicate injection on nested prompt assembly paths.
+
+### Part E — Data layer
+- New collection `cto_open_findings` — canonical store for UNFIXED
+  critical/high findings. 5 indexes covering hot paths:
+  `(user_id, project_id, status)`, unique upsert key
+  `(user_id, project_id, finding_id)`, backlog-scheduler
+  `(last_seen_at, status)`, severity dashboards.
+  Schema fields: `exposure_count` (caps at 4) and `status` enum
+  extended with `"aged-out"` per Directive Part D.
+- New collection `cto_notification_dismissals` — DB-backed strip
+  X-button persistence (cross-device consistent). TTL index on
+  `expires_at` (`expireAfterSeconds=0`) so 24 h dismissals
+  auto-purge without a cron.
+- Both collections materialised on next backend boot via existing
+  `scripts/init_prod_collections.py` — verified on preview
+  (`created=2, indexed=31, errors=0`).
+
+### Refactor — HTTP headers + Docker CIS extraction
+- New `services/full_scan_scanners.py` (190 LOC) — pure-function
+  home for `scan_http_headers` and `scan_docker_cis`. Previously
+  these lived inside routers.
+- `routers/codebase_health.py::_scan_docker_cis` and
+  `routers/security_scan.py::_scan_http_headers` now thin wrappers
+  delegating to the service. Byte-identical output verified.
+- Enables Session 2's Loop-Mode Full-Scan orchestrator to call the
+  scanners without importing the router layer.
+
+### Verification (Part F for Session 1)
+- Backend restart clean, `/health` returns 200.
+- Manifest builds → 7,553 chars, sentinel present, v1.0.0.
+- Rule index: 15+10 Vanguard + 15+21+10+11 Bug Hunt + 9 Docker CIS
+  + 1 HTTP headers = **91 total rules indexed** (11 CVE entries
+  render as one line each).
+- `build_persona("add a JWT auth endpoint...")` → manifest injected.
+- `build_persona("hi how are you")` → manifest absent (chat gate
+  working, zero token waste).
+- Router vs service path for both scanners → **identical findings**
+  on sample repos.
+- Both new collections created + indexes applied on live Mongo,
+  including TTL on dismissals.
+
+### Files
+- `backend/services/generation_rules.py` — new
+- `backend/services/full_scan_scanners.py` — new
+- `backend/services/orchestrator.py` — persona injection
+- `backend/services/loop_execute.py` — Loop-Mode injection
+- `backend/routers/codebase_health.py` — Docker CIS extraction wrapper
+- `backend/routers/security_scan.py` — HTTP headers extraction wrapper
+- `backend/scripts/init_prod_collections.py` — 2 new collections
+- `memory/CHANGELOG.md` — this entry
+
+### Next (Session 2)
+- Part B — Loop Mode Full Scan step (Verify → Full Scan → Ship)
+  with the depth gate (`≤1 file changed AND ≤50 lines diff` → skip)
+  and 3× auto-retry on self-generated critical findings.
+- Requires disposable GitHub test repo + PAT for live-repo Part F
+  verification (currently blocked on that credential from user).
+
+### Note
+Live-repo end-to-end acceptance for Session 1 is *not gated* on the
+test repo — the manifest injection + collection creation are
+inspectable without any GitHub call. Session 2 (Full Scan against a
+real repo change) is where the PAT becomes mandatory.
+
+
 ## 2026-02-12 — Bug fix: Ask Advisor project context + auto-restore
 
 **User-reported bug (production):** Main chat correctly showed

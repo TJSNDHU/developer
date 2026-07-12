@@ -260,6 +260,22 @@ async def _generate_one_inner(
         "LOCALIZATION block is provided, focus your edits on the "
         "indicated function/line — keep the rest byte-identical."
     )
+    # Iter 212m-190 (Directive Session 1 · Part A) — inject the
+    # generation-time safety rules manifest so the model sees exactly
+    # what Vanguard / Bug Hunt / Health / HTTP-headers / Docker CIS
+    # will scan against post-hoc. This is additive prevention — the
+    # post-execute Full Scan still runs, but shifting rules forward
+    # reduces the finding volume the scan has to catch.
+    try:
+        from services import generation_rules as _gen_rules
+        if not _gen_rules.already_injected(sys_msg):
+            _manifest = _gen_rules.build_condensed_manifest()
+            if _manifest:
+                sys_msg = sys_msg + "\n\n" + _manifest
+    except Exception as _gen_err:  # noqa: BLE001
+        # Manifest failure must never block a Loop-Mode execute call —
+        # the scanners are the safety net either way.
+        logger.debug("[execute] generation_rules injection skipped: %r", _gen_err)
     plan_bullets = "\n".join(
         f"- {b}" for b in (plan.get("bullets") or [])[:12]
     )

@@ -1236,6 +1236,13 @@ def build_persona(prompt: str, extra: str = "", history_lines: list[str] | None 
     / backend). Previously skills were only injected on the ship
     pipeline (cto_projects); now the chat-side LLM that DECIDES the
     fix also sees the security checklist.
+
+    Iter 212m-190 (Directive Session 1 · Part A) — when EXECUTE is
+    active AND the turn is a code-writing task, we append the
+    generation-time safety rules manifest so the model sees the exact
+    patterns Vanguard / Bug Hunt / Health / HTTP-headers / Docker CIS
+    would flag against it. Additive context only — does not replace
+    the post-hoc scan phase in Loop Mode.
     """
     repo = _wants_repo(prompt, extra)
     execute = _wants_execute(prompt, repo, history_lines)
@@ -1249,6 +1256,22 @@ def build_persona(prompt: str, extra: str = "", history_lines: list[str] | None 
                 parts.append("\n\n" + skill_block + "\n")
         except Exception as e:
             logger.debug("skill injection skipped in build_persona: %r", e)
+        # Generation-time safety rules — inject only for actual code
+        # tasks (not plain chat/greetings that happen to trigger the
+        # execute layer). `_is_code_task` combines strong-verb signal
+        # with conversation history so passive Q&A does not pay the
+        # manifest's token cost.
+        try:
+            if _is_code_task(prompt, history_lines or []):
+                from services import generation_rules as _gen_rules
+                if not _gen_rules.already_injected(parts):
+                    manifest = _gen_rules.build_condensed_manifest()
+                    if manifest:
+                        parts.append("\n\n" + manifest)
+        except Exception as e:
+            # Failures here must never break persona assembly — the
+            # scanners will still catch violations post-hoc.
+            logger.debug("generation_rules injection skipped: %r", e)
     if repo:
         parts.append(_PERSONA_REPO)
     return "".join(parts)
