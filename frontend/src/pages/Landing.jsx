@@ -613,6 +613,47 @@ export default function Landing() {
             <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
               <FounderOfferPill />
             </div>
+            {/* Trust badge — Canadian entity + SOC 2 signal. Links to
+                /security so enterprise buyers can drill in without
+                asking us. Kept minimal so it doesn't compete with
+                the FounderOfferPill for attention. */}
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+              <Link
+                to="/security"
+                data-testid="hero-trust-badge"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  color: "var(--text-dim, #a39d8a)",
+                  border: "1px solid rgba(255,200,120,0.16)",
+                  borderRadius: 999,
+                  background: "rgba(255,200,120,0.04)",
+                  textDecoration: "none",
+                  letterSpacing: "0.01em",
+                  transition: "border-color 200ms, color 200ms, background 200ms",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,200,120,0.32)";
+                  e.currentTarget.style.color = "var(--text, #e8e3d3)";
+                  e.currentTarget.style.background = "rgba(255,200,120,0.08)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,200,120,0.16)";
+                  e.currentTarget.style.color = "var(--text-dim, #a39d8a)";
+                  e.currentTarget.style.background = "rgba(255,200,120,0.04)";
+                }}
+              >
+                <span aria-label="Canada" role="img" style={{ fontSize: 14 }}>🇨🇦</span>
+                <span>Made in Canada</span>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span>GDPR · PIPEDA · DPDP · CCPA aligned</span>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span style={{ color: "var(--accent, #ff8a2a)" }}>SOC 2 in progress</span>
+              </Link>
+            </div>
             <div className="hero-stats">
               <div><div className="stat-num">$9</div><div className="stat-label">flat monthly</div></div>
               <div><div className="stat-num">0</div><div className="stat-label">token billing</div></div>
@@ -1104,7 +1145,7 @@ export default function Landing() {
               type="button"
               data-testid="footer-cookie-prefs"
               onClick={() => {
-                try { localStorage.removeItem("aurem_consent"); } catch (_) {}
+                try { localStorage.removeItem("aurem_consent"); } catch (_e) { /* private mode */ }
                 window.dispatchEvent(new CustomEvent("aurem:reopen-consent"));
               }}
               style={{
