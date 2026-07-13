@@ -593,6 +593,30 @@ async def get_project_graph(
     return {"ok": True, "status": "ready", "graph": doc}
 
 
+# Iter 212m-215 — Mermaid architecture diagram (GitDiagram approach)
+# ------------------------------------------------------------------
+# Two-step LLM pipeline (Gemini 2.5 Flash via OpenRouter) that turns
+# the graph_builder output into an interactive Mermaid flowchart.
+# The code is cached inside `project_graphs.mermaid_code` so the
+# viewer path is a single Mongo read; users only trigger a
+# regeneration on explicit "Regenerate diagram" click OR when the
+# underlying graph has a new `tree_sha`.
+@router.post("/projects/{project_id}/graph/mermaid")
+async def build_project_mermaid(
+    project_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    me = await current_dev(authorization)
+    user_id = me["user_id"]
+    db = get_db()
+    from services.mermaid_diagram import build_and_persist_mermaid
+    out = await build_and_persist_mermaid(db, project_id, user_id)
+    if not out.get("ok"):
+        raise HTTPException(status_code=400,
+                            detail=out.get("reason") or "diagram build failed")
+    return out
+
+
 @router.get("/projects/{project_id}/graph/tour")
 async def get_graph_tour(
     project_id: str,

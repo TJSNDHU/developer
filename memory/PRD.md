@@ -11519,3 +11519,47 @@ Founder final directive (after two pivots): the Advisor should ALWAYS see the us
 **Verified live on preview** — asked "where is the sign up button on my screen?" with the real `/demo` screenshot attached. Advisor answered with the exact colours + positions of the three sign-up buttons visible on the actual page.
 
 NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — includes new dep (`html2canvas` yarn-added).
+
+## Iter 212m-215 — Graph Feature: GitDiagram-style Mermaid architecture diagram (Feb 13, 2026)
+
+Founder directive after real-state audit: the `/dashboard-preview-v2` Graph tab was showing a hardcoded 8-node middleware mock. `/dashboard` Graph tab opened `GraphPanel.jsx` (a grid/list view) with no visual wow-factor. Requested a GitDiagram-inspired (github.com/ahmedkhaleel2004/gitdiagram, MIT, 23k★) architecture diagram — but strictly **code-only, no README**.
+
+**3-step pipeline** (`services/mermaid_diagram.py`):
+1. Read `project_graphs` doc (already persisted by `graph_builder.py` — no re-fetch of GitHub).
+2. **LLM pass 1** — Gemini 2.5 Flash via OpenRouter → plain-English architecture explanation from the layer/edge summary (~1.5 KB input).
+3. **LLM pass 2** — same model → Mermaid.js flowchart code with strict shape rules:
+   - `flowchart TD` first line
+   - Layer subgraphs (Frontend / Backend / API / Service / Data / Config — whatever's in the graph_builder output)
+   - `click <NodeId> href "github://<path>"` on every file node (frontend rewrites to `/projects?open=<pid>&file=<path>`)
+   - `:::hot` class on recently-modified files (from `changed_top`)
+   - Explicit `classDef hot fill:#FF6608,stroke:#FFC79A,color:#000;` — orange highlight
+
+Cached in `project_graphs.mermaid_code`, `mermaid_explanation`, `mermaid_tree_sha`, `mermaid_generated_at`, `mermaid_model`, `mermaid_recent_files`. **Auto-invalidation** — frontend compares `graph.tree_sha` vs `graph.mermaid_tree_sha`; mismatch = regenerate silently. User only clicks "Regenerate diagram" for a manual refresh.
+
+**Isolated call**: OpenRouter direct (like `advisor_vision.py`) — bypasses the Council chain / `chat_with_tools` / `services/llm.py` ladder entirely. Vision-lane pattern: primary Gemini 2.5 Flash, single-hop failover to GPT-5 Mini, no deep ladder. Failure never touches the rest of the graph pipeline; endpoint returns 400 with a safe message.
+
+**Frontend** (`components/dashboard/v2/GraphView.jsx` — complete rewrite):
+- Removed the hardcoded 8-node mock (`dashboard-data.js` graphNodes/graphEdges still exist as leftover sample data but no longer imported here)
+- Uses existing `MermaidBlock.jsx` (strict-mode Mermaid render + SVG/Code copy) — no D3 needed
+- 5 render states: `no_project` / `no_repo` (CTA: "Connect your repo") / `loading` / `building` / `generating_diagram` / `ready` / `error` (with Retry)
+- Auto-triggers `/build-graph` on first mount when graph missing (user never presses a manual "Build" button)
+- Auto-triggers `/graph/mermaid` when diagram cache is empty or stale
+- "Regenerate diagram" button (top-right) for manual refresh
+- `github://` prefix in Mermaid code rewritten to `/projects?open=<pid>&file=<path>` at render time — clicking a node deep-links into the file browser
+- Header shows: `<file_count> files · rendered by gemini-2.5-flash · updated 2m ago`
+
+**Regression suite** (`test_iter212m215_mermaid_diagram.py`) — 4/4 green:
+- `test_mermaid_pipeline_full_roundtrip` — seeds a 5-file graph, POSTs `/graph/mermaid`, asserts response shape + `flowchart` first line + `classDef hot fill:#FF6608` present + `:::hot` marker on recently-modified file + `href "github://` on nodes + `subgraph` layers
+- `test_mermaid_reruns_and_repins_tree_sha` — flip `tree_sha` between two runs, assert the pinned `mermaid_tree_sha` follows the new commit (auto-invalidation lock)
+- `test_mermaid_400_when_graph_missing` — endpoint returns 400 + "graph not built" for a project with no graph yet
+- `test_mermaid_pipeline_source_contracts` — offline source-string locks: no `readme` in either `mermaid_diagram.py` OR `graph_builder.py`, OpenRouter direct call, no `chat_with_tools` import, cache field names, orange fill colour, click-href directive shape
+
+**Live verification** (`/dashboard-preview-v2` Graph tab, screenshot on record):
+- Seeded a real 8-file graph (backend routers/services + frontend UI/util) → clicked Graph tab
+- **Result**: Full layered architecture diagram rendered — Config → API → Service → UI → Util subgraphs, `chat.py` + `orchestrator.py` orange-highlighted, arrows following real import chain, plain-English explanation panel above showing "This project follows a client-server architecture. The Config layer, specifically backend/main.py, acts as the backend entry point…"
+
+NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — new backend service, new endpoint, new frontend component.
+
+**Deprecated but left in tree**:
+- `dashboard-data.js` `graphNodes` / `graphEdges` exports — still present as leftover sample data. GraphView.jsx no longer imports them. Safe to delete when someone does a general cleanup pass.
+- `components/GraphPanel.jsx` (legacy `/dashboard` right-drawer graph) — untouched by this iteration. Still live for the `aurem:toggle-graph` event from Dashboard.jsx sidebar. When ready, replace it with a MermaidBlock-wrapped version too.
