@@ -2,6 +2,55 @@
 
 ## Recent session (2026-02-Session-5) — status snapshot
 
+### 2026-02-13 — Iter 212m-219 — Homepage "Killer 3" + `/why-ora` deep-dive page
+
+**Positioning play** — Turn the 20 uniquely-implemented AUREM
+features (Citation Guard, Parliament Council, Vanguard Verify,
+Advisor Vision, Full-Scan Ship-Block, etc.) into a public marketing
+moat that a competitor literally cannot copy: every claim carries a
+real file path a skeptic can grep.
+
+**Landed:**
+- **Homepage `#why-ora` section** — 3 killer-feature cards
+  between "Three Windows" and "Modes":
+  1. `services/citation_guard.py` — "ORA literally can't hallucinate file contents"
+  2. `core/parliament.py`        — "Three AI models vote before your code commits"
+  3. `services/advisor_vision.py`— "Your advisor sees what you see"
+  Compact monospace design, amber accent hover, file-proof chip on
+  each card. Single pill-button link: "See everything ORA does
+  others don't →" routing to `/why-ora`.
+- **New `/why-ora` route** — standalone deep-dive page with all 20
+  features grouped in 4 tiers:
+  - Tier 1: The moats nobody else has (5)
+  - Tier 2: Zero-LLM static intelligence (5)
+  - Tier 3: UX innovations (5)
+  - Tier 4: Cultural & cost innovations (5)
+  Auto-collapsing grid (280 px min-col, 1-col on mobile). Every card
+  shows number, monospace icon-tag, title, 1-2-line hook, and a
+  monospace `📁 path/to/file.py` proof chip. Sticky top nav +
+  centered hero + bottom CTA back to `/signup`.
+- **Route wired** in `App.jsx` (initial bundle — no lazy load; page
+  is < 6 KB gzipped).
+
+**Files touched:**
+- `frontend/src/pages/WhyOra.jsx` (NEW, 348 lines)
+- `frontend/src/pages/Landing.jsx` (+ killer-3 section, ~85 lines)
+- `frontend/src/App.jsx` (route registration)
+
+**Testing:**
+- Lint clean on all 3 files
+- Visual smoke: homepage killer-3 renders correctly, pill-link
+  visible under 3 cards; `/why-ora` hero + Tier 1 grid render
+  without CSS regression
+- Mobile responsive check via grid `auto-fit + 280px min-col`
+
+**Data-testids** for the future testing agent:
+- `killer3-section`, `k3-card-citation`, `k3-card-parliament`, `k3-card-advisor`
+- `killer3-see-all` (the link to /why-ora)
+- `why-ora-page`, `tier-1..4`, `feature-card-01..20`
+- `why-ora-cta-signup`, `why-ora-cta-home`, `why-ora-back`
+
+
 ### 2026-02-13 — Iter 212m-218 — Real developer commit identity + Conventional Commits + Co-authored-by trailer
 
 **Problem:** Every AUREM-shipped commit landed as bot-attributed

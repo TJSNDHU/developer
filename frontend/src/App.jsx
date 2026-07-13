@@ -32,6 +32,10 @@ import CookieConsentBanner from "./components/CookieConsentBanner";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+// Iter 212m-219 — Marketing "Why ORA" deep-dive. Lightweight page
+// (< 6 KB gzipped) — no heavy deps, so we ship it in the initial
+// bundle alongside Landing for zero-flash navigation from the hero.
+import WhyOra from "./pages/WhyOra";
 import { initTheme } from "./services/theme";
 
 // Iter 212m-52 — apply theme as early as possible (BEFORE React
@@ -168,6 +172,7 @@ export default function App() {
       <Suspense fallback={<RouteLoader />}>
         <Routes>
           <Route path="/"                element={<Landing />} />
+          <Route path="/why-ora"         element={<WhyOra />} />
           <Route path="/demo"            element={<Demo />} />
           <Route path="/login"           element={<Login />} />
           <Route path="/signup"          element={<Signup />} />

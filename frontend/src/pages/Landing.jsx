@@ -376,6 +376,69 @@ const LANDING_CSS = `
 
 /* CTA + footer */
 .ora-landing .cta-section { padding: 80px 32px; text-align: center; border-top: 1px solid var(--line); }
+
+/* Iter 212m-219 — Killer-3 unique features section. Tight,
+   Claude-style: 3 cards horizontal, monospace headers, subtle
+   amber glow on hover, and a single link out to /why-ora. */
+.ora-landing .killer3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 44px;
+}
+.ora-landing .k3-card {
+  background: rgba(255,255,255,0.015);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  transition: border-color 0.2s, background 0.2s, transform 0.12s;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+.ora-landing .k3-card:hover {
+  border-color: var(--accent-br);
+  background: rgba(245,158,11,0.03);
+  transform: translateY(-2px);
+}
+.ora-landing .k3-tag {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--accent); text-transform: uppercase;
+  letter-spacing: 1.8px; margin-bottom: 12px;
+}
+.ora-landing .k3-title {
+  font-family: var(--font-mono); font-weight: 700;
+  font-size: 18px; color: var(--text);
+  margin: 0 0 12px 0; letter-spacing: -0.4px;
+  line-height: 1.3;
+}
+.ora-landing .k3-desc {
+  color: var(--muted-1); font-size: 14px;
+  line-height: 1.65; margin: 0 0 20px 0; flex: 1;
+}
+.ora-landing .k3-proof {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted-2);
+  padding: 6px 10px; border: 1px solid var(--line);
+  border-radius: 6px; align-self: flex-start;
+  background: rgba(0,0,0,0.25);
+}
+.ora-landing .k3-proof::before { content: "▸"; color: var(--accent); }
+.ora-landing .killer3-link {
+  text-align: center; margin-top: 40px;
+}
+.ora-landing .killer3-link a {
+  font-family: var(--font-mono); font-size: 14px;
+  color: var(--accent); text-decoration: none;
+  padding: 10px 20px; border: 1px solid var(--accent-br);
+  border-radius: 999px; transition: background 0.15s;
+  display: inline-block;
+}
+.ora-landing .killer3-link a:hover { background: var(--accent-bg); }
+@media (max-width: 900px) {
+  .ora-landing .killer3 { grid-template-columns: 1fr; }
+}
+
 .ora-landing .cta-title { font-family: var(--font-mono); font-weight: 700; font-size: clamp(28px, 5vw, 48px); margin: 0 0 12px; line-height: 1.1; }
 .ora-landing .cta-title span { color: var(--accent); display: block; }
 .ora-landing .cta-sub { color: var(--muted-1); margin-bottom: 26px; font-size: 16px; }
@@ -933,6 +996,63 @@ export default function Landing() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* ─── Killer-3 unique features (Iter 212m-219) ─── */}
+        <section className="section" id="why-ora" data-testid="killer3-section">
+          <div className="section-label">Why ORA</div>
+          <h2 className="section-title">Three things no other AI dev tool does.</h2>
+          <p className="section-sub">
+            Grep the repo. Every claim below points to a real file.
+          </p>
+          <div className="killer3">
+            <div className="k3-card" data-testid="k3-card-citation">
+              <div className="k3-tag">CITATION GUARD</div>
+              <h3 className="k3-title">
+                ORA literally can&apos;t hallucinate<br />file contents.
+              </h3>
+              <p className="k3-desc">
+                If ORA mentions any file path or version WITHOUT reading it in the same
+                turn, the response is auto-blocked, the real file is fetched, and the
+                LLM is re-run with the correct data. Zero fabricated references — by
+                design, not by prompt.
+              </p>
+              <code className="k3-proof">services/citation_guard.py</code>
+            </div>
+
+            <div className="k3-card" data-testid="k3-card-parliament">
+              <div className="k3-tag">PARLIAMENT COUNCIL</div>
+              <h3 className="k3-title">
+                Three AI models vote<br />before your code commits.
+              </h3>
+              <p className="k3-desc">
+                A council of 3 members generates in parallel at temperatures 0.1 / 0.2 /
+                0.3. A separate CEO model picks the best output. Circuit breaker opens
+                after 3 fails. Distributed trace_id on every run. Cursor and Devin ship
+                one model&apos;s guess — we ship a vote.
+              </p>
+              <code className="k3-proof">core/parliament.py</code>
+            </div>
+
+            <div className="k3-card" data-testid="k3-card-advisor">
+              <div className="k3-tag">ASK ADVISOR</div>
+              <h3 className="k3-title">
+                Your advisor sees<br />what you see.
+              </h3>
+              <p className="k3-desc">
+                html2canvas silently captures your current screen and pipes it to Gemini
+                2.5 Flash vision. When you ask &ldquo;why is this red?&rdquo; the advisor
+                actually looks at the pixels. No upload UX — it just works.
+              </p>
+              <code className="k3-proof">services/advisor_vision.py</code>
+            </div>
+          </div>
+
+          <div className="killer3-link">
+            <Link to="/why-ora" data-testid="killer3-see-all">
+              See everything ORA does others don&apos;t →
+            </Link>
           </div>
         </section>
 
