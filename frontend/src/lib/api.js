@@ -154,12 +154,33 @@ export function newSessionId() {
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** SSE-style stream over fetch (we POST JSON, so EventSource won't work). */
-export async function streamChat({ prompt, sessionId, maxToolIters = 2,
-                                    maxxMode = false, projectId = null,
+/** SSE-style stream over fetch (we POST JSON, so EventSource won't work).
+ *
+ * Iter 212m-194 — Advisor sidepanel bug fix.
+ * `AskAdvisorReal.jsx` calls this with snake_case `project_id` and
+ * `ora_panel: true`. Both were being silently dropped because the
+ * destructure below only knew about camelCase `projectId` and didn't
+ * accept `ora_panel` at all. The advisor's project context therefore
+ * evaporated before the request left the browser — backend saw
+ * `project_id: null`, refused to build a `bin_ctx`, and every repo
+ * tool call returned `no_bin_ctx` even with a healthy repo connected
+ * (and a green sidebar dot).
+ *
+ * We now accept BOTH the camelCase form (main ChatPanel) and the
+ * snake_case form (AskAdvisorReal.jsx) so existing callers stay
+ * untouched. `ora_panel` is also destructured and forwarded so the
+ * backend's advisor code path (chat.py line ~1368) can inject the
+ * ORA_PANEL_TONE prompt.
+ */
+export async function streamChat({ prompt, sessionId, session_id,
+                                    maxToolIters = 2, max_tool_iters,
+                                    maxxMode = false, maxx_mode,
+                                    projectId = null, project_id,
+                                    ora_panel = false,
                                     agent = "auto", mode = "swift",
                                     executionMode = "prompt",  // Iter 212m-58
-                                    f12Payload = null,
+                                    execution_mode,
+                                    f12Payload = null, f12_payload,
                                     onMeta, onMode, onToken, onWatchdog, onWatchdogPending,
                                     onOpsRedirect,
                                     onThinking, onTaskHandoff, onDone, onError,
@@ -167,6 +188,14 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
                                     onCouncil, // Iter 212m-78 — recalled count
                                     onIntent,  // Iter 212m-149 — gateway tier classification
                                     signal }) {
+  // Iter 212m-194 — coalesce camelCase + snake_case aliases so
+  // AskAdvisorReal (snake) and ChatPanel (camel) both work.
+  const _sessionId    = session_id     ?? sessionId;
+  const _maxToolIters = max_tool_iters ?? maxToolIters;
+  const _maxxMode     = maxx_mode      ?? maxxMode;
+  const _projectId    = project_id     ?? projectId;
+  const _executionMode = execution_mode ?? executionMode;
+  const _f12Payload   = f12_payload    ?? f12Payload;
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -176,14 +205,15 @@ export async function streamChat({ prompt, sessionId, maxToolIters = 2,
     },
     body: JSON.stringify({
       prompt,
-      session_id: sessionId,
-      max_tool_iters: maxToolIters,
-      maxx_mode: maxxMode,
+      session_id: _sessionId,
+      max_tool_iters: _maxToolIters,
+      maxx_mode: _maxxMode,
       agent,
       mode,
-      execution_mode: executionMode,  // Iter 212m-58
-      project_id: projectId,
-      f12_payload: f12Payload,
+      execution_mode: _executionMode,
+      project_id: _projectId,
+      f12_payload: _f12Payload,
+      ora_panel,                       // Iter 212m-194 — was being dropped
     }),
     signal,
   });
