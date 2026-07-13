@@ -11563,3 +11563,46 @@ NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — new backend service, new endpoint
 **Deprecated but left in tree**:
 - `dashboard-data.js` `graphNodes` / `graphEdges` exports — still present as leftover sample data. GraphView.jsx no longer imports them. Safe to delete when someone does a general cleanup pass.
 - `components/GraphPanel.jsx` (legacy `/dashboard` right-drawer graph) — untouched by this iteration. Still live for the `aurem:toggle-graph` event from Dashboard.jsx sidebar. When ready, replace it with a MermaidBlock-wrapped version too.
+
+## Iter 212m-216 — /scan family 502 mystery: root-cause + real fix (Feb 13, 2026)
+
+Founder reported 5 slash commands (`/scan`, `/security-scan`, `/bug-hunt`, `/docker-scan`, `/health-scan`) all failing with **HTTP 502 in 1.3s** on production `auremcto.com` for `TJSNDHU/Aurem` (PAT-connected real project). Login worked, `/version` worked, `/projects/list` worked, `/graph` worked — only `/codebase-health/scan` crashed.
+
+**Root cause** (traced via source, not guessed):
+- `security_scan._gh_get()` only branched on 401/404/5xx. Any other non-2xx (403 rate-limit, 409 empty-repo, 422 bad-ref, 451, etc.) fell through to `r.raise_for_status()` → `httpx.HTTPStatusError`.
+- The error propagated up to `codebase_health.scan()` where the outer wrap `except Exception → HTTPException(502, "GitHub fetch failed: {e!r}")` swallowed the real reason and returned a naked 502.
+- Cloudflare's 5xx interception replaced our JSON body with a branded HTML "Bad gateway" page — user never saw the actual reason (rate limit, empty repo, etc.).
+
+The specific prod trigger was most likely a 403 secondary rate-limit on the founder's PAT during peak (fetches happen at 10-20 concurrency for a real repo). GitHub returns `X-RateLimit-Remaining: 0` + `X-RateLimit-Reset: <epoch>` in this case — invisible to the caller under the blanket 502.
+
+**Real fix** (no mock, no patch, no TODO — matches user directive):
+- `security_scan._gh_get()` now branches on every meaningful GH status:
+  - `401 → 401 "github_pat_invalid: <gh msg>"`
+  - `403 with X-RateLimit-Remaining=0 → 429 {error, message, retry_after_seconds, github_message}` (surfaces retry budget so frontend can back off)
+  - `403 (other) → 403 "github_forbidden: <gh msg>"` (SSO/org restrictions)
+  - `404 → 404 "github_repo_not_found: <gh msg>"`
+  - `409 → 422 "github_repo_empty: <gh msg>"` (empty repos)
+  - `422 → 422 "github_bad_ref: <gh msg>"` (missing default branch)
+  - `451 → 451 "github_unavailable_for_legal"`
+  - `5xx → 502 "github_upstream_<sc>: <gh msg>"`
+  - `httpx.TimeoutException → 504 "github_upstream_timeout"`
+  - `httpx.RequestError → 502 "github_transport_<ClsName>"` (real class name in detail so a founder can grep prod logs)
+  - Every reason string carries GitHub's own `message` field so a screenshot alone is enough to root-cause.
+- `codebase_health.scan()` outer wrap: preserves `except HTTPException: raise` (so meaningful statuses propagate untouched), and re-labels the fallback bare-Exception branch as `"github_fetch_crashed: <ClsName>: <msg>"` + `logger.exception(...)` with owner/repo/user_id context so prod stderr always has a traceback.
+
+**No behaviour changes for the happy path** — 200 GitHub responses return `r.json()` exactly as before; existing scanner logic is untouched.
+
+**Regression suite** (`test_iter212m216_gh_error_propagation.py`) — 12/12 green. Every GH status class + timeout + transport error + happy path + bad JSON + source-level lock so a future refactor can't reintroduce the blanket 502 wrap.
+
+**Preview end-to-end verified**:
+- `POST /codebase-health/scan` with fake PAT → `401 "github_pat_invalid: Bad credentials"` (was HTTPException(502) before — now GitHub's own reason in the detail)
+- No-PAT project still returns 400 correctly at the pre-scan gate (unchanged)
+- Detection catalog untouched: SCANNERS registry produces 17+ findings on seeded vulnerable code (previous iteration verification)
+
+**Impact for founder on prod**:
+- Redeploy `auremcto.com` — 502 will be replaced with the *actual* reason
+- If it's a rate limit (most likely), user sees `429 {retry_after_seconds: N}` and knows to wait
+- If it's empty repo / bad branch / SSO restriction, user sees the specific reason
+- Cloudflare's HTML intercept only fires on 5xx, so 4xx errors always surface as clean JSON now
+
+NEEDS PRODUCTION REDEPLOY.

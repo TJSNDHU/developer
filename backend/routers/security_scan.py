@@ -202,15 +202,99 @@ def _scan_http_headers(text_cache: dict[str, str]) -> list[dict]:
 
 
 async def _gh_get(client: httpx.AsyncClient, url: str, pat: str):
-    r = await client.get(url, headers=_gh_headers(pat), timeout=_GH_TIMEOUT)
-    if r.status_code == 401:
-        raise HTTPException(401, "github_pat_invalid")
-    if r.status_code == 404:
-        raise HTTPException(404, "github_repo_not_found")
-    if r.status_code >= 500:
-        raise HTTPException(502, f"github_upstream_{r.status_code}")
-    r.raise_for_status()
-    return r.json()
+    """GitHub GET with meaningful error propagation.
+
+    Iter 212m-216 — Before this iter, ANY non-200 that wasn't 401/
+    404/5xx (notably 403 secondary rate-limits and 422 empty-repo
+    errors) hit `r.raise_for_status()`, which threw an
+    `HTTPStatusError`.  That was then caught by the outer wrap in
+    `codebase_health.scan()` (`except Exception → HTTPException(502)`),
+    and Cloudflare's 5xx intercept replaced our JSON body with a
+    branded HTML "Bad gateway" page.  Users saw a raw 1.3s 502 with
+    no clue why — the actual reason (rate limit, empty repo, etc.)
+    never reached the browser.
+
+    We now branch on every meaningful GH status explicitly.  Rate
+    limits become 429 with `retry_after` so the frontend can back
+    off.  Empty / mis-branched repos surface 422.  Auth / permission
+    failures surface 401/403 with the real GitHub reason.  Only
+    genuine upstream 5xx bubbles as 502.
+    """
+    try:
+        r = await client.get(url, headers=_gh_headers(pat), timeout=_GH_TIMEOUT)
+    except httpx.TimeoutException as e:
+        raise HTTPException(504, f"github_upstream_timeout: {e!s}")
+    except httpx.RequestError as e:
+        # DNS / TLS / connection reset — never our fault, never the
+        # caller's fault.  Bubble as 502 with the real error class so
+        # a founder can debug from prod logs.
+        raise HTTPException(502, f"github_transport_{type(e).__name__}: {e!s}")
+
+    sc = r.status_code
+    if sc == 200:
+        try:
+            return r.json()
+        except Exception as e:
+            raise HTTPException(502, f"github_bad_json: {e!s}")
+
+    # ── Meaningful GH statuses — surface the actual reason ─────────
+    # Extract GitHub's own error message so the client sees
+    # `"detail": "github_rate_limited: API rate limit exceeded ..."`
+    # not a blanket "Bad gateway".
+    gh_msg = ""
+    try:
+        j = r.json()
+        gh_msg = (j.get("message") or "")[:200]
+    except Exception:
+        gh_msg = (r.text or "")[:200]
+
+    if sc == 401:
+        raise HTTPException(401, f"github_pat_invalid: {gh_msg}"
+                            if gh_msg else "github_pat_invalid")
+    if sc == 403:
+        # 403 on GH is nearly always a rate limit (primary or
+        # secondary) or SSO-restricted org.  Distinguish so the UI
+        # can render the right toast.
+        remaining = r.headers.get("x-ratelimit-remaining")
+        reset     = r.headers.get("x-ratelimit-reset")
+        if remaining == "0" and reset:
+            try:
+                import time as _t
+                retry_after = max(1, int(reset) - int(_t.time()))
+            except Exception:
+                retry_after = 60
+            raise HTTPException(429, {
+                "error":               "github_rate_limited",
+                "message":             f"GitHub API rate limit exhausted. "
+                                        f"Retry in ~{retry_after}s.",
+                "retry_after_seconds": retry_after,
+                "github_message":      gh_msg,
+            })
+        # Secondary rate limit or org-restricted PAT
+        raise HTTPException(403, f"github_forbidden: {gh_msg}"
+                            if gh_msg else "github_forbidden")
+    if sc == 404:
+        raise HTTPException(404, f"github_repo_not_found: {gh_msg}"
+                            if gh_msg else "github_repo_not_found")
+    if sc == 409:
+        # Empty repo — /git/trees fails with 409 "Git Repository is empty"
+        raise HTTPException(422, f"github_repo_empty: {gh_msg}"
+                            if gh_msg else "github_repo_empty")
+    if sc == 422:
+        # Bad ref, missing branch, or default_branch missing.
+        raise HTTPException(422, f"github_bad_ref: {gh_msg}"
+                            if gh_msg else "github_bad_ref")
+    if sc == 451:
+        raise HTTPException(451, f"github_unavailable_for_legal: {gh_msg}"
+                            if gh_msg else "github_unavailable_for_legal")
+    if sc >= 500:
+        raise HTTPException(502, f"github_upstream_{sc}: {gh_msg}"
+                            if gh_msg else f"github_upstream_{sc}")
+    # Anything else — treat as an actionable client error, but include
+    # the exact code so we can debug from a screenshot.
+    raise HTTPException(sc if 400 <= sc < 500 else 502,
+                        f"github_unexpected_{sc}: {gh_msg}"
+                        if gh_msg else f"github_unexpected_{sc}")
 
 
 async def _list_repo_tree(client: httpx.AsyncClient, owner: str, repo: str, pat: str) -> list[dict]:

@@ -587,9 +587,26 @@ async def scan(
     try:
         text_cache = await _build_text_cache(owner, repo, pat)
     except HTTPException:
+        # Iter 212m-216 — meaningful GH errors already carry the
+        # right status + detail from `_gh_get`.  Do NOT re-wrap them
+        # as 502 (that's what caused Cloudflare to intercept and
+        # replace the body with its own "Bad gateway" HTML on prod
+        # for months).  Just log + propagate.
         raise
     except Exception as e:
-        raise HTTPException(502, f"GitHub fetch failed: {e!r}")
+        # Genuine unexpected crash — log full context for founder
+        # monitoring, but return a caller-actionable 502 with the
+        # actual exception class in the detail so a screenshot alone
+        # is enough to root-cause.
+        logger.exception(
+            "codebase_health.scan crashed inside _build_text_cache "
+            "(user=%s, project=%s, owner=%s, repo=%s)",
+            user_id, project_id, owner, repo,
+        )
+        raise HTTPException(
+            502,
+            f"github_fetch_crashed: {type(e).__name__}: {str(e)[:200]}",
+        )
 
     breakdown: dict[str, dict] = {}
     all_findings: list[dict] = []
