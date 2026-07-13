@@ -11453,3 +11453,32 @@ Founder detection reuses the existing `services.usage.is_founder_email` allowlis
 - **Regression**: `backend/tests/test_iter212m210_advisor_tier_split.py` — 4 tests, all green. Locks: founder view returns council + deploy_sync; non-founder view omits both keys entirely; cross-user ownership still 404s; chat.py keeps the INFRA GUARD source string.
 - Verified live on preview via curl with founder token (`test@aurem.dev`) and a fresh throwaway non-founder signup. Founder response includes `role="founder"` + council + deploy_sync; standard user response has `role="user"` and no infra keys.
 - NEEDS PRODUCTION REDEPLOY.
+
+## Iter 212m-211 — Ask Advisor tool-leak + house-rules bypass RCA + fix (Feb 13, 2026)
+Founder RCA'd two coupled regressions the previous fix (212m-208) only partially closed:
+1. Raw `list_repo_files` / `search_repo` / `read_repo_file` tool_call blocks leaking into advisor replies.
+2. "Send the same prompt phir bhejo" / "ran out of time" anti-pattern reappearing.
+
+**Root cause**: `chat_with_tools` was still being invoked for advisor turns with `max_iters=1`. The LLM was HANDED the full tool catalogue and — despite the "DO NOT call tools" directive — often emitted a `tool_call` fence anyway. With `max_iters=1` the loop exited BEFORE executing them; `strip_tool_calls()` emptied the response; `_synthesise_max_iters_summary()` fired with `invocations=[]` and returned the exact "send the same prompt again" template that 212m-208 was written to kill.  If strip was partial the raw ```tool_call``` JSON leaked. **Prompt-instruction guard was never a real guarantee — LLM compliance is stochastic.**
+
+Additional finding: the intent-gateway `casual` short-circuit ran BEFORE the ora_panel check, meaning a casual `ora_panel=true` turn returned early with a generic ORA-copilot system prompt — silently skipping house_rules(role='advisor') + ADVISOR CONTEXT injection.  That's a house-rules violation.
+
+**Fix — three code-level guarantees (not prompt-level)**:
+- **G1 — Advisor bypasses `chat_with_tools` entirely.** For `ora_panel=true` we do a direct `services.llm.call_llm` (mirror of the intent-gateway casual path). Tools are physically not wired up on this path → LLM cannot execute them regardless of what it emits.
+- **G2 — Intent-gateway casual short-circuit is gated on `not body.ora_panel`.** Casual `hi` on advisor now falls through to the advisor-direct path with full house_rules + ADVISOR CONTEXT.
+- **G3 — Post-response scrub + leak-guard sentinel.** `strip_tool_calls` runs on the raw LLM reply before it enters the SSE queue. If any future refactor accidentally routes an advisor turn back into `chat_with_tools`, a new `advisor_leak_guard` log fires at ERROR level AND the response payload is scrubbed (tool_invocations wiped, provider tagged `advisor-leak-guard`) before shipping. Belt-and-braces regression protection.
+
+**Sentinel logging**: every advisor turn now emits `advisor_house_rules: injected=<bool>` so we can assert wiring in tests and monitor in prod that the admin's advisor payload is really reaching the LLM (not silently swallowed by a DB hiccup).
+
+**Regression suite**: `backend/tests/test_iter212m211_advisor_tool_leak.py` — 6 tests, all green.
+- 4 parametric `test_advisor_never_leaks_tools` cases with the exact prompts that used to trigger leaks (`list all files`, `read README`, `search TODO`, `hi ora`) assert: (a) provider in `{advisor-direct, advisor-direct-fallback, advisor-leak-guard}`, (b) response contains no ```tool_call``` fence + no anti-pattern strings, (c) `tool_calls_run == 0`.
+- `test_advisor_house_rules_round_trip` — seeds `enabled_advisor=True`, asserts the `advisor_house_rules: injected=True` sentinel log fires + provider is still on the restricted path. Uses log-file sentinel (deterministic) instead of asserting LLM instruction-following (stochastic).
+- `test_advisor_source_level_guardrails` — offline source-string checks so a future refactor cannot silently delete the sentinel, the leak-guard, the `"advisor-direct"` provider tag, or the `not body.ora_panel` gate on the casual short-circuit.
+
+**Live curl verification on preview**:
+- Question "list all files in my repo" → `provider=advisor-direct`, `tool_calls_run=0`, no fence, no template. ✅
+- Question "hi ora" → `provider=advisor-direct` (previously would have been `intent-gateway-casual` with generic prompt). ✅
+- Control `ora_panel=false` "hi" → `provider=intent-gateway-casual` (unchanged). ✅
+- With `enabled_advisor=True` seeded → sentinel logs `injected=True`, LLM's reply carried the admin's marker string. ✅
+
+NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — preview is clean.

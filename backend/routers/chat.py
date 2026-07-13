@@ -1368,6 +1368,11 @@ async def chat_stream(
     if body.ora_panel:
         extra_sys = (extra_sys + "\n\n" + ORA_PANEL_TONE).strip()
         # Iter 212m-24 — House Rules for Ask Advisor (advisor toggle).
+        # Iter 212m-211 — SENTINEL LOG so we can assert in tests +
+        # monitor in prod that the advisor role is really seeing the
+        # house-rules payload (not silently skipped by the try/except
+        # on a DB hiccup).
+        _hr_prompt_adv_seen = False
         try:
             from services.house_rules import (
                 get_active_house_rules, format_house_rules_block,
@@ -1380,8 +1385,13 @@ async def chat_stream(
                     format_house_rules_block(_hr_prompt_adv)
                     + ("\n\n" + extra_sys if extra_sys else "")
                 )
+                _hr_prompt_adv_seen = True
         except Exception as _hre:
             logger.debug("house_rules injection skipped (advisor): %r", _hre)
+        logger.info(
+            "advisor_house_rules: injected=%s (project_id=%s, user=%s)",
+            _hr_prompt_adv_seen, body.project_id, user_id,
+        )
 
     async def gen():
         import time as _t
@@ -2001,7 +2011,17 @@ async def chat_stream(
                 })
 
                 _tier = _intent_result.get("tier") or "agentic"
-                if _tier == "casual":
+                # Iter 212m-211 — HARD GUARDRAIL: `ora_panel=true` MUST
+                # always take the advisor-direct path (built below at
+                # `if body.ora_panel:`) so it inherits house_rules
+                # (role="advisor") + ADVISOR CONTEXT injection + zero
+                # tool exposure.  If we let the intent-gateway `casual`
+                # branch return here for an advisor turn, the reply
+                # would ship with a generic ORA-copilot system prompt
+                # instead of the advisor rules — a silent house-rules
+                # violation.  Skip the casual short-circuit when
+                # ora_panel is on.
+                if _tier == "casual" and not body.ora_panel:
                     # Direct LLM reply path — no tool calls, fast.
                     try:
                         from services.llm import call_llm as _call_llm
@@ -2063,13 +2083,28 @@ async def chat_stream(
                 # don't call tools".  This prevents advisor turns from
                 # ever hitting `_synthesise_max_iters_summary` — the
                 # user simply gets the model's direct answer.
+                #
+                # Iter 212m-211 — ROOT-CAUSE FIX for "same prompt phir
+                # bhejo" + raw tool_call leakage regression. The old
+                # implementation still routed through `chat_with_tools`
+                # with `max_iters=1`, so the LLM was HANDED the full
+                # tool catalogue and — despite the "DO NOT call tools"
+                # directive — often emitted `tool_call` fences anyway.
+                # With max_iters=1 the loop exits before executing
+                # them; `strip_tool_calls()` empties the response,
+                # `_synthesise_max_iters_summary()` fires with
+                # `invocations=[]`, and the user sees the "Send the
+                # same prompt again" template — the exact anti-pattern
+                # 212m-208 was supposed to kill.  If strip is partial
+                # the raw ```tool_call ...``` JSON leaks straight into
+                # the chat bubble.
+                #
+                # Fix: bypass `chat_with_tools` entirely for the
+                # advisor path and do a direct `call_llm` (same shape
+                # as the intent-gateway `casual` tier above).  No
+                # tools passed → no fences → no leak → no template,
+                # by construction.
                 if body.ora_panel:
-                    _max_iters_eff = 1
-                    # Iter 212m-209 — Fetch scoped read-only context and
-                    # inline it so the LLM answers from REAL data (not
-                    # guesses).  Rule: if a field is None, the LLM must
-                    # say "yeh data abhi available nahi hai" — never
-                    # fabricate.
                     _ctx_block = ""
                     if body.project_id:
                         try:
@@ -2140,14 +2175,92 @@ async def chat_stream(
                     _adv_directive = (
                         "\n\nYOU ARE THE ASK ADVISOR PANEL. "
                         "Answer the user's question directly from what "
-                        "you already know about this workspace. DO NOT "
-                        "call any tools this turn. DO NOT ask the user "
-                        "to narrow their question. DO NOT say you ran "
-                        "out of time.  If the question is ambiguous, "
+                        "you already know about this workspace and the "
+                        "ADVISOR CONTEXT block below.  You have NO "
+                        "tools this turn — do not attempt to call "
+                        "`list_repo_files`, `read_repo_file`, "
+                        "`search_repo`, or any other tool; those "
+                        "requests will be dropped.  Do not ask the "
+                        "user to narrow their question.  Do not say "
+                        "you ran out of time or ask them to resend "
+                        "the prompt.  If the question is ambiguous, "
                         "answer the most likely interpretation and "
-                        "note the assumption in one line."
+                        "note the assumption in one line.  Reply in "
+                        "plain prose only — no ```tool_call``` fences, "
+                        "no JSON blocks."
                     )
                     _sys_for_advisor = (extra_sys or "") + _adv_directive + _ctx_block
+
+                    # Direct LLM call — bypass the tool loop entirely.
+                    # Mirrors the intent-gateway `casual` path above so
+                    # the SSE result envelope stays identical to every
+                    # other mode (worker downstream reads
+                    # `result["content"]`).
+                    try:
+                        from services.llm import call_llm as _call_llm_adv
+                        _adv_reply = await _call_llm_adv(
+                            [{"role": "user", "content": body.prompt or ""}],
+                            system=_sys_for_advisor,
+                            max_tokens=800,
+                            temperature=0.4,
+                        )
+                        # Belt-and-braces: even a direct call can rarely
+                        # emit a fence if the model has been heavily
+                        # RLHF'd toward tool use.  Strip once here so
+                        # nothing raw can ever reach the UI bubble.
+                        from services.orchestrator import strip_tool_calls
+                        _adv_reply_clean = strip_tool_calls(_adv_reply or "").strip()
+                        if not _adv_reply_clean:
+                            _adv_reply_clean = (
+                                "Hmm — I couldn't put together a useful reply "
+                                "from what I have loaded right now.  Try "
+                                "asking a more specific question (e.g. "
+                                "'what open findings do I have?' or "
+                                "'am I close to my token limit?')."
+                            )
+                        result = {
+                            "ok":               True,
+                            "content":          _adv_reply_clean,
+                            "provider":         "advisor-direct",
+                            "fallback_chain":   ["advisor_direct"],
+                            "iterations":       1,
+                            "tool_calls_run":   0,
+                            "tool_invocations": [],
+                            "intent":           _intent_result,
+                            "tier":             _tier,
+                            "mode":             "chat",
+                            "ora_panel":        True,
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
+                    except Exception as _adv_e:
+                        # On direct-call failure DO NOT fall through to
+                        # `chat_with_tools` — that's the exact path we
+                        # want to keep the advisor away from.  Return a
+                        # graceful, self-contained message instead.
+                        logger.warning(
+                            "advisor direct-LLM path failed (%r) — "
+                            "returning graceful fallback (NOT falling "
+                            "through to orchestrator)", _adv_e,
+                        )
+                        result = {
+                            "ok":               True,
+                            "content":          (
+                                "Advisor abhi thoda slow hai — ek moment "
+                                "mein retry karo. (No infra was touched.)"
+                            ),
+                            "provider":         "advisor-direct-fallback",
+                            "fallback_chain":   ["advisor_direct", "graceful"],
+                            "iterations":       0,
+                            "tool_calls_run":   0,
+                            "tool_invocations": [],
+                            "intent":           _intent_result,
+                            "tier":             _tier,
+                            "mode":             "chat",
+                            "ora_panel":        True,
+                        }
+                        await q.put({"type": "result", "result": result})
+                        return
                 else:
                     _sys_for_advisor = extra_sys
 
@@ -2173,6 +2286,41 @@ async def chat_stream(
                     _published[:] = result.get("tool_invocations") or []
                     result["intent"] = _intent_result
                     result["tier"]   = _tier
+
+                    # Iter 212m-211 — CODE-LEVEL GUARDRAIL for ora_panel.
+                    # If we somehow ended up here on an advisor turn
+                    # (`ora_panel=true`) that means the earlier
+                    # advisor-direct short-circuit did NOT run —
+                    # i.e. our restricted path leaked into the full
+                    # orchestrator path.  That is exactly the class of
+                    # regression Iter 212m-208/211 was written to
+                    # prevent.  We (a) log LOUDLY so it shows up in
+                    # prod monitoring, and (b) scrub the response
+                    # payload of any tool_call fences AND any
+                    # tool_invocations before it ships to the UI, so
+                    # even in the failure mode the user never sees
+                    # raw ```tool_call``` blocks.
+                    if body.ora_panel:
+                        logger.error(
+                            "advisor_leak_guard: ora_panel=true turn reached "
+                            "chat_with_tools (provider=%s, tool_calls_run=%s). "
+                            "Scrubbing response before send.",
+                            result.get("provider"), result.get("tool_calls_run"),
+                        )
+                        try:
+                            from services.orchestrator import strip_tool_calls
+                            _scrubbed = strip_tool_calls(
+                                result.get("content") or ""
+                            ).strip()
+                        except Exception:
+                            _scrubbed = ""
+                        result["content"]          = _scrubbed or (
+                            "Advisor abhi thoda slow hai — ek moment mein retry "
+                            "karo. (No infra was touched.)"
+                        )
+                        result["tool_invocations"] = []
+                        result["tool_calls_run"]   = 0
+                        result["provider"]         = "advisor-leak-guard"
                 await q.put({"type": "result", "result": result})
             except Exception as e:
                 logger.exception("chat_stream orchestrator failed")
