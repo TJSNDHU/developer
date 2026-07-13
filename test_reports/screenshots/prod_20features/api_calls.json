@@ -1,0 +1,23 @@
+[
+  "https://auremcto.com/api/aurem-dev/advisor/context",
+  "https://auremcto.com/api/aurem-dev/auth/login",
+  "https://auremcto.com/api/aurem-dev/auth/robot-guide",
+  "https://auremcto.com/api/aurem-dev/chat/agents/list",
+  "https://auremcto.com/api/aurem-dev/chat/history",
+  "https://auremcto.com/api/aurem-dev/chat/sessions",
+  "https://auremcto.com/api/aurem-dev/codebase-health/last",
+  "https://auremcto.com/api/aurem-dev/cto/projects/cleanup-summary",
+  "https://auremcto.com/api/aurem-dev/cto/projects/connection-status",
+  "https://auremcto.com/api/aurem-dev/cto/projects/list",
+  "https://auremcto.com/api/aurem-dev/cto/projects/p_c2b5b8a916/warm-start",
+  "https://auremcto.com/api/aurem-dev/cto/projects/warm-start/ws_6cab6c10bd/status",
+  "https://auremcto.com/api/aurem-dev/findings/backlog",
+  "https://auremcto.com/api/aurem-dev/fix-pipeline/quota",
+  "https://auremcto.com/api/aurem-dev/founder-offer/status",
+  "https://auremcto.com/api/aurem-dev/founder-offer/user-status",
+  "https://auremcto.com/api/aurem-dev/loop/active",
+  "https://auremcto.com/api/aurem-dev/usage/me",
+  "https://auremcto.com/api/aurem-dev/vanguard/ci-findings",
+  "https://auremcto.com/api/aurem-dev/wrapped/me",
+  "https://auremcto.com/api/health"
+]

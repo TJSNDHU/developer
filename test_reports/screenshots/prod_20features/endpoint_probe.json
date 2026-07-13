@@ -1,0 +1,42 @@
+{
+  "/api/aurem-dev/cto/projects": {
+    "status": 404,
+    "ms": 62,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/loop/status": {
+    "status": 404,
+    "ms": 73,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/admin/vanguard-verify-stats": {
+    "status": 404,
+    "ms": 63,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/admin/council-retriever-stats": {
+    "status": 404,
+    "ms": 89,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/admin/council-health": {
+    "status": 404,
+    "ms": 59,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/admin/design-linter-rules": {
+    "status": 404,
+    "ms": 125,
+    "body": "{\"detail\":\"Not Found\"}"
+  },
+  "/api/aurem-dev/admin/architecture-health": {
+    "status": 401,
+    "ms": 61,
+    "body": "{\"detail\":\"Authorization header missing\"}"
+  },
+  "/api/aurem-dev/codebase-health/summary": {
+    "status": 404,
+    "ms": 222,
+    "body": "{\"detail\":\"Not Found\"}"
+  }
+}
