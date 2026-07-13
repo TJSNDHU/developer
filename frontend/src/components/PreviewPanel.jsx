@@ -240,10 +240,19 @@ export default function PreviewPanel({ blocks, onClose, activeProject, initialVi
       }]
     : [];
 
-  const effectiveBlocks = (onlyLiveOrPlaceholder && codebaseBlocks.length > 0)
+  // Iter 212m-206 — Founder request: `</> Code` mode should ALWAYS
+  // surface the live repo file tree, not just when the chat is empty.
+  // Previously the codebase blocks were only merged in when
+  // `onlyLiveOrPlaceholder` was true, so any chat with even one code
+  // block hid the repo browser entirely.  Now: in Code view mode we
+  // ALWAYS append the codebase tabs (once loaded) alongside whatever
+  // the chat produced, so the user can toggle between "what ORA just
+  // wrote" and "what's in the repo" without leaving Preview.
+  const effectiveBlocks = (viewMode === "code" && codebaseBlocks.length > 0)
     ? [
         ...realBlocks.filter((b) => (b?.lang || "").toLowerCase() === "live_url"),
         ...syntheticLive,
+        ...realBlocks.filter((b) => (b?.lang || "").toLowerCase() !== "live_url"),
         ...codebaseBlocks,
       ]
     : (syntheticLive.length > 0
@@ -398,10 +407,12 @@ export default function PreviewPanel({ blocks, onClose, activeProject, initialVi
                 if (v === "deploy") return "preview";
                 const next = v === "preview" ? "code" : "preview";
                 if (next === "code") {
-                  // If we only have live_url placeholders and a project
-                  // is connected, kick off the codebase fetch.
-                  if (onlyLiveOrPlaceholder && !codebase
-                      && activeProject?.project_id) {
+                  // Iter 212m-206 — Always fetch the repo tree when
+                  // entering Code mode (if not already cached), even
+                  // when the chat has real code blocks.  The user
+                  // expects `</> Code` to ALWAYS reveal the live repo
+                  // files, not just when the chat is empty.
+                  if (!codebase && activeProject?.project_id) {
                     fetchCodebaseTree();
                   }
                   // Jump to the first non-live_url tab if currently on one.
