@@ -2870,12 +2870,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by
-          send() and onDone above. */}
-      <LoopStepBar
-        phase={execMode === EXEC_MODES.LOOP ? loopPhase : "idle"}
-        retryCount={loopRetryCount}
-        errorStep={loopPhase === "error" ? 2 : 0}
-      />
+          send() and onDone above.
+
+          Iter 212m-201 — Founder request: bar should only appear
+          when LOOP mode is toggled ON.  In prompt mode we hide it
+          entirely so the chat column stays clean, and let the
+          composer grow taller (3-line min) to give more room for
+          the user's question. */}
+      {execMode === EXEC_MODES.LOOP && (
+        <LoopStepBar
+          phase={loopPhase}
+          retryCount={loopRetryCount}
+          errorStep={loopPhase === "error" ? 2 : 0}
+        />
+      )}
 
       {/* Iter 212m-58 — Plan approval card.  Renders the moment the
           plan-turn ends; user must click Approve before any code
@@ -3129,7 +3137,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             }
           }}
           placeholder="Ask ORA to build, fix, or scan… (type / for scan commands)"
-          rows={Math.min(6, Math.max(2, input.split("\n").length))}
+          // Iter 212m-201 — Composer height depends on execMode:
+          //   • Prompt mode  → min 3 rows (extra breathing room for
+          //     longer natural-language asks now that LoopStepBar is
+          //     hidden).
+          //   • Loop mode    → min 2 rows (LoopStepBar sits above and
+          //     consumes vertical space, so keep composer compact).
+          // Still auto-grows up to 6 rows based on \n count.
+          rows={Math.min(
+            6,
+            Math.max(
+              execMode === EXEC_MODES.LOOP ? 2 : 3,
+              input.split("\n").length
+            )
+          )}
           autoFocus
           disabled={busy || exhausted}
         />
