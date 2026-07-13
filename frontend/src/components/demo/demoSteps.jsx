@@ -221,72 +221,208 @@ const StepDashboard = ({ tick }) => (
   </div>
 );
 
-// ─── STEP 3 — Connect Repo Modal ──────────────────────────────
+// ─── STEP 3 — Connect GitHub via OAuth ────────────────────────
+// Real product uses a `Connect GitHub` button that redirects to
+// `/github/oauth/connect` → GitHub authorize screen → callback with
+// scoped access. There is NO PAT-paste form anywhere in the modern
+// onboarding, so the demo scene mirrors the same three beats:
+//   Beat A (0.00 – 0.32): dashboard with a big "Connect GitHub" CTA,
+//                          cursor drifts to it and clicks.
+//   Beat B (0.32 – 0.90): GitHub authorize screen (GitHub Octocat
+//                          header, scope list, "Authorize" button),
+//                          cursor lands on Authorize, clicks.
+//   Beat C (0.90 – 1.00): "Redirecting to AUREM…" spinner.  Step 4
+//                          then picks up with the green dot.
 const StepConnect = ({ tick }) => {
-  const pat = typed("ghp_••••••••••••••••••••", tick, 0.1, 0.5);
-  const owner = typed("your-org", tick, 0.5, 0.7);
-  const repo = typed("frontend", tick, 0.7, 0.88);
-  return (
-    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-      <div
-        style={{
-          width: 480,
-          padding: 24,
-          background: C.panel,
-          border: `1px solid ${C.amber}`,
-          borderRadius: 14,
-          boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.amberSoft} inset`,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <span style={{ width: 30, height: 30, borderRadius: 7, background: C.amberSoft, border: `1px solid ${C.amber}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>⚡</span>
-          <div style={{ fontFamily: C.mono, fontSize: 15, fontWeight: 700, color: C.text }}>Connect GitHub Repository</div>
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <MonoLabel>PERSONAL ACCESS TOKEN</MonoLabel>
-          <div style={{ marginTop: 6, padding: "10px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.text, fontFamily: C.mono, letterSpacing: "0.1em", minHeight: 20 }}>
-            {pat}<span style={{ opacity: tick > 0.1 && tick < 0.5 && Math.floor(tick * 24) % 2 ? 1 : 0 }}>│</span>
-          </div>
-          <div style={{ fontSize: 10, color: C.faint, marginTop: 5 }}>🔒 Encrypted at rest · Scoped to your repos only</div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
-          <div>
-            <MonoLabel>OWNER</MonoLabel>
-            <div style={{ marginTop: 6, padding: "10px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.text, fontFamily: C.mono, minHeight: 20 }}>
-              {owner}<span style={{ opacity: tick > 0.5 && tick < 0.7 && Math.floor(tick * 20) % 2 ? 1 : 0 }}>│</span>
-            </div>
-          </div>
-          <div>
-            <MonoLabel>REPOSITORY</MonoLabel>
-            <div style={{ marginTop: 6, padding: "10px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.text, fontFamily: C.mono, minHeight: 20 }}>
-              {repo}<span style={{ opacity: tick > 0.7 && tick < 0.88 && Math.floor(tick * 20) % 2 ? 1 : 0 }}>│</span>
-            </div>
-          </div>
-        </div>
-        <button
+  const beatA = tick < 0.32;
+  const beatB = tick >= 0.32 && tick < 0.9;
+  const beatC = tick >= 0.9;
+
+  // ── Beat A · CTA screen ────────────────────────────────────
+  if (beatA) {
+    // Cursor drifts diagonally to the button, "clicks" near the end.
+    const p = tick / 0.32;
+    return (
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+        <div
           style={{
-            width: "100%",
-            padding: "12px",
-            background: tick > 0.88 ? C.amber : "#3a2b0f",
-            color: tick > 0.88 ? "#000" : C.faint,
-            border: "none",
-            borderRadius: 8,
-            fontFamily: C.mono,
-            fontWeight: 700,
-            fontSize: 13,
-            letterSpacing: "0.05em",
-            transform: tick > 0.94 ? "scale(0.98)" : "scale(1)",
-            transition: "background 200ms, color 200ms, transform 100ms",
+            width: 480,
+            padding: 32,
+            background: C.panel,
+            border: `1px solid ${C.amber}`,
+            borderRadius: 14,
+            boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.amberSoft} inset`,
+            textAlign: "center",
           }}
         >
-          {tick > 0.94 ? "VALIDATING…" : "CONNECT REPOSITORY"}
-        </button>
+          {/* GitHub icon */}
+          <div style={{ width: 56, height: 56, margin: "0 auto 14px", borderRadius: "50%", background: "#0d1117", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="30" height="30" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+          </div>
+          <div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+            Connect your GitHub
+          </div>
+          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.6, marginBottom: 22 }}>
+            One click. ORA opens a GitHub authorize screen — no tokens<br />
+            to paste, no scripts to run. Scoped, revocable, private.
+          </div>
+          <button
+            data-testid="demo-connect-github-btn"
+            style={{
+              width: "100%",
+              padding: "12px",
+              background: p > 0.85 ? "#e6e6e6" : "#fff",
+              color: "#0d1117",
+              border: "none",
+              borderRadius: 8,
+              fontFamily: C.mono,
+              fontWeight: 700,
+              fontSize: 13,
+              letterSpacing: "0.05em",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              transform: p > 0.9 ? "scale(0.98)" : "scale(1)",
+              transition: "background 200ms, transform 100ms",
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="#0d1117" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+            CONNECT GITHUB
+          </button>
+          <div style={{ marginTop: 12, fontSize: 10, color: C.faint, fontFamily: C.mono, letterSpacing: "0.06em" }}>
+            🔒 We never see your GitHub password. Ever.
+          </div>
+        </div>
+        <Cursor
+          x={340 + p * 180}
+          y={260 + p * 220}
+          label={p > 0.9 ? "click" : null}
+        />
       </div>
-      <Cursor
-        x={tick < 0.1 ? 490 : tick < 0.5 ? 500 : tick < 0.7 ? 380 : tick < 0.88 ? 640 : 540}
-        y={tick < 0.1 ? 200 : tick < 0.5 ? 220 : tick < 0.88 ? 290 : 400}
-        label={tick > 0.92 ? "click" : null}
-      />
+    );
+  }
+
+  // ── Beat B · GitHub authorize screen ───────────────────────
+  if (beatB) {
+    const bp = (tick - 0.32) / 0.58;
+    return (
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: "#f6f8fa" }}>
+        {/* Full-bleed light GitHub bg */}
+        <div style={{ position: "absolute", inset: 0, background: "#f6f8fa" }} />
+        {/* GitHub top nav strip */}
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 42, background: "#0d1117", display: "flex", alignItems: "center", padding: "0 22px", gap: 12 }}>
+          <svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+          </svg>
+          <div style={{ color: "#c9d1d9", fontSize: 11, fontFamily: C.mono, letterSpacing: "0.06em" }}>
+            github.com / authorize
+          </div>
+        </div>
+
+        {/* Authorize card */}
+        <div
+          data-testid="demo-github-authorize"
+          style={{
+            position: "relative",
+            zIndex: 2,
+            width: 460,
+            background: "#fff",
+            border: "1px solid #d0d7de",
+            borderRadius: 8,
+            padding: 24,
+            boxShadow: "0 8px 24px rgba(140,149,159,0.2)",
+            color: "#1f2328",
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif',
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12, borderBottom: "1px solid #d0d7de", marginBottom: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 8, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>A</div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Authorize <span style={{ color: C.amber }}>AUREM CTO</span></div>
+              <div style={{ fontSize: 11, color: "#57606a" }}>by aurem-cto · verified publisher</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12.5, color: "#1f2328", lineHeight: 1.5, marginBottom: 12 }}>
+            AUREM CTO by @yourname wants to access your GitHub account.
+          </div>
+
+          {/* Permissions */}
+          <div style={{ background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6, padding: "10px 12px", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#57606a", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              Repositories
+            </div>
+            {[
+              "Read repo contents & metadata",
+              "Create & update pull requests",
+              "Read commit history",
+            ].map((t, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0", fontSize: 12.5 }}>
+                <span style={{ width: 14, height: 14, borderRadius: 3, background: "#dafbe1", border: "1px solid #55d178", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#1a7f37", fontWeight: 700 }}>✓</span>
+                {t}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#57606a", marginBottom: 14, padding: "6px 10px", background: "#fff8c5", border: "1px solid #d4a72c", borderRadius: 6 }}>
+            🔒 GitHub never sends AUREM your password. You can revoke access any time from GitHub Settings.
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexDirection: "row-reverse" }}>
+            <button
+              data-testid="demo-authorize-btn"
+              style={{
+                padding: "8px 20px",
+                background: bp > 0.85 ? "#1c7c34" : "#2da44e",
+                color: "#fff",
+                border: "1px solid rgba(31,35,40,0.15)",
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 13,
+                boxShadow: "0 1px 0 rgba(31,35,40,0.1)",
+                transform: bp > 0.9 ? "scale(0.98)" : "scale(1)",
+                transition: "background 150ms, transform 100ms",
+              }}
+            >
+              Authorize AUREM CTO
+            </button>
+            <button
+              style={{
+                padding: "8px 16px",
+                background: "#f6f8fa",
+                color: "#1f2328",
+                border: "1px solid rgba(31,35,40,0.15)",
+                borderRadius: 6,
+                fontSize: 13,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        <Cursor
+          x={230 + bp * 350}
+          y={200 + bp * 260}
+          label={bp > 0.9 ? "click" : null}
+        />
+      </div>
+    );
+  }
+
+  // ── Beat C · redirect flash ────────────────────────────────
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, position: "relative" }}>
+      <div style={{ width: 46, height: 46, borderRadius: "50%", border: `3px solid ${C.border2}`, borderTopColor: C.amber, animation: "wpSpin 0.8s linear infinite" }} />
+      <div style={{ fontFamily: C.mono, fontSize: 13, color: C.text, letterSpacing: "0.06em" }}>
+        Redirecting to AUREM…
+      </div>
+      <div style={{ fontFamily: C.mono, fontSize: 11, color: C.faint }}>
+        github.com → auremcto.com/github/oauth/callback
+      </div>
+      <style>{`@keyframes wpSpin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 };
@@ -624,9 +760,9 @@ export const FULL_STEPS = [
   },
   {
     id: "connect",
-    caption: "Paste your PAT + repo — encrypted, scoped, private.",
-    duration: 8000,
-    urlPath: "/projects/new",
+    caption: "One click → GitHub OAuth authorize screen → back in.  No PATs, no tokens to paste.",
+    duration: 9000,
+    urlPath: "/dashboard",
     render: StepConnect,
   },
   {
@@ -662,7 +798,7 @@ export const FULL_STEPS = [
 // Teaser cut — 4 highlight moments only, faster pacing (~24s total).
 export const TEASER_STEPS = [
   { ...FULL_STEPS[0], duration: 4500,  caption: "Sign up · 10 free tasks." },
-  { ...FULL_STEPS[2], duration: 6000,  caption: "Connect any GitHub repo — encrypted." },
+  { ...FULL_STEPS[2], duration: 6500,  caption: "Connect GitHub — one OAuth click." },
   { ...FULL_STEPS[5], duration: 8000,  caption: "LOOP mode ships production-ready code." },
   { ...FULL_STEPS[6], duration: 6000,  caption: "Merged in minutes. No hand-holding." },
 ];

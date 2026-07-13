@@ -19,7 +19,7 @@ the demo lies:
 |-----------------------------|-----------------------|------------------------------------------------|
 | Signup w/ 10 free tasks     | Step 1 (`StepSignup`) | `/signup` page + auth-shell                   |
 | Empty-dashboard CTA         | Step 2                | `ConnectRepoBanner` + `FinishSetupBanner`     |
-| PAT + owner/repo connect    | Step 3                | `AddProjectWizard`                            |
+| GitHub OAuth connect flow   | Step 3 (`StepConnect`)  | `Connect GitHub` button → `/github/oauth/connect` → callback |
 | Sidebar green-dot indicator | Step 4                | `SidebarBound` — status polling                |
 | `/scan bug hunt` slash cmd  | Step 5                | `SlashCommandMenu` + `chat.py` handler         |
 | Ask Advisor (Council live)  | Step 5 side panel     | `AskAdvisorReal` + `/admin/council/health`     |
