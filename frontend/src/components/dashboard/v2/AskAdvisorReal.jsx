@@ -56,6 +56,25 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
     return () => window.removeEventListener("keydown", onKey);
   }, [collapsed, onCollapse]);
 
+  // Iter 212m-202 — Expose the advisor panel's live width to the rest
+  // of the app via a CSS variable. Consumed by <Toaster/> so celebration
+  // toasts don't stack on top of the panel when it's expanded. Only
+  // applies at xl+ (the panel is `hidden` below xl). Kept as a body-
+  // level var so any absolutely-positioned overlay can read it.
+  useEffect(() => {
+    const setVar = () => {
+      const isXL = window.matchMedia("(min-width: 1280px)").matches;
+      const w = isXL && !collapsed ? "300px" : "0px";
+      document.documentElement.style.setProperty("--advisor-w", w);
+    };
+    setVar();
+    window.addEventListener("resize", setVar);
+    return () => {
+      window.removeEventListener("resize", setVar);
+      document.documentElement.style.removeProperty("--advisor-w");
+    };
+  }, [collapsed]);
+
   function send(text) {
     const t = (text || "").trim();
     if (!t || thinking) return;

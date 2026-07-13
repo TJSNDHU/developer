@@ -59,17 +59,26 @@ export default function ShipStreakWidget() {
       const shipped = r?.data?.stats?.tasks_shipped ?? 0;
       setCount(shipped);
       // Milestone hit? Toast once.
-      const hit = MILESTONES.find(
-        (m) => shipped >= m
-            && !localStorage.getItem(`aurem_streak_toast_${m}`),
-      );
+      // Iter 212m-202 — pick the HIGHEST milestone the user has crossed
+      // but not yet acknowledged, not the lowest. Prior behaviour
+      // showed "10 ships this week" to a user who had already shipped
+      // 81 (confusing — that number contradicts the widget next to it,
+      // and the celebration under-sells their real progress).
+      const hit = [...MILESTONES]
+        .filter((m) => shipped >= m && !localStorage.getItem(`aurem_streak_toast_${m}`))
+        .pop();
       if (!hit) return;
-      try { localStorage.setItem(`aurem_streak_toast_${hit}`, "1"); }
-      catch { /* private mode */ }
+      // Auto-mark every lower milestone as seen too, so we don't
+      // backfill a queue of small toasts on the next call.
+      try {
+        for (const m of MILESTONES) {
+          if (m <= hit) localStorage.setItem(`aurem_streak_toast_${m}`, "1");
+        }
+      } catch { /* private mode */ }
       toast({
         kind: "success",
         duration: 11_000,
-        message: `🔥 ${hit} ships this week — tap to share`,
+        message: `🔥 You just crossed ${hit} ships this week — tap to share`,
         onClick: () => openTwitter(hit),
       });
       // Also fire a custom event so other UI pieces (analytics, audit

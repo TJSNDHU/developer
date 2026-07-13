@@ -40,8 +40,19 @@ export default function Toaster() {
         // Maxx) and the repo selector pill on iPhone-width screens
         // (caught in iter 212m-153 prod QA).  We bump it below the
         // top bar on phones via the media-query stylesheet below.
-        top: 24,
-        right: 24,
+        //
+        // Iter 212m-202 — Founder screenshot:
+        //   1. Desktop `top: 24` overlapped the ShipStreakWidget +
+        //      "New run" button in the TopBar. Bump to 72.
+        //   2. Desktop `right: 24` stacked on top of the Ask Advisor
+        //      side panel (300 px wide when open). We now read the
+        //      live `--advisor-w` CSS var set by AskAdvisorReal and
+        //      shift the toaster left by that amount so it always
+        //      clears the panel. Var is `0px` when panel is collapsed
+        //      or below the xl breakpoint, so toasts hug the right
+        //      edge just like before in that mode.
+        top: 72,
+        right: "calc(24px + var(--advisor-w, 0px))",
         display: "flex",
         flexDirection: "column",
         gap: 8,
