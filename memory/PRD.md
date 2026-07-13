@@ -11413,3 +11413,8 @@ Founder bug: sidebar Bug Hunt click was landing on the marketing landing page (l
 - Root cause: `App.jsx:187` routed `/tools/bug-hunt` → `<BugHunt />` (marketing SEO page). Only `/bug-hunt` should serve marketing; the sidebar entry needs the scanner.
 - Fix: `/tools/bug-hunt` now renders `<CodebaseHealth />` (same as Health Scan). Public `/bug-hunt` route (line 193) still renders BugHunt.jsx marketing → SEO + conversion funnel preserved.
 - Verified via Playwright: URL → `/tools/bug-hunt`, health-empty component visible, `scan-bug_hunt` tile clickable, marketing page NOT rendered. NEEDS REDEPLOY.
+
+## Iter 212m-199 — GitHub composer toggle no longer opens legacy /projects (Feb 13, 2026)
+Founder bug: clicking the GitHub status toggle (green/red dot next to attachment + graph icons in composer toolbar) on a connected repo did `window.location.href = "/projects"`, throwing the user back into the legacy Projects interface with the old sidebar. Felt like a regression to V1.
+- Fix (`frontend/src/components/ChatPanel.jsx`, chat-github-status button): removed the `/projects` navigation on the connected branch; toggle is now a passive status indicator when a repo is linked (tooltip still shows owner/repo, cursor becomes `default`). Disconnected state still opens the in-place `RepoHelpDialog` — no legacy navigation from the composer.
+- Verified via Playwright on preview: clicking `chat-github-status` with an active project keeps URL on `/dashboard` and does not open any dialog. NEEDS REDEPLOY.

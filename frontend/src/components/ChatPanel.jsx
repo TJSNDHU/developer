@@ -3199,15 +3199,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             title={
               activeProject?.github_owner && activeProject?.github_repo
                 ? `GitHub: connected — ${activeProject.github_owner}/${activeProject.github_repo}`
-                : "GitHub: not connected — click to configure in Projects"
+                : "GitHub: not connected — click to configure"
             }
             onClick={() => {
-              // Iter 148 — open the in-place helper dialog instead of
-              // navigating away. If a repo is already connected we go
-              // straight to /projects so the user can manage it.
+              // Iter 212m-199 — Founder request: clicking the connected
+              // GitHub toggle used to `window.location.href = "/projects"`
+              // which threw users into the legacy Projects page (with the
+              // old sidebar). That felt like a regression back to the V1
+              // interface. When the repo is already connected we now
+              // treat this toggle as a passive status indicator — the
+              // tooltip already exposes owner/repo, and the sidebar
+              // handles switching. Only the disconnected state still
+              // opens the in-place RepoHelpDialog.
               const connected = !!(activeProject?.github_owner && activeProject?.github_repo);
-              if (connected) window.location.href = "/projects";
-              else setShowRepoHelp(true);
+              if (!connected) setShowRepoHelp(true);
             }}
             style={{
               position: "relative",
@@ -3219,7 +3224,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               borderRadius: 8,
               background: "transparent",
               border: "1px solid var(--border, rgba(255,200,120,0.16))",
-              cursor: "pointer",
+              // Iter 212m-199 — connected state is passive → default
+              // cursor so the button doesn't over-promise interaction.
+              cursor: (activeProject?.github_owner && activeProject?.github_repo)
+                ? "default"
+                : "pointer",
               color: "var(--text-dim)",
             }}
           >
