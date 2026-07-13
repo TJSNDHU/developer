@@ -11418,3 +11418,25 @@ Founder bug: sidebar Bug Hunt click was landing on the marketing landing page (l
 Founder bug: clicking the GitHub status toggle (green/red dot next to attachment + graph icons in composer toolbar) on a connected repo did `window.location.href = "/projects"`, throwing the user back into the legacy Projects interface with the old sidebar. Felt like a regression to V1.
 - Fix (`frontend/src/components/ChatPanel.jsx`, chat-github-status button): removed the `/projects` navigation on the connected branch; toggle is now a passive status indicator when a repo is linked (tooltip still shows owner/repo, cursor becomes `default`). Disconnected state still opens the in-place `RepoHelpDialog` — no legacy navigation from the composer.
 - Verified via Playwright on preview: clicking `chat-github-status` with an active project keeps URL on `/dashboard` and does not open any dialog. NEEDS REDEPLOY.
+
+## Iter 212m-200 — Demo suite (public /demo + landing embed + interactive tour) (Feb 13, 2026)
+Founder request: build demo assets for new-user education + ads.
+- Approach chosen: CSS/HTML animated mock UI (no screen recording, no PAT masking needed — nothing real is captured; disposable `your-org/frontend` as the placeholder repo).
+- **Deliverables**:
+  - `/demo` — full E2E walkthrough (~48s, 7 steps: signup → empty dashboard → repo connect → green dot → chat + `/scan` slash → LOOP → PR shipped). Auto-play + loop + restart control.
+  - `/demo?mode=teaser` — 25s highlight cut (4 steps) for ads.
+  - Landing embed — same `<WalkthroughPlayer>` in the "See it live" section on `/`, with a link to the full route.
+  - Interactive tour — `ConnectRepoTour` overlay on real `/dashboard`, launched via `FinishSetupBanner` (auto-shown when `projectCount === 0`) OR email deep-link `?tour=connect-repo`. Three spotlight steps (add repo → chat toolbar → LOOP toggle).
+- New files:
+  - `frontend/src/components/demo/WalkthroughPlayer.jsx`
+  - `frontend/src/components/demo/demoSteps.jsx` (FULL_STEPS + TEASER_STEPS)
+  - `frontend/src/pages/Demo.jsx`
+  - `frontend/src/components/tour/ConnectRepoTour.jsx`
+  - `frontend/src/components/tour/FinishSetupBanner.jsx`
+  - `memory/architecture/07_demo_drift.md` — drift-prevention doc + backlog item ("UI change → demo update in the same PR")
+- Reality-check: verified Council A endpoint alive, Ask Advisor + SlashCommandMenu + LoopStepBar + AddProjectWizard + SuggestionBoxModal + `chat-github-status` testid all present on preview. Demo does not fabricate any feature that is not live.
+- Bonus cleanup: removed 15 lines of pre-existing orphan JSX at end of `Dashboard.jsx` (leftover from a prior session's aborted edit).
+- **NEEDS PRODUCTION REDEPLOY** before pointing marketing traffic at `/demo`; production checklist in `07_demo_drift.md`.
+
+## Backlog · Iter 212m-200 · DEMO_DRIFT
+Whenever a UI change ships on any of these surfaces (Signup, ConnectRepoBanner, AddProjectWizard, SidebarBound green-dot, SlashCommandMenu, AskAdvisorReal, LoopStepBar, ShipConfirmModal), the author MUST also audit `/demo` in the same PR. See `memory/architecture/07_demo_drift.md` for the full checklist + selector contract for the interactive tour.

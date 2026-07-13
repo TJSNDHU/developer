@@ -71,7 +71,8 @@ const OpsRecipes        = lazy(() => import("./pages/OpsRecipes"));
 const Automations       = lazy(() => import("./pages/Automations"));
 const OAuthFinish       = lazy(() => import("./pages/OAuthFinish"));
 const VsDevin           = lazy(() => import("./pages/VsDevin"));
-const Pricing           = lazy(() => import("./pages/Pricing"));
+const Pricing          = lazy(() => import("./pages/Pricing"));
+const Demo             = lazy(() => import("./pages/Demo"));                  // Iter 212m-200
 
 // Minimal loading state for the brief fetch window. Avoids the
 // jarring "blank page" between click and hydration. Pure CSS so it
@@ -166,6 +167,7 @@ export default function App() {
       <Suspense fallback={<RouteLoader />}>
         <Routes>
           <Route path="/"                element={<Landing />} />
+          <Route path="/demo"            element={<Demo />} />
           <Route path="/login"           element={<Login />} />
           <Route path="/signup"          element={<Signup />} />
           <Route path="/dashboard"       element={<Dashboard />} />

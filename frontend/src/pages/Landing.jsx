@@ -30,6 +30,11 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import FounderOfferPill from "../components/FounderOfferPill";
 import PricingCards from "../components/PricingCards";
+// Iter 212m-200 — Interactive animated walkthrough embed. Same
+// component powers the standalone /demo route so the two paths
+// stay pixel-identical and drift-free.
+import WalkthroughPlayer from "../components/demo/WalkthroughPlayer";
+import { FULL_STEPS } from "../components/demo/demoSteps";
 // Iter 212m-157 — Bug Hunt nav link is now hidden for logged-in
 // non-admin users.  Anonymous + admin still see it (anonymous for
 // marketing, admin for the live scanner shortcut).
@@ -702,6 +707,34 @@ export default function Landing() {
           <div className="section-label">See it live</div>
           <h2 className="section-title">Watch ORA ship real code</h2>
           <p className="section-sub">Real repos. Real commits. No staging.</p>
+
+          {/* Iter 212m-200 — Interactive animated walkthrough embed.
+              Auto-plays the 7-step signup → repo-connect → LOOP → PR
+              arc. Fabricated mock UI (no PATs, no real repo access).
+              The same component powers the full /demo route. */}
+          <div style={{ marginBottom: 44 }} data-testid="landing-walkthrough-embed">
+            <WalkthroughPlayer steps={FULL_STEPS} mode="landing-embed" compact loop />
+            <div style={{ marginTop: 18, textAlign: "center" }}>
+              <Link
+                to="/demo"
+                data-testid="landing-open-full-demo"
+                style={{
+                  display: "inline-block",
+                  padding: "10px 20px",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--accent)",
+                  border: "1px solid var(--accent-br)",
+                  borderRadius: 999,
+                  textDecoration: "none",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                ▶ OPEN FULL WALKTHROUGH →
+              </Link>
+            </div>
+          </div>
+
           <div className="video-grid">
             {[
               {

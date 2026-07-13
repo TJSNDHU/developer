@@ -43,6 +43,8 @@ import {
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import RepoCleanupBanner from "../components/RepoCleanupBanner";
+import FinishSetupBanner from "../components/tour/FinishSetupBanner"; // Iter 212m-200
+import ConnectRepoTour from "../components/tour/ConnectRepoTour";     // Iter 212m-200
 import ShipConfirmModal from "../components/ShipConfirmModal";
 import ShipStreakWidget from "../components/ShipStreakWidget";
 import SecretScanCard from "../components/SecretScanCard";
@@ -72,6 +74,25 @@ function DashboardV2Body() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showWizard, setShowWizard] = useState(false);
   const [projectCount, setProjectCount] = useState(null);
+
+  // Iter 212m-200 — Interactive Connect-Repo tour state. Two entry
+  // points: (1) FinishSetupBanner "Show me how" button, (2) email
+  // deep-link with ?tour=connect-repo. Dismissed banner state is
+  // per-session (sessionStorage) so we don't nag users who intend to
+  // finish setup later.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [finishBannerDismissed, setFinishBannerDismissed] = useState(() => {
+    try { return sessionStorage.getItem("aurem_finish_setup_dismissed") === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    if (searchParams.get("tour") === "connect-repo") {
+      setTourOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("tour");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // v2 chrome state ----------------------------------------------------
   const [projects,         setProjects]         = useState([]);
@@ -638,6 +659,8 @@ function DashboardV2Body() {
       </div>
 
       {showWizard && <NewUserWizard onComplete={onWizardComplete} />}
+      {/* Iter 212m-200 — Connect-Repo interactive tour overlay. */}
+      {tourOpen && <ConnectRepoTour onClose={() => setTourOpen(false)} />}
 
       {/* Iter 212m-86 BUG 5 — Ship via CTO confirmation modal.
           Mounted once; opens on `aurem:open-ship-modal` event. */}
@@ -692,8 +715,3 @@ function SidebarReal({
     />
   );
 }
-
-
-// Import the live-data variant lazily to keep the file readable. The
-// component lives next to the rest of the v2 chrome.
-// (top-level import added above; this inline import is removed)
