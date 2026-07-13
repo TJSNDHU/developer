@@ -52,7 +52,13 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
       style={{
         display: "flex", alignItems: "center", gap: 14,
         padding: "12px 18px",
-        margin: "8px 12px 8px",
+        // Iter 212m-195 — align to the composer's horizontal padding
+        // (`.glass-composer { padding: 14px clamp(16px, 17.25%, 240px) }`)
+        // so the loop bar sits INSIDE the same visual column as the
+        // chat input instead of overflowing on both sides on wide
+        // screens (was `margin: 8px 12px 8px` → looked ~450px wider
+        // than the composer at 1400px viewport).
+        margin: "8px clamp(16px, 17.25%, 240px)",
         background: "#161616",
         border: "1px solid #2A2A2A",
         borderRadius: 12,
