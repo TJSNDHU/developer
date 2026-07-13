@@ -18,7 +18,7 @@ import {
   Eye, EyeOff, Trash2, Network, ShieldCheck,
 } from "lucide-react";
 import { api, streamChat, API_BASE, getToken, getUser, isAdminOrFounder } from "../lib/api";
-import { toast } from "./Toast";
+import { toast, dismissToast } from "./Toast";
 import PreviewPanel from "./PreviewPanel";
 import ModeSelector from "./ModeSelector";
 import ThinkingHint from "./ThinkingHint";
@@ -1867,12 +1867,37 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       toast({ message: "Connect a repo first — /scan needs a project", kind: "warn" });
       return;
     }
+    await _executeSlashScan(cmd, projectId);
+  }
+
+  // Iter 212m-217 — Rate-limit aware scan executor.
+  //
+  // Backend `_gh_get` (routers/security_scan.py) surfaces GitHub API
+  // rate-limits as a structured 429:
+  //   { error: "github_rate_limited",
+  //     message: "…",
+  //     retry_after_seconds: N,
+  //     github_message: "…" }
+  //
+  // And the per-user scan quota limiter (codebase_health.scan) uses
+  // the same shape with `error: "scan_rate_limited"`.  Both cases now
+  // render a persistent countdown toast that auto-retries when the
+  // timer hits zero, with a Cancel button to bail out.  Other errors
+  // (401 bad PAT, 404 repo not found, 502 upstream) surface as a
+  // one-shot error toast with the actual server detail so the user
+  // has an actionable string to act on instead of a silent failure.
+  async function _executeSlashScan(cmd, projectId, opts = {}) {
     setScanState("in_progress");
     try {
       const r = await api.post("/codebase-health/scan", {
         project_id: projectId,
         categories: cmd.categories || null,
       });
+      // Success — clear any lingering rate-limit toast from the retry
+      // path and record the summary for the strip.
+      if (opts.retryToastId != null) {
+        try { dismissToast(opts.retryToastId); } catch { /* ignore */ }
+      }
       const summary = r.data?.summary || {};
       const bySev   = summary.by_severity || {};
       markScanJustCompleted({
@@ -1881,11 +1906,92 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         projectId,
         projectName: activeProject?.github_repo || projectId,
       });
-    } catch {
-      // Keep the strip silent on a network/auth blip — the user can
-      // retry from the Codebase Health page directly.
+    } catch (e) {
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      const isRateLimited =
+        status === 429 &&
+        typeof detail === "object" && detail &&
+        typeof detail.retry_after_seconds === "number" &&
+        detail.retry_after_seconds > 0;
+      if (isRateLimited) {
+        // Cap runaway retries in case the server keeps rate-limiting
+        // us back-to-back.  Three cycles is enough to survive a brief
+        // secondary rate limit but avoids infinite toast loops.
+        const attempt = (opts.attempt || 0) + 1;
+        if (attempt > 3) {
+          toast({
+            message: `Rate limit still active after 3 retries — try again later.`,
+            kind: "error",
+            duration: 6000,
+          });
+          return;
+        }
+        // Cap the countdown at 300 s so we don't render an hour-long
+        // timer even if GitHub asks for one.
+        const retrySecs = Math.min(300, Math.max(1, detail.retry_after_seconds));
+        const isGh = detail.error === "github_rate_limited";
+        const label = isGh
+          ? "GitHub API rate limit hit"
+          : `Scan quota reached (${detail.category || "scan"})`;
+        // Stable id so the toast updates in place instead of stacking.
+        const toastId = opts.retryToastId || `scan-rate-${projectId}`;
+        let cancelled = false;
+        toast({
+          id:         toastId,
+          message:    `${label} — retrying automatically…`,
+          kind:       "warn",
+          persistent: true,
+          countdown:  retrySecs,
+          onExpire:   () => {
+            if (cancelled) return;
+            _executeSlashScan(cmd, projectId, {
+              attempt,
+              retryToastId: toastId,
+            });
+          },
+          actions: [
+            {
+              label:   "Cancel",
+              onClick: () => {
+                cancelled = true;
+                setScanState("idle");
+              },
+            },
+            {
+              label:   "Retry now",
+              primary: true,
+              onClick: () => {
+                cancelled = true;
+                _executeSlashScan(cmd, projectId, {
+                  attempt,
+                  retryToastId: toastId,
+                });
+              },
+            },
+          ],
+        });
+        // We stay in "in_progress" only while the timer runs. Reset
+        // now so the input strip doesn't lock; the retry will flip
+        // it back on.
+        setScanState("idle");
+        return;
+      }
+      // Non-rate-limit failure — surface the real reason.
+      let msg = detail;
+      if (typeof msg !== "string") {
+        msg = msg?.message
+          || (() => { try { return JSON.stringify(msg); } catch { return String(msg); } })();
+      }
+      toast({
+        message: `Scan failed — ${msg || "network error"}`,
+        kind:    "error",
+        duration: 6000,
+      });
     } finally {
-      setScanState("idle");
+      // Only clear if we're not mid-countdown (rate-limit early return
+      // has already reset it).
+      setScanState((s) => (s === "in_progress" ? "idle" : s));
     }
   }
 

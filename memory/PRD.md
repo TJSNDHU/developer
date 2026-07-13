@@ -2,6 +2,37 @@
 
 ## Recent session (2026-02-Session-5) — status snapshot
 
+### 2026-02-13 — Iter 212m-217 — `/scan` slash-command rate-limit countdown toast (P0)
+
+**Landed:**
+- `Toast.jsx` extended with `persistent`, `countdown`, `onExpire`,
+  `actions`, and stable `id` so a single toast can update in place
+  and render a live "Ns" pill that ticks down.  `dismissToast(id)`
+  helper added for imperative dismiss.
+- `ChatPanel.runSlashCommand` refactored: rate-limit (429) responses
+  from `/codebase-health/scan` — both `github_rate_limited`
+  (surfaced by `_gh_get`) and `scan_rate_limited` (per-user quota) —
+  now render a persistent countdown toast with **Cancel** / **Retry
+  now** buttons and **auto-retry on timer expiry**.  Attempts are
+  capped at 3 to avoid runaway loops; countdown clamped to 300 s.
+  Non-rate-limit errors surface the real `detail` string instead of
+  the previous silent swallow.
+- Regression tests:
+  - `tests/test_iter212m217_scan_rate_limit_shape.py` locks the
+    backend↔frontend contract on `retry_after_seconds`, ensures the
+    ChatPanel keeps a `persistent` + `countdown` codepath.
+  - Existing `tests/test_iter212m216_gh_error_propagation.py` still
+    green (15 tests total pass).
+
+**Files touched:**
+- `/app/frontend/src/components/Toast.jsx` (rewrite w/ countdown)
+- `/app/frontend/src/components/ChatPanel.jsx` (`_executeSlashScan`)
+- `/app/backend/tests/test_iter212m217_scan_rate_limit_shape.py` (new)
+
+**Testing:** backend pytest 15/15 pass; smoke screenshot on preview
+confirmed no bundle regression.
+
+
 **Landed:**
 - P0 audit (Session 4 leftover) — all resolved. `/deploy/status`
   confirmed dead reference (no live callers). Ten `mock/stub` code
