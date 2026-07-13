@@ -2964,20 +2964,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           outline: dragOver ? "2px dashed var(--accent-2)" : "none",
           outlineOffset: -8,
           transition: "outline 120ms ease",
-          // Iter 212m-37 — match the founder banner's amber side
-          // borders so the offer + composer read as one unified
-          // container.  Bottom corners stay rounded; top stays flat
-          // (the banner's rounded top corners cap the whole stack).
-          borderLeft: "1px solid rgba(234,179,8,0.45)",
-          borderRight: "1px solid rgba(234,179,8,0.45)",
-          borderBottom: "1px solid rgba(234,179,8,0.45)",
-          borderBottomLeftRadius: 12,
-          borderBottomRightRadius: 12,
-          // Iter 212m-54 — composer background now inherits from the
-          // parent chat panel via `transparent`, so the seam between
-          // chat-area and composer disappears in every mode (Swift /
-          // Pro / Maxx / founder-tint). The amber side borders stay
-          // since they belong to the founder offer banner stack.
+          // Iter 212m-197 — Founder request (option B): remove the
+          // entire composer box outline so it blends with the chat
+          // pane. The previous amber side/bottom borders (from
+          // 212m-37) were intended to visually fuse with the
+          // FounderOfferCard above; without a top edge on that card,
+          // the ring looked disconnected on wide viewports. Inner
+          // `.composer-card` still has its own 1px outline so the
+          // textarea stays visually contained.
+          border: "none",
+          // Iter 212m-54 — composer background inherits from parent
+          // chat panel via `transparent`.
           background: "transparent",
         }}
       >

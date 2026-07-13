@@ -532,7 +532,14 @@ body.aurem-glass #root {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-radius: 12px;
-  border: 1px solid #222 !important;
+  /* Iter 212m-197 — Founder request: remove the 1px #222 outline
+     around the entire composer form. Previously an `!important`
+     border wrapped all 4 sides (edge-to-edge on the chat pane),
+     drawing a horizontal line between the LOOP bar and the chat
+     textarea. Dropping it lets the composer blend with the chat
+     background; the inner `.composer-card` still has its own 1px
+     outline so the textarea stays visually contained. */
+  border: none;
 }
 
 /* Composer bar over the glass background.
