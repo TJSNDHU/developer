@@ -203,6 +203,18 @@ export default function AdminOverview() {
             }}
           >💰 Financials →</a>
           <a
+            data-testid="goto-system-health"
+            href="/admin/system-health"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "var(--accent, #ff8a2a)",
+              color: "var(--bg, #0a0c10)",
+              border: "none", borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >⚡ System Health →</a>
+          <a
             data-testid="goto-integrations"
             href="/admin/integrations"
             style={{

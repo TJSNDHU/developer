@@ -63,6 +63,7 @@ const BugHunt           = lazy(() => import("./pages/BugHunt"));        // Iter 
 const SidebarPreview    = lazy(() => import("./pages/SidebarPreview")); // Iter 212m-80
 const DashboardPreviewV2 = lazy(() => import("./pages/DashboardPreviewV2")); // Iter 212m-81
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
+const AdminSystemHealth = lazy(() => import("./pages/AdminSystemHealth"));   // Iter 212m-205
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
 const ShipWall          = lazy(() => import("./pages/ShipWall"));
@@ -204,6 +205,7 @@ export default function App() {
           <Route path="/sidebar-preview"    element={<SidebarPreview />} />
           <Route path="/dashboard-preview-v2" element={<DashboardPreviewV2 />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
+          <Route path="/admin/system-health" element={<AdminSystemHealth />} />
           {/* Iter 212m-171 — direct URLs for new admin sections */}
           <Route path="/admin/bin-tracker"    element={<Admin initialTab="bin_tracker" />} />
           <Route path="/admin/feature-flags"  element={<Admin initialTab="feature_flags" />} />
