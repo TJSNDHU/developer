@@ -3389,18 +3389,23 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             </button>
           )}
         </div>
-        </div>
-
-        {/* Iter 212m-93 — v0-spec composer footer caption. Replaces the
-            old "Vanguard active" pill — same security message in a
-            calmer place. */}
+        {/* Iter 212m-93 · Iter 212m-195 — Vanguard caption now lives
+            INSIDE the composer card (v2 mock layout). Previously it
+            sat outside/below the form so on `/dashboard` it looked
+            detached from the input surface, while the v2 preview
+            page had it hugging the bottom of the composer. Moved
+            inside `composer-card` and given a subtle top border so
+            it reads as the card's own footer. */}
         <div data-testid="composer-footer-caption" style={{
-          textAlign: "center", marginTop: 8,
+          textAlign: "center", padding: "8px 12px 2px",
+          borderTop: "1px solid rgba(255,255,255,0.04)",
+          marginTop: 6,
           fontSize: 10, color: "var(--text-faint, #666)",
           fontFamily: "'JetBrains Mono', monospace",
           letterSpacing: "0.04em",
         }}>
           ORA · Vanguard reviews every change before it ships.
+        </div>
         </div>
       </form>
 
