@@ -19,7 +19,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
-import { streamChat } from "../../../lib/api";
+import { streamChat, api } from "../../../lib/api";
 import { getActiveProjectId } from "../../TabBar";
 import {
   Lightbulb, ArrowUp, ChevronRight, Square,
@@ -49,6 +49,23 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   const [thinkingStartMs, setThinkingStartMs] = useState(null);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const timeoutRef = useRef(null);
+
+  // Iter 212m-209 — Live project-scoped context (findings, council,
+  // deploy-sync, quota).  Powers the dynamic morning-brief pill AND
+  // is also injected server-side into the LLM system prompt.  We
+  // refetch on project change so the pill can't stale.
+  const [ctx, setCtx] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    if (!effectiveProjectId) { setCtx(null); return; }
+    (async () => {
+      try {
+        const r = await api.get("/advisor/context", { params: { project_id: effectiveProjectId } });
+        if (!dead) setCtx(r.data);
+      } catch { if (!dead) setCtx(null); }
+    })();
+    return () => { dead = true; };
+  }, [effectiveProjectId]);
 
   useEffect(() => {
     if (!thinkingStartMs) { setThinkingElapsed(0); return; }
@@ -239,11 +256,39 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
           </button>
         </div>
 
-        <div className="mx-3 mt-3 shrink-0 rounded-lg border border-warning/20 bg-[#1a1200] p-3">
+        <div className="mx-3 mt-3 shrink-0 rounded-lg border border-warning/20 bg-[#1a1200] p-3" data-testid="ds2-advisor-morning-brief">
           <p className="mb-1 text-[11px] font-bold text-warning">Morning brief</p>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            ORA Advisor live · Council few-shot retrieval active · ask any
-            repo, run, or token-usage question
+            {ctx ? (
+              <>
+                <b className="text-foreground">{ctx.project_name}</b>
+                {" · "}
+                {ctx.findings?.error == null && ctx.findings?.total != null
+                  ? <>{ctx.findings.total} open finding{ctx.findings.total === 1 ? "" : "s"}
+                      {(ctx.findings.p0 || 0) > 0 ? <> ({ctx.findings.p0} P0)</> : null}
+                    </>
+                  : <>findings pata nahi</>}
+                {" · Council A: "}
+                {ctx.council?.live === true
+                  ? <span className="text-green-500">live</span>
+                  : ctx.council?.live === false
+                    ? <span className="text-red-500">degraded</span>
+                    : <>pata nahi</>}
+                {" · Deploy: "}
+                {ctx.deploy_sync?.in_sync === true
+                  ? <span className="text-green-500">in-sync</span>
+                  : ctx.deploy_sync?.in_sync === false
+                    ? <span className="text-amber-500">out-of-sync</span>
+                    : <>pata nahi</>}
+                {ctx.quota?.tokens_used != null && ctx.quota?.tokens_limit != null
+                  ? <> · Tokens: {ctx.quota.tokens_used}/{ctx.quota.tokens_limit}</>
+                  : null}
+              </>
+            ) : (
+              effectiveProjectId
+                ? "loading live signals…"
+                : "select a project to see live signals"
+            )}
           </p>
         </div>
 

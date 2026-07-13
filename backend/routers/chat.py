@@ -2065,6 +2065,43 @@ async def chat_stream(
                 # user simply gets the model's direct answer.
                 if body.ora_panel:
                     _max_iters_eff = 1
+                    # Iter 212m-209 — Fetch scoped read-only context and
+                    # inline it so the LLM answers from REAL data (not
+                    # guesses).  Rule: if a field is None, the LLM must
+                    # say "yeh data abhi available nahi hai" — never
+                    # fabricate.
+                    _ctx_block = ""
+                    if body.project_id:
+                        try:
+                            from routers.advisor_context import get_advisor_context
+                            _ctx = await get_advisor_context(
+                                project_id=body.project_id,
+                                authorization=authorization,
+                            )
+                            _ctx_block = (
+                                "\n\n=== ADVISOR CONTEXT (READ-ONLY, LIVE) ===\n"
+                                f"Project: {_ctx.get('project_name')}  (id={_ctx.get('project_id')})\n"
+                                f"Findings: total={_ctx['findings'].get('total')}  "
+                                f"P0={_ctx['findings'].get('p0')}  P1={_ctx['findings'].get('p1')}  P2={_ctx['findings'].get('p2')}"
+                                + (f"  (err: {_ctx['findings'].get('error')})" if _ctx['findings'].get('error') else "") + "\n"
+                                f"Council A: live={_ctx['council'].get('live')}  "
+                                f"primary_actual={_ctx['council'].get('primary_actual')}  "
+                                f"primary_intended={_ctx['council'].get('primary_intended')}  "
+                                f"last_probe={_ctx['council'].get('last_probe')}\n"
+                                f"Deploy sync: self={_ctx['deploy_sync'].get('self_sha')}  "
+                                f"prod={_ctx['deploy_sync'].get('prod_sha')}  "
+                                f"in_sync={_ctx['deploy_sync'].get('in_sync')}\n"
+                                f"Quota: used={_ctx['quota'].get('tokens_used')}  "
+                                f"limit={_ctx['quota'].get('tokens_limit')}  "
+                                f"period={_ctx['quota'].get('period')}\n"
+                                "=========================================\n\n"
+                                f"RULES:\n"
+                                f"1. EVERY response MUST mention the project name '{_ctx.get('project_name')}' explicitly.\n"
+                                f"2. If any field above is null/None/error, respond 'yeh data abhi available nahi hai' — NEVER guess.\n"
+                                f"3. Only cite numbers that appear in this block. Do not extrapolate."
+                            )
+                        except Exception as _cxe:
+                            _ctx_block = f"\n\n[Advisor context fetch failed: {str(_cxe)[:80]}] — reply with 'yeh data abhi available nahi hai' for any data-dependent question."
                     _adv_directive = (
                         "\n\nYOU ARE THE ASK ADVISOR PANEL. "
                         "Answer the user's question directly from what "
@@ -2075,7 +2112,7 @@ async def chat_stream(
                         "answer the most likely interpretation and "
                         "note the assumption in one line."
                     )
-                    _sys_for_advisor = (extra_sys or "") + _adv_directive
+                    _sys_for_advisor = (extra_sys or "") + _adv_directive + _ctx_block
                 else:
                     _sys_for_advisor = extra_sys
 

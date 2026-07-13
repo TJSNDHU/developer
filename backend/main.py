@@ -61,6 +61,7 @@ from routers.codebase_health import router as codebase_health_router # Iter 212m
 from routers.findings      import router as findings_router         # Iter 212m-190 backlog + dismiss/snooze
 from routers.suggestions   import router as suggestions_router      # Iter 212m-193 founder suggestion box
 from routers.version       import router as version_router          # Iter 212m-205 build info + system health
+from routers.advisor_context import router as advisor_ctx_router     # Iter 212m-209 advisor read layer
 from routers.qa_probe      import router as qa_probe_router         # Iter 212m-190 QA-only chat-probe
 from routers.loop          import router as loop_router             # Iter 212m-60 Loop Mode engine
 from routers.diagram       import router as diagram_router          # Iter 212m-61 /diagram
@@ -1438,6 +1439,7 @@ app.include_router(codebase_health_router, prefix="/api/aurem-dev")  # Iter 212m
 app.include_router(findings_router,        prefix="/api/aurem-dev")  # Iter 212m-190 backlog + dismiss
 app.include_router(suggestions_router,     prefix="/api/aurem-dev")  # Iter 212m-193 founder suggestions
 app.include_router(version_router)                                  # Iter 212m-205 (already prefixed inside)
+app.include_router(advisor_ctx_router)                              # Iter 212m-209 (already prefixed inside)
 app.include_router(qa_probe_router,        prefix="/api/aurem-dev")  # Iter 212m-190 QA-only probe
 # Iter 212m-158 — /tools page "Notify me" capture endpoint.
 from routers.notify_interest import router as notify_interest_router
