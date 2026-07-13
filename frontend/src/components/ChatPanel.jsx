@@ -3248,7 +3248,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           {/* Iter 154 — legacy `chat-maxx-btn` removed. Maxx is now
               selected via the ModeSelector pill on the right; the
               standalone toggle was redundant and confused users. */}
-          <span style={{ flex: 1 }} />
+          {/* Iter 212m-195 — Vanguard caption pulled INTO the toolbar
+              row as the middle flex-1 element. Previously it lived
+              as a separate row underneath (`composer-footer-caption`)
+              which made the composer visually two-tier. User wanted
+              a single bottom row with icons on left, security line
+              centered, mode toggles + send on right — this span is
+              exactly that middle piece. Retains original testid so
+              existing tests keep passing. */}
+          <span
+            data-testid="composer-footer-caption"
+            style={{
+              flex: 1, textAlign: "center", padding: "0 12px",
+              fontSize: 10, color: "var(--text-faint, #666)",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+              userSelect: "none",
+            }}>
+            ORA · Vanguard reviews every change before it ships.
+          </span>
           {/* Iter 212m-97 — REMOVED in-composer <ModeSelector>. Swift/
               Pro/Maxx now lives ONLY in the TopBar (single source of
               truth). The two are kept in sync via the
@@ -3389,23 +3407,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             </button>
           )}
         </div>
-        {/* Iter 212m-93 · Iter 212m-195 — Vanguard caption now lives
-            INSIDE the composer card (v2 mock layout). Previously it
-            sat outside/below the form so on `/dashboard` it looked
-            detached from the input surface, while the v2 preview
-            page had it hugging the bottom of the composer. Moved
-            inside `composer-card` and given a subtle top border so
-            it reads as the card's own footer. */}
-        <div data-testid="composer-footer-caption" style={{
-          textAlign: "center", padding: "8px 12px 2px",
-          borderTop: "1px solid rgba(255,255,255,0.04)",
-          marginTop: 6,
-          fontSize: 10, color: "var(--text-faint, #666)",
-          fontFamily: "'JetBrains Mono', monospace",
-          letterSpacing: "0.04em",
-        }}>
-          ORA · Vanguard reviews every change before it ships.
-        </div>
+        {/* Iter 212m-195 — old separate footer caption row removed;
+            the caption now lives INSIDE the toolbar between left icons
+            and right toggles (flex-1 span above), matching the v2
+            single-bottom-row layout. */}
         </div>
       </form>
 
