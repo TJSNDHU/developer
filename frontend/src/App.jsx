@@ -181,6 +181,7 @@ export default function App() {
           <Route path="/deploy"          element={<Deploy />} />
           <Route path="/domain"          element={<Domain />} />
           <Route path="/settings"        element={<Settings />} />
+          <Route path="/profile"         element={<Settings />} />
           <Route path="/tokens"          element={<Tokens />} />
           <Route path="/analytics"       element={<Analytics />} />
           <Route path="/projects"        element={<Projects />} />

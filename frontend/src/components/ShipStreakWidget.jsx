@@ -80,6 +80,7 @@ export default function ShipStreakWidget() {
         duration: 11_000,
         message: `🔥 You just crossed ${hit} ships this week — tap to share`,
         onClick: () => openTwitter(hit),
+        position: "bottom-right",   // iter 212m-221 — avoid Graph tab codebase-panel header overlap
       });
       // Also fire a custom event so other UI pieces (analytics, audit
       // log) can pick this up without coupling to the widget.

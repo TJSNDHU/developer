@@ -383,6 +383,51 @@ async def council_health(authorization: Optional[str] = Header(None)):
     }
 
 
+# Iter 212m-221 — Manual reprobe.  Council A gets stuck in "degraded"
+# for 15 min after any transient OpenRouter blip (429, network hiccup)
+# because reprobes are on a fixed cadence.  This endpoint lets a
+# founder force an immediate re-check from the Admin UI or a curl.
+@router.post("/council/reprobe")
+async def council_reprobe(authorization: Optional[str] = Header(None)):
+    """Force an immediate LongCat re-probe. Founder-only.
+    Returns the fresh probe snapshot so the caller can render the new
+    badge without a second round-trip. Rate-limit: at most 1 call
+    every 3 s per pod (simple in-memory guard) to prevent probe spam.
+    """
+    await _require_admin(authorization)
+    from services.llm import probe_longcat_availability, _LONGCAT_LAST_PROBE
+    import time as _time
+    global _COUNCIL_REPROBE_LAST_AT              # noqa: PLW0603
+    now = _time.time()
+    if now - _COUNCIL_REPROBE_LAST_AT < 3.0:
+        return {
+            "ok":       False,
+            "throttled": True,
+            "wait_s":   round(3.0 - (now - _COUNCIL_REPROBE_LAST_AT), 2),
+            "snapshot": _LONGCAT_LAST_PROBE,
+        }
+    _COUNCIL_REPROBE_LAST_AT = now
+    live = await probe_longcat_availability()
+    return {
+        "ok":        True,
+        "live":      live,
+        "snapshot":  _LONGCAT_LAST_PROBE,
+        "reprobed_at": now,
+    }
+
+
+# Iter 212m-221 — Alias for the historical /council-health (hyphen)
+# path.  The 20-feature validation agent tried the hyphen form and
+# 404-ed; a redirect-alias keeps both spellings alive.
+@router.get("/council-health")
+async def council_health_alias(authorization: Optional[str] = Header(None)):
+    """Alias for GET /admin/council/health (kebab-case spelling)."""
+    return await council_health(authorization=authorization)
+
+
+_COUNCIL_REPROBE_LAST_AT: float = 0.0
+
+
 
 # ── Users ──────────────────────────────────────────────────────────
 @router.get("/ora-learning/weekly-summary")

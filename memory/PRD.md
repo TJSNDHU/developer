@@ -2,6 +2,32 @@
 
 ## Recent session (2026-02-Session-5) — status snapshot
 
+### 2026-02-13 — Iter 212m-221 — Council + Scan hardening + Profile UI + Z-index
+
+**Fixes from 20-feature validation report:**
+
+**1. Council A "degraded" flicker fix** (`services/llm.py`)
+- 429 rate-limit responses now treated as `live=True` (model reachable, just throttled) — no more 15-min-long false "degraded" badge on Advisor brief.
+- Adaptive re-probe backoff: healthy → 15 min cadence, degraded → 60 s cadence.
+
+**2. Manual re-probe endpoint** (`routers/admin.py`)
+- `POST /admin/council/reprobe` — force immediate LongCat re-probe. 3 s throttle guard.
+- `GET /admin/council-health` — kebab-case alias (the 20-feature agent tried this URL and 404-ed).
+
+**3. Critical `_is_dockerfile` NameError fix** (`routers/codebase_health.py`)
+- **Root cause of the 1.3s Cloudflare 502 on `/codebase-health/scan`.** The helper was accidentally removed in a prior refactor while two callers kept referencing it. Restored with strict basename matching.
+- Added explicit `httpx.Timeout(45, connect=6, read=15)` on the outer `AsyncClient` in `_build_text_cache`.
+- Added structured latency log for scan cache traceability.
+
+**4. Streak toast + Graph panel overlap** (`Toast.jsx`, `ShipStreakWidget.jsx`, `Dashboard.jsx`)
+- Toaster now renders two stacks: `top-right` (default) + `bottom-right` (milestones).
+
+**5. `/profile` page + Universal Key card** (`App.jsx`, `Settings.jsx`)
+- `/profile` now routes to Settings. Profile tab leads with Universal LLM Key card: tier badge, tokens remaining (∞ for founders), used, tasks this month, quota progress bar.
+
+**Tests:** `tests/test_iter212m221_council_and_dockerfile.py` — 5/5 pass.
+
+
 ### 2026-02-13 — Iter 212m-219 — Homepage "Killer 3" + `/why-ora` deep-dive page
 
 **Positioning play** — Turn the 20 uniquely-implemented AUREM

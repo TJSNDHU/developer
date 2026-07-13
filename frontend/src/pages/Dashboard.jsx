@@ -289,6 +289,7 @@ function DashboardV2Body() {
           kind: "info",
           duration: 8000,
           onClick: () => navigate("/wrapped"),
+          position: "bottom-right",   // iter 212m-221 — avoid header overlap
         });
       }).catch(() => { /* silent */ });
     };

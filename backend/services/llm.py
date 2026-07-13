@@ -515,6 +515,20 @@ async def probe_longcat_availability() -> bool:
         _snapshot(live=True, http_code=200, error=None)
         await _persist(live=True, http_code=200, error=None)
         return True
+    # Iter 212m-221 — 429 rate-limit is NOT unavailability.  The model
+    # is alive on OpenRouter, we just hit the throttle.  Keep the flag
+    # green so Council A doesn't spend the next 15 min running on the
+    # GLM-5.2 fallback (and showing "degraded" in the founder Advisor
+    # brief) just because a health-check burnt a token quota tick.
+    if r.status_code == 429:
+        LONGCAT_LIVE = True
+        logger.info(
+            "LongCat probe rate-limited (429) — model reachable, "
+            "keeping Council A on %s. Reprobe in 15 min.", _LONGCAT_MODEL,
+        )
+        _snapshot(live=True, http_code=429, error="rate_limited_but_reachable")
+        await _persist(live=True, http_code=429, error="rate_limited_but_reachable")
+        return True
     # 400 invalid-model / 404 no-endpoints / 5xx upstream → treat as unavailable
     try:
         err_msg = (r.json().get("error") or {}).get("message") or r.text[:120]
@@ -541,9 +555,16 @@ async def periodic_longcat_reprobe(interval_seconds: int = 900) -> None:
     This coroutine keeps the flag fresh so the moment upstream comes
     back, Council A auto-recovers within the interval window.
 
+    Iter 212m-221 — Adaptive backoff on failure.  When the last probe
+    said `live=False` we back off to 60 s (not 15 min) so a transient
+    OpenRouter blip doesn't lock the Advisor brief into a "degraded"
+    badge for 14 more minutes.  A successful probe returns to the
+    slow 15 min cadence.
+
     Runs quietly: only logs on a state transition (live ↔ degraded).
     """
     import asyncio
+    FAST_INTERVAL_S = 60
     if not LONGCAT_ENABLED:
         return
     while True:
@@ -560,8 +581,10 @@ async def periodic_longcat_reprobe(interval_seconds: int = 900) -> None:
                 "LIVE" if current else "DEGRADED",
                 _LONGCAT_MODEL,
             )
+        # Fast retry when degraded; slow cadence when healthy.
+        sleep_for = FAST_INTERVAL_S if not current else interval_seconds
         try:
-            await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(sleep_for)
         except asyncio.CancelledError:
             return
 

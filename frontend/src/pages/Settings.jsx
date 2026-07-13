@@ -205,6 +205,132 @@ export default function Settings() {
         {/* ── Tab content ── */}
         {tab === "profile" && (
           <div key="profile" style={{ display: "grid", gap: 18, animation: "ds2SettingsIn .22s ease both" }}>
+            {/* Iter 212m-221 — Universal Key + quota card. Prominent
+                at top of Profile tab so users don't need the Plans
+                tab to see their key balance / tier / remaining quota. */}
+            <section className="card" data-testid="settings-universal-key" style={{
+              display: "grid", gap: 14,
+              padding: "20px 24px",
+              background: "linear-gradient(135deg, rgba(255,138,42,0.06), rgba(255,138,42,0.02))",
+              border: "1px solid rgba(255,138,42,0.24)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: "var(--accent-soft, rgba(255,138,42,0.16))", color: "var(--accent, #ffb347)",
+                  }}><KeyRound size={18} /></span>
+                  <div>
+                    <div className="label-mini" style={{ marginBottom: 2 }}>Universal LLM Key</div>
+                    <div style={{ fontSize: 15, color: "var(--text)", fontWeight: 600 }}>
+                      Emergent — one key, all models
+                    </div>
+                  </div>
+                </div>
+                <div
+                  data-testid="tier-badge"
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11, textTransform: "uppercase",
+                    letterSpacing: "1.5px", padding: "6px 12px",
+                    borderRadius: 999,
+                    background: (me?.tier || usage?.tier || "free").toLowerCase() === "founder"
+                      ? "rgba(109,212,161,0.14)"
+                      : "rgba(255,138,42,0.14)",
+                    color: (me?.tier || usage?.tier || "free").toLowerCase() === "founder"
+                      ? "var(--ok, #6dd4a1)" : "var(--accent, #ffb347)",
+                    border: "1px solid currentColor",
+                    fontWeight: 700,
+                  }}
+                >
+                  {(me?.tier || usage?.tier || "free").toUpperCase()}
+                </div>
+              </div>
+
+              {/* Balance grid */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gap: 12, marginTop: 4,
+              }}>
+                <div data-testid="key-balance-tokens" style={{
+                  padding: "12px 14px", borderRadius: 8,
+                  background: "rgba(0,0,0,0.24)", border: "1px solid var(--border-strong, rgba(255,255,255,0.08))",
+                }}>
+                  <div className="label-mini" style={{ marginBottom: 6 }}>tokens remaining</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "'JetBrains Mono', monospace" }}>
+                    {usage?.is_unlimited || me?.is_unlimited
+                      ? "∞"
+                      : (usage?.remaining != null
+                          ? Number(usage.remaining).toLocaleString()
+                          : "—")}
+                  </div>
+                </div>
+                <div data-testid="key-balance-used" style={{
+                  padding: "12px 14px", borderRadius: 8,
+                  background: "rgba(0,0,0,0.24)", border: "1px solid var(--border-strong, rgba(255,255,255,0.08))",
+                }}>
+                  <div className="label-mini" style={{ marginBottom: 6 }}>tokens used</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "'JetBrains Mono', monospace" }}>
+                    {usage?.used != null
+                      ? Number(usage.used).toLocaleString()
+                      : "—"}
+                  </div>
+                </div>
+                <div data-testid="key-tasks-this-month" style={{
+                  padding: "12px 14px", borderRadius: 8,
+                  background: "rgba(0,0,0,0.24)", border: "1px solid var(--border-strong, rgba(255,255,255,0.08))",
+                }}>
+                  <div className="label-mini" style={{ marginBottom: 6 }}>tasks this month</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "'JetBrains Mono', monospace" }}>
+                    {usage?.tasks_this_month ?? 0}
+                    {usage?.monthly_task_cap != null && (
+                      <span style={{ color: "var(--text-faint)", fontSize: 14, fontWeight: 400 }}>
+                        {" / "}{usage.monthly_task_cap}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quota bar for non-unlimited users */}
+              {!(usage?.is_unlimited || me?.is_unlimited) && usage?.pct_used != null && (
+                <div data-testid="quota-bar" style={{ marginTop: 4 }}>
+                  <div style={{
+                    height: 6, borderRadius: 999,
+                    background: "rgba(255,255,255,0.06)",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${Math.min(100, Math.max(0, usage.pct_used))}%`,
+                      background: usage.pct_used > 85
+                        ? "var(--danger, #ff6b6b)"
+                        : usage.pct_used > 60
+                          ? "var(--accent-2, #ffb347)"
+                          : "var(--accent, #ffb347)",
+                      transition: "width 0.4s ease",
+                    }} />
+                  </div>
+                  <div style={{
+                    fontSize: 11, color: "var(--text-faint)",
+                    marginTop: 6, fontFamily: "'JetBrains Mono', monospace",
+                  }}>
+                    {usage.pct_used}% used
+                    {usage.is_exhausted && (
+                      <span style={{ color: "var(--danger)", marginLeft: 8 }}>
+                        · quota exhausted — <span
+                          onClick={() => setTab("plans")}
+                          style={{ textDecoration: "underline", cursor: "pointer" }}
+                          data-testid="quota-upgrade-link"
+                        >upgrade →</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+
             <section className="card" data-testid="settings-profile">
               <h3 style={{ fontSize: 14, color: "var(--text)", margin: 0, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
                 <User size={14} /> Profile

@@ -436,6 +436,43 @@ SCANNERS = {
 }
 
 
+# ─── Iter 212m-221 — RESTORED _is_dockerfile helper ────────────────
+# This function was accidentally removed in a prior refactor while
+# two call sites in `_build_text_cache` kept referencing it. The
+# result: on any repo containing a Dockerfile whose path did not end
+# in a scan extension, `.txt`, or `.json`, Python fell through to the
+# `_is_dockerfile(lower)` call and raised `NameError` → outer
+# `except Exception` mapped to HTTPException(502) → Cloudflare
+# intercepted and served its own "Bad gateway" HTML. THIS was the
+# 1.3s prod 502 the 20-feature validation report flagged.
+#
+# The predicate is intentionally strict: it matches only real
+# Docker manifest files, not paths that merely contain "docker" as
+# a substring (e.g. `docs/dockerfile-guide.md`).
+def _is_dockerfile(lower_path: str) -> bool:
+    """True if `lower_path` looks like a real Dockerfile or Docker
+    Compose manifest.  Case-insensitive; assumes caller has already
+    lowered the path.
+
+    Matches:
+        Dockerfile, dockerfile, Dockerfile.prod, dockerfile.dev,
+        <anything>/Dockerfile, docker-compose.yml, docker-compose.yaml,
+        compose.yml, compose.yaml
+    Does NOT match:
+        docs/dockerfile-cheatsheet.md, my-dockerfile-notes.txt
+    """
+    if not lower_path:
+        return False
+    # Strip any directory prefix — only the basename matters.
+    base = lower_path.rsplit("/", 1)[-1]
+    if base == "dockerfile" or base.startswith("dockerfile."):
+        return True
+    if base in {"docker-compose.yml", "docker-compose.yaml",
+                "compose.yml", "compose.yaml"}:
+        return True
+    return False
+
+
 async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
     """Walk the repo tree + fetch every scannable file.  Cached for the
     duration of a single /scan request so all 5 categories share the
@@ -445,8 +482,25 @@ async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
     keyed on `owner/repo@tree_sha`.  Cross-pod cache hits skip the
     ~50-600 GitHub calls entirely (~60 s saved on large repos).  TTL
     24 h; key invalidates automatically on the next commit because the
-    tree SHA changes."""
-    async with httpx.AsyncClient() as client:
+    tree SHA changes.
+
+    Iter 212m-221 — Two hardening changes to root-cause the
+    intermittent 1.3s Cloudflare 502 on prod:
+      * Explicit `Timeout(45)` on the outer `AsyncClient` — the old
+        default-None meant a single stalled GH connection could hold
+        the pod's event loop indefinitely, triggering Cloudflare's
+        origin-idle-timeout intercept.
+      * Structured latency log on every call (`scan.text_cache
+        owner=… repo=… sha=… hit=… files=… ms=…`) so a future 502
+        can be traced from the log stream alone.
+    """
+    import time as _time
+    _t0 = _time.time()
+    _hit  = False
+    _files = 0
+
+    _timeout = httpx.Timeout(45.0, connect=6.0, read=15.0)
+    async with httpx.AsyncClient(timeout=_timeout) as client:
         blobs, tree_sha = await _list_repo_tree_with_sha(
             client, owner, repo, pat,
         )
@@ -471,6 +525,14 @@ async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
                             or _is_dockerfile(lower)):
                         continue
                     filtered[path] = txt
+                _hit  = True
+                _files = len(filtered)
+                logger.info(
+                    "scan.text_cache owner=%s repo=%s sha=%s hit=1 "
+                    "files=%d ms=%d",
+                    owner, repo, tree_sha[:7], _files,
+                    int((_time.time() - _t0) * 1000),
+                )
                 return filtered
 
         text_cache: dict[str, str] = {}
@@ -510,6 +572,13 @@ async def _build_text_cache(owner: str, repo: str, pat: str) -> dict[str, str]:
             except Exception as e:
                 logger.debug("scan_cache put_cached failed: %r", e)
 
+    _files = len(text_cache)
+    logger.info(
+        "scan.text_cache owner=%s repo=%s sha=%s hit=0 files=%d "
+        "candidates=%d ms=%d",
+        owner, repo, (tree_sha or "-")[:7], _files, len(candidates),
+        int((_time.time() - _t0) * 1000),
+    )
     return text_cache
 
 

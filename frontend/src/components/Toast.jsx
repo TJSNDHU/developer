@@ -34,13 +34,14 @@ export function toast({
   countdown = null,
   onExpire = null,
   actions = null,
+  position = "top-right",   // "top-right" | "bottom-right" — iter 212m-221
 }) {
   const toastId = id ?? ++_id;
   window.dispatchEvent(
     new CustomEvent("aurem:toast", {
       detail: {
         id: toastId, message, kind, duration, onClick,
-        persistent, countdown, onExpire, actions,
+        persistent, countdown, onExpire, actions, position,
       },
     })
   );
@@ -83,46 +84,82 @@ export default function Toaster() {
   }, []);
 
   return (
-    <div
-      data-testid="toaster"
-      className="aurem-toaster"
-      style={{
-        position: "fixed",
-        top: 72,
-        right: "calc(24px + var(--advisor-w, 0px))",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        zIndex: 9999,
-        pointerEvents: "none",
-      }}
-    >
-      <style>{`
-        @media (max-width: 480px) {
-          .aurem-toaster {
-            top: 88px !important;
-            right: 12px !important;
-            left: 12px !important;
-            max-width: calc(100vw - 24px) !important;
+    <>
+      {/* Top-right stack (default) — countdowns, errors, warnings. */}
+      <div
+        data-testid="toaster"
+        className="aurem-toaster"
+        style={{
+          position: "fixed",
+          top: 72,
+          right: "calc(24px + var(--advisor-w, 0px))",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          zIndex: 9999,
+          pointerEvents: "none",
+        }}
+      >
+        <style>{`
+          @media (max-width: 480px) {
+            .aurem-toaster {
+              top: 88px !important;
+              right: 12px !important;
+              left: 12px !important;
+              max-width: calc(100vw - 24px) !important;
+            }
           }
-        }
-      `}</style>
-      {list.map((t) => (
-        <ToastItem
-          key={t.id}
-          t={t}
-          onDismiss={() =>
-            setList((cur) => cur.filter((x) => x.id !== t.id))
+        `}</style>
+        {list.filter((t) => (t.position || "top-right") === "top-right").map((t) => (
+          <ToastItem
+            key={t.id}
+            t={t}
+            onDismiss={() => setList((cur) => cur.filter((x) => x.id !== t.id))}
+          />
+        ))}
+      </div>
+      {/* Bottom-right stack — celebratory milestones (streak, wrapped)
+          that must NOT collide with top-right chrome (Graph panel
+          header, sub-page tabs). Iter 212m-221. */}
+      <div
+        data-testid="toaster-bottom"
+        className="aurem-toaster-bottom"
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: "calc(24px + var(--advisor-w, 0px))",
+          display: "flex",
+          flexDirection: "column-reverse",
+          gap: 8,
+          zIndex: 9999,
+          pointerEvents: "none",
+        }}
+      >
+        <style>{`
+          @media (max-width: 480px) {
+            .aurem-toaster-bottom {
+              bottom: 12px !important;
+              right: 12px !important;
+              left: 12px !important;
+              max-width: calc(100vw - 24px) !important;
+            }
           }
-        />
-      ))}
+        `}</style>
+        {list.filter((t) => t.position === "bottom-right").map((t) => (
+          <ToastItem
+            key={t.id}
+            t={t}
+            onDismiss={() => setList((cur) => cur.filter((x) => x.id !== t.id))}
+          />
+        ))}
+      </div>
       <style>{`
         @keyframes toastIn {
           from { transform: translateY(8px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
-    </div>
+    </>
   );
 }
 
