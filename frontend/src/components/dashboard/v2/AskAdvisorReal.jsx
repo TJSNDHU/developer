@@ -54,6 +54,12 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   // deploy-sync, quota).  Powers the dynamic morning-brief pill AND
   // is also injected server-side into the LLM system prompt.  We
   // refetch on project change so the pill can't stale.
+  //
+  // Iter 212m-210 — `effectiveProjectId` was declared only inside
+  // send() previously, so the useEffect below silently ReferenceErrored
+  // and ctx was never populated.  Hoist it to component scope so BOTH
+  // the fetch effect AND send() see the same value.
+  const effectiveProjectId = projectId || getActiveProjectId() || null;
   const [ctx, setCtx] = useState(null);
   useEffect(() => {
     let dead = false;
@@ -141,7 +147,7 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
     // project_id=null when a project is actually active. Result: no
     // more "No repo is connected right now" replies when the sidebar
     // and breadcrumb clearly show a connected repo.
-    const effectiveProjectId = projectId || getActiveProjectId() || null;
+    // (Iter 212m-210 — hoisted to component scope; no local shadow.)
     const userMsgId = `u${Date.now()}`;
     const advisorId = `a${Date.now()}`;
     setMessages((p) => [
@@ -268,18 +274,25 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
                       {(ctx.findings.p0 || 0) > 0 ? <> ({ctx.findings.p0} P0)</> : null}
                     </>
                   : <>findings pata nahi</>}
-                {" · Council A: "}
-                {ctx.council?.live === true
-                  ? <span className="text-green-500">live</span>
-                  : ctx.council?.live === false
-                    ? <span className="text-red-500">degraded</span>
-                    : <>pata nahi</>}
-                {" · Deploy: "}
-                {ctx.deploy_sync?.in_sync === true
-                  ? <span className="text-green-500">in-sync</span>
-                  : ctx.deploy_sync?.in_sync === false
-                    ? <span className="text-amber-500">out-of-sync</span>
-                    : <>pata nahi</>}
+                {/* Iter 212m-210 — Council + Deploy pills are founder-
+                    only. Standard users never see infra state; the
+                    backend already omits these keys for them. */}
+                {ctx.role === "founder" && (
+                  <>
+                    {" · Council A: "}
+                    {ctx.council?.live === true
+                      ? <span className="text-green-500">live</span>
+                      : ctx.council?.live === false
+                        ? <span className="text-red-500">degraded</span>
+                        : <>pata nahi</>}
+                    {" · Deploy: "}
+                    {ctx.deploy_sync?.in_sync === true
+                      ? <span className="text-green-500">in-sync</span>
+                      : ctx.deploy_sync?.in_sync === false
+                        ? <span className="text-amber-500">out-of-sync</span>
+                        : <>pata nahi</>}
+                  </>
+                )}
                 {ctx.quota?.tokens_used != null && ctx.quota?.tokens_limit != null
                   ? <> · Tokens: {ctx.quota.tokens_used}/{ctx.quota.tokens_limit}</>
                   : null}

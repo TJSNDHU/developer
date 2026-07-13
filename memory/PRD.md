@@ -11440,3 +11440,16 @@ Founder request: build demo assets for new-user education + ads.
 
 ## Backlog · Iter 212m-200 · DEMO_DRIFT
 Whenever a UI change ships on any of these surfaces (Signup, ConnectRepoBanner, AddProjectWizard, SidebarBound green-dot, SlashCommandMenu, AskAdvisorReal, LoopStepBar, ShipConfirmModal), the author MUST also audit `/demo` in the same PR. See `memory/architecture/07_demo_drift.md` for the full checklist + selector contract for the interactive tour.
+
+## Iter 212m-210 — Ask Advisor context RBAC tier split (Feb 13, 2026)
+Founder request: `/api/aurem-dev/advisor/context` was leaking infra fingerprints (council routing state + commit SHAs + prod-vs-preview deploy sync) to *every* authenticated user. Split into two tiers:
+- **Tier 1 (all users)**: `findings` + `quota` + new `role: "user"` field.
+- **Tier 2 (founders only)**: adds `council` + `deploy_sync` and `role: "founder"`. Non-founders never see these keys on the wire — not even as `null`.
+Founder detection reuses the existing `services.usage.is_founder_email` allowlist + `is_admin` + `tier == "founder"` — same rule the admin gate uses, so we don't have two conflicting definitions.
+- Backend: `routers/advisor_context.py` conditionally skips the council + deploy-sync work AND omits those keys from the response for non-founders.
+- LLM prompt: `routers/chat.py` advisor-context block now branches on `role`. Non-founders get a new **INFRA GUARD** rule: "If the user asks about council routing, LLM provider, deploy sync, commit SHA, production vs preview, or any system-health internals, reply generically 'systems abhi normally operating hain — infra-level details Ask Advisor par exposed nahi hote. Founder access chahiye toh admin se contact karo.' Do NOT invent SHAs / provider names. Do NOT admit whether council is live or degraded."
+- Frontend: `AskAdvisorReal.jsx` morning-brief pill hides Council + Deploy chips when `ctx.role !== "founder"`.
+- **Bug fix bundled in**: pre-existing ReferenceError in `AskAdvisorReal.jsx` — `effectiveProjectId` was only declared inside `send()` but referenced by the ctx-fetch useEffect. Since it was undefined at top-level scope, `ctx` was never populated and the LLM prompt-injection block silently degraded to the "fetch failed" fallback. Hoisted to component scope.
+- **Regression**: `backend/tests/test_iter212m210_advisor_tier_split.py` — 4 tests, all green. Locks: founder view returns council + deploy_sync; non-founder view omits both keys entirely; cross-user ownership still 404s; chat.py keeps the INFRA GUARD source string.
+- Verified live on preview via curl with founder token (`test@aurem.dev`) and a fresh throwaway non-founder signup. Founder response includes `role="founder"` + council + deploy_sync; standard user response has `role="user"` and no infra keys.
+- NEEDS PRODUCTION REDEPLOY.

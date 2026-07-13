@@ -2078,28 +2078,63 @@ async def chat_stream(
                                 project_id=body.project_id,
                                 authorization=authorization,
                             )
-                            _ctx_block = (
-                                "\n\n=== ADVISOR CONTEXT (READ-ONLY, LIVE) ===\n"
-                                f"Project: {_ctx.get('project_name')}  (id={_ctx.get('project_id')})\n"
-                                f"Findings: total={_ctx['findings'].get('total')}  "
-                                f"P0={_ctx['findings'].get('p0')}  P1={_ctx['findings'].get('p1')}  P2={_ctx['findings'].get('p2')}"
-                                + (f"  (err: {_ctx['findings'].get('error')})" if _ctx['findings'].get('error') else "") + "\n"
-                                f"Council A: live={_ctx['council'].get('live')}  "
-                                f"primary_actual={_ctx['council'].get('primary_actual')}  "
-                                f"primary_intended={_ctx['council'].get('primary_intended')}  "
-                                f"last_probe={_ctx['council'].get('last_probe')}\n"
-                                f"Deploy sync: self={_ctx['deploy_sync'].get('self_sha')}  "
-                                f"prod={_ctx['deploy_sync'].get('prod_sha')}  "
-                                f"in_sync={_ctx['deploy_sync'].get('in_sync')}\n"
-                                f"Quota: used={_ctx['quota'].get('tokens_used')}  "
-                                f"limit={_ctx['quota'].get('tokens_limit')}  "
-                                f"period={_ctx['quota'].get('period')}\n"
-                                "=========================================\n\n"
-                                f"RULES:\n"
-                                f"1. EVERY response MUST mention the project name '{_ctx.get('project_name')}' explicitly.\n"
-                                f"2. If any field above is null/None/error, respond 'yeh data abhi available nahi hai' — NEVER guess.\n"
-                                f"3. Only cite numbers that appear in this block. Do not extrapolate."
-                            )
+                            _role = _ctx.get("role") or "user"
+                            _is_founder_view = (_role == "founder")
+
+                            # Base block — same for everyone.
+                            _lines = [
+                                "\n\n=== ADVISOR CONTEXT (READ-ONLY, LIVE) ===",
+                                f"Project: {_ctx.get('project_name')}  (id={_ctx.get('project_id')})",
+                                f"Viewer role: {_role}",
+                                (
+                                    f"Findings: total={_ctx['findings'].get('total')}  "
+                                    f"P0={_ctx['findings'].get('p0')}  P1={_ctx['findings'].get('p1')}  P2={_ctx['findings'].get('p2')}"
+                                    + (f"  (err: {_ctx['findings'].get('error')})" if _ctx['findings'].get('error') else "")
+                                ),
+                                (
+                                    f"Quota: used={_ctx['quota'].get('tokens_used')}  "
+                                    f"limit={_ctx['quota'].get('tokens_limit')}  "
+                                    f"period={_ctx['quota'].get('period')}"
+                                ),
+                            ]
+                            # Tier-2 — founders only. Non-founders never see
+                            # commit SHAs or council router state in the
+                            # prompt at all.
+                            if _is_founder_view and _ctx.get("council"):
+                                _lines.append(
+                                    f"Council A: live={_ctx['council'].get('live')}  "
+                                    f"primary_actual={_ctx['council'].get('primary_actual')}  "
+                                    f"primary_intended={_ctx['council'].get('primary_intended')}  "
+                                    f"last_probe={_ctx['council'].get('last_probe')}"
+                                )
+                            if _is_founder_view and _ctx.get("deploy_sync"):
+                                _lines.append(
+                                    f"Deploy sync: self={_ctx['deploy_sync'].get('self_sha')}  "
+                                    f"prod={_ctx['deploy_sync'].get('prod_sha')}  "
+                                    f"in_sync={_ctx['deploy_sync'].get('in_sync')}"
+                                )
+                            _lines.append("=========================================\n")
+
+                            # Role-shaped rules.  For non-founders we
+                            # explicitly forbid disclosing infra state —
+                            # they simply don't have that data in-context
+                            # and must not fabricate it.
+                            _rules = [
+                                "RULES:",
+                                f"1. EVERY response MUST mention the project name '{_ctx.get('project_name')}' explicitly.",
+                                "2. If any field above is null/None/error, respond 'yeh data abhi available nahi hai' — NEVER guess.",
+                                "3. Only cite numbers that appear in this block. Do not extrapolate.",
+                            ]
+                            if not _is_founder_view:
+                                _rules.append(
+                                    "4. INFRA GUARD: If the user asks about council routing, LLM provider, "
+                                    "deploy sync, commit SHA, production vs preview, or any system-health "
+                                    "internals, reply generically: 'systems abhi normally operating hain — "
+                                    "infra-level details Ask Advisor par exposed nahi hote. Founder access "
+                                    "chahiye toh admin se contact karo.'  Do NOT invent numbers, SHAs, or "
+                                    "provider names.  Do NOT admit whether council is live or degraded."
+                                )
+                            _ctx_block = "\n".join(_lines) + "\n" + "\n".join(_rules)
                         except Exception as _cxe:
                             _ctx_block = f"\n\n[Advisor context fetch failed: {str(_cxe)[:80]}] — reply with 'yeh data abhi available nahi hai' for any data-dependent question."
                     _adv_directive = (
