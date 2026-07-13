@@ -60,11 +60,7 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
         // than the composer at 1400px viewport).
         margin: "8px clamp(16px, 17.25%, 240px)",
         background: "#161616",
-        // Iter 212m-196 — Border stroke removed per founder request.
-        // Keep bg + rounded corners so the LOOP bar reads as a subtle
-        // dark strip inside the chat column, without the 1px outline
-        // ring that made it look like a boxed component.
-        border: "none",
+        border: "1px solid #2A2A2A",
         borderRadius: 12,
         fontFamily: "'JetBrains Mono', monospace",
         fontSize: 11,
