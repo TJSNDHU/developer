@@ -30,9 +30,18 @@ const PHASE_TO_STEP = {
 };
 
 export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
-  if (!phase || phase === "idle") return null;
+  // Iter 212m-195 — Persistent visibility to match the v2 mock.
+  // Previously we returned null on `idle` so the bar only appeared
+  // while a loop was mid-flight; that hid the "kaunsa phase abhi
+  // hai" affordance from users. Now the bar is always visible: in
+  // `idle` all five steps render as muted pending circles (matches
+  // the LOOP · PLAN → EXECUTE → VERIFY → SCAN → SHIP strip from the
+  // v2 preview). Only return null when the phase prop is genuinely
+  // missing (component not wired up).
+  if (!phase) return null;
   const active = phase === "error" ? errorStep : (PHASE_TO_STEP[phase] || 0);
   const isDone = phase === "done";
+  const isIdle = phase === "idle";
 
   return (
     <div
@@ -62,9 +71,9 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
 
       {STEPS.map((s, i) => {
         const done = isDone || s.id < active;
-        const live = !isDone && s.id === active && phase !== "error";
+        const live = !isDone && !isIdle && s.id === active && phase !== "error";
         const errd = phase === "error" && s.id === errorStep;
-        const future = !done && !live && !errd;
+        const future = isIdle || (!done && !live && !errd);
         const color = errd ? "#EF4444"
           : done ? "#22C55E"
           : live ? "#FF6608"
