@@ -197,11 +197,14 @@ export default function FounderOfferCard({ projectId }) {
     <div
       data-testid="founder-offer-card"
       style={{
-        // Iter 212m-37 — edge-to-edge layout. No side margins so the
-        // banner spans the full chat-panel width and visually fuses
-        // with the composer below. Top corners kept rounded (they
-        // touch the panel's outer rounded glass surface).
-        margin: 0,
+        // Iter 212m-196 — Founder request: banner width should hug
+        // the chat window's inner column, not span the full chat pane.
+        // Match the LoopStepBar's `margin: 8px clamp(16px, 17.25%, 240px)`
+        // and the composer's inner `padding: 14px clamp(16px, 17.25%, 240px)`
+        // so banner ↔ LOOP bar ↔ composer content all sit on the
+        // same left/right rail. Previous `margin: 0` (edge-to-edge)
+        // made the banner look ~2x wider than the actual chat input.
+        margin: "0 clamp(16px, 17.25%, 240px)",
         padding: "10px 16px",
         display: "flex",
         flexDirection: "column",

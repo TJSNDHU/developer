@@ -11400,3 +11400,10 @@ Sidebar zero-repos CTA no longer launches legacy GitHub OAuth popup — it opens
 
 ## Iter 212m-190 — Scan-fix task quota (Jul 9, 2026)
 1 fix = 1 task, flat. Tier gates: free=scan-only (Fix hidden), starter=vanguard fixes, pro=+health, team=all 4 + bulk fix (only tier with bulk button). Bulk confirm dialog shows exact "{N} of {limit} tasks" copy; 402 block before dialog when N > remaining; tasks deducted atomically per SUCCESSFUL fix only. Backend: services/scan_fix_quota.py + GET /fix-pipeline/quota. testing_agent 17/17.
+
+## Iter 212m-196 — Chat UI: LOOP bar borderless + Amber banner width match (Feb 13, 2026)
+Founder request: "yellow" LOOP bar and "red" amber banner should conform to the chat window rail, not span the full chat pane.
+- `frontend/src/components/LoopStepBar.jsx`: removed 1px #2A2A2A border; kept #161616 bg + 12px radius → LOOP now reads as a subtle dark strip inside the chat column.
+- `frontend/src/components/RepoCleanupBanner.jsx`: `margin: 6px 12px 0` + `width: calc(100% - 24px)` → `margin: 6px clamp(16px, 17.25%, 240px) 0` so the amber pill sits on the same left/right rail as the composer input and the LOOP bar.
+- `frontend/src/components/FounderOfferCard.jsx`: `margin: 0` → `margin: 0 clamp(16px, 17.25%, 240px)` for the same rail alignment.
+- Verified via preview screenshot at 1920×800. NEEDS REDEPLOY to reach auremcto.com.

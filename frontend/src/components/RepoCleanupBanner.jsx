@@ -111,7 +111,16 @@ export default function RepoCleanupBanner() {
         onClick={() => setOpen(true)}
         style={{
           display: "flex", alignItems: "center", gap: 10,
-          margin: "6px 12px 0", padding: "8px 14px",
+          // Iter 212m-196 — Banner width now hugs the chat input's
+          // inner column. Match the composer's `padding: 14px
+          // clamp(16px, 17.25%, 240px)` and the LoopStepBar's
+          // `margin: 8px clamp(16px, 17.25%, 240px)` so the amber
+          // pill, LOOP strip and chat textarea all sit on the same
+          // left/right rail. Previous `margin: 6px 12px 0` +
+          // `width: calc(100% - 24px)` made the banner span nearly
+          // full chat-pane width (~2x wider than the input).
+          margin: "6px clamp(16px, 17.25%, 240px) 0",
+          padding: "8px 14px",
           background: "rgba(245,158,11,0.10)",
           border: "1px solid rgba(245,158,11,0.45)",
           borderRadius: 10,
@@ -119,7 +128,6 @@ export default function RepoCleanupBanner() {
           fontSize: 12, fontFamily: "'JetBrains Mono', monospace",
           letterSpacing: "0.04em",
           cursor: "pointer",
-          width: "calc(100% - 24px)",
           textAlign: "left",
         }}
         title={`${count} project${count === 1 ? "" : "s"} disconnected — open cleanup`}
