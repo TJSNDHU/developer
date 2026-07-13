@@ -199,6 +199,17 @@ class ChatBody(BaseModel):
     # system prompt for this turn only; the main coding chat never
     # sets this so its persona stays untouched.
     ora_panel: bool = False
+    # Iter 212m-212 — Client-side screenshot attached to an advisor
+    # turn.  Base64-encoded PNG bytes captured by the frontend via
+    # `html2canvas`.  ONLY consumed when `ora_panel=true`; the main
+    # coding chat never reads this.  Vision analysis is best-effort
+    # and isolated (services/advisor_vision.py) — failure never
+    # blocks the text response.
+    #
+    # We cap the raw base64 string at ~10 MB (roughly 7.5 MB decoded)
+    # to prevent OOM.  Frontend downscales to 1280×720 before send,
+    # so a typical capture is 200–600 KB base64.
+    screenshot_b64: Optional[str] = Field(None, max_length=10 * 1024 * 1024)
     # Iter 42: structured payload of browser console/network/stack errors
     # captured by frontend/public/F12ErrorCapture.js. When present (and has
     # any errors), the request is auto-classified as Mode D (debug).
@@ -2172,6 +2183,73 @@ async def chat_stream(
                             _ctx_block = "\n".join(_lines) + "\n" + "\n".join(_rules)
                         except Exception as _cxe:
                             _ctx_block = f"\n\n[Advisor context fetch failed: {str(_cxe)[:80]}] — reply with 'yeh data abhi available nahi hai' for any data-dependent question."
+
+                    # Iter 212m-212 — Optional client-side screenshot.
+                    # Isolated from the main text path: any failure here
+                    # (decode, oversize, vision-API down, key missing)
+                    # falls through with a small honest note but the
+                    # text response continues.  We NEVER re-raise from
+                    # this block; the pattern mirrors the Suggestion
+                    # Box's Groq sidecar.
+                    _vision_block = ""
+                    _vision_status = "not_requested"
+                    if body.screenshot_b64:
+                        import base64 as _b64
+                        try:
+                            # Accept both raw base64 and data-URI prefixes.
+                            _raw = body.screenshot_b64
+                            if _raw.startswith("data:"):
+                                _raw = _raw.split(",", 1)[-1]
+                            _png = _b64.b64decode(_raw, validate=False)
+                            if len(_png) < 1024:
+                                raise ValueError("decoded image too small")
+                            if len(_png) > 8 * 1024 * 1024:
+                                raise ValueError("decoded image over 8MB cap")
+                            from services.advisor_vision import (
+                                analyze_screenshot,
+                            )
+                            _desc = await asyncio.wait_for(
+                                analyze_screenshot(_png, body.prompt or ""),
+                                timeout=14.0,
+                            )
+                            if _desc:
+                                _vision_block = (
+                                    "\n\n=== SCREENSHOT ANALYSIS "
+                                    "(user's current screen, vision "
+                                    "model) ===\n"
+                                    + _desc.strip()
+                                    + "\n"
+                                    "=========================================\n"
+                                    "When answering, ground concrete UI "
+                                    "observations in the SCREENSHOT "
+                                    "ANALYSIS above.  Do not describe "
+                                    "elements it did not mention."
+                                )
+                                _vision_status = "ok"
+                            else:
+                                _vision_status = "vision_null"
+                        except asyncio.TimeoutError:
+                            _vision_status = "vision_timeout"
+                        except Exception as _vex:
+                            _vision_status = f"vision_err_{type(_vex).__name__}"
+                    if _vision_status not in ("not_requested", "ok"):
+                        # ERROR-level so founder monitoring picks it
+                        # up; user sees ZERO indication of the failure
+                        # (silent fallback per Iter 212m-213 directive).
+                        logger.error(
+                            "advisor_vision_failed: status=%s (user=%s, "
+                            "project=%s, prompt_head=%s)",
+                            _vision_status, user_id, body.project_id,
+                            (body.prompt or "")[:60],
+                        )
+                        # _vision_block stays empty — advisor just
+                        # answers text-only, no note about the missing
+                        # visual.  Same UX as if the user never sent
+                        # a screenshot in the first place.
+                    logger.info(
+                        "advisor_vision: status=%s (user=%s, project=%s)",
+                        _vision_status, user_id, body.project_id,
+                    )
                     _adv_directive = (
                         "\n\nYOU ARE THE ASK ADVISOR PANEL. "
                         "Answer the user's question directly from what "
@@ -2188,8 +2266,22 @@ async def chat_stream(
                         "note the assumption in one line.  Reply in "
                         "plain prose only — no ```tool_call``` fences, "
                         "no JSON blocks."
+                        # Iter 212m-213 — Visual grounding rule.
+                        "\n\nVISUAL CONTEXT RULE: If a SCREENSHOT "
+                        "ANALYSIS block appears below, the user IS "
+                        "currently looking at that screen.  For any "
+                        "UI question ('where is X?', 'what does this "
+                        "button do?', 'why is this looking weird?'), "
+                        "answer with SPATIAL SPECIFICITY grounded in "
+                        "the analysis — e.g. 'the orange button in "
+                        "the top-right corner labelled Start Free' — "
+                        "NEVER reply with 'mujhe nahi pata' or 'I "
+                        "can't see your screen' when the analysis "
+                        "block IS present.  If the analysis block is "
+                        "MISSING, answer the text question normally "
+                        "without mentioning screenshots at all."
                     )
-                    _sys_for_advisor = (extra_sys or "") + _adv_directive + _ctx_block
+                    _sys_for_advisor = (extra_sys or "") + _adv_directive + _ctx_block + _vision_block
 
                     # Direct LLM call — bypass the tool loop entirely.
                     # Mirrors the intent-gateway `casual` path above so

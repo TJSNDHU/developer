@@ -11482,3 +11482,40 @@ Additional finding: the intent-gateway `casual` short-circuit ran BEFORE the ora
 - With `enabled_advisor=True` seeded → sentinel logs `injected=True`, LLM's reply carried the admin's marker string. ✅
 
 NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — preview is clean.
+
+## Iter 212m-212/213 — Ask Advisor Visual Context (Feb 13, 2026)
+
+Founder final directive (after two pivots): the Advisor should ALWAYS see the user's screen, invisibly. No toggle, no button, no upload. Every message auto-captures the current dashboard visible area client-side via `html2canvas`, ships it to the backend, which routes it to an **isolated OpenRouter vision call** (Gemini 2.5 Flash primary, GPT-5 Mini failover — Claude explicitly NOT used because it's ~10× more expensive on this workload). The vision analysis is injected into the Advisor's system prompt so the LLM answers UI questions with spatial specificity ("the yellow One Click Continue button in the middle of the sign-up card") instead of generic "mujhe nahi pata".
+
+**Isolation contract** — the vision call lives in `services/advisor_vision.py`, hits OpenRouter directly (not via the Council / `services/llm.py` / `services/llm_router.py` ladder), and is invoked from a `try/except` in `routers/chat.py` that never re-raises. If Gemini is degraded / OpenRouter is 5xx / the OPENROUTER_API_KEY is missing / the frontend capture throws → the advisor answers text-only, silently. No user-facing "screenshot capture nahi ho paya" notice — same pattern as the Suggestion Box's Groq sidecar. ERROR-level `advisor_vision_failed:` log fires for founder monitoring.
+
+**Client-side capture** (`AskAdvisorReal.jsx`)
+- `html2canvas` lazy-loaded on first send (~130KB gzipped, not shipped upfront)
+- Downscales to 1280px wide max → typical base64 payload 200–500 KB (bounded vision-input token cost)
+- Excludes the Advisor panel itself (`data-screenshot-hide="true"` on `<aside>`) to avoid feedback loops
+- Excludes iframes (would re-fetch remote HTML and could hang)
+- DOM is captured live → PAT dots / password fields stay masked automatically (no extra work)
+- Loading pill: "looking at your screen…" while capture is in flight, then "ORA is thinking · Ns" during LLM turn
+- Static disclosure line under composer: **"Advisor sees your screen."** — the only UI signal
+- Silent failure — if canvas throws (tainted image etc.) the text request still goes through
+
+**Backend** (`routers/chat.py`)
+- `ChatStreamRequest.screenshot_b64` field added (Pydantic max_length=10 MB)
+- Vision analysis injected as `=== SCREENSHOT ANALYSIS ===` block into `_sys_for_advisor` alongside the ADVISOR CONTEXT block
+- Advisor directive extended with a **VISUAL CONTEXT RULE**: "If a SCREENSHOT ANALYSIS block appears below, the user IS looking at that screen. For any UI question answer with SPATIAL SPECIFICITY grounded in the analysis. NEVER reply 'mujhe nahi pata' or 'I can't see your screen' when the analysis block IS present."
+- Vision failure → `_vision_block` stays empty, advisor answers text-only, no user-facing note.
+
+**A/B harness** (`tests/manual_ab_model_swap.py`)
+- Existing tool-call lane preserved (Iter 212m-192).
+- New **VISION LANE** added: hits OpenRouter directly with a real screenshot of `/demo` (saved at `tests/fixtures/demo_real.jpeg`, 51KB), asks each candidate the same UI-review prompt, measures wall-time / prompt+output token cost / "grounded-in-image" score against 10 ground-truth markers ("signup", "developer account", "continue with google/github", "1000 tokens", etc.). Winner = cheapest passing candidate.
+- Candidates: `google/gemini-2.5-flash`, `openai/gpt-5-mini`, `anthropic/claude-sonnet-4.5` (reference for cost ratio).
+
+**Regression suite** — `backend/tests/test_iter212m212_advisor_screen_share.py` (6 tests, all green)
+- `test_advisor_without_screenshot_unchanged` — regression: no screenshot → `advisor_vision: status=not_requested`, provider stays `advisor-direct`, no vision-failed log.
+- `test_advisor_with_valid_screenshot_grounds_reply` — end-to-end: renders a distinctive marker onto a PNG, asserts the marker round-trips into the LLM's reply verbatim (proves vision → prompt injection → LLM grounding wire).
+- `test_advisor_with_bad_screenshot_still_replies[×3]` — parametric: invalid base64 / <1KB / 3-byte payload. Advisor STILL returns a normal reply, `advisor_vision_failed:` log fires, reply MUST NOT contain "screenshot capture nahi ho paya" or "couldn't see the screen" (silent-failure contract).
+- `test_vision_isolation_source_contracts` — offline source-string lock: OpenRouter direct call in `advisor_vision.py`, no `from services.llm import chat_with_tools`, chat.py invokes via try/except, `advisor_vision_failed` log tag present.
+
+**Verified live on preview** — asked "where is the sign up button on my screen?" with the real `/demo` screenshot attached. Advisor answered with the exact colours + positions of the three sign-up buttons visible on the actual page.
+
+NEEDS PRODUCTION REDEPLOY (`auremcto.com`) — includes new dep (`html2canvas` yarn-added).

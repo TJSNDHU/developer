@@ -12,6 +12,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.11.0",
     "axios": "^1.7.7",
+    "html2canvas": "^1.4.1",
     "lucide-react": "^0.383.0",
     "marked": "^18.0.5",
     "mermaid": "^11.16.0",

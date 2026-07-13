@@ -220,6 +220,13 @@ async def test_advisor_house_rules_round_trip():
             }},
             upsert=True,
         )
+        # Record log offset BEFORE the request so we can slice out
+        # only the lines OUR request produced.
+        try:
+            offset_before = os.path.getsize(log_path)
+        except FileNotFoundError:
+            offset_before = 0
+
         _, tok = _login(FOUNDER_EMAIL, FOUNDER_PASSWORD)
         out = _stream_chat(tok, "say hello briefly", ora_panel=True)
 
@@ -228,32 +235,34 @@ async def test_advisor_house_rules_round_trip():
 
         # 2. Wiring — sentinel log line for THIS request MUST report
         #    injected=True (deterministic; independent of LLM output).
-        #    Small settle delay so async log buffering has time to
-        #    flush before we tail.
+        #    Small settle delay so async log buffering flushes.
         import time as _t
         _t.sleep(0.5)
         try:
-            with open(log_path, "r", encoding="utf-8", errors="ignore") as fh:
-                lines = fh.readlines()
+            with open(log_path, "rb") as fh:
+                fh.seek(offset_before)
+                tail = fh.read().decode("utf-8", errors="ignore")
         except Exception as _e:
             pytest.skip(f"backend log not readable: {_e}")
 
         hits = [
-            line for line in lines
+            line for line in tail.splitlines()
             if "advisor_house_rules: injected=" in line
         ]
         assert hits, (
-            "No advisor_house_rules sentinel log line was emitted — "
-            "the house_rules injection block may have been removed or "
-            "moved out of the ora_panel branch."
+            "No advisor_house_rules sentinel log line was emitted "
+            "after seeding house_rules with enabled_advisor=True — "
+            "injection block may have been removed / moved out of "
+            "the ora_panel branch.  Tail:\n" + tail[-2000:]
         )
-        # Our request is the most recent advisor turn in this test
-        # run — its sentinel MUST be the LAST occurrence and MUST
-        # report injected=True.
-        assert "injected=True" in hits[-1], (
-            f"house_rules DB doc had enabled_advisor=True but the "
-            f"most-recent sentinel logged {hits[-1]!r} — the DB → "
-            f"LLM prompt wire is broken."
+        # AT LEAST ONE hit in our slice MUST report injected=True.
+        # (Not "the last one" — other advisor requests can race in
+        # the same window if the test suite is run concurrently.)
+        true_hits = [h for h in hits if "injected=True" in h]
+        assert true_hits, (
+            f"house_rules DB doc had enabled_advisor=True but NO "
+            f"injected=True sentinel appeared in our request window. "
+            f"All hits since offset_before: {hits!r}"
         )
     finally:
         if prev is not None:

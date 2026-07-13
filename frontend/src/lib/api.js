@@ -177,6 +177,8 @@ export async function streamChat({ prompt, sessionId, session_id,
                                     maxxMode = false, maxx_mode,
                                     projectId = null, project_id,
                                     ora_panel = false,
+                                    screenshotB64 = null,
+                                    screenshot_b64,
                                     agent = "auto", mode = "swift",
                                     executionMode = "prompt",  // Iter 212m-58
                                     execution_mode,
@@ -196,6 +198,8 @@ export async function streamChat({ prompt, sessionId, session_id,
   const _projectId    = project_id     ?? projectId;
   const _executionMode = execution_mode ?? executionMode;
   const _f12Payload   = f12_payload    ?? f12Payload;
+  // Iter 212m-212 — screenshot passthrough
+  const _screenshotB64 = screenshot_b64 ?? screenshotB64;
   const token = getToken();
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -214,6 +218,7 @@ export async function streamChat({ prompt, sessionId, session_id,
       project_id: _projectId,
       f12_payload: _f12Payload,
       ora_panel,                       // Iter 212m-194 — was being dropped
+      screenshot_b64: _screenshotB64,  // Iter 212m-212
     }),
     signal,
   });

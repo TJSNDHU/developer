@@ -26,6 +26,42 @@ import {
   AlertTriangle, GitPullRequest, BarChart2, Sparkles,
 } from "lucide-react";
 
+// Iter 212m-213 — Auto screen capture (always-on, invisible to user)
+// -------------------------------------------------------------------
+// Every Advisor message silently ships a client-side screenshot of
+// the current visible dashboard.  No toggle, no button, no consent
+// step — the user just gets visual answers ("top-right orange
+// button") instead of generic "mujhe nahi pata" on UI questions.
+// The DOM is captured live so already-masked inputs (PAT dots,
+// password fields) stay masked automatically.
+async function _captureVisibleScreen() {
+  const { default: html2canvas } = await import("html2canvas");
+  const target = document.documentElement;
+  const scale = Math.min(
+    1,
+    1280 / Math.max(1, target.scrollWidth || window.innerWidth),
+  );
+  const canvas = await html2canvas(target, {
+    scale,
+    windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
+    x: window.scrollX,
+    y: window.scrollY,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    logging: false,
+    useCORS: true,
+    backgroundColor: null,
+    imageTimeout: 3000,
+    // Exclude the Advisor panel itself (avoids feedback loop where
+    // the advisor sees its own reply in the next capture) and any
+    // element that opts out via data-screenshot-hide.
+    ignoreElements: (el) => el.tagName === "IFRAME"
+                          || el.getAttribute?.("data-screenshot-hide") === "true",
+  });
+  return canvas.toDataURL("image/png");
+}
+
 const CHIPS = [
   { icon: AlertTriangle,  label: "Diagnose failed run", danger: true },
   { icon: GitPullRequest, label: "Summarize open PRs",  danger: false },
@@ -49,6 +85,11 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   const [thinkingStartMs, setThinkingStartMs] = useState(null);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const timeoutRef = useRef(null);
+  // Iter 212m-213 — separate "capturing" flag so the loading pill
+  // can switch from "looking at your screen…" (while html2canvas
+  // is running) to "ORA is thinking · Ns" once the SSE stream is
+  // live.  Keeps user informed about what's actually happening.
+  const [capturing, setCapturing] = useState(false);
 
   // Iter 212m-209 — Live project-scoped context (findings, council,
   // deploy-sync, quota).  Powers the dynamic morning-brief pill AND
@@ -140,14 +181,11 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   function send(text) {
     const t = (text || "").trim();
     if (!t || thinking) return;
-    // Iter 212m-190 — PROJECT CONTEXT BUG FIX. If the parent Dashboard
-    // has not finished hydrating `activeProject` yet (race between the
-    // first paint and /cto/projects/list resolving), fall back to
-    // TabBar's localStorage source of truth so the advisor never sends
-    // project_id=null when a project is actually active. Result: no
-    // more "No repo is connected right now" replies when the sidebar
-    // and breadcrumb clearly show a connected repo.
-    // (Iter 212m-210 — hoisted to component scope; no local shadow.)
+    // Iter 212m-190 — PROJECT CONTEXT BUG FIX (see note below).
+    // Iter 212m-213 — Advisor now ALWAYS captures a screenshot with
+    // every user message. Failure is silent — the request still
+    // goes through as text-only if html2canvas throws, so we
+    // never block the user's question on a capture problem.
     const userMsgId = `u${Date.now()}`;
     const advisorId = `a${Date.now()}`;
     setMessages((p) => [
@@ -157,64 +195,73 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
     ]);
     setInput("");
     setThinking(true);
+    setCapturing(true);
     setThinkingStartMs(Date.now());
 
-    const ac = new AbortController();
-    abortRef.current = ac;
-    let assembled = "";
+    const _openStream = (screenshotB64) => {
+      const ac = new AbortController();
+      abortRef.current = ac;
+      let assembled = "";
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        stopThinking("⚠ Advisor timed out after 90 s — please retry");
+      }, 90_000);
+      streamChat({
+        prompt:     t,
+        session_id: null,
+        project_id: effectiveProjectId,
+        ora_panel:  true,
+        screenshot_b64: screenshotB64,   // Iter 212m-213 — always attempted
+        signal:     ac.signal,
+        onToken: (delta) => {
+          if (!delta) return;
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = setTimeout(() => {
+              stopThinking("⚠ Advisor stalled mid-stream — please retry");
+            }, 45_000);
+          }
+          assembled += delta;
+          setMessages((p) => {
+            const copy = p.slice();
+            const idx = copy.findIndex((m) => m.id === advisorId);
+            if (idx >= 0) copy[idx] = { ...copy[idx], text: assembled };
+            return copy;
+          });
+        },
+        onDone: () => {
+          setThinking(false);
+          setThinkingStartMs(null);
+          abortRef.current = null;
+          if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+        },
+        onError: (err) => {
+          setThinking(false);
+          setThinkingStartMs(null);
+          abortRef.current = null;
+          if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+          setMessages((p) => {
+            const copy = p.slice();
+            const idx = copy.findIndex((m) => m.id === advisorId);
+            const msg = err?.message || "(connection error — retry)";
+            if (idx >= 0) copy[idx] = { ...copy[idx], text: `⚠ ${msg}` };
+            return copy;
+          });
+        },
+      });
+    };
 
-    // Iter 212m-207 — 90-second safety timeout so a stalled SSE stream
-    // can't lock the advisor forever.  Auto-abort + surface an error
-    // so the user can just retry.
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      stopThinking("⚠ Advisor timed out after 90 s — please retry");
-    }, 90_000);
-
-    streamChat({
-      prompt:     t,
-      session_id: null,         // ephemeral
-      project_id: effectiveProjectId,
-      ora_panel:  true,         // <-- triggers the casual advisor voice
-      signal:     ac.signal,
-      onToken: (delta) => {
-        if (!delta) return;
-        // Reset the safety timer whenever we receive a token — if the
-        // stream is producing output it's alive.
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = setTimeout(() => {
-            stopThinking("⚠ Advisor stalled mid-stream — please retry");
-          }, 45_000);
-        }
-        assembled += delta;
-        setMessages((p) => {
-          const copy = p.slice();
-          const idx = copy.findIndex((m) => m.id === advisorId);
-          if (idx >= 0) copy[idx] = { ...copy[idx], text: assembled };
-          return copy;
-        });
-      },
-      onDone: () => {
-        setThinking(false);
-        setThinkingStartMs(null);
-        abortRef.current = null;
-        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-      },
-      onError: (err) => {
-        setThinking(false);
-        setThinkingStartMs(null);
-        abortRef.current = null;
-        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-        setMessages((p) => {
-          const copy = p.slice();
-          const idx = copy.findIndex((m) => m.id === advisorId);
-          const msg = err?.message || "(connection error — retry)";
-          if (idx >= 0) copy[idx] = { ...copy[idx], text: `⚠ ${msg}` };
-          return copy;
-        });
-      },
-    });
+    // Fire capture in parallel — never block send() on it.  A
+    // failure here just means the LLM gets a text-only turn; user
+    // never sees the failure UI (silent by design).
+    (async () => {
+      let screenshotB64 = null;
+      try {
+        screenshotB64 = await _captureVisibleScreen();
+      } catch { screenshotB64 = null; }
+      setCapturing(false);
+      _openStream(screenshotB64);
+    })();
   }
 
   return (
@@ -238,7 +285,7 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
         </span>
       </button>
 
-      <aside className={cn(
+      <aside data-screenshot-hide="true" className={cn(
         "flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-[#0A0A0A]",
         "transition-transform duration-200 ease-in-out",
         collapsed ? "translate-x-full" : "translate-x-0",
@@ -356,9 +403,16 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: "140ms" }} />
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: "280ms" }} />
                 </span>
-                <span className="font-mono text-[11px]">
-                  ORA is thinking · <span data-testid="ds2-advisor-thinking-counter">{thinkingElapsed}s</span>
-                </span>
+                {/* Iter 212m-213 — Two-phase status: capturing → thinking. */}
+                {capturing ? (
+                  <span className="font-mono text-[11px]" data-testid="ds2-advisor-capturing">
+                    looking at your screen…
+                  </span>
+                ) : (
+                  <span className="font-mono text-[11px]">
+                    ORA is thinking · <span data-testid="ds2-advisor-thinking-counter">{thinkingElapsed}s</span>
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -400,6 +454,14 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
               )}
             </div>
           </form>
+          {/* Iter 212m-213 — static disclosure. Always-on visual
+              context; a single quiet line is the only UI signal. */}
+          <p
+            data-testid="ds2-advisor-screen-notice"
+            className="mt-2 text-center text-[10px] text-muted-foreground/60"
+          >
+            Advisor sees your screen.
+          </p>
         </div>
       </aside>
     </div>
