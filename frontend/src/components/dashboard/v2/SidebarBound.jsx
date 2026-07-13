@@ -433,6 +433,7 @@ export default function SidebarBound({
                   data-testid={`ds2-sidebar-repo-${slug}`}
                   data-status={dot}
                   data-error={err || ""}
+                  data-active-in-chat={repo.active ? "true" : "false"}
                   onClick={() => onSelectRepo?.(repo)}
                   onContextMenu={isRed ? goFix : undefined}
                   className={cn(
@@ -452,6 +453,25 @@ export default function SidebarBound({
                       )}>
                         {isRed ? liveReasonLabel(err) : repo.branch}
                       </p>
+                      {/* Iter 212m-195 — Active-in-chat indicator.
+                          Green thin bar under the currently-open
+                          project in chat; muted red for the rest so
+                          "kaunsa repo chat me open hai" ek nazar me
+                          dikhe. Existing status Dot on the left
+                          continues to signal *connection health* —
+                          two orthogonal signals, no overload. */}
+                      <div
+                        data-testid={`ds2-sidebar-repo-${slug}-active-bar`}
+                        aria-label={repo.active
+                          ? "This repo is currently open in chat"
+                          : "This repo is connected but not the one open in chat"}
+                        className={cn(
+                          "mt-[6px] h-[3px] w-full rounded-full transition-colors",
+                          repo.active
+                            ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.55)]"
+                            : "bg-red-500/40",
+                        )}
+                      />
                     </div>
                   )}
                   {isRed && !isCollapsed && (
