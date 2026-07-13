@@ -22,7 +22,7 @@ import { cn } from "./cn";
 import { streamChat } from "../../../lib/api";
 import { getActiveProjectId } from "../../TabBar";
 import {
-  Lightbulb, ArrowUp, ChevronRight,
+  Lightbulb, ArrowUp, ChevronRight, Square,
   AlertTriangle, GitPullRequest, BarChart2, Sparkles,
 } from "lucide-react";
 
@@ -41,6 +41,45 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const abortRef = useRef(null);
+  // Iter 212m-207 — Founder request: Ask Advisor was stuck on
+  // "thinking…" with no counter, no visual progress, and no way to
+  // cancel.  Track elapsed ms since send() so the UI can show
+  // "thinking · 12s" and auto-abort after a hard timeout if the SSE
+  // stream stalls (network hiccup, backend hang, LLM slow-down).
+  const [thinkingStartMs, setThinkingStartMs] = useState(null);
+  const [thinkingElapsed, setThinkingElapsed] = useState(0);
+  const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (!thinkingStartMs) { setThinkingElapsed(0); return; }
+    const id = setInterval(() => {
+      setThinkingElapsed(Math.floor((Date.now() - thinkingStartMs) / 1000));
+    }, 500);
+    return () => clearInterval(id);
+  }, [thinkingStartMs]);
+
+  // Explicit stop button + safety timeout share this cleanup path.
+  function stopThinking(reasonMsg) {
+    try { abortRef.current?.abort(); } catch { /* noop */ }
+    abortRef.current = null;
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+    setThinking(false);
+    setThinkingStartMs(null);
+    if (reasonMsg) {
+      setMessages((p) => {
+        const copy = p.slice();
+        // Find the last advisor message and stamp the abort reason if
+        // it's still empty (no partial content received yet).
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "advisor") {
+            if (!copy[i].text) copy[i] = { ...copy[i], text: reasonMsg };
+            break;
+          }
+        }
+        return copy;
+      });
+    }
+  }
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -95,10 +134,19 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
     ]);
     setInput("");
     setThinking(true);
+    setThinkingStartMs(Date.now());
 
     const ac = new AbortController();
     abortRef.current = ac;
     let assembled = "";
+
+    // Iter 212m-207 — 90-second safety timeout so a stalled SSE stream
+    // can't lock the advisor forever.  Auto-abort + surface an error
+    // so the user can just retry.
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      stopThinking("⚠ Advisor timed out after 90 s — please retry");
+    }, 90_000);
 
     streamChat({
       prompt:     t,
@@ -108,6 +156,14 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
       signal:     ac.signal,
       onToken: (delta) => {
         if (!delta) return;
+        // Reset the safety timer whenever we receive a token — if the
+        // stream is producing output it's alive.
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = setTimeout(() => {
+            stopThinking("⚠ Advisor stalled mid-stream — please retry");
+          }, 45_000);
+        }
         assembled += delta;
         setMessages((p) => {
           const copy = p.slice();
@@ -116,9 +172,17 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
           return copy;
         });
       },
-      onDone: () => { setThinking(false); abortRef.current = null; },
+      onDone: () => {
+        setThinking(false);
+        setThinkingStartMs(null);
+        abortRef.current = null;
+        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+      },
       onError: (err) => {
-        setThinking(false); abortRef.current = null;
+        setThinking(false);
+        setThinkingStartMs(null);
+        abortRef.current = null;
+        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
         setMessages((p) => {
           const copy = p.slice();
           const idx = copy.findIndex((m) => m.id === advisorId);
@@ -221,6 +285,25 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
               </div>
             ),
           )}
+          {/* Iter 212m-207 — Visible thinking indicator with an
+              elapsed-seconds counter.  Renders while `thinking` is
+              true AND the current advisor bubble is still empty
+              (once tokens start streaming the bubble shows content
+              instead). */}
+          {thinking && (
+            <div className="flex justify-start" data-testid="ds2-advisor-thinking">
+              <div className="max-w-[85%] rounded-xl rounded-tl-sm border border-border bg-muted px-3 py-2 text-[12px] leading-relaxed text-muted-foreground flex items-center gap-2">
+                <span className="inline-flex gap-1" aria-hidden="true">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: "140ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: "280ms" }} />
+                </span>
+                <span className="font-mono text-[11px]">
+                  ORA is thinking · <span data-testid="ds2-advisor-thinking-counter">{thinkingElapsed}s</span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="shrink-0 border-t border-border p-3">
@@ -238,12 +321,25 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
               data-testid="ds2-advisor-input"
               className="w-full resize-none bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-60" />
             <div className="flex justify-end pt-1">
-              <button type="submit" disabled={!input.trim() || thinking}
-                aria-label="Send message"
-                data-testid="ds2-advisor-send"
-                className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30">
-                <ArrowUp className="size-3.5" strokeWidth={2.5} />
-              </button>
+              {thinking ? (
+                <button
+                  type="button"
+                  onClick={() => stopThinking("⏹ Cancelled by you")}
+                  aria-label="Stop advisor"
+                  data-testid="ds2-advisor-stop"
+                  className="flex size-7 items-center justify-center rounded-full bg-red-500 text-white transition-opacity hover:opacity-90"
+                  title="Stop"
+                >
+                  <Square className="size-3" strokeWidth={2.5} />
+                </button>
+              ) : (
+                <button type="submit" disabled={!input.trim()}
+                  aria-label="Send message"
+                  data-testid="ds2-advisor-send"
+                  className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30">
+                  <ArrowUp className="size-3.5" strokeWidth={2.5} />
+                </button>
+              )}
             </div>
           </form>
         </div>
