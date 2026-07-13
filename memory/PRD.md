@@ -11407,3 +11407,9 @@ Founder request: "yellow" LOOP bar and "red" amber banner should conform to the 
 - `frontend/src/components/RepoCleanupBanner.jsx`: `margin: 6px 12px 0` + `width: calc(100% - 24px)` → `margin: 6px clamp(16px, 17.25%, 240px) 0` so the amber pill sits on the same left/right rail as the composer input and the LOOP bar.
 - `frontend/src/components/FounderOfferCard.jsx`: `margin: 0` → `margin: 0 clamp(16px, 17.25%, 240px)` for the same rail alignment.
 - Verified via preview screenshot at 1920×800. NEEDS REDEPLOY to reach auremcto.com.
+
+## Iter 212m-198 — Sidebar Bug Hunt → Scanner (not marketing) (Feb 13, 2026)
+Founder bug: sidebar Bug Hunt click was landing on the marketing landing page (looked like the homepage) instead of the scan window for the active project.
+- Root cause: `App.jsx:187` routed `/tools/bug-hunt` → `<BugHunt />` (marketing SEO page). Only `/bug-hunt` should serve marketing; the sidebar entry needs the scanner.
+- Fix: `/tools/bug-hunt` now renders `<CodebaseHealth />` (same as Health Scan). Public `/bug-hunt` route (line 193) still renders BugHunt.jsx marketing → SEO + conversion funnel preserved.
+- Verified via Playwright: URL → `/tools/bug-hunt`, health-empty component visible, `scan-bug_hunt` tile clickable, marketing page NOT rendered. NEEDS REDEPLOY.

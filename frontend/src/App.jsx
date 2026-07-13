@@ -184,7 +184,15 @@ export default function App() {
           <Route path="/admin/system-stats" element={<SystemStatsPage />} />
           <Route path="/admin/observability" element={<SystemStatsPage />} />
           <Route path="/tools" element={<ToolsPage />} />
-          <Route path="/tools/bug-hunt"    element={<BugHunt />} />
+          {/* Iter 212m-198 — Sidebar Bug Hunt bug: `/tools/bug-hunt` was
+              rendering the marketing landing (BugHunt.jsx), so clicking
+              Bug Hunt from the sidebar looked like it took the user to
+              the homepage instead of the scanner. The public marketing
+              URL `/bug-hunt` (below) still points at BugHunt.jsx so
+              SEO + conversion funnel are preserved. Sidebar entry now
+              lands on the CodebaseHealth scanner where the "Bug Hunt"
+              category tile is one click away. */}
+          <Route path="/tools/bug-hunt"    element={<CodebaseHealth />} />
           <Route path="/tools/health-scan" element={<CodebaseHealth />} />
           <Route path="/feature-window"     element={<FeatureWindow />} />
           <Route path="/admin/system-map"   element={<FeatureWindow />} />
