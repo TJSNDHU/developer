@@ -45,6 +45,7 @@ import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import RepoCleanupBanner from "../components/RepoCleanupBanner";
 import FinishSetupBanner from "../components/tour/FinishSetupBanner"; // Iter 212m-200
 import ConnectRepoTour from "../components/tour/ConnectRepoTour";     // Iter 212m-200
+import AddLiveSiteModal from "../components/AddLiveSiteModal";        // Iter 212m-203
 import ShipConfirmModal from "../components/ShipConfirmModal";
 import ShipStreakWidget from "../components/ShipStreakWidget";
 import SecretScanCard from "../components/SecretScanCard";
@@ -406,6 +407,15 @@ function DashboardV2Body() {
   }, []);
 
   const handleAddRepo  = useCallback(() => setShowWizard(true), []);
+
+  // Iter 212m-204 — Listen for global "open Add Repository" event so
+  // any child (PreviewPanel codebase error, banners, tour tooltip
+  // CTAs) can request the wizard without prop-drilling.
+  useEffect(() => {
+    const onOpen = () => setShowWizard(true);
+    window.addEventListener("aurem:open-add-repo", onOpen);
+    return () => window.removeEventListener("aurem:open-add-repo", onOpen);
+  }, []);
   const handleNewRun   = useCallback(() => {
     window.dispatchEvent(new CustomEvent("aurem:chat-session-reset"));
   }, []);
@@ -413,8 +423,23 @@ function DashboardV2Body() {
     // Iter 212m-143 — flip the state instead of hard-setting open:true
     // so consecutive clicks on the topbar Preview tab actually toggle
     // the panel open/closed (Claude-style behaviour).
+    //
+    // Iter 212m-203 — if the user is OPENING the preview on a project
+    // that has no `preview_url` yet, intercept and show a lightweight
+    // "Add your live site" modal instead of dropping them into an
+    // empty iframe. On save we PATCH the project and let the effect
+    // that mirrors ChatPanel state open the panel naturally.
     setPreviewOpen((cur) => {
       const next = !cur;
+      const needsLiveSite =
+        next
+        && !!activeProject?.project_id
+        && !(activeProject?.preview_url || "").trim();
+      if (needsLiveSite) {
+        setShowLiveSiteModal(true);
+        // Don't broadcast open — modal owns the flow now.
+        return cur;
+      }
       window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
         detail: { open: next },
       }));
@@ -423,7 +448,26 @@ function DashboardV2Body() {
       if (!next) setTab("Chat");
       return next;
     });
-  }, []);
+  }, [activeProject]);
+
+  // Iter 212m-203 — Add-live-site modal state (per-visit). Opens the
+  // first time a user clicks Preview on a project without a saved
+  // `preview_url`, PATCHes the value on save, then broadcasts the
+  // toggle event so the existing preview panel wiring lights up.
+  const [showLiveSiteModal, setShowLiveSiteModal] = useState(false);
+  const handleSaveLiveSite = useCallback(async (url) => {
+    if (!activeProject?.project_id) return;
+    await api.patch(`/cto/projects/${activeProject.project_id}`, { preview_url: url });
+    // Optimistically reflect on the in-memory project so the iframe
+    // renders immediately without waiting for the next list-fetch.
+    activeProject.preview_url = url;
+    setShowLiveSiteModal(false);
+    setPreviewOpen(true);
+    window.dispatchEvent(new CustomEvent("aurem:toggle-preview", {
+      detail: { open: true },
+    }));
+    setTab("Preview");
+  }, [activeProject]);
 
   // Iter 212m-143 — keep our local `previewOpen` mirror in sync with
   // ChatPanel's authoritative state (which can flip on its own when a

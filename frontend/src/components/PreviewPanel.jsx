@@ -499,11 +499,77 @@ export default function PreviewPanel({ blocks, onClose, activeProject, initialVi
           <div
             data-testid="preview-codebase-err"
             style={{
-              padding: 20, color: "var(--danger, #ef4444)",
-              fontSize: 12,
+              padding: 24,
+              color: "var(--text)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 12,
+              maxWidth: 480,
             }}
           >
-            ⚠ {codebaseErr}
+            {/* Iter 212m-204 — Actionable Code-browse error state.
+                Previously we just rendered the raw backend message
+                which read as a dead-end.  Now we surface the specific
+                token-related failures with a "Reconnect GitHub" CTA
+                that opens the same NewUserWizard the user already
+                knows (via the aurem:open-add-repo event Dashboard
+                listens to). */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(239,68,68,0.12)",
+                border: "1px solid rgba(239,68,68,0.5)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, color: "var(--danger, #ef4444)",
+              }}>⚠</span>
+              <div style={{
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: 11, letterSpacing: "0.14em",
+                color: "var(--danger, #ef4444)",
+              }}>
+                CODEBASE UNAVAILABLE
+              </div>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)" }}>
+              {/^GitHub not connected/i.test(codebaseErr) ? (
+                <>This project doesn&apos;t have a GitHub PAT with <b>contents:read</b> saved.
+                Reconnect it to browse the live repo files here.</>
+              ) : /GitHub PAT invalid|401/i.test(codebaseErr) ? (
+                <>Your GitHub PAT expired or was revoked. Reconnect it
+                (with <b>contents:read &amp; write</b>) to resume the codebase browser.</>
+              ) : (
+                <>{codebaseErr}</>
+              )}
+            </div>
+            <button
+              type="button"
+              data-testid="preview-codebase-reconnect"
+              onClick={() => {
+                // Fire a global event that Dashboard picks up to open
+                // the AddProjectWizard.  Same code path the sidebar
+                // "+ Add Repository" button uses, so behaviour stays
+                // consistent whether user reconnects from the sidebar
+                // or from this inline CTA.
+                window.dispatchEvent(new CustomEvent("aurem:open-add-repo", {
+                  detail: { source: "preview-codebase-err" },
+                }));
+              }}
+              style={{
+                padding: "8px 16px",
+                background: "var(--accent, #f59e0b)",
+                color: "#000",
+                border: "none",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: '"JetBrains Mono", monospace',
+                letterSpacing: "0.05em",
+                cursor: "pointer",
+              }}
+            >
+              RECONNECT GITHUB →
+            </button>
           </div>
         ) : block?.isCodebase && codebaseTabState?.loading ? (
           <div
