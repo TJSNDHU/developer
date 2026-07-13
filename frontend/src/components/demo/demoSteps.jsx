@@ -98,68 +98,102 @@ const typed = (full, tick, startAt = 0, endAt = 1) => {
   return full.slice(0, n);
 };
 
-// ─── STEP 1 — Signup ───────────────────────────────────────────
+// ─── STEP 1 — Signup (OAuth-first + email form) ────────────────
+// Mirrors the real /signup page:  Google + GitHub OAuth buttons on
+// top (primary flow), then an "OR EMAIL" divider with the classic
+// name / email / password form as a fallback.  Cursor drifts to
+// "Continue with GitHub" — that's the fastest path a new developer
+// picks.
 const StepSignup = ({ tick }) => {
-  const email = typed("founder@your-startup.com", tick, 0.15, 0.55);
-  const pwd   = typed("••••••••••••", tick, 0.55, 0.85);
-  const cursorAt = tick < 0.15
-    ? { x: 480, y: 200 }
-    : tick < 0.55
-    ? { x: 480, y: 240 }
-    : tick < 0.85
-    ? { x: 480, y: 300 }
-    : { x: 480, y: 380 };
   return (
     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
       <div
         style={{
-          width: 420,
-          padding: 32,
+          width: 440,
+          padding: 28,
           background: C.panel,
           border: `1px solid ${C.border}`,
           borderRadius: 14,
           boxShadow: `0 0 0 1px ${C.amberSoft} inset, 0 20px 60px rgba(0,0,0,0.5)`,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 8, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>A</div>
-          <div>
-            <div style={{ fontFamily: C.mono, fontSize: 15, fontWeight: 700, color: C.amber }}>ORA <span style={{ color: C.faint, fontWeight: 400, fontSize: 11 }}>by Aurem CTO</span></div>
-            <div style={{ fontSize: 11, color: C.dim }}>Create your account · 10 free tasks</div>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontFamily: C.mono, fontSize: 10, color: C.amber, letterSpacing: "0.18em", marginBottom: 8 }}>SIGN UP</div>
+          <div style={{ fontFamily: "Georgia, serif", fontSize: 22, fontWeight: 700, color: C.text, letterSpacing: "-0.5px" }}>
+            Create your developer account
+          </div>
+          <div style={{ fontSize: 12, color: C.dim, marginTop: 6 }}>1,000 tokens free. No card required.</div>
+        </div>
+
+        {/* ORA GUIDE card */}
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 10,
+          padding: "10px 12px",
+          background: C.amberSoft, border: `1px solid ${C.amber}`, borderRadius: 8,
+          marginBottom: 14,
+        }}>
+          <div style={{ width: 26, height: 26, borderRadius: 6, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>ᴥ</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 9, color: C.amber, letterSpacing: "0.16em", marginBottom: 2 }}>ORA GUIDE</div>
+            <div style={{ fontSize: 11, color: C.text, lineHeight: 1.45 }}>
+              Fastest way: <b>One Click Continue</b> ↓ — creates your account instantly.
+            </div>
           </div>
         </div>
-        <MonoLabel>EMAIL</MonoLabel>
-        <div style={{ marginTop: 6, marginBottom: 12, padding: "10px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, color: C.text, fontFamily: C.mono, minHeight: 20 }}>
-          {email}<span style={{ opacity: tick > 0.15 && tick < 0.55 && Math.floor(tick * 20) % 2 ? 1 : 0 }}>│</span>
-        </div>
-        <MonoLabel>PASSWORD</MonoLabel>
-        <div style={{ marginTop: 6, marginBottom: 18, padding: "10px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, color: C.text, fontFamily: C.mono, minHeight: 20 }}>
-          {pwd}<span style={{ opacity: tick > 0.55 && tick < 0.85 && Math.floor(tick * 20) % 2 ? 1 : 0 }}>│</span>
-        </div>
+
+        {/* Google button */}
         <button
-          disabled
           style={{
-            width: "100%",
-            padding: "12px",
-            background: tick > 0.85 ? C.amber : "#3a2b0f",
-            color: tick > 0.85 ? "#000" : C.faint,
-            border: "none",
-            borderRadius: 8,
-            fontFamily: C.mono,
-            fontWeight: 700,
-            fontSize: 13,
-            letterSpacing: "0.05em",
-            transition: "background 200ms, color 200ms",
-            transform: tick > 0.9 ? "scale(0.98)" : "scale(1)",
+            width: "100%", padding: "10px", marginBottom: 8,
+            background: "#fff", color: "#000",
+            border: "1px solid #d0d7de", borderRadius: 8,
+            fontSize: 13, fontWeight: 600,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
           }}
         >
-          {tick > 0.9 ? "CREATING ACCOUNT…" : "CREATE ACCOUNT"}
+          <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Continue with Google
         </button>
-        <div style={{ marginTop: 14, textAlign: "center", fontSize: 11, color: C.faint }}>
-          Already have an account? <span style={{ color: C.amber }}>Sign in</span>
+
+        {/* GitHub button */}
+        <button
+          data-testid="demo-signup-github-btn"
+          style={{
+            width: "100%", padding: "10px", marginBottom: 12,
+            background: "#0d1117", color: "#fff",
+            border: `1px solid ${C.border2}`, borderRadius: 8,
+            fontSize: 13, fontWeight: 600,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
+            transform: tick > 0.7 ? "scale(0.98)" : "scale(1)",
+            transition: "transform 100ms, background 200ms",
+            outline: tick > 0.5 && tick < 0.85 ? `2px solid ${C.amber}` : "none",
+            outlineOffset: 2,
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16"><path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          Continue with GitHub
+        </button>
+
+        {/* Divider */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0 12px" }}>
+          <div style={{ flex: 1, height: 1, background: C.border2 }} />
+          <div style={{ fontSize: 10, color: C.faint, fontFamily: C.mono, letterSpacing: "0.16em" }}>OR EMAIL</div>
+          <div style={{ flex: 1, height: 1, background: C.border2 }} />
+        </div>
+
+        {/* Compact email + password stubs */}
+        <div style={{ padding: "9px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.faint, fontFamily: C.mono, marginBottom: 8 }}>
+          you@company.com
+        </div>
+        <div style={{ padding: "9px 12px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.faint, fontFamily: C.mono }}>
+          password (min 6)
         </div>
       </div>
-      <Cursor x={cursorAt.x} y={cursorAt.y} label={tick > 0.88 ? "click" : null} />
+      <Cursor
+        x={tick < 0.3 ? 300 : tick < 0.65 ? 600 : 720}
+        y={tick < 0.3 ? 200 : tick < 0.65 ? 380 : 440}
+        label={tick > 0.75 ? "click" : null}
+      />
     </div>
   );
 };
@@ -221,208 +255,195 @@ const StepDashboard = ({ tick }) => (
   </div>
 );
 
-// ─── STEP 3 — Connect GitHub via OAuth ────────────────────────
-// Real product uses a `Connect GitHub` button that redirects to
-// `/github/oauth/connect` → GitHub authorize screen → callback with
-// scoped access. There is NO PAT-paste form anywhere in the modern
-// onboarding, so the demo scene mirrors the same three beats:
-//   Beat A (0.00 – 0.32): dashboard with a big "Connect GitHub" CTA,
-//                          cursor drifts to it and clicks.
-//   Beat B (0.32 – 0.90): GitHub authorize screen (GitHub Octocat
-//                          header, scope list, "Authorize" button),
-//                          cursor lands on Authorize, clicks.
-//   Beat C (0.90 – 1.00): "Redirecting to AUREM…" spinner.  Step 4
-//                          then picks up with the green dot.
+// ─── STEP 3 — Add Repo Wizard (matches production) ─────────────
+// Mirrors the real `new-user-wizard` modal that opens when a user
+// clicks "Add Repository" in the sidebar.  Real product ALREADY has
+// the user's GitHub connected via OAuth (`Continue with GitHub` on
+// signup), so this modal loads their repo list from GitHub AND asks
+// for a PAT with write access (contents: read & write) so ORA can
+// push commits back.  Structure captured verbatim from prod:
+//   • Header: "ORA · by Aurem CTO"  · "Step 1 of 3"
+//   • Progress: 3 dots, first amber
+//   • Title: "Connect your GitHub repo"
+//   • Green pill: "🔗 Connected as your-github"
+//   • ORA GUIDE amber card explaining the picker
+//   • Repo dropdown ("3 repos found — pick one")
+//   • Repository URL input (fallback)
+//   • Branch input (default: main)
+//   • GitHub PAT input + "Generate PAT →" amber button
+//   • Footer: "Skip for now" · "Continue →"
 const StepConnect = ({ tick }) => {
-  const beatA = tick < 0.32;
-  const beatB = tick >= 0.32 && tick < 0.9;
-  const beatC = tick >= 0.9;
+  // Cursor drifts from repo dropdown → PAT input → Continue.
+  const cursorAt =
+    tick < 0.28  ? { x: 420, y: 340 }    // repo dropdown
+    : tick < 0.6 ? { x: 520, y: 500 }    // PAT input
+    : tick < 0.88 ? { x: 720, y: 500 }   // Generate PAT button
+    :              { x: 780, y: 620 };   // Continue
+  const patFilled = tick > 0.65;
 
-  // ── Beat A · CTA screen ────────────────────────────────────
-  if (beatA) {
-    // Cursor drifts diagonally to the button, "clicks" near the end.
-    const p = tick / 0.32;
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+  return (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+      <div
+        data-testid="demo-add-repo-wizard"
+        style={{
+          width: 500,
+          background: C.panel,
+          border: `1px solid ${C.amber}`,
+          borderRadius: 14,
+          padding: 22,
+          boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.amberSoft} inset`,
+        }}
+      >
+        {/* Header row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 6, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>ᴥ</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: C.amber }}>
+              ORA <span style={{ color: C.faint, fontWeight: 400, fontSize: 10 }}>by Aurem CTO</span>
+            </div>
+          </div>
+          <div style={{ fontFamily: C.mono, fontSize: 10, color: C.dim, letterSpacing: "0.08em" }}>Step 1 of 3</div>
+          <div style={{ fontSize: 14, color: C.faint, cursor: "pointer" }}>×</div>
+        </div>
+
+        {/* Progress dots */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 14 }}>
+          <div style={{ width: 24, height: 4, borderRadius: 2, background: C.amber }} />
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.border2 }} />
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.border2 }} />
+          <div style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, color: C.faint, letterSpacing: "0.08em" }}>Connect repo</div>
+        </div>
+
+        {/* ORA GUIDE card */}
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 10,
+          padding: "9px 11px",
+          background: C.amberSoft, border: `1px solid ${C.amber}`, borderRadius: 8,
+          marginBottom: 12,
+        }}>
+          <div style={{ width: 22, height: 22, borderRadius: 5, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>ᴥ</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 9, color: C.amber, letterSpacing: "0.16em", marginBottom: 1 }}>ORA GUIDE</div>
+            <div style={{ fontSize: 11, color: C.text, lineHeight: 1.45 }}>
+              Your GitHub repos are loaded! <b>Pick a repo</b> from the dropdown — or paste a URL. 👇
+            </div>
+          </div>
+        </div>
+
+        {/* Title + connected pill */}
+        <div style={{ fontFamily: "Georgia, serif", fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+          Connect your GitHub repo
+        </div>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "5px 10px",
+          background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 8,
+          fontSize: 11, fontFamily: C.mono, color: C.green,
+          marginBottom: 10,
+        }}>
+          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          Connected as <b>your-github</b>
+        </div>
+        <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.5, marginBottom: 12 }}>
+          Pick a repo from your account or paste any URL — ORA will read it, write the diff, and push the commit back.
+        </div>
+
+        {/* YOUR REPOSITORIES dropdown */}
+        <MonoLabel>YOUR REPOSITORIES</MonoLabel>
         <div
+          data-testid="demo-repo-dropdown"
           style={{
-            width: 480,
-            padding: 32,
-            background: C.panel,
-            border: `1px solid ${C.amber}`,
-            borderRadius: 14,
-            boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.amberSoft} inset`,
-            textAlign: "center",
+            marginTop: 5, marginBottom: 10,
+            padding: "8px 11px", background: "#0a0e18",
+            border: `1px solid ${tick < 0.28 ? C.amber : C.border}`,
+            borderRadius: 8, fontSize: 12, color: tick < 0.28 ? C.amber : C.text,
+            fontFamily: C.mono, display: "flex", justifyContent: "space-between", alignItems: "center",
+            transition: "border-color 200ms, color 200ms",
           }}
         >
-          {/* GitHub icon */}
-          <div style={{ width: 56, height: 56, margin: "0 auto 14px", borderRadius: "50%", background: "#0d1117", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="30" height="30" viewBox="0 0 16 16" aria-hidden="true">
-              <path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-            </svg>
+          {tick < 0.28 ? "3 repos found — pick one" : "your-org/frontend"}
+          <span style={{ color: C.faint }}>▾</span>
+        </div>
+
+        {/* BRANCH */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <MonoLabel>BRANCH</MonoLabel>
+            <div style={{ marginTop: 5, padding: "8px 11px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.text, fontFamily: C.mono }}>
+              main
+            </div>
           </div>
-          <div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>
-            Connect your GitHub
+          <div>
+            <MonoLabel>REPO URL</MonoLabel>
+            <div style={{ marginTop: 5, padding: "8px 11px", background: "#0a0e18", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11, color: C.faint, fontFamily: C.mono }}>
+              github.com/…
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.6, marginBottom: 22 }}>
-            One click. ORA opens a GitHub authorize screen — no tokens<br />
-            to paste, no scripts to run. Scoped, revocable, private.
+        </div>
+
+        {/* PAT + Generate button */}
+        <div style={{ fontFamily: C.mono, fontSize: 9, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>
+          GITHUB PERSONAL ACCESS TOKEN <span style={{ color: C.amber }}>(required · contents: read &amp; write)</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+          <div
+            style={{
+              flex: 1,
+              padding: "8px 11px",
+              background: "#0a0e18",
+              border: `1px solid ${tick >= 0.28 && tick < 0.65 ? C.amber : C.border}`,
+              borderRadius: 8,
+              fontSize: 12,
+              color: patFilled ? C.text : C.faint,
+              fontFamily: C.mono,
+              letterSpacing: patFilled ? "0.1em" : 0,
+              transition: "border-color 200ms",
+            }}
+          >
+            {patFilled ? typed("ghp_••••••••••••••••••••••", tick, 0.65, 0.85) : "ghp_… or github_pat_…"}
           </div>
           <button
-            data-testid="demo-connect-github-btn"
+            data-testid="demo-generate-pat-btn"
             style={{
-              width: "100%",
-              padding: "12px",
-              background: p > 0.85 ? "#e6e6e6" : "#fff",
-              color: "#0d1117",
-              border: "none",
-              borderRadius: 8,
-              fontFamily: C.mono,
-              fontWeight: 700,
-              fontSize: 13,
-              letterSpacing: "0.05em",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              transform: p > 0.9 ? "scale(0.98)" : "scale(1)",
+              padding: "8px 12px",
+              background: tick >= 0.65 && tick < 0.88 ? "#e08e07" : C.amber,
+              color: "#000",
+              border: "none", borderRadius: 8,
+              fontFamily: C.mono, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em",
+              cursor: "pointer",
+              boxShadow: tick > 0.7 && tick < 0.9 ? `0 0 16px ${C.amberSoft}` : "none",
+              transform: tick > 0.82 && tick < 0.88 ? "scale(0.97)" : "scale(1)",
               transition: "background 200ms, transform 100ms",
             }}
           >
-            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-              <path fill="#0d1117" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-            </svg>
-            CONNECT GITHUB
+            Generate PAT →
           </button>
-          <div style={{ marginTop: 12, fontSize: 10, color: C.faint, fontFamily: C.mono, letterSpacing: "0.06em" }}>
-            🔒 We never see your GitHub password. Ever.
-          </div>
         </div>
-        <Cursor
-          x={340 + p * 180}
-          y={260 + p * 220}
-          label={p > 0.9 ? "click" : null}
-        />
-      </div>
-    );
-  }
-
-  // ── Beat B · GitHub authorize screen ───────────────────────
-  if (beatB) {
-    const bp = (tick - 0.32) / 0.58;
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: "#f6f8fa" }}>
-        {/* Full-bleed light GitHub bg */}
-        <div style={{ position: "absolute", inset: 0, background: "#f6f8fa" }} />
-        {/* GitHub top nav strip */}
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 42, background: "#0d1117", display: "flex", alignItems: "center", padding: "0 22px", gap: 12 }}>
-          <svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">
-            <path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-          </svg>
-          <div style={{ color: "#c9d1d9", fontSize: 11, fontFamily: C.mono, letterSpacing: "0.06em" }}>
-            github.com / authorize
-          </div>
+        <div style={{ fontSize: 10, color: C.faint, marginBottom: 14 }}>
+          Encrypted at rest · only used to read &amp; push this repo
         </div>
 
-        {/* Authorize card */}
-        <div
-          data-testid="demo-github-authorize"
-          style={{
-            position: "relative",
-            zIndex: 2,
-            width: 460,
-            background: "#fff",
-            border: "1px solid #d0d7de",
-            borderRadius: 8,
-            padding: 24,
-            boxShadow: "0 8px 24px rgba(140,149,159,0.2)",
-            color: "#1f2328",
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif',
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12, borderBottom: "1px solid #d0d7de", marginBottom: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, background: C.amber, color: "#000", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>A</div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Authorize <span style={{ color: C.amber }}>AUREM CTO</span></div>
-              <div style={{ fontSize: 11, color: "#57606a" }}>by aurem-cto · verified publisher</div>
-            </div>
-          </div>
-          <div style={{ fontSize: 12.5, color: "#1f2328", lineHeight: 1.5, marginBottom: 12 }}>
-            AUREM CTO by @yourname wants to access your GitHub account.
-          </div>
-
-          {/* Permissions */}
-          <div style={{ background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6, padding: "10px 12px", marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#57606a", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-              Repositories
-            </div>
-            {[
-              "Read repo contents & metadata",
-              "Create & update pull requests",
-              "Read commit history",
-            ].map((t, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0", fontSize: 12.5 }}>
-                <span style={{ width: 14, height: 14, borderRadius: 3, background: "#dafbe1", border: "1px solid #55d178", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#1a7f37", fontWeight: 700 }}>✓</span>
-                {t}
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: "#57606a", marginBottom: 14, padding: "6px 10px", background: "#fff8c5", border: "1px solid #d4a72c", borderRadius: 6 }}>
-            🔒 GitHub never sends AUREM your password. You can revoke access any time from GitHub Settings.
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexDirection: "row-reverse" }}>
-            <button
-              data-testid="demo-authorize-btn"
-              style={{
-                padding: "8px 20px",
-                background: bp > 0.85 ? "#1c7c34" : "#2da44e",
-                color: "#fff",
-                border: "1px solid rgba(31,35,40,0.15)",
-                borderRadius: 6,
-                fontWeight: 600,
-                fontSize: 13,
-                boxShadow: "0 1px 0 rgba(31,35,40,0.1)",
-                transform: bp > 0.9 ? "scale(0.98)" : "scale(1)",
-                transition: "background 150ms, transform 100ms",
-              }}
-            >
-              Authorize AUREM CTO
-            </button>
-            <button
-              style={{
-                padding: "8px 16px",
-                background: "#f6f8fa",
-                color: "#1f2328",
-                border: "1px solid rgba(31,35,40,0.15)",
-                borderRadius: 6,
-                fontSize: 13,
-              }}
-            >
-              Cancel
-            </button>
-          </div>
+        {/* Footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, color: C.faint, fontFamily: C.mono, cursor: "pointer" }}>Skip for now</div>
+          <button
+            data-testid="demo-wizard-continue-btn"
+            style={{
+              padding: "8px 20px",
+              background: patFilled ? C.amber : "#3a2b0f",
+              color: patFilled ? "#000" : C.faint,
+              border: "none", borderRadius: 8,
+              fontFamily: C.mono, fontSize: 12, fontWeight: 700, letterSpacing: "0.04em",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              transform: tick > 0.93 ? "scale(0.98)" : "scale(1)",
+              transition: "background 200ms, color 200ms, transform 100ms",
+            }}
+          >
+            {tick > 0.93 ? "CONNECTING…" : "Continue →"}
+          </button>
         </div>
-        <Cursor
-          x={230 + bp * 350}
-          y={200 + bp * 260}
-          label={bp > 0.9 ? "click" : null}
-        />
       </div>
-    );
-  }
-
-  // ── Beat C · redirect flash ────────────────────────────────
-  return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, position: "relative" }}>
-      <div style={{ width: 46, height: 46, borderRadius: "50%", border: `3px solid ${C.border2}`, borderTopColor: C.amber, animation: "wpSpin 0.8s linear infinite" }} />
-      <div style={{ fontFamily: C.mono, fontSize: 13, color: C.text, letterSpacing: "0.06em" }}>
-        Redirecting to AUREM…
-      </div>
-      <div style={{ fontFamily: C.mono, fontSize: 11, color: C.faint }}>
-        github.com → auremcto.com/github/oauth/callback
-      </div>
-      <style>{`@keyframes wpSpin { to { transform: rotate(360deg); } }`}</style>
+      <Cursor x={cursorAt.x} y={cursorAt.y} label={(tick > 0.85 && tick < 0.9) || tick > 0.94 ? "click" : null} />
     </div>
   );
 };
@@ -760,7 +781,7 @@ export const FULL_STEPS = [
   },
   {
     id: "connect",
-    caption: "One click → GitHub OAuth authorize screen → back in.  No PATs, no tokens to paste.",
+    caption: "Pick a repo · paste a PAT with contents:read&write · Continue. That's it.",
     duration: 9000,
     urlPath: "/dashboard",
     render: StepConnect,
@@ -798,7 +819,7 @@ export const FULL_STEPS = [
 // Teaser cut — 4 highlight moments only, faster pacing (~24s total).
 export const TEASER_STEPS = [
   { ...FULL_STEPS[0], duration: 4500,  caption: "Sign up · 10 free tasks." },
-  { ...FULL_STEPS[2], duration: 6500,  caption: "Connect GitHub — one OAuth click." },
+  { ...FULL_STEPS[2], duration: 6500,  caption: "Add repo — pick from your GitHub, drop a PAT, Continue." },
   { ...FULL_STEPS[5], duration: 8000,  caption: "LOOP mode ships production-ready code." },
   { ...FULL_STEPS[6], duration: 6000,  caption: "Merged in minutes. No hand-holding." },
 ];
