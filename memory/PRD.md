@@ -2,6 +2,67 @@
 
 ## Recent session (2026-02-Session-5) — status snapshot
 
+### 2026-02-13 — Iter 212m-218 — Real developer commit identity + Conventional Commits + Co-authored-by trailer
+
+**Problem:** Every AUREM-shipped commit landed as bot-attributed
+`AUREM CTO <cto@auremcto.com>` with bland `Auto-generated changes {uuid}`
+subject lines. No credit to the real developer on GitHub blame /
+contribution graph / PR author fields.
+
+**Landed:**
+- **`services/git_identity.py`** — new module with:
+  - `resolve_git_identity(db, user_id) -> (name, email)`  
+    Priority: `github.name` → `dev_users.name` → `github.login` →
+    email local-part → `AUREM Developer` synthetic. Never raises
+    on DB failure (commit path stays unblocked).
+  - `build_commit_message(...)` — Conventional Commits format
+    (`type: summary [via ORA]`) with the `Co-authored-by: ORA by
+    Aurem CTO <cto@auremcto.com>` trailer. Subject capped at 72 chars.
+    Never double-appends `[via ORA]`.
+  - `infer_commit_type()` — classifier for
+    `fix|feat|refactor|chore|docs|test|perf|style|ci|build` from
+    free-text task descriptions.
+- **`github_api_writer.commit_files()`** — hardcoded
+  `AUREM CTO <cto@auremcto.com>` defaults **removed**; `author_name`
+  and `author_email` are now required kwargs. Guarded with a
+  `ValueError` so a lazy caller can't bypass identity resolution.
+- **`github_api_writer.revert_commit()`** — same wiring; also switched
+  fallback revert message to Conventional Commits + trailer.
+- **All 6 commit callers updated:**
+  - `loop_engine.py` (Ship phase — user's task message → normalised)
+  - `finding_fix_applier.py` (health/security auto-fix — preserves
+    `fix(rule):` subject + adds marker + trailer)
+  - `local_tools.py` (`write_repo_file` tool)
+  - `seo/orchestrator.py` (SEO meta-tag fixes)
+  - `repo_indexing.py` (CODEBASE.md refresh)
+  - `routers/cto_projects.py` (`_run_rollback_via_api` — revert now
+    attributes to real developer)
+- **`routers/github_oauth.py`** — captures `name` + `email` from
+  GitHub `/user` into `dev_users.github.{name,email}` on signup +
+  connect flows so richer identity is stored for future commits
+  (non-breaking; legacy rows fall back through the resolver's
+  priority chain).
+
+**Testing:** `tests/test_iter212m218_commit_identity.py` — 39 tests:
+resolver priority order, classifier, message builder shape,
+Co-authored-by exact-format check, `commit_files` guard against
+empty author, static grep tests locking every caller to route
+identity + message through the new helpers. **54/54 pass** across
+this iter + iter 216 (gh error prop) + iter 217 (rate-limit shape).
+
+**Files touched:**
+- `backend/services/git_identity.py` (NEW)
+- `backend/services/github_api_writer.py`
+- `backend/services/loop_engine.py`
+- `backend/services/finding_fix_applier.py`
+- `backend/services/local_tools.py`
+- `backend/services/seo/orchestrator.py`
+- `backend/services/repo_indexing.py`
+- `backend/routers/github_oauth.py`
+- `backend/routers/cto_projects.py`
+- `backend/tests/test_iter212m218_commit_identity.py` (NEW)
+
+
 ### 2026-02-13 — Iter 212m-217 — `/scan` slash-command rate-limit countdown toast (P0)
 
 **Landed:**

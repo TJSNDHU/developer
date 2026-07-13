@@ -330,10 +330,39 @@ async def apply_finding_fix(
         f"Resolved by AUREM auto-fix. Re-validated locally — the "
         f"{rule_id} finding no longer triggers on this file.\n"
     )
+    # Iter 212m-218 — Normalise via git_identity so this commit lands
+    # with the real developer as author + ORA as co-author + the
+    # `[via ORA]` transparency marker.  We already have a well-formed
+    # `fix(rule):` subject so we pass it through as-is; the builder
+    # only appends the marker and the Co-authored-by trailer.
+    from services.git_identity import (
+        resolve_git_identity, build_commit_message,
+    )
+    subject_line = commit_message.split("\n", 1)[0]
+    body_text = commit_message.split("\n", 1)[1].strip() if "\n" in commit_message else ""
+    # Trim subject_line's "fix(rule):" prefix so build_commit_message
+    # can re-emit with the marker in the right place.
+    m_type_summary = re.match(
+        r"^\s*(feat|fix|refactor|chore|docs|test|perf|style|ci|build)"
+        r"(?:\(([^)]+)\))?\s*:\s*(.*)$",
+        subject_line, re.I,
+    )
+    if m_type_summary:
+        _t, _scope, _summary = m_type_summary.group(1).lower(), m_type_summary.group(2), m_type_summary.group(3)
+        _summary_full = f"({_scope}) {_summary}" if _scope else _summary
+        commit_message = build_commit_message(
+            task_type=_t, summary=_summary_full, body=body_text,
+        )
+    else:
+        commit_message = build_commit_message(
+            user_message=subject_line, body=body_text,
+        )
+    author_name, author_email = await resolve_git_identity(db, user_id)
     try:
         res = await commit_files(
             owner=owner, repo=repo, branch=commit_target, token=token,
             files={path: patched}, commit_message=commit_message,
+            author_name=author_name, author_email=author_email,
             progress=None,
         )
     except Exception as e:                                # noqa: BLE001

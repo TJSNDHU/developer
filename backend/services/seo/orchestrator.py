@@ -267,10 +267,21 @@ async def run_seo_fixes(
 
     files_to_commit = {p["path"]: p["after"] for p in coalesced}
     try:
+        # Iter 212m-218 — resolve real developer identity + attach
+        # Co-authored-by trailer via git_identity helper.
+        from services.git_identity import (
+            resolve_git_identity, build_commit_message,
+        )
+        _author_name, _author_email = await resolve_git_identity(db, user_id)
+        _final_msg = build_commit_message(
+            user_message=options.commit_message,
+            summary=options.commit_message,
+        )
         commit = await commit_files(
             owner=owner, repo=repo, branch=branch, token=token or "",
             files=files_to_commit,
-            commit_message=options.commit_message,
+            commit_message=_final_msg,
+            author_name=_author_name, author_email=_author_email,
         )
         out["ok"] = bool(commit.get("ok"))
         out["committed"] = True

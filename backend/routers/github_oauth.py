@@ -288,6 +288,10 @@ async def callback(
     gh_login  = (info or {}).get("login") or ""
     gh_avatar = (info or {}).get("avatar_url") or ""
     gh_email  = (info or {}).get("email")
+    # Iter 212m-218 — capture display name for git author identity.
+    # GitHub's `/user` endpoint returns `name` as the user's public
+    # profile name (may be null if the user never set one).
+    gh_name   = (info or {}).get("name") or ""
 
     # ── Signup / sign-in flow ─────────────────────────────────────────
     if flow == "signup":
@@ -318,6 +322,8 @@ async def callback(
                     "id":           (info or {}).get("id"),   # iter 211
                     "access_token": token,
                     "login":        gh_login,
+                    "name":         gh_name,                  # iter 212m-218
+                    "email":        gh_email or "",           # iter 212m-218
                     "avatar_url":   gh_avatar,
                     "connected_at": time.time(),
                 }}},
@@ -351,6 +357,8 @@ async def callback(
                     "id":           gh_id_num,        # iter 211 — immutable
                     "access_token": token,
                     "login":        gh_login,
+                    "name":         gh_name,          # iter 212m-218
+                    "email":        gh_email or "",   # iter 212m-218
                     "avatar_url":   gh_avatar,
                     "connected_at": time.time(),
                 },
@@ -389,6 +397,8 @@ async def callback(
         {"$set": {"github": {
             "access_token": token,
             "login":        gh_login,
+            "name":         gh_name,          # iter 212m-218
+            "email":        gh_email or "",   # iter 212m-218
             "avatar_url":   gh_avatar,
             "connected_at": time.time(),
         }}},

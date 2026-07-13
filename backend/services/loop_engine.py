@@ -1576,11 +1576,32 @@ class LoopEngine:
                          message=f"Committing {len(files_dict)} file(s) to {owner}/{repo}@{branch}…")
         try:
             from services.github_api_writer import commit_files
+            from services.git_identity import (
+                resolve_git_identity, build_commit_message,
+            )
+            # Iter 212m-218 — real developer identity + Conventional
+            # Commits + Co-authored-by trailer. The commit_message
+            # arriving here may be either the raw user task or an
+            # already-formatted `feat: …` string; `build_commit_message`
+            # normalises both and adds the `[via ORA]` marker + the
+            # co-author trailer.
+            author_name, author_email = await resolve_git_identity(
+                self.db, self.user_id,
+            )
+            final_commit_msg = build_commit_message(
+                user_message=commit_message,
+                summary=commit_message,
+            )
             res = await commit_files(
                 owner=owner, repo=repo, branch=branch, token=token,
-                files=files_dict, commit_message=commit_message,
+                files=files_dict, commit_message=final_commit_msg,
+                author_name=author_name, author_email=author_email,
                 progress=None,
             )
+            # Keep the persisted message consistent with what actually
+            # landed on GitHub — so the UI doesn't show one string and
+            # the git log another.
+            commit_message = final_commit_msg
             logger.info("[loop %s] SHIP RESULT — %r", self.loop_id, res)
         except Exception as e:  # network / 401 / 422 / etc.
             logger.exception("[loop %s] SHIP commit_files failed", self.loop_id)

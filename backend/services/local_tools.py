@@ -692,7 +692,7 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
     project_id = ctx.get("project_id")
     path       = (args or {}).get("path")
     content    = (args or {}).get("content")
-    commit_msg = (args or {}).get("commit_message") or f"AUREM CTO: edit {path}"
+    commit_msg = (args or {}).get("commit_message") or f"chore: edit {path}"
 
     if not path or not isinstance(path, str):
         return {"ok": False, "error": "Missing required arg `path`."}
@@ -785,12 +785,27 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
             logger.info("syntax_gate PASSED: %s", path)
 
     # Commit via the existing atomic Git Data API writer.
+    # Iter 212m-218 — resolve real developer identity + normalise
+    # commit message to Conventional Commits + co-author trailer so
+    # the commit shows the human as author and ORA as co-author.
     try:
         from .github_api_writer import commit_files as _commit_files
+        from .git_identity import (
+            resolve_git_identity, build_commit_message,
+        )
+        _db = None
+        try:
+            from cto_services.db import get_db as _get_db
+            _db = _get_db()
+        except Exception:                                # noqa: BLE001
+            _db = None
+        _author_name, _author_email = await resolve_git_identity(_db, user_id)
+        _final_commit_msg = build_commit_message(user_message=commit_msg, summary=commit_msg)
         res = await _commit_files(
             owner=owner, repo=repo, branch=branch, token=token,
             files={path: content},
-            commit_message=commit_msg,
+            commit_message=_final_commit_msg,
+            author_name=_author_name, author_email=_author_email,
         )
     except Exception as e:                                # noqa: BLE001
         logger.warning("write_repo_file: commit_files crashed: %r", e)

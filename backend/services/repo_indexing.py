@@ -219,11 +219,22 @@ async def build_repo_index(
     # ── Step 5: Optional commit ──────────────────────────────────
     if commit and plaintext_token:
         try:
+            # Iter 212m-218 — real developer identity + Co-authored-by trailer.
+            from services.git_identity import (
+                resolve_git_identity, build_commit_message,
+            )
+            _author_name, _author_email = await resolve_git_identity(db, user_id)
+            _msg = build_commit_message(
+                task_type="chore",
+                summary="regenerate CODEBASE.md",
+                body="Automated index refresh by ORA.",
+            )
             commit_info = await commit_files(
                 owner=owner, repo=repo, branch=branch,
                 token=plaintext_token,
                 files={"CODEBASE.md": codebase_md},
-                commit_message="chore(aurem): regenerate CODEBASE.md",
+                commit_message=_msg,
+                author_name=_author_name, author_email=_author_email,
             )
             record["commit_sha"] = commit_info.get("sha")
             record["commit_url"] = commit_info.get("html_url")

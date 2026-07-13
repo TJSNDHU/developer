@@ -82,15 +82,28 @@ async def _get_branch_head(client: httpx.AsyncClient, owner: str, repo: str,
 async def commit_files(
     owner: str, repo: str, branch: str, token: str,
     files: dict[str, str], commit_message: str,
-    author_email: str = "cto@auremcto.com",
-    author_name: str = "AUREM CTO",
+    author_email: str,
+    author_name: str,
     progress=None,
 ) -> dict:
     """Atomically commit `files = {path: content}` to `branch`.
     Returns {ok, sha, html_url} on success or raises.
 
     `progress(step, status)` is called for each phase so callers can
-    stream UI updates (same shape as _log in cto_projects.py)."""
+    stream UI updates (same shape as _log in cto_projects.py).
+
+    Iter 212m-218 — `author_name` and `author_email` are REQUIRED
+    keyword arguments (no defaults).  Every caller MUST resolve the
+    real developer identity via `services.git_identity.resolve_git_identity`
+    before invoking this writer.  Hardcoded `AUREM CTO <cto@auremcto.com>`
+    defaults were removed so a lazy caller can't accidentally push
+    bot-attributed commits again.
+    """
+    if not author_name or not author_email:
+        raise ValueError(
+            "commit_files requires non-empty author_name and author_email — "
+            "use services.git_identity.resolve_git_identity() to fetch them"
+        )
 
     async def _p(step: str, status: str = "info"):
         if progress is not None:
@@ -179,14 +192,25 @@ async def commit_files(
 async def revert_commit(
     owner: str, repo: str, branch: str, token: str,
     commit_sha: str, commit_message: Optional[str] = None,
-    author_email: str = "cto@auremcto.com",
-    author_name: str = "AUREM CTO",
+    author_email: str = "",
+    author_name: str = "",
     progress=None,
 ) -> dict:
     """Push a non-destructive revert of `commit_sha` to `branch`.
     Strategy: for every file in that commit's tree, restore the version
     from the commit's PARENT (or delete it if it didn't exist before).
-    Then push that as a NEW commit on top of HEAD."""
+    Then push that as a NEW commit on top of HEAD.
+
+    Iter 212m-218 — `author_name` / `author_email` should be passed
+    by callers via `services.git_identity.resolve_git_identity`.  For
+    backward-compat we still accept empty strings (some callers
+    revert on a background timer and don't have a user context) and
+    fall back to a synthetic identity in that path.
+    """
+    if not author_name:
+        author_name = "AUREM Auto-Revert"
+    if not author_email:
+        author_email = "aurem-revert@users.noreply.github.com"
 
     async def _p(step: str, status: str = "info"):
         if progress is not None:
@@ -267,7 +291,11 @@ async def revert_commit(
         r.raise_for_status()
         new_tree_sha = r.json()["sha"]
 
-        msg = commit_message or f'Revert "{commit_sha[:7]}"\n\nReverted by AUREM CTO'
+        msg = commit_message or (
+            f'chore: revert "{commit_sha[:7]}" [via ORA]\n\n'
+            f"Automated revert triggered by ORA safety pipeline.\n\n"
+            f"Co-authored-by: ORA by Aurem CTO <cto@auremcto.com>"
+        )
         r = await client.post(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/commits",
             headers=_headers(token),

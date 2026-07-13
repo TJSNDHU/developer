@@ -1824,9 +1824,16 @@ async def _run_rollback_via_api(task_id: str, proj: dict, commit_sha: str,
 
     try:
         await _set(rollback_status="running")
+        # Iter 212m-218 — attribute the revert commit to the real
+        # developer instead of the historical "AUREM CTO" bot identity.
+        from services.git_identity import resolve_git_identity
+        _author_name, _author_email = await resolve_git_identity(
+            db, proj.get("user_id") or "",
+        )
         result = await gh_api_revert(
             owner=owner, repo=repo, branch=branch, token=user_token,
             commit_sha=commit_sha, progress=_prog,
+            author_name=_author_name, author_email=_author_email,
         )
         await _set(
             rollback_status="done",
