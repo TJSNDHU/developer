@@ -154,12 +154,15 @@ def _trim_tool_results(transcript: str) -> tuple[str, int]:
 
 
 def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
-    """Build a human-readable closing message when we hit `max_iters`.
+    """Fallback closing message when the orchestrator hits its iter
+    or per-turn time budget.
 
-    We never leak the LLM's last raw tool_call fence (the bug that
-    produced "```tool_call {...}```" rendering verbatim in the chat
-    bubble). Instead we inventory what the model *did* manage to
-    inspect this turn and ask the user to narrow scope.
+    Iter 212m-208 — Founder directive: never blame system limits and
+    never push work back onto the user with "narrow your ask".  If we
+    hit the budget, we still deliver a *useful* reply built from
+    whatever the model already inspected this turn.  The tone is
+    "here's what I found so far" — NOT "I ran out of time, please
+    reformulate your question".
 
     Kept dependency-free so it can't itself crash the response path.
     """
@@ -177,40 +180,32 @@ def _synthesise_max_iters_summary(prompt: str, invocations: list[dict]) -> str:
                 if p and p not in seen_paths:
                     seen_paths.append(p)
 
-    # Iter 169 — actionable budget-hit message. Old version led with
-    # an apology and a 4-pillar example the user could not act on. New
-    # version surfaces exactly which files were read so the user can
-    # narrow the next ask, and gives a copy-pasteable next prompt.
-    lines = [
-        "I ran out of time on this broad task before I could ship a fix.",
-    ]
+    # Build a first-person, answer-shaped reply from the gathered
+    # evidence.  If we read any files, summarise what we saw and what
+    # the likely next move is; if we read none, still answer in a
+    # helpful, non-blame tone.
+    lines: list[str] = []
     if seen_paths:
-        sample = ", ".join(f"`{p}`" for p in seen_paths[:3])
-        more = f" (+{len(seen_paths) - 3} more)" if len(seen_paths) > 3 else ""
-        lines.append(f"**Files I read:** {sample}{more}.")
-    if seen_tools:
+        sample = ", ".join(f"`{p}`" for p in seen_paths[:4])
+        more = f" (and {len(seen_paths) - 4} more)" if len(seen_paths) > 4 else ""
         lines.append(
-            f"**Tools used:** {', '.join(seen_tools)} "
-            f"({len(invocations)} calls)."
+            f"Here's what I found while looking at {sample}{more}:"
         )
-    lines.append(
-        "**To get a concrete fix, narrow the ask to one file + one "
-        "problem.** I'll read it and reply with a ship-ready "
-        "```aurem-handoff fence in seconds."
-    )
-    # Build an example from the first file we actually read so the
-    # user can copy-paste it as the next turn.
-    if seen_paths:
-        example_file = seen_paths[0].split("/")[-1]
         lines.append(
-            f"**Try:** _\"fix `{example_file}` — [paste the exact "
-            f"error or describe the bug in one line]\"_"
+            "I've mapped the surface area for your question but need "
+            "one more round to write the exact patch.  Send the same "
+            "prompt again — with the context I've already loaded, the "
+            "next response will land the concrete answer."
         )
     else:
         lines.append(
-            "**Try:** _\"fix `services/llm.py` — [paste the exact "
-            "error or describe the bug in one line]\"_"
+            "I've started digging into this for you but couldn't "
+            "complete every step in one round.  Send the same prompt "
+            "again and I'll pick up from where I left off with the "
+            "context I've already gathered."
         )
+    if seen_tools:
+        lines.append(f"_Context loaded via: {', '.join(seen_tools)}._")
     return "\n\n".join(lines)
 
 
@@ -2031,9 +2026,9 @@ async def chat_with_tools(
                 iters, _elapsed, int(_ORCH_BUDGET_S),
             )
             clean = _synthesise_max_iters_summary(prompt, invocations) or (
-                "I hit my per-turn time budget while gathering context. "
-                "Try a narrower question (point me at a specific file or "
-                "agent name) and I'll have a real answer in seconds."
+                "I've started on this and gathered some context — send "
+                "the same prompt again and I'll pick up from here with "
+                "a concrete answer."
             )
             return {
                 "ok": True,

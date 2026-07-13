@@ -2057,10 +2057,32 @@ async def chat_stream(
                     # Agentic or clarify — full pipeline.
                     _max_iters_eff = min(max(body.max_tool_iters, 4), 6)
 
+                # Iter 212m-208 — Ask Advisor (`ora_panel=true`) is a
+                # pure Q&A surface, NOT a fix agent.  Force a single
+                # LLM round and tell the model up front "just answer,
+                # don't call tools".  This prevents advisor turns from
+                # ever hitting `_synthesise_max_iters_summary` — the
+                # user simply gets the model's direct answer.
+                if body.ora_panel:
+                    _max_iters_eff = 1
+                    _adv_directive = (
+                        "\n\nYOU ARE THE ASK ADVISOR PANEL. "
+                        "Answer the user's question directly from what "
+                        "you already know about this workspace. DO NOT "
+                        "call any tools this turn. DO NOT ask the user "
+                        "to narrow their question. DO NOT say you ran "
+                        "out of time.  If the question is ambiguous, "
+                        "answer the most likely interpretation and "
+                        "note the assumption in one line."
+                    )
+                    _sys_for_advisor = (extra_sys or "") + _adv_directive
+                else:
+                    _sys_for_advisor = extra_sys
+
                 result = await chat_with_tools(
                     prompt=body.prompt,
                     jwt_token=jwt_token,
-                    system=(extra_sys + "\n\n" if extra_sys else None),
+                    system=(_sys_for_advisor + "\n\n" if _sys_for_advisor else None),
                     max_iters=_max_iters_eff,
                     session_id=body.session_id,
                     mongo_client=None,
