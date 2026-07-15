@@ -153,11 +153,13 @@ def _parse_repo(url: str) -> tuple[str, str]:
 
 
 async def _user_gh_token(user_id: str) -> Optional[str]:
-    db = get_db()
-    if db is None:
-        return None
-    u = await db.dev_users.find_one({"user_id": user_id}, {"_id": 0, "github": 1})
-    return ((u or {}).get("github") or {}).get("access_token")
+    # Iter 212m-230 — Canonical implementation now lives in
+    # services/pat_vault.py.  Re-exported here so existing call-sites
+    # (`from routers.cto_projects import _user_gh_token`) keep working
+    # while the dependency direction is now correct
+    # (routers → services, not services → routers).
+    from services.pat_vault import _user_gh_token as _svc_user_gh_token
+    return await _svc_user_gh_token(user_id)
 
 
 # ── Iter 43 — PAT encryption helpers ──────────────────────────────────
@@ -166,31 +168,22 @@ async def _user_gh_token(user_id: str) -> Optional[str]:
 # Legacy rows persisted before this migration may still hold plaintext
 # tokens — the decrypt helper transparently passes those through so the
 # pipeline keeps working until migrations/002_encrypt_pats.py is run.
+#
+# Iter 212m-230 — Actual implementations relocated to
+# services/pat_vault.py so services/ callers no longer create a
+# circular import back to this router.  These two wrappers exist only
+# to preserve the legacy `_encrypt_pat` / `_decrypt_pat` symbols on
+# this module (~40+ call-sites still reference them via
+# `from routers.cto_projects import _decrypt_pat`).
 
 async def _encrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
-    if not token:
-        return token
-    if token.startswith("v1:"):
-        return token   # already encrypted
-    try:
-        from services.vault import encrypt, is_vault_available
-        if not is_vault_available():
-            return token
-        return await encrypt(user_id, token, kind="github_token")
-    except Exception:
-        return token   # fail-open: never block project creation on crypto
+    from services.pat_vault import _encrypt_pat as _svc_encrypt_pat
+    return await _svc_encrypt_pat(user_id, token)
 
 
 async def _decrypt_pat(user_id: str, token: Optional[str]) -> Optional[str]:
-    if not token:
-        return token
-    if not token.startswith("v1:"):
-        return token   # legacy plaintext — pass through
-    try:
-        from services.vault import decrypt
-        return await decrypt(user_id, token, kind="github_token")
-    except Exception:
-        return None    # tamper / wrong user → treat as missing token
+    from services.pat_vault import _decrypt_pat as _svc_decrypt_pat
+    return await _svc_decrypt_pat(user_id, token)
 
 
 # Iter 165 — Brain V2 endpoints (manual rebuild + read-only inspect)

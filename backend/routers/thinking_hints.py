@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from cto_services.auth import current_dev
 from cto_services.db import get_db
-from routers.admin import _require_admin
+from cto_services.auth import require_admin as _require_admin   # iter 212m-230 — was `from routers.admin import _require_admin` which created a routers→routers cycle
 from services.thinking_hints import bust_cache, pick_hint
 
 logger = logging.getLogger(__name__)

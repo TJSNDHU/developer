@@ -31,10 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 def _stripe_client():
-    from routers.payments import _stripe_key  # arch: allow-router-import — payments router owns Stripe key resolution
-    import stripe
-    stripe.api_key = _stripe_key()
-    return stripe
+    # Iter 212m-230 — Canonical Stripe key resolver now lives in
+    # services/stripe_client.  Removes the circular import
+    # billing_cron → routers/payments → billing_cron.
+    from services.stripe_client import stripe_client as _svc_stripe_client
+    return _svc_stripe_client()
 
 
 # ───────────────────────────────────────────────────────────────────────

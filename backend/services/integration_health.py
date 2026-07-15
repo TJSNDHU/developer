@@ -346,8 +346,12 @@ async def _probe_sentry() -> dict:
     # Sentry doesn't have a "validate DSN" API endpoint — best we can do is
     # confirm the SDK initialized cleanly on this process.
     try:
-        import main as _main
-        active = bool(getattr(_main, "SENTRY_ACTIVE", False))
+        # Iter 212m-230 — Read SENTRY_ACTIVE from services.app_state
+        # (populated by main.py at boot) instead of `import main` —
+        # this was the last remaining routers/services → main
+        # circular-import edge that architecture_health kept flagging.
+        from services.app_state import get_state as _svc_get_state
+        active = bool(_svc_get_state("SENTRY_ACTIVE", False))
     except Exception:
         active = False
     if not active:

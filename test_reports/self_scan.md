@@ -1,17 +1,17 @@
 # AUREM CTO — Self-Scan Report (Dogfood run)
 
-**Scan date:** `2026-07-15 17:31:19 UTC`
+**Scan date:** `2026-07-15 17:51:00 UTC`
 **Target:** `/app` (AUREM CTO's own codebase, backend + frontend)
-**Files scanned:** `441` (same scanner functions users hit on `auremcto.com`)
+**Files scanned:** `443` (same scanner functions users hit on `auremcto.com`)
 
 ## Executive summary
 
 | Severity | Count |
 |---|---|
-| HIGH | 4 |
-| MEDIUM | 494 |
+| HIGH | 1 |
+| MEDIUM | 496 |
 | LOW | 114 |
-| **TOTAL** | **625** |
+| **TOTAL** | **624** |
 
 ## Per-scanner breakdown
 
@@ -19,13 +19,13 @@
 |---|---|---|
 | `security` | 4 | 1.95s |
 | `performance` | 46 | 0.08s |
-| `code_quality` | 193 | 0.07s |
+| `code_quality` | 194 | 0.07s |
 | `dependencies` | 0 | 0.00s |
 | `database` | 6 | 0.01s |
-| `bug_hunt` | 6 | 2.07s |
+| `bug_hunt` | 6 | 2.10s |
 | `docker` | 0 | 0.01s |
 | `vanguard_007` | 4 | 1.94s |
-| `architecture_health` | 366 | 0.88s |
+| `architecture_health` | 364 | 0.87s |
 
 ### `security` — 4 findings
 
@@ -62,14 +62,14 @@
     - `backend/services/financials.py:174` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/services/vanguard_config.py:68:select_star** — `LOW` × 1
     - `backend/services/vanguard_config.py:68` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/services/billing_cron.py:131:select_star** — `LOW` × 1
-    - `backend/services/billing_cron.py:131` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/admin_bin.py:73:select_star** — `LOW` × 1
-    - `backend/routers/admin_bin.py:73` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/admin_bin.py:162:select_star** — `LOW` × 1
-    - `backend/routers/admin_bin.py:162` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/admin_bin.py:354:select_star** — `LOW` × 1
-    - `backend/routers/admin_bin.py:354` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/services/billing_cron.py:132:select_star** — `LOW` × 1
+    - `backend/services/billing_cron.py:132` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/admin_bin.py:80:select_star** — `LOW` × 1
+    - `backend/routers/admin_bin.py:80` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/admin_bin.py:169:select_star** — `LOW` × 1
+    - `backend/routers/admin_bin.py:169` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/admin_bin.py:364:select_star** — `LOW` × 1
+    - `backend/routers/admin_bin.py:364` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/github_oauth.py:203:select_star** — `LOW` × 1
     - `backend/routers/github_oauth.py:203` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/github_oauth.py:242:select_star** — `LOW` × 1
@@ -86,18 +86,18 @@
     - `backend/routers/admin.py:2753` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/admin.py:3552:select_star** — `LOW` × 1
     - `backend/routers/admin.py:3552` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/cto_projects.py:1737:select_star** — `LOW` × 1
-    - `backend/routers/cto_projects.py:1737` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/cto_projects.py:1986:select_star** — `LOW` × 1
-    - `backend/routers/cto_projects.py:1986` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/cto_projects.py:1730:select_star** — `LOW` × 1
+    - `backend/routers/cto_projects.py:1730` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/cto_projects.py:1979:select_star** — `LOW` × 1
+    - `backend/routers/cto_projects.py:1979` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/thinking_hints.py:67:select_star** — `LOW` × 1
     - `backend/routers/thinking_hints.py:67` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/thinking_hints.py:114:select_star** — `LOW` × 1
     - `backend/routers/thinking_hints.py:114` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/thinking_hints.py:169:select_star** — `LOW` × 1
     - `backend/routers/thinking_hints.py:169` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/routers/payments.py:379:select_star** — `LOW` × 1
-    - `backend/routers/payments.py:379` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/routers/payments.py:353:select_star** — `LOW` × 1
+    - `backend/routers/payments.py:353` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/founder_offer.py:68:select_star** — `LOW` × 1
     - `backend/routers/founder_offer.py:68` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/chat.py:1592:select_star** — `LOW` × 1
@@ -133,24 +133,24 @@
 - **perf::backend/shared/commercial/token_vault.py:376:select_star** — `LOW` × 1
     - `backend/shared/commercial/token_vault.py:376` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 
-### `code_quality` — 193 findings
+### `code_quality` — 194 findings
 
 - **q::backend/main.py:0:large_file** — `MEDIUM` × 1
-    - `backend/main.py:0` — 1529 lines — ORA cannot refactor this safely.
+    - `backend/main.py:0` — 1545 lines — ORA cannot refactor this safely.
 - **q::backend/main.py:122:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:122` — `_sentry_filter` is 94 lines — too big to test/refactor.
-- **q::backend/main.py:464:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:464` — `_bg_bootstrap` is 110 lines — too big to test/refactor.
-- **q::backend/main.py:604:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:604` — `_probe_loop_linters` is 81 lines — too big to test/refactor.
-- **q::backend/main.py:685:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:685` — `_sweep_awaiting_confirmations` is 116 lines — too big to test/refactor.
-- **q::backend/main.py:941:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:941` — `_security_headers` is 85 lines — too big to test/refactor.
-- **q::backend/main.py:1082:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:1082` — `_route_cache_mw` is 96 lines — too big to test/refactor.
-- **q::backend/main.py:1420:large_fn** — `MEDIUM` × 1
-    - `backend/main.py:1420` — `diag_memory` is 109 lines — too big to test/refactor.
+    - `backend/main.py:122` — `_sentry_filter` is 102 lines — too big to test/refactor.
+- **q::backend/main.py:472:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:472` — `_bg_bootstrap` is 110 lines — too big to test/refactor.
+- **q::backend/main.py:612:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:612` — `_probe_loop_linters` is 89 lines — too big to test/refactor.
+- **q::backend/main.py:701:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:701` — `_sweep_awaiting_confirmations` is 116 lines — too big to test/refactor.
+- **q::backend/main.py:957:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:957` — `_security_headers` is 85 lines — too big to test/refactor.
+- **q::backend/main.py:1098:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:1098` — `_route_cache_mw` is 96 lines — too big to test/refactor.
+- **q::backend/main.py:1436:large_fn** — `MEDIUM` × 1
+    - `backend/main.py:1436` — `diag_memory` is 109 lines — too big to test/refactor.
 - **q::backend/cto_services/codebase_indexer.py:118:large_fn** — `MEDIUM` × 1
     - `backend/cto_services/codebase_indexer.py:118` — `fetch_one` is 83 lines — too big to test/refactor.
 - **q::backend/scripts/self_scan.py:79:large_fn** — `MEDIUM` × 1
@@ -305,8 +305,8 @@
     - `backend/services/architecture_health.py:357` — `_scan_boundaries` is 110 lines — too big to test/refactor.
 - **q::backend/services/full_scan_orchestrator.py:112:large_fn** — `MEDIUM` × 1
     - `backend/services/full_scan_orchestrator.py:112` — `run_full_scan` is 94 lines — too big to test/refactor.
-- **q::backend/services/billing_cron.py:43:large_fn** — `MEDIUM` × 1
-    - `backend/services/billing_cron.py:43` — `bill_maxx_overages` is 84 lines — too big to test/refactor.
+- **q::backend/services/billing_cron.py:44:large_fn** — `MEDIUM` × 1
+    - `backend/services/billing_cron.py:44` — `bill_maxx_overages` is 84 lines — too big to test/refactor.
 - **q::backend/services/tools_bridge.py:174:large_fn** — `MEDIUM` × 1
     - `backend/services/tools_bridge.py:174` — `extract_tool_calls` is 240 lines — too big to test/refactor.
 - **q::backend/services/finding_fix_applier.py:219:large_fn** — `MEDIUM` × 1
@@ -325,8 +325,8 @@
     - `backend/routers/fix_pipeline.py:302` — `_run_bulk_job` is 301 lines — too big to test/refactor.
 - **q::backend/routers/fix_pipeline.py:780:large_fn** — `MEDIUM` × 1
     - `backend/routers/fix_pipeline.py:780` — `restart_job` is 84 lines — too big to test/refactor.
-- **q::backend/routers/admin_bin.py:302:large_fn** — `MEDIUM` × 1
-    - `backend/routers/admin_bin.py:302` — `llm_credits` is 90 lines — too big to test/refactor.
+- **q::backend/routers/admin_bin.py:309:large_fn** — `MEDIUM` × 1
+    - `backend/routers/admin_bin.py:309` — `llm_credits` is 93 lines — too big to test/refactor.
 - **q::backend/routers/suggestions.py:95:large_fn** — `MEDIUM` × 1
     - `backend/routers/suggestions.py:95` — `_analyze_with_groq` is 101 lines — too big to test/refactor.
 - **q::backend/routers/github_oauth.py:178:large_fn** — `MEDIUM` × 1
@@ -336,7 +336,7 @@
 - **q::backend/routers/upload.py:155:large_fn** — `MEDIUM` × 1
     - `backend/routers/upload.py:155` — `upload_convert` is 101 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:0:large_file** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:0` — 1143 lines — ORA cannot refactor this safely.
+    - `backend/routers/codebase_health.py:0` — 1262 lines — ORA cannot refactor this safely.
 - **q::backend/routers/codebase_health.py:217:large_fn** — `MEDIUM` × 1
     - `backend/routers/codebase_health.py:217` — `_scan_code_quality` is 88 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:530:large_fn** — `MEDIUM` × 1
@@ -344,7 +344,9 @@
 - **q::backend/routers/codebase_health.py:652:large_fn** — `MEDIUM` × 1
     - `backend/routers/codebase_health.py:652` — `scan` is 204 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:984:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:984` — `request_fix` is 159 lines — too big to test/refactor.
+    - `backend/routers/codebase_health.py:984` — `request_fix` is 175 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:1159:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:1159` — `scanner_feedback` is 103 lines — too big to test/refactor.
 - **q::backend/routers/admin.py:0:large_file** — `MEDIUM` × 1
     - `backend/routers/admin.py:0` — 3891 lines — ORA cannot refactor this safely.
 - **q::backend/routers/admin.py:141:large_fn** — `MEDIUM` × 1
@@ -366,33 +368,33 @@
 - **q::backend/routers/loop.py:65:large_fn** — `MEDIUM` × 1
     - `backend/routers/loop.py:65` — `start_loop` is 92 lines — too big to test/refactor.
 - **q::backend/routers/cto_projects.py:0:large_file** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:0` — 3709 lines — ORA cannot refactor this safely.
-- **q::backend/routers/cto_projects.py:853:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:853` — `add_project` is 107 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:1044:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:1044` — `verify_pat` is 150 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:1270:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:1270` — `test_project_pat` is 83 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:1524:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:1524` — `_enqueue_cto_task` is 102 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:1626:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:1626` — `submit_task` is 96 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:1974:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:1974` — `retry_task` is 86 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:2092:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:2092` — `_build_synthetic_handoff` is 81 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:2416:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:2416` — `_run_task_via_api` is 305 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:2721:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:2721` — `_truncation_reasons` is 164 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:2933:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:2933` — `_syntax_errors` is 301 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:3276:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:3276` — `_norm` is 167 lines — too big to test/refactor.
-- **q::backend/routers/cto_projects.py:3447:large_fn** — `MEDIUM` × 1
-    - `backend/routers/cto_projects.py:3447` — `_scrub` is 262 lines — too big to test/refactor.
-- **q::backend/routers/payments.py:241:large_fn** — `MEDIUM` × 1
-    - `backend/routers/payments.py:241` — `create_checkout` is 131 lines — too big to test/refactor.
+    - `backend/routers/cto_projects.py:0` — 3702 lines — ORA cannot refactor this safely.
+- **q::backend/routers/cto_projects.py:846:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:846` — `add_project` is 107 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:1037:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:1037` — `verify_pat` is 150 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:1263:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:1263` — `test_project_pat` is 83 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:1517:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:1517` — `_enqueue_cto_task` is 102 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:1619:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:1619` — `submit_task` is 96 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:1967:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:1967` — `retry_task` is 86 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:2085:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:2085` — `_build_synthetic_handoff` is 81 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:2409:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:2409` — `_run_task_via_api` is 305 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:2714:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:2714` — `_truncation_reasons` is 164 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:2926:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:2926` — `_syntax_errors` is 301 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:3269:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:3269` — `_norm` is 167 lines — too big to test/refactor.
+- **q::backend/routers/cto_projects.py:3440:large_fn** — `MEDIUM` × 1
+    - `backend/routers/cto_projects.py:3440` — `_scrub` is 262 lines — too big to test/refactor.
+- **q::backend/routers/payments.py:215:large_fn** — `MEDIUM` × 1
+    - `backend/routers/payments.py:215` — `create_checkout` is 131 lines — too big to test/refactor.
 - **q::backend/routers/founder_offer.py:170:large_fn** — `MEDIUM` × 1
     - `backend/routers/founder_offer.py:170` — `claim_offer` is 106 lines — too big to test/refactor.
 - **q::backend/routers/qa_probe.py:74:large_fn** — `MEDIUM` × 1
@@ -541,8 +543,8 @@
 
 ### `bug_hunt` — 6 findings
 
-- **bh::backend/main.py:1369:health_endpoint_leaks** — `MEDIUM` × 1
-    - `backend/main.py:1369` — /health endpoint appears to leak internals (DB names, commit SHA, env). Keep it boolean.
+- **bh::backend/main.py:1385:health_endpoint_leaks** — `MEDIUM` × 1
+    - `backend/main.py:1385` — /health endpoint appears to leak internals (DB names, commit SHA, env). Keep it boolean.
 - **bh::qa/simulated-user/seed_qa_user.py:136:jwt_secret_hardcoded** — `—` × 1
     - `qa/simulated-user/seed_qa_user.py:136` — JWT signing secret in source — anyone can forge admin tokens. — QA harness (test creds intentional)
 - **bh::frontend/src/components/RobotGuide.jsx:74:dangerously_set_html** — `—` × 1
@@ -564,20 +566,16 @@
     - `frontend/src/pages/Projects.jsx:1526` — dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(
     - _…and 1 more_
 
-### `architecture_health` — 366 findings
+### `architecture_health` — 364 findings
 
-- **circular_import** — `HIGH` × 3
-    - `routers/cto_projects.py → services/pat_vault.py → services/bin_context.py → services/ora_context.py:0` — cycle of 4 modules
-    - `services/billing_cron.py → routers/payments.py:0` — cycle of 2 modules
-    - `routers/admin_bin.py → services/daily_digest.py → main.py → services/integration_health.py → routers/admin.py → routers/thinking_hints.py:0` — cycle of 6 modules
-- **high_complexity** — `MEDIUM` × 298
+- **high_complexity** — `MEDIUM` × 299
     - `services/orchestrator.py:1402` — chat_with_tools — complexity=175
-    - `routers/cto_projects.py:2418` — _run_task_via_api — complexity=154
+    - `routers/cto_projects.py:2411` — _run_task_via_api — complexity=154
     - `routers/security_scan.py:345` — run_security_scan — complexity=74
-    - _…and 295 more_
+    - _…and 296 more_
 - **bloated_file** — `LOW` × 65
     - `routers/admin.py:0` — 3468 lines
-    - `routers/cto_projects.py:0` — 3432 lines
+    - `routers/cto_projects.py:0` — 3425 lines
     - `routers/chat.py:0` — 3223 lines
     - _…and 62 more_
 

@@ -114,45 +114,15 @@ async def _stripe_call(fn, *args, **kwargs):
 
 
 def _stripe_key() -> str:
-    """Return the Stripe secret key, preferring STRIPE_SECRET_KEY but
-    falling back to the older STRIPE_API_KEY env name.
+    """Return the Stripe secret key.
 
-    The platform's supervisor injects a stale `sk_test_emergent…`
-    placeholder into the process env which would otherwise shadow the
-    real key loaded from `.env`. We treat that placeholder as "not
-    configured" and reach into the .env via dotenv_values so the real
-    key always wins.
-
-    Iter 191 — also honors a runtime admin override saved in
-    `admin_settings.stripe_api_key` (set via POST /admin/stripe-config).
-    The DB value wins over env so a founder can hot-swap the key from
-    the admin panel without redeploying.
+    Iter 212m-230 — Canonical implementation now lives in
+    `services.stripe_client` so both this router AND
+    `services/billing_cron.py` can share it without creating the
+    `billing_cron ↔ payments` circular import we had before.
     """
-    # Runtime admin override has highest priority.
-    runtime_key = globals().get("_RUNTIME_STRIPE_KEY") or ""
-    if runtime_key and not runtime_key.startswith("sk_test_emergent"):
-        return runtime_key
-
-    candidates = [
-        os.environ.get("STRIPE_SECRET_KEY"),
-        os.environ.get("STRIPE_API_KEY"),
-    ]
-    for c in candidates:
-        if c and not c.startswith("sk_test_emergent"):
-            return c
-    # Fall back to whatever .env actually contains, bypassing the
-    # stale supervisor-exported placeholder.
-    try:
-        from dotenv import dotenv_values
-        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-        vals = dotenv_values(env_path)
-        for k in ("STRIPE_SECRET_KEY", "STRIPE_API_KEY"):
-            v = (vals.get(k) or "").strip().strip('"').strip("'")
-            if v and not v.startswith("sk_test_emergent"):
-                return v
-    except Exception:
-        pass
-    return ""
+    from services.stripe_client import stripe_key
+    return stripe_key()
 
 
 # Iter 191 — runtime override populated either at boot (from
@@ -164,8 +134,12 @@ _RUNTIME_STRIPE_KEY: str = ""
 
 def set_runtime_stripe_key(key: str) -> None:
     """Hot-swap the Stripe secret key for this process."""
+    # Iter 212m-230 — Delegate to services.stripe_client so both this
+    # module and billing_cron see the same runtime override.
     global _RUNTIME_STRIPE_KEY
     _RUNTIME_STRIPE_KEY = (key or "").strip()
+    from services.stripe_client import set_runtime_stripe_key as _svc_set
+    _svc_set(key)
     if _RUNTIME_STRIPE_KEY:
         stripe.api_key = _RUNTIME_STRIPE_KEY
 

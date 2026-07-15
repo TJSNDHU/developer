@@ -186,6 +186,14 @@ if _SENTRY_DSN:
             before_send=_sentry_filter,
         )
         SENTRY_ACTIVE = True
+        # Iter 212m-230 — Mirror into services.app_state so services/
+        # modules (integration_health) can read this without a
+        # `import main` cycle.
+        try:
+            from services.app_state import set_state as _svc_set_state
+            _svc_set_state("SENTRY_ACTIVE", True)
+        except Exception:
+            pass
         logging.getLogger(__name__).info(
             "Sentry active — env=%s, traces=%.0f%%",
             os.getenv("SENTRY_ENV", "production"),
@@ -654,6 +662,14 @@ async def lifespan(app: FastAPI):
         # Re-probe after install attempt so the /health flag reflects reality.
         still_missing = [b for b in ("ruff", "eslint") if not shutil.which(b)]
         app.state.loop_linters_missing = still_missing
+        # Iter 212m-230 — Mirror into services.app_state so routers
+        # never need to `from main import app` (breaks the last real
+        # circular import flagged by architecture_health).
+        try:
+            from services.app_state import set_state as _svc_set_state
+            _svc_set_state("loop_linters_missing", still_missing)
+        except Exception:
+            pass
 
         if installed:
             logger.info(

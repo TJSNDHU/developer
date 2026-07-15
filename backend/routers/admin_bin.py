@@ -43,9 +43,16 @@ router = APIRouter(prefix="/admin", tags=["Admin / Rebuild"])
 
 
 async def _require_admin(authorization: Optional[str]) -> dict:
-    """Wraps the shared admin-required check used across admin.py."""
-    from routers.admin import _require_admin as _shared_require_admin
-    return await _shared_require_admin(authorization)
+    """Wraps the shared admin-required check.
+
+    Iter 212m-230 — Delegates to `cto_services.auth.require_admin`
+    (the canonical implementation) instead of the router-side
+    `_require_admin` in admin.py.  Removes the last
+    `admin_bin → admin → … → main → admin_bin` cycle that
+    architecture_health has been flagging.
+    """
+    from cto_services.auth import require_admin as _svc_require_admin
+    return await _svc_require_admin(authorization)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -326,10 +333,13 @@ async def llm_credits(
         pass
 
     # Linters missing (from Iter 212m-166 boot probe on app.state)
+    # Iter 212m-230 — Read from services.app_state instead of
+    # `from main import app` which formed a routers → main → routers
+    # cycle that architecture_health has been flagging.
     linters_missing: list[str] = []
     try:
-        from main import app as _app  # type: ignore
-        linters_missing = list(getattr(_app.state, "loop_linters_missing", []) or [])
+        from services.app_state import get_state as _svc_get_state
+        linters_missing = list(_svc_get_state("loop_linters_missing", []) or [])
     except Exception:
         pass
 

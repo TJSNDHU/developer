@@ -1,6 +1,70 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-230 — Phase 7: Zero circular imports + Scanner Feedback dashboard
+
+**Founder ask (Hinglish):** "phase 7" — complete the two Phase 7 items (circular import refactor + scanner-feedback loop).
+
+**Circular imports: 3 → 0 (100% resolved)**
+
+Refactored the last real architectural cycles by inverting the dependency direction:
+
+1. **`services/pat_vault.py`** — was a router-side shim that delegated BACK to `routers/cto_projects` (creating the cycle it was meant to fix). Now owns the canonical `_decrypt_pat` / `_encrypt_pat` / `_user_gh_token` implementations. `routers/cto_projects.py` re-exports them for backward compat.
+
+2. **`services/stripe_client.py`** — NEW canonical Stripe key resolver. `billing_cron.py` + `payments.py` both import from here. Removes `billing_cron ↔ payments` cycle.
+
+3. **`services/app_state.py`** — NEW process-wide state singleton. Replaces `from main import app` reads in:
+   - `admin_bin.py` (was reading `app.state.loop_linters_missing`)
+   - `integration_health.py` (was reading `main.SENTRY_ACTIVE`)
+   Removes the last routers → main → routers backedge.
+
+4. **`admin_bin.py` + `thinking_hints.py`** — both delegate their admin gate to `cto_services.auth.require_admin` (canonical) instead of `routers.admin._require_admin`. Kills 2 routers→routers cycles.
+
+**Scanner Feedback Dashboard (Phase 7-b)**
+
+New endpoint `GET /api/aurem-dev/codebase-health/scanner-feedback?days=30` (founder-only). Reads the `scanner_feedback` Mongo collection that `fix_triage` populates every time it detects a false positive. Returns:
+
+```json
+{
+  "window_days": 30,
+  "total_fps":   42,
+  "by_rule":     [{"rule_id", "count", "example_files"}...],
+  "by_file":     [{"file", "count", "top_rule"}...],
+  "trend_daily": [{"date", "count"}...],
+  "recent":      [{finding + meta}, ...]
+}
+```
+
+This closes the loop: every scan → triage detects FPs → logs to DB → dashboard surfaces "top 10 rules generating false positives" → human tunes the regex → next scan cleaner. **"Your scanners learn from every scan."**
+
+**Impact — end-to-end journey:**
+| Metric | Baseline (Phase 0) | End of Phase 5 (228) | End of Phase 6 (229) | **End of Phase 7 (230)** |
+|---|---|---|---|---|
+| Total findings | 794 | 658 | 625 | **624** |
+| 🔴 CRITICAL | 55 | 20 | 0 | **0** ✅ |
+| 🟠 HIGH | ~90 | 36 | 4 | **1** ✅ |
+| Docker CIS | 5 | 0 | 0 | 0 |
+| Circular imports | 3 | 3 | 3 | **0** ✅ |
+| N+1 queries | 13 | 1 | 1 | 1 (deferred) |
+| Scanner-rule FPs | ~40 | 0 | 0 | 0 |
+| `?:X` placeholders | 331 | 0 | 0 | 0 |
+
+**Only remaining HIGH:** `memory_tiers.py:560 n_plus_one` — bounded 21-query 7-day analytics rollup, admin-only, deferred as non-hotpath.
+
+**Regression tests (`test_iter212m230_phase7.py`)** — 13 tests, all passing:
+- Zero circular imports on backend tree.
+- pat_vault owns canonical `_decrypt_pat`.
+- stripe_client owns canonical `stripe_key()`.
+- billing_cron + payments both delegate.
+- app_state module exists + working.
+- admin_bin + integration_health no longer `import main`.
+- admin_bin + thinking_hints delegate to `cto_services.auth.require_admin`.
+- scanner-feedback endpoint registered + async + admin-gated.
+
+**Total tests across all 7 iterations:** **52+ passing** (across `test_iter212m224_*` through `test_iter212m230_*`).
+
+
+
 ### 2026-02-13 — Iter 212m-229 — Fix Triage layer (auto-fix parity with human) + Scanner precision Phase 6
 
 **Founder ask (Hinglish, verbatim):** "ok abb ye batao hamare fix jo hain in bugs scanning ke baad ka process kya wo tumhare jitna capable hai fix karne mein? Agar nahi to usko refine karo aur jaisa tumne fix kiya hai bugs same capable usko banao. And jo bhi problems tumhe dikhi thi scanners ke result ke baad wo bhi fix karo hamare system ko."

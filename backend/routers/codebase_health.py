@@ -1140,3 +1140,122 @@ async def request_fix(
         "new_balance":     new_balance,
         "message":         res["message"],
     }
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Iter 212m-230 — Scanner Feedback Dashboard (Phase 7)
+# ══════════════════════════════════════════════════════════════════════
+# The fix_triage layer POSTs every false-positive it detects into the
+# `scanner_feedback` Mongo collection.  This endpoint aggregates those
+# rows into a rule-tuning dashboard: which rules generate the most FPs,
+# on which paths, and how the rate trends over time.
+#
+# Founder story: "your scanners learn from every scan" — the platform's
+# self-improving loop is now visible.
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/scanner-feedback")
+async def scanner_feedback(
+    days: int = 30,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Aggregate false-positive feedback so a human can identify rules
+    that need tuning.  Founder-only.
+
+    Returns:
+        {
+            "window_days": int,
+            "total_fps":   int,
+            "by_rule":     [{"rule_id", "count", "example_files"}],
+            "by_file":     [{"file", "count", "top_rule"}],
+            "trend_daily": [{"date", "count"}],
+            "recent":      [{finding + meta}, ...],
+        }
+    """
+    await require_admin(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+
+    days = max(1, min(int(days or 30), 180))
+    cutoff = time.time() - days * 86400
+
+    # ── Top rules by FP count -------------------------------------
+    by_rule_cur = db.scanner_feedback.aggregate([
+        {"$match": {"detected_at": {"$gte": cutoff}}},
+        {"$group": {
+            "_id":            "$finding.rule_id",
+            "count":          {"$sum": 1},
+            "example_files":  {"$addToSet": "$finding.file"},
+        }},
+        {"$sort":  {"count": -1}},
+        {"$limit": 20},
+    ])
+    by_rule = []
+    async for row in by_rule_cur:
+        by_rule.append({
+            "rule_id":       row.get("_id") or "unknown",
+            "count":         int(row.get("count") or 0),
+            "example_files": (row.get("example_files") or [])[:5],
+        })
+
+    # ── Top files by FP count -------------------------------------
+    by_file_cur = db.scanner_feedback.aggregate([
+        {"$match": {"detected_at": {"$gte": cutoff}}},
+        {"$group": {
+            "_id":       "$finding.file",
+            "count":     {"$sum": 1},
+            "top_rule":  {"$first": "$finding.rule_id"},
+        }},
+        {"$sort":  {"count": -1}},
+        {"$limit": 20},
+    ])
+    by_file = []
+    async for row in by_file_cur:
+        by_file.append({
+            "file":     row.get("_id") or "unknown",
+            "count":    int(row.get("count") or 0),
+            "top_rule": row.get("top_rule") or "",
+        })
+
+    # ── Daily trend (14d only) ------------------------------------
+    trend_cutoff = time.time() - 14 * 86400
+    trend_cur = db.scanner_feedback.aggregate([
+        {"$match": {"detected_at": {"$gte": trend_cutoff}}},
+        {"$group": {
+            "_id":   {"$dateToString": {
+                "format": "%Y-%m-%d",
+                "date":   {"$toDate": {"$multiply": ["$detected_at", 1000]}},
+            }},
+            "count": {"$sum": 1},
+        }},
+        {"$sort":  {"_id": 1}},
+    ])
+    trend_daily = []
+    async for row in trend_cur:
+        trend_daily.append({
+            "date":  row.get("_id"),
+            "count": int(row.get("count") or 0),
+        })
+
+    total_fps = await db.scanner_feedback.count_documents({
+        "detected_at": {"$gte": cutoff},
+    })
+
+    # ── Last 20 recent FPs (for a "sample" panel) ----------------
+    recent_cur = db.scanner_feedback.find(
+        {"detected_at": {"$gte": cutoff}},
+        {"_id": 0, "finding": 1, "detected_at": 1, "source": 1},
+    ).sort("detected_at", -1).limit(20)
+    recent = [row async for row in recent_cur]
+
+    return {
+        "window_days":  days,
+        "total_fps":    total_fps,
+        "by_rule":      by_rule,
+        "by_file":      by_file,
+        "trend_daily":  trend_daily,
+        "recent":       recent,
+        "generated_at": time.time(),
+    }
