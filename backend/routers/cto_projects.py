@@ -3,6 +3,7 @@ routers/cto_projects.py — AUREM CTO multi-project system.
 Connect existing client GitHub repos, run AI tasks (git pull → fix → push).
 Mounted under /api/aurem-dev/cto/* to avoid clashing with /projects/* (new-project flow).
 """
+# arch: allow-http — GitHub repo API for project setup (iter 212m-225)
 from __future__ import annotations
 import asyncio
 import json

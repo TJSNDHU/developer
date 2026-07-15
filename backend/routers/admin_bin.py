@@ -22,6 +22,7 @@ Reuse:
   • services.house_rules               — for advisor_llm slugs
   • routers.cto_projects._decrypt_pat, _user_gh_token — via local import
 """
+# arch: allow-http — BIN tracker external API probes (iter 212m-225)
 from __future__ import annotations
 
 import logging

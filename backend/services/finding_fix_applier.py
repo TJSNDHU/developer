@@ -253,7 +253,7 @@ async def apply_finding_fix(
     branch  = proj.get("github_branch") or "main"
 
     # Decrypt project PAT → fall back to OAuth access_token.
-    from routers.security_scan import _decrypt_pat
+    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix
     token = await _decrypt_pat(user_id, proj.get("github_token"))
     if not token:
         try:

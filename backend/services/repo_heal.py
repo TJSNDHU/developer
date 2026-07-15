@@ -357,7 +357,7 @@ async def _finalise(db, project_id: str, *, success: bool, reason: str) -> dict:
         # Invalidate the cache so the next /connection-status call
         # re-fetches and turns the dot green right away.
         try:
-            from routers import repo_status as rs
+            from routers import repo_status as rs  # arch: allow-router-import — auto-heal re-probes the sidebar status endpoint
             rs._CACHE.pop(project_id, None)
         except Exception:
             pass

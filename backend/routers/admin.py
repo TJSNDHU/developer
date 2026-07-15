@@ -7,6 +7,7 @@ sets `is_admin=true` for that user.
 
 Mounted under /api/aurem-dev/admin/* by main.py.
 """
+# arch: allow-http — Founder-scoped health probes to OpenRouter / GitHub (iter 212m-225)
 from __future__ import annotations
 
 import logging

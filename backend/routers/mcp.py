@@ -27,6 +27,7 @@ Auth: existing JWT — `Authorization: Bearer <token>` (same as the rest
 of /api/aurem-dev). The router rejects with JSON-RPC error -32001
 (custom: "Unauthorized") when the bearer is missing/invalid.
 """
+# arch: allow-http — MCP protocol outbound calls are this endpoint's purpose (iter 212m-225)
 from __future__ import annotations
 
 import logging

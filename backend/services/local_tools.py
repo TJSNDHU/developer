@@ -185,7 +185,7 @@ async def _resolve_project(user_id: str, project_id: str) -> dict | None:
 
     # Decrypt the per-project PAT (if present), else fall back to OAuth.
     try:
-        from routers.cto_projects import _decrypt_pat, _user_gh_token
+        from services.pat_vault import decrypt_pat as _decrypt_pat, get_user_gh_token as _user_gh_token   # iter 212m-225 boundary fix
         raw_token = proj.get("github_token") or ""
         decrypted = await _decrypt_pat(user_id, raw_token) if raw_token else None
         if not decrypted:

@@ -363,8 +363,7 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
     against the file that defines it). See
     `routers.codebase_health._is_scanner_rule_file` for the list.
     """
-    # Local import to avoid a routers → services back-import cycle.
-    from routers.codebase_health import _is_scanner_rule_file
+    from services.scanner_utils import is_scanner_rule_file as _is_scanner_rule_file   # iter 212m-225 boundary fix
     out: list[dict] = []
 
     # ── A) SECRETS ────────────────────────────────────────────────────

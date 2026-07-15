@@ -3,6 +3,7 @@ routers/github_oauth.py — AUREM Dev
 OAuth + repo-list endpoints. Mounted under /api/aurem-dev/github/oauth/*
 so it does not collide with the legacy /github/{status,push} surface.
 """
+# arch: allow-http — OAuth token exchange with github.com API (iter 212m-225)
 from __future__ import annotations
 import logging
 import os

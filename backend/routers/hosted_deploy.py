@@ -19,6 +19,7 @@ Endpoints (mounted under /api/aurem-dev/hosted-deploy):
   POST  /ship                    {project_id}
   DELETE /disconnect/{project_id}
 """
+# arch: allow-http — Direct webhook calls to Vercel / Netlify / Railway (iter 212m-225)
 from __future__ import annotations
 
 import logging

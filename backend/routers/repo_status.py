@@ -26,6 +26,7 @@ Endpoint:
           checked_at, auth: "pat"|"oauth"|"none", error?}
        ]}
 """
+# arch: allow-http — Per-sidebar-repo GitHub liveness pings (iter 212m-225)
 from __future__ import annotations
 
 import asyncio

@@ -5,6 +5,7 @@ aurem_cto.routers.github_bot — GitHub integration.
   • /github/push     — push staged files from a chat session to a repo
                         (uses GITHUB_TOKEN PAT for now; P3 OAuth pending)
 """
+# arch: allow-http — Direct GitHub API — status + push flows (iter 212m-225)
 from __future__ import annotations
 import base64
 import logging

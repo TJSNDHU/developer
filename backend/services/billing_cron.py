@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def _stripe_client():
-    from routers.payments import _stripe_key
+    from routers.payments import _stripe_key  # arch: allow-router-import — payments router owns Stripe key resolution
     import stripe
     stripe.api_key = _stripe_key()
     return stripe

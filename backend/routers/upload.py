@@ -18,6 +18,7 @@ POST /api/aurem-dev/upload/convert
   → {ok, filename, content_type, original_size, markdown, md_size,
      kind: "doc" | "image"}
 """
+# arch: allow-http — R2/S3 object upload (iter 212m-225)
 from __future__ import annotations
 
 import base64

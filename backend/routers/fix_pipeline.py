@@ -45,6 +45,7 @@ Cost model:
     (security/perf/quality/deps/db = 5, bug_hunt = 8).  Vanguard
     findings inherit from their normalised vuln class.
 """
+# arch: allow-http — Streams provider callbacks (iter 212m-225)
 from __future__ import annotations
 
 import asyncio

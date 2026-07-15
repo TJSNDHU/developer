@@ -135,7 +135,7 @@ async def build_bin_context(
     # Local import so this module doesn't create a hard coupling to
     # the router package at import time (bin_context.py is imported
     # by services/, routers/, and services/tests).
-    from routers.cto_projects import _decrypt_pat, _user_gh_token
+    from services.pat_vault import decrypt_pat as _decrypt_pat, get_user_gh_token as _user_gh_token   # iter 212m-225 boundary fix
     pat = await _decrypt_pat(user_id, raw_token)
     if not pat:
         # Fall back to the user's OAuth github.access_token — the legacy

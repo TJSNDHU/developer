@@ -357,6 +357,15 @@ _VIOLATION_RULES = [
 
 
 def _scan_boundaries(files: list[tuple[str, str]]) -> list[BoundaryViolation]:
+    # Iter 212m-225 — line-level opt-out marker `# arch: allow-router-import`.
+    # Applied INLINE on the same line as (or the line above) an
+    # intentional service→router import.  Some cross-references
+    # are legitimate: `services/pat_vault.py` is an explicit shim,
+    # `services/billing_cron.py` calls back into the payments router's
+    # Stripe helper, `services/repo_heal.py` triggers a router repro
+    # of a status probe, etc.  Marker keeps them auditable while
+    # freeing the health report of expected noise.
+    _INLINE_MARKER = "# arch: allow-router-import"
     hits: list[BoundaryViolation] = []
     for abs_path, rel in files:
         if not abs_path.endswith(".py"):
@@ -367,32 +376,57 @@ def _scan_boundaries(files: list[tuple[str, str]]) -> list[BoundaryViolation]:
                 src = fh.read()
         except OSError:
             continue
+        src_lines = src.splitlines()
         for src_pref, dst_pref, rule_id in _VIOLATION_RULES:
             if src_pref not in rel_norm:
                 continue
-            # Look for any `from <dst_pref>...` or `import <dst_pref>...`.
-            # We use a relaxed check based on the prefix's top-level
-            # name ("routers", "services", etc.).
             top_name = dst_pref.strip("/")
-            # exclude the file from flagging itself.
-            for line in src.splitlines():
+            for idx, line in enumerate(src_lines):
                 s = line.strip()
                 if not s or s.startswith("#"):
                     continue
+                is_router_import = (
+                    s.startswith(f"from {top_name}.") or
+                    s.startswith(f"from {top_name} ") or
+                    s.startswith(f"import {top_name}.") or
+                    s == f"import {top_name}"
+                )
+                if not is_router_import:
+                    continue
+                # Skip if the same-line OR the previous line carries
+                # the opt-out marker.
+                if _INLINE_MARKER in line:
+                    continue
+                if idx > 0 and _INLINE_MARKER in src_lines[idx - 1]:
+                    continue
+                # Guard against the file flagging itself (e.g. cto_projects
+                # importing from its own module head).
                 if s.startswith(f"from {top_name}.") or s.startswith(f"from {top_name} "):
                     if not rel_norm.startswith(dst_pref) or os.path.basename(rel_norm) != os.path.basename(rel_norm):
-                        # Same source-and-dest prefix but different file → still a violation
                         hits.append(BoundaryViolation(
                             file=rel, rule=rule_id, detail=s,
                         ))
                         break
-                if s.startswith(f"import {top_name}.") or s == f"import {top_name}":
+                else:
                     hits.append(BoundaryViolation(
                         file=rel, rule=rule_id, detail=s,
                     ))
                     break
 
     # Direct external HTTP from non-services / non-tools layers.
+    # Iter 212m-225 — Two refinements:
+    #   1. `shared/` tree is exempt.  These are the founder's outbound
+    #      commercial agents (marketing/growth infra) — they legitimately
+    #      make direct HTTP calls to third-party APIs and are not part
+    #      of the user-facing router → service → external stack the
+    #      boundary rule is designed to enforce.
+    #   2. A per-file `# arch: allow-http` opt-out marker.  Some
+    #      routers (OAuth callbacks, MCP outbound, admin probes,
+    #      deploy provider bridges) legitimately need direct HTTP;
+    #      adding the marker at file-top self-documents the exception
+    #      and turns 15 phantom findings into a clear "consciously
+    #      exempted" audit trail.
+    _ALLOW_MARKER_RE = re.compile(r"^\s*#\s*arch:\s*allow-http\b", re.M)
     for abs_path, rel in files:
         if not abs_path.endswith(".py"):
             continue
@@ -403,17 +437,29 @@ def _scan_boundaries(files: list[tuple[str, str]]) -> list[BoundaryViolation]:
             continue
         if rel_norm.startswith("tests/"):
             continue
+        # New: shared/ is the marketing / commercial layer, out of scope.
+        if rel_norm.startswith("shared/"):
+            continue
         try:
             with open(abs_path, encoding="utf-8", errors="replace") as fh:
                 src = fh.read()
         except OSError:
             continue
-        if re.search(r"\bhttpx\.AsyncClient\(", src) or \
-           re.search(r"\brequests\.(?:get|post|put|delete|patch)\(", src):
-            hits.append(BoundaryViolation(
-                file=rel, rule="http-call-outside-services",
-                detail="raw httpx/requests call — wrap it in services/",
-            ))
+        if not (re.search(r"\bhttpx\.AsyncClient\(", src) or
+                re.search(r"\brequests\.(?:get|post|put|delete|patch)\(", src)):
+            continue
+        # New: file-level opt-out marker.
+        # Iter 212m-225 — the marker lives immediately after the file's
+        # opening docstring, which can be arbitrarily long in this
+        # codebase (fix_pipeline.py's is >2 KB). Scan the whole file
+        # instead of just the head — the regex itself is cheap and the
+        # per-file src is already in memory.
+        if _ALLOW_MARKER_RE.search(src):
+            continue
+        hits.append(BoundaryViolation(
+            file=rel, rule="http-call-outside-services",
+            detail="raw httpx/requests call — wrap it in services/",
+        ))
     return hits
 
 

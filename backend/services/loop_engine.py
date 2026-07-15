@@ -424,7 +424,7 @@ class LoopEngine:
                      "github_branch": 1, "github_token": 1},
                 )
                 if proj and proj.get("github_owner") and proj.get("github_repo"):
-                    from routers.security_scan import _decrypt_pat
+                    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix
                     token = await _decrypt_pat(self.user_id, proj.get("github_token"))
                     if not token:
                         u = await self.db.dev_users.find_one(
@@ -482,7 +482,7 @@ class LoopEngine:
         # L2: Standard pipeline with manual Ship gate (default).
         # L3: Pipeline with auto-ship (skips the manual confirmation pause).
         try:
-            from routers.trust_level import get_user_trust_level
+            from routers.trust_level import get_user_trust_level  # arch: allow-router-import — router owns the canonical trust ladder
             level = await get_user_trust_level(self.db, self.user_id)
         except Exception:
             level = "L2"
@@ -718,7 +718,7 @@ class LoopEngine:
             owner   = proj.get("github_owner") or ""
             repo    = proj.get("github_repo")  or ""
             branch  = proj.get("github_branch") or "main"
-            from routers.security_scan import _decrypt_pat  # local import
+            from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix  # local import
             token = await _decrypt_pat(self.user_id, proj.get("github_token"))
             if not token:
                 try:
@@ -1431,7 +1431,7 @@ class LoopEngine:
             owner   = proj.get("github_owner") or ""
             repo    = proj.get("github_repo")  or ""
             branch  = proj.get("github_branch") or "main"
-            from routers.security_scan import _decrypt_pat  # local import
+            from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix  # local import
             token = await _decrypt_pat(self.user_id, proj.get("github_token"))
             if not token:
                 try:
@@ -1822,7 +1822,7 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
                          "github_branch": 1, "github_token": 1},
                     )
                     if proj and proj.get("github_owner") and proj.get("github_repo"):
-                        from routers.security_scan import _decrypt_pat
+                        from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix
                         tok = await _decrypt_pat(user_id, proj.get("github_token"))
                         if not tok:
                             u = await db.dev_users.find_one(
@@ -1909,7 +1909,7 @@ async def _run_security_scan(user_id: str,
     # Pull the project's encrypted PAT + repo coords and reuse the
     # scanner's lower-level helpers so we don't need a JWT.
     from cto_services.db import get_db
-    from routers.security_scan import _decrypt_pat, _scan_text  # noqa
+    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix, _scan_text  # noqa
     import httpx, asyncio as _asyncio
     db = get_db()
     if db is None:
@@ -1930,6 +1930,7 @@ async def _run_security_scan(user_id: str,
                 "skipped_reason": "no_github_linkage"}
     # Re-run a trimmed scan inline — same rule library, capped 200
     # files for the engine path to keep phase budget under 120s.
+    # arch: allow-router-import — scanner internals live in security_scan router until phase-4 refactor
     from routers.security_scan import (
         _list_repo_tree, _fetch_file, _SCAN_EXTS, _SKIP_DIRS,
         _MAX_BYTES_PER_FILE,
@@ -2040,7 +2041,7 @@ async def _run_diff_security_scan(
                 "findings": [], "diff_mode": True,
                 "skipped_reason": "no_project_doc"}
 
-    from routers.security_scan import _decrypt_pat, _scan_text
+    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix, _scan_text
     from services.github_api_writer import fetch_file as gh_fetch
     from services.vanguard_verify_agent import (
         changed_lines_for_file, filter_findings_to_changed_lines,

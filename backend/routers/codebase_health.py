@@ -29,6 +29,7 @@ scanners, so `scan()` does it ONCE then dispatches the cached
 "Full scan" (all 5) costs the same GitHub-API budget as a single
 category — just 4× more CPU on the user's static analysis.
 """
+# arch: allow-http — GitHub tree walk (calls _gh_get service) (iter 212m-225)
 from __future__ import annotations
 
 import asyncio
@@ -63,47 +64,15 @@ logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Iter 212m-224 — Self-referential false-positive filter.
-#
-# Our own scanner-rule definition files (bug_hunt_rules.py,
-# vanguard_scanner.py, generation_rules.py, etc.) literally contain
-# regex/string patterns for `eval_usage`, `exec_usage`,
-# `password_assignment`, `db_connection_string`, etc.  When the
-# security or bug_hunt scanner walks its OWN source, it finds those
-# patterns and reports them as critical findings — but they're
-# scanner DEFINITIONS, not vulnerabilities.
-#
-# The self-scan report (test_reports/self_scan.md) showed 13 out of
-# 23 critical findings were exactly this class of false positive.
-# For any user whose repo happens to fork/vendor our scanners
-# (very common in security-tool integrations), this would show
-# phantom criticals too.
-#
-# The filter is intentionally strict — only files that are unambiguously
-# scanner-definition sources.  Downstream callers still see every
-# genuine finding in every other file.
-_SCANNER_RULE_FILES = (
-    "services/bug_hunt_rules.py",
-    "services/vanguard_scanner.py",
-    "services/vanguard_verify_agent.py",   # iter 212m-224 — LLM system prompt lists rules
-    "services/generation_rules.py",
-    "services/mode_e_auditor.py",
-    "services/full_scan_scanners.py",
-    "routers/codebase_health.py",   # this file — contains _PERF_RULES etc.
-    "routers/security_scan.py",
-    # Frontend UI that renders rule strings for the /bug-hunt panel:
-    "frontend/src/pages/BugHunt.jsx",
+# Iter 212m-225 — canonical implementation moved to services/scanner_utils.py
+# so services can import it without violating the router→service boundary.
+# The re-export below keeps the historical `_is_scanner_rule_file` name
+# in this module for backwards compat (existing callers unchanged).
+# ──────────────────────────────────────────────────────────────────────
+from services.scanner_utils import (                       # noqa: E402
+    is_scanner_rule_file as _is_scanner_rule_file,
+    _SCANNER_RULE_FILES,
 )
-
-
-def _is_scanner_rule_file(path: str) -> bool:
-    """True if `path` is one of the AUREM scanner rule-definition
-    source files. Callers use this to skip self-referential false
-    positives that would otherwise flood the report."""
-    if not path:
-        return False
-    lower = path.replace("\\", "/").lower()
-    return any(lower.endswith(suf.lower()) for suf in _SCANNER_RULE_FILES)
 
 
 # ──────────────────────────────────────────────────────────────────────

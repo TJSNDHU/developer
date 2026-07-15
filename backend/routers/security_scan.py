@@ -25,6 +25,7 @@ Covers 7 vuln classes, all static analysis (zero LLM, zero E2B):
 Designed to finish in <15 s on a 5K-file repo by walking the GitHub
 tree via the same PAT helpers the indexer already uses.
 """
+# arch: allow-http — GitHub tree walk (has internal _gh_get) (iter 212m-225)
 from __future__ import annotations
 
 import asyncio

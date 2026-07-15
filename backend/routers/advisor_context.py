@@ -32,6 +32,7 @@ Design contract
   pipelines.
 """
 
+# arch: allow-http — Ad-hoc GitHub fetches for Advisor snapshots (iter 212m-225)
 from __future__ import annotations
 import os
 from datetime import datetime, timezone

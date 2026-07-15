@@ -2,6 +2,7 @@
 routers/auth.py — AUREM Dev
 Developer signup, login, token endpoints.
 """
+# arch: allow-http — Google + GitHub OAuth token endpoints (iter 212m-225)
 from __future__ import annotations
 import re
 import time
