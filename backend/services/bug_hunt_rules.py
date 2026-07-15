@@ -77,7 +77,10 @@ _SECRET_RULES: list[tuple[str, re.Pattern, str, str]] = [
      "CRITICAL",
      "JWT signing secret in source — anyone can forge admin tokens."),
     ("private_rsa_key",
-     re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----"),
+     # Iter 212m-224 — require actual base64 key body on the next
+     # line; placeholder / documentation strings ending with `\n...\n`
+     # or `…` no longer trigger.
+     re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----\s*\n[A-Za-z0-9+/=]{20,}"),
      "CRITICAL",
      "Private key block committed — must be rotated and the repo history rewritten."),
     ("azure_storage_key",
@@ -353,12 +356,22 @@ _FIX_HINT = {
 
 def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
     """Run all Bug Hunt rules over the cached repo text.  Returns the
-    same Finding dict shape as the other Codebase Health scanners."""
+    same Finding dict shape as the other Codebase Health scanners.
+
+    Iter 212m-224 — Skips AUREM's own scanner rule-definition files
+    to avoid self-referential false positives (a rule regex matched
+    against the file that defines it). See
+    `routers.codebase_health._is_scanner_rule_file` for the list.
+    """
+    # Local import to avoid a routers → services back-import cycle.
+    from routers.codebase_health import _is_scanner_rule_file
     out: list[dict] = []
 
     # ── A) SECRETS ────────────────────────────────────────────────────
     for path, text in text_cache.items():
         if not text:
+            continue
+        if _is_scanner_rule_file(path):
             continue
         # skip .env-style files where these values legitimately live
         low = path.lower()
@@ -380,6 +393,8 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
     for path, text in text_cache.items():
         if not text:
             continue
+        if _is_scanner_rule_file(path):
+            continue
         low = path.lower()
         # only run on source files
         if not any(low.endswith(ext) for ext in
@@ -395,6 +410,8 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
     # ── C) EXPOSED ENDPOINTS ──────────────────────────────────────────
     for path, text in text_cache.items():
         if not text:
+            continue
+        if _is_scanner_rule_file(path):
             continue
         low = path.lower()
         if not any(low.endswith(ext) for ext in

@@ -1,6 +1,6 @@
 # AUREM CTO — Self-Scan Report (Dogfood run)
 
-**Scan date:** `2026-07-15 06:48:40 UTC`
+**Scan date:** `2026-07-15 07:04:24 UTC`
 **Target:** `/app` (AUREM CTO's own codebase, backend + frontend)
 **Files scanned:** `438` (same scanner functions users hit on `auremcto.com`)
 
@@ -8,27 +8,27 @@
 
 | Severity | Count |
 |---|---|
-| CRITICAL | 55 |
-| HIGH | 102 |
-| MEDIUM | 520 |
-| LOW | 116 |
-| **TOTAL** | **794** |
+| CRITICAL | 23 |
+| HIGH | 66 |
+| MEDIUM | 513 |
+| LOW | 115 |
+| **TOTAL** | **717** |
 
 ## Per-scanner breakdown
 
 | Scanner | Findings | Latency |
 |---|---|---|
-| `security` | 42 | 1.69s |
+| `security` | 9 | 1.64s |
 | `performance` | 58 | 0.02s |
 | `code_quality` | 188 | 0.07s |
 | `dependencies` | 0 | 0.00s |
 | `database` | 14 | 0.01s |
-| `bug_hunt` | 64 | 2.11s |
+| `bug_hunt` | 23 | 2.00s |
 | `docker` | 5 | 0.01s |
-| `vanguard_007` | 42 | 1.68s |
-| `architecture_health` | 381 | 0.91s |
+| `vanguard_007` | 37 | 1.70s |
+| `architecture_health` | 383 | 0.87s |
 
-### `security` — 42 findings
+### `security` — 9 findings
 
 - **sec::backend/.env:10:generic_api_key** — `CRITICAL` × 1
     - `backend/.env:10` — OPENROUTER_API_KEY="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"
@@ -36,80 +36,14 @@
     - `backend/.env:18` — STRIPE_API_KEY="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
 - **sec::backend/.env:41:openai_key** — `CRITICAL` × 1
     - `backend/.env:41` — DEEPSEEK_API_KEY="sk-a84102f59257da0e6eda29615acfaba051cad729421338104497b9dbb8c6da6664d1525a"
-- **sec::backend/services/generation_rules.py:79:db_connection_string** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:79` — "db_connection_string":    "`postgres://user:pass@` / `mongodb://user:pass@` style URI in source",
-- **sec::backend/services/generation_rules.py:86:eval_usage** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:86` — "eval_usage":              "any call to `eval(`",
-- **sec::backend/services/generation_rules.py:87:exec_usage** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:87` — "exec_usage":              "any call to `exec(`",
-- **sec::backend/services/generation_rules.py:93:sql_string_format** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:93` — "sql_string_format":       "`cursor.execute(f\"…{var}…\")` — f-string SQL",
-- **sec::backend/services/vanguard_verify_agent.py:235:eval_usage** — `CRITICAL` × 1
-    - `backend/services/vanguard_verify_agent.py:235` — real hard-coded API key, eval(user_input), SQL string
-- **sec::backend/services/mode_e_auditor.py:68:eval_usage** — `CRITICAL` × 1
-    - `backend/services/mode_e_auditor.py:68` — (r"eval\s*\(", "Use of eval() — code injection risk", "high"),
-- **sec::backend/services/bug_hunt_rules.py:109:eval_usage** — `CRITICAL` × 1
-    - `backend/services/bug_hunt_rules.py:109` — "eval() with user-controlled input — direct RCE primitive."),
-- **sec::backend/services/bug_hunt_rules.py:113:exec_usage** — `CRITICAL` × 1
-    - `backend/services/bug_hunt_rules.py:113` — "exec() with user-controlled input — direct RCE primitive."),
-- **sec::backend/services/vanguard_scanner.py:175:password_assignment** — `CRITICAL` × 1
-    - `backend/services/vanguard_scanner.py:175` — # "secrets" (e.g. `password: "changeme"` in .env.example, demo
-- **sec::backend/routers/codebase_health.py:92:eval_usage** — `CRITICAL` × 1
-    - `backend/routers/codebase_health.py:92` — "eval_usage":        "Replace eval() with `ast.literal_eval` or an explicit parser.",
-- **sec::backend/routers/codebase_health.py:93:exec_usage** — `CRITICAL` × 1
-    - `backend/routers/codebase_health.py:93` — "exec_usage":        "Replace exec() with a safer dispatch (dict of callables).",
 - **sec::qa/simulated-user/run.sh:59:eval_usage** — `CRITICAL` × 1
     - `qa/simulated-user/run.sh:59` — echo "→ 3. Running promptfoo eval (self-hosted, no cloud calls)…"
-- **sec::frontend/src/components/RenderedMessage.jsx:116:exec_usage** — `CRITICAL` × 1
-    - `frontend/src/components/RenderedMessage.jsx:116` — while ((m = FENCE_RE.exec(text)) !== null) {
-- **sec::frontend/src/components/DeployPanel.jsx:167:private_key** — `CRITICAL` × 1
-    - `frontend/src/components/DeployPanel.jsx:167` — placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----"}
-- **sec::frontend/src/components/ChatPanel.jsx:2168:exec_usage** — `CRITICAL` × 1
-    - `frontend/src/components/ChatPanel.jsx:2168` — const m = /attempt\s+(\d+)\b/i.exec(ev.message || "");
-- **sec::frontend/src/components/__tests__/extractSuggestions.test.js:32:exec_usage** — `CRITICAL` × 1
-    - `frontend/src/components/__tests__/extractSuggestions.test.js:32` — while ((m = SUGGESTION_RX.exec(content)) !== null) {
-- **sec::frontend/src/utils/chatTextUtils.js:38:exec_usage** — `CRITICAL` × 1
-    - `frontend/src/utils/chatTextUtils.js:38` — while ((m = CODE_BLOCK_RE.exec(content)) !== null) {
-- **sec::frontend/src/pages/BugHunt.jsx:236:eval_usage** — `CRITICAL` × 1
-    - `frontend/src/pages/BugHunt.jsx:236` — ["eval() with user input", ""],
-- **sec::frontend/src/pages/BugHunt.jsx:237:exec_usage** — `CRITICAL` × 1
-    - `frontend/src/pages/BugHunt.jsx:237` — ["exec() with user input", ""],
-- **sec::frontend/src/pages/Deploy.jsx:203:private_key** — `CRITICAL` × 1
-    - `frontend/src/pages/Deploy.jsx:203` — : "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"} />
-- **sec::backend/services/generation_rules.py:89:os_system** — `HIGH` × 1
-    - `backend/services/generation_rules.py:89` — "os_system":               "any call to `os.system(`",
-- **sec::backend/services/generation_rules.py:90:pickle_loads** — `HIGH` × 1
-    - `backend/services/generation_rules.py:90` — "pickle_loads":            "any call to `pickle.load(` or `pickle.loads(`",
-- **sec::backend/services/generation_rules.py:92:requests_no_verify** — `HIGH` × 1
-    - `backend/services/generation_rules.py:92` — "requests_no_verify":      "`requests/httpx/urllib .* verify=False`",
-- **sec::backend/services/generation_rules.py:94:innerHTML_assignment** — `HIGH` × 1
-    - `backend/services/generation_rules.py:94` — "innerHTML_assignment":    "`.innerHTML = ...` in JS/TS",
-- **sec::backend/services/generation_rules.py:95:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/generation_rules.py:95` — "dangerously_set_html":    "React `dangerouslySetInnerHTML` prop",
-- **sec::backend/services/vanguard_verify_agent.py:24:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_verify_agent.py:24` — React `dangerouslySetInnerHTML` in a tooltip, etc.). The regex floor
-- **sec::backend/services/mode_e_auditor.py:107:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/mode_e_auditor.py:107` — (r"dangerouslySetInnerHTML", "dangerouslySetInnerHTML — XSS risk if unsanitised", "high"),
-- **sec::backend/services/bug_hunt_rules.py:258:yaml_unsafe_load** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:258` — "HIGH",     "pyyaml < 6.0 — yaml.load() arbitrary code execution."),
-- **sec::backend/services/bug_hunt_rules.py:180:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:180` — re.compile(r"\bdangerouslySetInnerHTML\b"),
-- **sec::backend/services/vanguard_scanner.py:88:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_scanner.py:88` — ("dangerously_set_html",  r"""dangerouslySetInnerHTML""",                           "HIGH"),
 - **sec::frontend/src/components/RobotGuide.jsx:15:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/components/RobotGuide.jsx:15` — *   - message  : HTML string (rendered via dangerouslySetInnerHTML). Use
 - **sec::frontend/src/components/MermaidBlock.jsx:187:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/components/MermaidBlock.jsx:187` — dangerouslySetInnerHTML={{
 - **sec::frontend/src/components/PreviewPanel.jsx:83:innerHTML_assignment** — `HIGH` × 1
     - `frontend/src/components/PreviewPanel.jsx:83` — else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> o
-- **sec::frontend/src/pages/BugHunt.jsx:241:os_system** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:241` — ["os.system() with user input", ""],
-- **sec::frontend/src/pages/BugHunt.jsx:238:pickle_loads** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:238` — ["pickle.loads() on untrusted data", ""],
-- **sec::frontend/src/pages/BugHunt.jsx:239:yaml_unsafe_load** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:239` — ["yaml.load() without Loader (use safe_load)", ""],
-- **sec::frontend/src/pages/BugHunt.jsx:243:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:243` — ["dangerouslySetInnerHTML in React", ""],
 - **sec::frontend/src/pages/Projects.jsx:1525:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/pages/Projects.jsx:1525` — dangerouslySetInnerHTML={{ __html: (testResult?.error || "Unknown error").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>
 - **sec::frontend/src/pages/PolicyPage.jsx:95:dangerously_set_html** — `HIGH` × 1
@@ -125,8 +59,8 @@
     - `backend/services/billing_cron.py:59` — Database call inside a for-loop — collapse with `$in` batch query.
 - **perf::backend/routers/admin_bin.py:441:n_plus_one** — `HIGH` × 1
     - `backend/routers/admin_bin.py:441` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/codebase_health.py:146:unbounded_tolist** — `HIGH` × 1
-    - `backend/routers/codebase_health.py:146` — Cursor returns ALL documents — will crash as the collection grows.
+- **perf::backend/routers/codebase_health.py:193:unbounded_tolist** — `HIGH` × 1
+    - `backend/routers/codebase_health.py:193` — Cursor returns ALL documents — will crash as the collection grows.
 - **perf::backend/routers/admin.py:207:n_plus_one** — `HIGH` × 1
     - `backend/routers/admin.py:207` — Database call inside a for-loop — collapse with `$in` batch query.
 - **perf::backend/routers/admin.py:1706:n_plus_one** — `HIGH` × 1
@@ -334,8 +268,8 @@
     - `backend/services/graph_builder.py:199` — `build_graph` is 114 lines — too big to test/refactor.
 - **q::backend/services/graph_builder.py:313:large_fn** — `MEDIUM` × 1
     - `backend/services/graph_builder.py:313` — `_read` is 112 lines — too big to test/refactor.
-- **q::backend/services/bug_hunt_rules.py:352:large_fn** — `MEDIUM` × 1
-    - `backend/services/bug_hunt_rules.py:352` — `scan_bug_hunt` is 106 lines — too big to test/refactor.
+- **q::backend/services/bug_hunt_rules.py:355:large_fn** — `MEDIUM` × 1
+    - `backend/services/bug_hunt_rules.py:355` — `scan_bug_hunt` is 120 lines — too big to test/refactor.
 - **q::backend/services/orchestrator.py:0:large_file** — `MEDIUM` × 1
     - `backend/services/orchestrator.py:0` — 2512 lines — ORA cannot refactor this safely.
 - **q::backend/services/orchestrator.py:383:large_fn** — `MEDIUM` × 1
@@ -368,10 +302,10 @@
     - `backend/services/mode_d_debugger.py:538` — `run_debug_session` is 242 lines — too big to test/refactor.
 - **q::backend/services/topup_alerts.py:92:large_fn** — `MEDIUM` × 1
     - `backend/services/topup_alerts.py:92` — `upsert_alerts_from_snapshot` is 99 lines — too big to test/refactor.
-- **q::backend/services/vanguard_scanner.py:244:large_fn** — `MEDIUM` × 1
-    - `backend/services/vanguard_scanner.py:244` — `has_critical` is 114 lines — too big to test/refactor.
-- **q::backend/services/vanguard_scanner.py:474:large_fn** — `MEDIUM` × 1
-    - `backend/services/vanguard_scanner.py:474` — `run_two_round_scan` is 94 lines — too big to test/refactor.
+- **q::backend/services/vanguard_scanner.py:254:large_fn** — `MEDIUM` × 1
+    - `backend/services/vanguard_scanner.py:254` — `has_critical` is 114 lines — too big to test/refactor.
+- **q::backend/services/vanguard_scanner.py:484:large_fn** — `MEDIUM` × 1
+    - `backend/services/vanguard_scanner.py:484` — `run_two_round_scan` is 94 lines — too big to test/refactor.
 - **q::backend/services/loop_full_scan.py:56:large_fn** — `MEDIUM` × 1
     - `backend/services/loop_full_scan.py:56` — `persist_findings_to_backlog` is 96 lines — too big to test/refactor.
 - **q::backend/services/loop_engine.py:0:large_file** — `MEDIUM` × 1
@@ -427,15 +361,15 @@
 - **q::backend/routers/upload.py:154:large_fn** — `MEDIUM` × 1
     - `backend/routers/upload.py:154` — `upload_convert` is 101 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:0:large_file** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:0` — 1087 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:161:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:161` — `_scan_code_quality` is 88 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:474:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:474` — `_build_text_cache` is 85 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:596:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:596` — `scan` is 204 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:928:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:928` — `request_fix` is 159 lines — too big to test/refactor.
+    - `backend/routers/codebase_health.py:0` — 1134 lines — ORA cannot refactor this safely.
+- **q::backend/routers/codebase_health.py:208:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:208` — `_scan_code_quality` is 88 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:521:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:521` — `_build_text_cache` is 85 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:643:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:643` — `scan` is 204 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:975:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:975` — `request_fix` is 159 lines — too big to test/refactor.
 - **q::backend/routers/admin.py:0:large_file** — `MEDIUM` × 1
     - `backend/routers/admin.py:0` — 3890 lines — ORA cannot refactor this safely.
 - **q::backend/routers/admin.py:140:large_fn** — `MEDIUM` × 1
@@ -608,8 +542,8 @@
     - `frontend/src/pages/Admin.jsx:0` — 2328 lines — ORA cannot refactor this safely.
 - **q::frontend/src/pages/Landing.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/pages/Landing.jsx:0` — 1322 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:186:todo** — `LOW` × 1
-    - `backend/routers/codebase_health.py:186` — Open TODO/FIXME — easy to forget.
+- **q::backend/routers/codebase_health.py:233:todo** — `LOW` × 1
+    - `backend/routers/codebase_health.py:233` — Open TODO/FIXME — easy to forget.
 - **q::backend/shared/resilience/circuit_breaker.py:132:todo** — `LOW` × 1
     - `backend/shared/resilience/circuit_breaker.py:132` — Open TODO/FIXME — easy to forget.
 
@@ -646,58 +580,10 @@
 - **db::backend/shared/memory_tiers.py:0:no_ttl_memory_loop_log** — `LOW` × 1
     - `backend/shared/memory_tiers.py:452` — `memory_loop_log` writes detected — confirm a TTL index exists.
 
-### `bug_hunt` — 64 findings
+### `bug_hunt` — 23 findings
 
 - **bh::qa/simulated-user/seed_qa_user.py:131:jwt_secret_hardcoded** — `CRITICAL` × 1
     - `qa/simulated-user/seed_qa_user.py:131` — JWT signing secret in source — anyone can forge admin tokens.
-- **bh::frontend/src/components/DeployPanel.jsx:167:private_rsa_key** — `CRITICAL` × 1
-    - `frontend/src/components/DeployPanel.jsx:167` — Private key block committed — must be rotated and the repo history rewritten.
-- **bh::frontend/src/pages/Deploy.jsx:203:private_rsa_key** — `CRITICAL` × 1
-    - `frontend/src/pages/Deploy.jsx:203` — Private key block committed — must be rotated and the repo history rewritten.
-- **bh::backend/services/generation_rules.py:115:log4shell_jndi** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:115` — Log4Shell-style JNDI lookup in a string — remote code execution via log injection.
-- **bh::backend/services/generation_rules.py:116:eval_with_request** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:116` — eval() with user-controlled input — direct RCE primitive.
-- **bh::backend/services/generation_rules.py:117:exec_with_request** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:117` — exec() with user-controlled input — direct RCE primitive.
-- **bh::backend/services/generation_rules.py:121:os_system_user_input** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:121` — os.system with user input — shell injection RCE.
-- **bh::backend/services/generation_rules.py:93:sql_string_format** — `CRITICAL` × 1
-    - `backend/services/generation_rules.py:93` — Raw SQL built with f-string / format — SQL injection.
-- **bh::backend/services/vanguard_verify_agent.py:235:eval_with_request** — `CRITICAL` × 1
-    - `backend/services/vanguard_verify_agent.py:235` — eval() with user-controlled input — direct RCE primitive.
-- **bh::frontend/src/pages/BugHunt.jsx:235:log4shell_jndi** — `CRITICAL` × 1
-    - `frontend/src/pages/BugHunt.jsx:235` — Log4Shell-style JNDI lookup in a string — remote code execution via log injection.
-- **bh::backend/services/generation_rules.py:90:pickle_loads_untrusted** — `HIGH` × 2
-    - `backend/services/generation_rules.py:90` — pickle.loads on any input is RCE — replace with JSON or msgpack.
-    - `backend/services/generation_rules.py:90` — pickle.loads on any input is RCE — replace with JSON or msgpack.
-- **bh::backend/services/generation_rules.py:124:xxe_external_entity** — `HIGH` × 1
-    - `backend/services/generation_rules.py:124` — External entity declaration in source — confirms XXE-vulnerable design.
-- **bh::backend/services/generation_rules.py:132:ssrf_open_url_fetch** — `HIGH` × 1
-    - `backend/services/generation_rules.py:132` — Outbound HTTP with user-supplied URL — SSRF: attacker hits your internal services.
-- **bh::backend/services/generation_rules.py:95:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/generation_rules.py:95` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/generation_rules.py:94:inner_html_assign** — `HIGH` × 1
-    - `backend/services/generation_rules.py:94` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::backend/services/generation_rules.py:133:inner_html_assign** — `HIGH` × 1
-    - `backend/services/generation_rules.py:133` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::backend/services/vanguard_verify_agent.py:24:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_verify_agent.py:24` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/vanguard_verify_agent.py:221:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_verify_agent.py:221` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/vanguard_verify_agent.py:241:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_verify_agent.py:241` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/mode_e_auditor.py:107:dangerously_set_html** — `HIGH` × 2
-    - `backend/services/mode_e_auditor.py:107` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-    - `backend/services/mode_e_auditor.py:107` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/bug_hunt_rules.py:258:yaml_load_unsafe** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:258` — yaml.load without a Loader is unsafe — use yaml.safe_load.
-- **bh::backend/services/bug_hunt_rules.py:159:cors_wildcard_with_creds** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:159` — CORS wildcard with credentials — defeats the same-origin policy entirely.
-- **bh::backend/services/bug_hunt_rules.py:182:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:182` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/services/vanguard_scanner.py:88:dangerously_set_html** — `HIGH` × 1
-    - `backend/services/vanguard_scanner.py:88` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::frontend/src/components/RobotGuide.jsx:15:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/components/RobotGuide.jsx:15` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::frontend/src/components/RobotGuide.jsx:62:dangerously_set_html** — `HIGH` × 1
@@ -712,24 +598,12 @@
     - `frontend/src/components/PreviewPanel.jsx:103` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
 - **bh::frontend/src/components/PreviewPanel.jsx:105:inner_html_assign** — `HIGH` × 1
     - `frontend/src/components/PreviewPanel.jsx:105` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::frontend/src/pages/BugHunt.jsx:238:pickle_loads_untrusted** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:238` — pickle.loads on any input is RCE — replace with JSON or msgpack.
-- **bh::frontend/src/pages/BugHunt.jsx:239:yaml_load_unsafe** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:239` — yaml.load without a Loader is unsafe — use yaml.safe_load.
-- **bh::frontend/src/pages/BugHunt.jsx:243:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/BugHunt.jsx:243` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::frontend/src/pages/Projects.jsx:1525:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/pages/Projects.jsx:1525` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::frontend/src/pages/PolicyPage.jsx:95:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/pages/PolicyPage.jsx:95` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::backend/main.py:735:cors_allow_all** — `HIGH` × 1
     - `backend/main.py:735` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
-- **bh::backend/services/generation_rules.py:145:cors_allow_all** — `HIGH` × 1
-    - `backend/services/generation_rules.py:145` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
-- **bh::backend/services/vanguard_verify_agent.py:225:cors_allow_all** — `HIGH` × 1
-    - `backend/services/vanguard_verify_agent.py:225` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
-- **bh::backend/services/bug_hunt_rules.py:233:cors_allow_all** — `HIGH` × 1
-    - `backend/services/bug_hunt_rules.py:233` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
 - **bh::backend/routers/suggestions.py:258:admin_route_no_auth** — `HIGH` × 1
     - `backend/routers/suggestions.py:258` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
 - **bh::backend/routers/suggestions.py:290:admin_route_no_auth** — `HIGH` × 1
@@ -750,26 +624,10 @@
     - `scripts/generate_logos.py:11` — Looks like a .env line committed in source — move to .env and gitignore it.
 - **bh::backend/services/onboarding_email.py:34:env_var_in_code** — `MEDIUM` × 1
     - `backend/services/onboarding_email.py:34` — Looks like a .env line committed in source — move to .env and gitignore it.
-- **bh::backend/services/generation_rules.py:123:regex_catastrophic_backtracking** — `MEDIUM` × 3
-    - `backend/services/generation_rules.py:123` — Regex with nested quantifiers — ReDoS attack surface.
-    - `backend/services/generation_rules.py:123` — Regex with nested quantifiers — ReDoS attack surface.
-    - `backend/services/generation_rules.py:123` — Regex with nested quantifiers — ReDoS attack surface.
-- **bh::backend/services/generation_rules.py:125:weak_crypto_md5** — `MEDIUM` × 2
-    - `backend/services/generation_rules.py:125` — MD5 is broken for security purposes — use SHA-256 or bcrypt/argon2 for passwords.
-    - `backend/services/generation_rules.py:125` — MD5 is broken for security purposes — use SHA-256 or bcrypt/argon2 for passwords.
-- **bh::backend/services/generation_rules.py:126:weak_crypto_sha1** — `MEDIUM` × 2
-    - `backend/services/generation_rules.py:126` — SHA-1 is collision-broken — use SHA-256 or stronger.
-    - `backend/services/generation_rules.py:126` — SHA-1 is collision-broken — use SHA-256 or stronger.
-- **bh::backend/services/generation_rules.py:131:cookie_no_secure_flag** — `MEDIUM` × 1
-    - `backend/services/generation_rules.py:131` — Cookie set without Secure flag — can be sent over plaintext HTTP.
-- **bh::backend/services/generation_rules.py:130:cookie_no_httponly_flag** — `MEDIUM` × 1
-    - `backend/services/generation_rules.py:130` — Cookie set without HttpOnly — readable from JS / XSS-exfiltratable.
 - **bh::backend/services/github_cache.py:53:weak_crypto_sha1** — `MEDIUM` × 1
     - `backend/services/github_cache.py:53` — SHA-1 is collision-broken — use SHA-256 or stronger.
 - **bh::backend/main.py:1369:health_endpoint_leaks** — `MEDIUM` × 1
     - `backend/main.py:1369` — /health endpoint appears to leak internals (DB names, commit SHA, env). Keep it boolean.
-- **bh::backend/services/generation_rules.py:144:swagger_in_prod** — `LOW` × 1
-    - `backend/services/generation_rules.py:144` — Swagger/OpenAPI UI enabled — restrict in prod or gate behind auth.
 
 ### `docker` — 5 findings
 
@@ -784,26 +642,26 @@
 - **docker::frontend/Dockerfile:1:docker_cis_4_6_no_healthcheck** — `LOW` × 1
     - `frontend/Dockerfile:1` — CIS 4.6 — no `HEALTHCHECK` instruction: orchestrators can't detect a hung container.
 
-### `vanguard_007` — 42 findings
+### `vanguard_007` — 37 findings
 
-- **unknown** — `CRITICAL` × 42
+- **unknown** — `CRITICAL` × 37
     - `?:10` — 
     - `?:18` — 
     - `?:41` — 
-    - _…and 39 more_
+    - _…and 34 more_
 
-### `architecture_health` — 381 findings
+### `architecture_health` — 383 findings
 
-- **high_complexity** — `MEDIUM` × 293
+- **high_complexity** — `MEDIUM` × 294
     - `?:1402` — — complexity=0
     - `?:2417` — — complexity=0
     - `?:344` — — complexity=0
-    - _…and 290 more_
-- **service-imports-router** — `MEDIUM` × 6
+    - _…and 291 more_
+- **service-imports-router** — `MEDIUM` × 7
     - `?:0` — from routers.cto_projects import _decrypt_pat, _user_gh_token
     - `?:0` — from routers import repo_status as rs
     - `?:0` — from routers.cto_projects import _decrypt_pat, _user_gh_token
-    - _…and 3 more_
+    - _…and 4 more_
 - **http-call-outside-services** — `MEDIUM` × 18
     - `?:0` — raw httpx/requests call — wrap it in services/
     - `?:0` — raw httpx/requests call — wrap it in services/

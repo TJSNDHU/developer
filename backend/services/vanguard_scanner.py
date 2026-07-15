@@ -38,7 +38,12 @@ _SECRET_PATTERN_DEFS = [
      r"""(?i)(?:bearer|auth[_-]?token|access[_-]?token|refresh[_-]?token)\s*[:=]\s*['\"][^'\"]{16,}['\"]""",
      "CRITICAL"),
     ("private_key",
-     r"""-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----""",
+     # Iter 212m-224 — require a keychar (base64/PGP body) on the
+     # NEXT line so we don't false-positive on placeholder JSX/form
+     # strings like `"-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END…"`.
+     # `\n[A-Za-z0-9+/=]{20,}` catches only actual key material, not
+     # ellipsis / template placeholders / documentation examples.
+     r"""-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----\s*\n[A-Za-z0-9+/=]{20,}""",
      "CRITICAL"),
     ("github_token",
      r"""(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}""",
@@ -77,7 +82,12 @@ SECRET_PATTERNS = [
 # ─── Dangerous code patterns ────────────────────────────────────────────
 _DANGEROUS_PATTERN_DEFS = [
     ("eval_usage",            r"""\beval\s*\(""",                                       "CRITICAL"),
-    ("exec_usage",            r"""\bexec\s*\(""",                                       "CRITICAL"),
+    # Iter 212m-224 — `\bexec\s*\(` also matched JavaScript's RegExp
+    # `.exec()`, JSON.exec, and any `foo.exec(bar)` method call.
+    # Real Python `exec()` is called at module/global scope — never
+    # as an attribute (`.exec(`). Require the previous char NOT be
+    # `.` to eliminate the JS RegExp false-positive class.
+    ("exec_usage",            r"""(?<![.\w])exec\s*\(""",                               "CRITICAL"),
     ("subprocess_shell_true", r"""subprocess\.\w+\(.*shell\s*=\s*True""",               "CRITICAL"),
     ("os_system",             r"""\bos\.system\s*\(""",                                 "HIGH"),
     ("pickle_loads",          r"""\bpickle\.loads?\s*\(""",                             "HIGH"),
