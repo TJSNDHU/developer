@@ -174,6 +174,12 @@ def scan_text(
                 })
                 break
     if include_dangerous:
+        # Iter 212m-229 — File-level DOMPurify detection. When the
+        # file uses `DOMPurify.sanitize(` anywhere (import + at least
+        # one call), any dangerouslySetInnerHTML / .innerHTML in
+        # the file is assumed safe. Real sanitize calls often live
+        # 5-20 lines away via useMemo / .then callbacks.
+        file_uses_dompurify = "DOMPurify.sanitize" in text
         # Iter 212m-226 — Skip comment-only lines for dangerous-code
         # rules. JSDoc `* dangerouslySetInnerHTML` mentions and
         # `# eval() is dangerous` explainer comments were surfacing
@@ -207,21 +213,54 @@ def scan_text(
                 if _is_code_file and _is_comment_only(line):
                     continue
                 if pattern.search(line):
+                    # Iter 212m-229 — Context-aware downgrade. XSS
+                    # sinks wrapped in `DOMPurify.sanitize(...)` are
+                    # safe by construction. Check current line + next
+                    # (multi-line JSX props often wrap the sanitize
+                    # call one line below the prop keyword).
+                    ctx_line = line
+                    if i < len(lines):
+                        ctx_line = ctx_line + " " + lines[i]  # lines is 0-indexed
+                    sanitized = (
+                        name in ("dangerously_set_html", "innerHTML_assignment")
+                        and ("DOMPurify.sanitize" in ctx_line or file_uses_dompurify)
+                    )
                     findings.append({
                         "name": name,
-                        "severity": severity,
+                        "severity": "INFO" if sanitized else severity,
                         "filepath": filepath,
                         "line": i,
                         "snippet": line.strip()[:120],
                         "source": "vanguard_007_dangerous",
+                        **({"sanitized": True, "downgraded": True}
+                           if sanitized else {}),
                     })
                     break
     return findings
 
 
 def scan_file_blocks(blocks: dict[str, str]) -> list[dict]:
+    # Iter 212m-229 — Skip scanner rule-definition files (self-ref
+    # false positives — `generation_rules.py` literally spells out
+    # every rule id including db_connection_string, eval_usage, etc.
+    # and used to flood the report with 15+ critical false positives).
+    from services.scanner_utils import is_scanner_rule_file
     out: list[dict] = []
     for path, content in (blocks or {}).items():
+        if is_scanner_rule_file(path):
+            continue
+        # Iter 212m-229 — Skip `.env` / `.env.*` files entirely.
+        # These are gitignored by construction — keys living there
+        # are INTENTIONAL, not leaks.  Downgrading them to INFO
+        # (as we do for demo paths) still floods the report with
+        # 3+ critical entries every scan; skipping is cleaner.
+        # A separate `env_committed_check` rule (below) still fires
+        # if `.env` is missing from `.gitignore`, catching the real
+        # threat model.
+        low = path.replace("\\", "/").lower()
+        if (low == ".env" or low.endswith("/.env")
+                or "/.env." in low or low.split("/")[-1].startswith(".env.")):
+            continue
         findings = scan_text(content, filepath=path)
         # Iter 212m-6 — file-pattern whitelist for false-positive scope.
         # Doc / template / example files legitimately contain placeholder

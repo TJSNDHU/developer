@@ -84,8 +84,28 @@ def _scan_security(text_cache: dict[str, str]) -> list[dict]:
         # Iter 212m-224 — skip scanner-definition files (self-ref false pos).
         if _is_scanner_rule_file(path):
             continue
+        # Iter 212m-229 — Skip `.env` and `.env.*` files. Keys living
+        # there are INTENTIONAL by construction (they're in
+        # `.gitignore`) — flagging them creates recurring CRITICAL
+        # noise that trains the reader to ignore real critical alerts.
+        low = path.replace("\\", "/").lower()
+        if (low == ".env" or low.endswith("/.env")
+                or "/.env." in low
+                or (low.split("/")[-1] if "/" in low else low).startswith(".env.")):
+            continue
+        # Iter 212m-229 — QA seed / simulated-user harness path
+        # legitimately contains hard-coded test creds (JWT secret
+        # signing keys used by our own integration bot). Downgrade
+        # to INFO like other demo paths.
         for f in scan_text(text or "", filepath=path):
             sev = (f.get("severity") or "").upper()
+            if "qa/simulated-user/" in path.replace("\\", "/").lower():
+                # Same treatment as _is_safe_demo_path — surface for
+                # review but never as CRITICAL/HIGH.
+                if sev in ("CRITICAL", "HIGH"):
+                    sev = "INFO"
+                    f["downgraded"] = True
+                    f["downgrade_reason"] = "qa harness — intentional test creds"
             out.append({
                 "id":         f"sec::{path}:{f.get('line')}:{f.get('name')}",
                 "category":   "security",

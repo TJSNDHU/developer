@@ -50,7 +50,7 @@ def _token_hash(token: Optional[str]) -> str:
     user-token without storing the secret itself."""
     if not token:
         return "anon"
-    return hashlib.sha1(token.encode("utf-8", "replace")).hexdigest()[:12]
+    return hashlib.sha1(token.encode("utf-8", "replace")).hexdigest()[:12]  # nosec B303 - vanguard: ignore — SHA1 is a cache-shard key, NOT a security primitive. No signing / auth / password use.
 
 
 def _trim(cache: OrderedDict) -> None:

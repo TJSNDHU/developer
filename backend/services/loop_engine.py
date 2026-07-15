@@ -1317,10 +1317,95 @@ class LoopEngine:
         """Rewrite each offending file via the Parliament healer,
         mutating `submitted_files` in place so the next scan pass sees
         the healed content. Returns True iff at least one file was
-        actually changed."""
+        actually changed.
+
+        Iter 212m-229 — Triage layer inserted BEFORE the healer.
+        The founder's ask: "kya tumhare (main agent) jitna capable
+        hai fix karna" — is our auto-fix as smart as a human?  It
+        wasn't — every finding was assumed real and every file got
+        a full LLM rewrite. Now:
+          • FALSE_POSITIVE findings never reach the healer (they
+            get logged to `scanner_feedback` for rule tuning).
+          • ARCHITECTURALLY_SAFE findings get a per-line marker
+            edit — no LLM roundtrip.
+          • DUPLICATES across scanners are merged.
+          • DEFERRED items go to backlog, not to a wasteful rewrite.
+          • Only REAL_BUG findings hit Parliament.heal.
+        """
+        from services.fix_triage import apply_triage_before_heal
         healed_any = False
+
+        # Flatten offending {file: [hits...]} into a single findings
+        # list for the triage engine.
+        flat_findings: list[dict] = []
+        file_contents: dict[str, str] = {}
         for path, hits in offending.items():
-            # Find the original file object so we can update it in place.
+            file_contents[path] = next(
+                (f.get("content", "") for f in submitted_files
+                 if f.get("path") == path),
+                "",
+            )
+            for h in hits:
+                flat_findings.append({**h, "file": h.get("file") or path})
+
+        # Callback to POST FPs into the scanner_feedback collection
+        # so the rules can be improved offline.
+        async def _log_fps(fps: list[dict]) -> None:
+            if not fps or self.db is None:
+                return
+            try:
+                await self.db.scanner_feedback.insert_many([
+                    {
+                        "loop_id":    self.loop_id,
+                        "user_id":    self.user_id,
+                        "finding":    fp,
+                        "detected_at": time.time(),
+                        "source":     "loop_engine._heal_full_scan",
+                    } for fp in fps
+                ])
+            except Exception as e:                      # noqa: BLE001
+                logger.warning("[fix-triage] scanner_feedback write failed: %r", e)
+
+        def _log_fps_sync(fps: list[dict]) -> None:
+            # Run the async log in the loop's executor.
+            asyncio.create_task(_log_fps(fps))
+
+        # Run triage — real_bugs is a strict subset of the input.
+        real_bugs, report = apply_triage_before_heal(
+            flat_findings, file_contents, feedback_callback=_log_fps_sync,
+        )
+        _tr_summary = report.summary()
+        logger.info(
+            "[loop-heal] triage → real=%d fp=%d arch_safe=%d dup=%d deferred=%d",
+            _tr_summary["real_bugs"], _tr_summary["false_positives"],
+            _tr_summary["architecturally_safe"], _tr_summary["duplicates"],
+            _tr_summary["deferred"],
+        )
+
+        # Apply ARCH_SAFE markers directly — no LLM cost.
+        for tf in report.architecturally_safe:
+            f = tf.finding
+            target = next((x for x in submitted_files
+                           if x.get("path") == f.get("file")), None)
+            if not target or not tf.suggested_marker:
+                continue
+            content = target.get("content") or ""
+            lines_ = content.split("\n")
+            idx = f.get("line", 1) - 1
+            if 0 <= idx < len(lines_) and tf.suggested_marker not in lines_[idx]:
+                lines_[idx] = f"{lines_[idx]}  {tf.suggested_marker}"
+                target["content"] = "\n".join(lines_)
+                healed_any = True
+                logger.info("[loop-heal] arch-safe marker applied: %s:%d",
+                            f.get("file"), f.get("line"))
+
+        # Rebuild the per-file offending map from ONLY real bugs.
+        real_by_file: dict[str, list[dict]] = {}
+        for f in real_bugs:
+            real_by_file.setdefault(f["file"], []).append(f)
+
+        # Now heal only what's actually a real bug.
+        for path, hits in real_by_file.items():
             target = next((f for f in submitted_files
                            if f.get("path") == path), None)
             if target is None:
