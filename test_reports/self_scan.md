@@ -1,6 +1,6 @@
 # AUREM CTO — Self-Scan Report (Dogfood run)
 
-**Scan date:** `2026-07-15 07:42:10 UTC`
+**Scan date:** `2026-07-15 07:49:02 UTC`
 **Target:** `/app` (AUREM CTO's own codebase, backend + frontend)
 **Files scanned:** `440` (same scanner functions users hit on `auremcto.com`)
 
@@ -9,24 +9,24 @@
 | Severity | Count |
 |---|---|
 | CRITICAL | 20 |
-| HIGH | 47 |
-| MEDIUM | 487 |
+| HIGH | 36 |
+| MEDIUM | 489 |
 | LOW | 113 |
-| **TOTAL** | **667** |
+| **TOTAL** | **658** |
 
 ## Per-scanner breakdown
 
 | Scanner | Findings | Latency |
 |---|---|---|
-| `security` | 7 | 1.95s |
-| `performance` | 57 | 0.02s |
-| `code_quality` | 189 | 0.07s |
+| `security` | 7 | 1.93s |
+| `performance` | 46 | 0.08s |
+| `code_quality` | 190 | 0.07s |
 | `dependencies` | 0 | 0.00s |
 | `database` | 6 | 0.01s |
-| `bug_hunt` | 13 | 2.07s |
+| `bug_hunt` | 13 | 2.06s |
 | `docker` | 0 | 0.01s |
-| `vanguard_007` | 34 | 2.03s |
-| `architecture_health` | 361 | 0.87s |
+| `vanguard_007` | 34 | 2.01s |
+| `architecture_health` | 362 | 0.87s |
 
 ### `security` — 7 findings
 
@@ -45,32 +45,10 @@
 - **sec::frontend/src/pages/PolicyPage.jsx:105:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/pages/PolicyPage.jsx:105` — dangerouslySetInnerHTML={{ __html: html }}
 
-### `performance` — 57 findings
+### `performance` — 46 findings
 
-- **perf::backend/services/usage.py:73:n_plus_one** — `HIGH` × 1
-    - `backend/services/usage.py:73` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/services/daily_digest.py:59:n_plus_one** — `HIGH` × 1
-    - `backend/services/daily_digest.py:59` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/services/billing_cron.py:59:n_plus_one** — `HIGH` × 1
-    - `backend/services/billing_cron.py:59` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/admin_bin.py:442:n_plus_one** — `HIGH` × 1
-    - `backend/routers/admin_bin.py:442` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/admin.py:208:n_plus_one** — `HIGH` × 1
-    - `backend/routers/admin.py:208` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/admin.py:1707:n_plus_one** — `HIGH` × 1
-    - `backend/routers/admin.py:1707` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/admin.py:2489:n_plus_one** — `HIGH` × 1
-    - `backend/routers/admin.py:2489` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/admin.py:3191:n_plus_one** — `HIGH` × 1
-    - `backend/routers/admin.py:3191` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/repo_status.py:267:n_plus_one** — `HIGH` × 1
-    - `backend/routers/repo_status.py:267` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/repo_status.py:331:n_plus_one** — `HIGH` × 1
-    - `backend/routers/repo_status.py:331` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/findings.py:222:n_plus_one** — `HIGH` × 1
-    - `backend/routers/findings.py:222` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/shipwall.py:109:n_plus_one** — `HIGH` × 1
-    - `backend/routers/shipwall.py:109` — Database call inside a for-loop — collapse with `$in` batch query.
+- **perf::backend/shared/memory_tiers.py:560:n_plus_one** — `HIGH` × 1
+    - `backend/shared/memory_tiers.py:560` — Database call inside a for-loop — collapse with `$in` batch query.
 - **perf::backend/routers/admin.py:3202:high_cap_tolist** — `MEDIUM` × 1
     - `backend/routers/admin.py:3202` — Hard cap >= 1000 docs in memory.  Add pagination.
 - **perf::backend/routers/admin.py:3402:high_cap_tolist** — `MEDIUM` × 1
@@ -91,8 +69,8 @@
     - `backend/services/financials.py:174` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/services/vanguard_config.py:68:select_star** — `LOW` × 1
     - `backend/services/vanguard_config.py:68` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
-- **perf::backend/services/billing_cron.py:118:select_star** — `LOW` × 1
-    - `backend/services/billing_cron.py:118` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
+- **perf::backend/services/billing_cron.py:131:select_star** — `LOW` × 1
+    - `backend/services/billing_cron.py:131` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/admin_bin.py:73:select_star** — `LOW` × 1
     - `backend/routers/admin_bin.py:73` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 - **perf::backend/routers/admin_bin.py:162:select_star** — `LOW` × 1
@@ -162,7 +140,7 @@
 - **perf::backend/shared/commercial/token_vault.py:376:select_star** — `LOW` × 1
     - `backend/shared/commercial/token_vault.py:376` — find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`.
 
-### `code_quality` — 189 findings
+### `code_quality` — 190 findings
 
 - **q::backend/main.py:0:large_file** — `MEDIUM` × 1
     - `backend/main.py:0` — 1529 lines — ORA cannot refactor this safely.
@@ -328,6 +306,8 @@
     - `backend/services/architecture_health.py:357` — `_scan_boundaries` is 110 lines — too big to test/refactor.
 - **q::backend/services/full_scan_orchestrator.py:112:large_fn** — `MEDIUM` × 1
     - `backend/services/full_scan_orchestrator.py:112` — `run_full_scan` is 94 lines — too big to test/refactor.
+- **q::backend/services/billing_cron.py:43:large_fn** — `MEDIUM` × 1
+    - `backend/services/billing_cron.py:43` — `bill_maxx_overages` is 84 lines — too big to test/refactor.
 - **q::backend/services/tools_bridge.py:174:large_fn** — `MEDIUM` × 1
     - `backend/services/tools_bridge.py:174` — `extract_tool_calls` is 240 lines — too big to test/refactor.
 - **q::backend/services/finding_fix_applier.py:219:large_fn** — `MEDIUM` × 1
@@ -357,15 +337,15 @@
 - **q::backend/routers/upload.py:155:large_fn** — `MEDIUM` × 1
     - `backend/routers/upload.py:155` — `upload_convert` is 101 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:0:large_file** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:0` — 1108 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:182:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:182` — `_scan_code_quality` is 88 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:495:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:495` — `_build_text_cache` is 85 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:617:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:617` — `scan` is 204 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:949:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:949` — `request_fix` is 159 lines — too big to test/refactor.
+    - `backend/routers/codebase_health.py:0` — 1123 lines — ORA cannot refactor this safely.
+- **q::backend/routers/codebase_health.py:197:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:197` — `_scan_code_quality` is 88 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:510:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:510` — `_build_text_cache` is 85 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:632:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:632` — `scan` is 204 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:964:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:964` — `request_fix` is 159 lines — too big to test/refactor.
 - **q::backend/routers/admin.py:0:large_file** — `MEDIUM` × 1
     - `backend/routers/admin.py:0` — 3891 lines — ORA cannot refactor this safely.
 - **q::backend/routers/admin.py:141:large_fn** — `MEDIUM` × 1
@@ -538,8 +518,8 @@
     - `frontend/src/pages/Admin.jsx:0` — 2328 lines — ORA cannot refactor this safely.
 - **q::frontend/src/pages/Landing.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/pages/Landing.jsx:0` — 1322 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:207:todo** — `LOW` × 1
-    - `backend/routers/codebase_health.py:207` — Open TODO/FIXME — easy to forget.
+- **q::backend/routers/codebase_health.py:222:todo** — `LOW` × 1
+    - `backend/routers/codebase_health.py:222` — Open TODO/FIXME — easy to forget.
 - **q::backend/shared/resilience/circuit_breaker.py:132:todo** — `LOW` × 1
     - `backend/shared/resilience/circuit_breaker.py:132` — Open TODO/FIXME — easy to forget.
 
@@ -634,17 +614,17 @@
     - `backend/services/bug_hunt_rules.py:266` — "HIGH",     "pyyaml < 6.0 — yaml.load() arbitrary code execution."),
     - `frontend/src/pages/BugHunt.jsx:239` — ["yaml.load() without Loader (use safe_load)", ""],
 
-### `architecture_health` — 361 findings
+### `architecture_health` — 362 findings
 
 - **circular_import** — `HIGH` × 3
+    - `services/pat_vault.py → services/bin_context.py → services/ora_context.py → routers/cto_projects.py:0` — cycle of 4 modules
     - `routers/payments.py → services/billing_cron.py:0` — cycle of 2 modules
-    - `services/bin_context.py → services/ora_context.py → routers/cto_projects.py → services/pat_vault.py:0` — cycle of 4 modules
-    - `routers/admin_bin.py → services/daily_digest.py → main.py → services/integration_health.py → routers/admin.py → routers/thinking_hints.py:0` — cycle of 6 modules
-- **high_complexity** — `MEDIUM` × 294
+    - `routers/thinking_hints.py → services/daily_digest.py → routers/admin_bin.py → main.py → services/integration_health.py → routers/admin.py:0` — cycle of 6 modules
+- **high_complexity** — `MEDIUM` × 295
     - `services/orchestrator.py:1402` — chat_with_tools — complexity=175
     - `routers/cto_projects.py:2418` — _run_task_via_api — complexity=154
     - `routers/security_scan.py:345` — run_security_scan — complexity=74
-    - _…and 291 more_
+    - _…and 292 more_
 - **bloated_file** — `LOW` × 64
     - `routers/admin.py:0` — 3468 lines
     - `routers/cto_projects.py:0` — 3432 lines

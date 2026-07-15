@@ -52,19 +52,32 @@ async def bill_maxx_overages(db) -> dict:
     processed = billed = failed = 0
     total_usd = 0.0
 
-    cursor = db.cto_maxx_usage.find({
+    # Iter 212m-228 — N+1 fix. Was a `dev_users.find_one` per overage
+    # row (up to N sequential round-trips). Now we prefetch every
+    # candidate user in ONE `$in` batch keyed on user_id, then look
+    # them up locally as we iterate the overage cursor.
+    overage_rows = await db.cto_maxx_usage.find({
         "month": bucket,
         "overage_count": {"$gt": 0},
-    })
-    async for row in cursor:
+    }).to_list(length=10_000)
+    uids = [r.get("user_id") for r in overage_rows if r.get("user_id")]
+    users_map: dict[str, dict] = {}
+    if uids:
+        cur = db.dev_users.find(
+            {"user_id": {"$in": uids}},
+            {"_id": 0, "user_id": 1, "stripe_customer_id": 1,
+             "stripe_sub_id": 1, "tier": 1},
+        )
+        async for u in cur:
+            users_map[u.get("user_id", "")] = u
+
+    for row in overage_rows:
         processed += 1
         uid = row.get("user_id")
         n = int(row.get("overage_count") or 0)
         if not (uid and n > 0):
             continue
-        user = await db.dev_users.find_one({"user_id": uid},
-                                            {"_id": 0, "stripe_customer_id": 1,
-                                             "stripe_sub_id": 1, "tier": 1})
+        user = users_map.get(uid)
         if not user or not user.get("stripe_customer_id"):
             failed += 1
             logger.warning(f"[overage] {uid} has overage but no Stripe customer")

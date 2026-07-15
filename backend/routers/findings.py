@@ -219,12 +219,24 @@ async def expose_batch(body: ExposeBody,
     now = _now_utc()
     exposed = 0
     aged_out = 0
-    for fid in body.finding_ids[:100]:   # hard cap so a bad client can't loop us
-        existing = await db.cto_open_findings.find_one(
+    # Iter 212m-228 — N+1 fix. Was up to 100 sequential find_one calls.
+    # Prefetch every existing row in ONE `$in` query, then do the
+    # per-item update logic locally.
+    fids = list(body.finding_ids[:100])
+    existing_map: dict[str, dict] = {}
+    if fids:
+        cur = db.cto_open_findings.find(
             {"user_id": user_id, "project_id": body.project_id,
-             "finding_id": fid},
-            projection={"exposure_count": 1, "status": 1},
+             "finding_id": {"$in": fids}},
+            projection={"finding_id": 1, "exposure_count": 1, "status": 1},
         )
+        async for row in cur:
+            fk = row.get("finding_id")
+            if fk:
+                existing_map[fk] = row
+
+    for fid in fids:   # hard cap so a bad client can't loop us
+        existing = existing_map.get(fid)
         if not existing:
             continue
         if existing.get("status") == "aged-out":

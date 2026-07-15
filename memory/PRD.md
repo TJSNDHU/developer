@@ -1,6 +1,40 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-228 — Phase 5-b: N+1 query cleanup + regex tightening
+
+**Founder ask:** Fix the 13 N+1 findings across `admin.py x4`, `repo_status.py x2`, `findings.py`, `shipwall.py`, `usage.py`, `daily_digest.py`, `billing_cron.py`, `admin_bin.py`.
+
+**Discovery — 11 of 13 were false positives.** The scanner's N+1 regex was too greedy:
+```
+for X in Y: [any 300 chars] await db.Z.find/find_one/count
+```
+This matched a `for` loop that iterated an already-fetched batch, followed by a SIBLING (same-indent) db call at function scope — those are not N+1s.
+
+**Real N+1s fixed (2):**
+
+1. **`billing_cron.bill_maxx_overages`**: was N sequential `dev_users.find_one` per overage row. Now prefetches every user in ONE `$in` batch, then looks them up locally from `users_map`. Under end-of-month billing with N=100 overage users, reduces 100 round-trips to 2.
+
+2. **`findings.expose_findings`**: was up to 100 sequential `find_one` on `cto_open_findings`. Now prefetches all matching rows with `$in` on `finding_id`, populates `existing_map`, keeps the per-item update logic. 100 round-trips → 1.
+
+**Scanner regex tightening:**
+- N+1 regex now requires the `await db.X.find/find_one/count` to be indented **≥8 spaces** — i.e. genuinely INSIDE a loop body, not a sibling statement at 4-space function scope. Kills 8+ false positives.
+- Excludes `for X in ...aggregate(...)` / `.to_list()` / `.find(...)` prefixes — those are cursor iterations, not per-item lookups.
+
+**Impact — end-to-end for Phase 5:**
+| Metric | Phase 4 (Iter 212m-226) | Phase 5-a (227) | Phase 5-b (228) |
+|---|---|---|---|
+| Total | 683 | 667 | **658** |
+| 🔴 CRITICAL | 20 | 20 | 20 |
+| 🟠 HIGH | 61 | 47 | **36** |
+| N+1 findings | 13 | 13 | **1** (defensible) |
+
+**Remaining N+1 (1)**: `shared/memory_tiers.py:560` — 7-day analytics rollup with 3 count queries per day (21 total, bounded, admin-only). Not a hotpath; deferred as low-priority.
+
+**Regression tests**: `test_iter212m228_n_plus_one_cleanup.py` — 5 tests, all passing. Positive + negative cases (real N+1 fires, sibling call + aggregate cursor iteration don't).
+
+
+
 ### 2026-02-13 — Iter 212m-227 — Phase 5: Real HIGH-severity fixes
 
 **Founder ask:** Fix the 61 legitimate HIGH findings surfaced after scanner precision cleanup.

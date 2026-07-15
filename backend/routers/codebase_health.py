@@ -127,7 +127,22 @@ _PERF_RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r'\.find_one\(\s*\{[^{}]+\}\s*\)'),
      "select_star",      "LOW",
      "find_one without projection — fetches every field.  Add `, {'_id': 0, ...}`."),
-    (re.compile(r'for\s+\w+\s+in\s+[^:]+:[\s\S]{0,300}?await\s+\w*db\.\w+\.(find|find_one|count)'),
+    (re.compile(
+        # Iter 212m-228 — Tighter N+1 detection:
+        #   • REQUIRE the loop body to contain an ACTUAL per-item lookup
+        #     (find/find_one/count with a bareword arg — NOT aggregate,
+        #     to_list, or update).  Aggregation cursors and bulk ops are
+        #     not N+1.
+        #   • REQUIRE the db call to be indented (at least 4 spaces) so
+        #     it's genuinely inside the loop body, not a sibling.
+        #   • EXCLUDE `for X in await db.Y.aggregate(...)` / `.find(...).to_list()` —
+        #     those are bulk iterations of an already-fetched batch.
+        # This eliminates the false-positive avalanche where a `for` in
+        # dict-comprehension near an unrelated await was miscounted.
+        r'\bfor\s+\w+\s+in\s+(?!.*\b(?:aggregate|to_list|find\s*\()).*:'
+        r'[^\n]*\n(?:[^\n]*\n){0,10}?'
+        r'[ \t]{8,}(?:_?[a-zA-Z]\w*\s*=\s*)?await\s+\w*db\.\w+\.(?:find|find_one|count(?:_documents)?)\s*\('
+     ),
      "n_plus_one",       "HIGH",
      "Database call inside a for-loop — collapse with `$in` batch query."),
 ]
