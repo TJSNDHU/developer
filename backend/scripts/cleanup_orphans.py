@@ -90,7 +90,13 @@ async def cleanup_orphans(db, apply: bool = False) -> dict:
 async def _main(apply: bool) -> int:
     _load_env()
     from motor.motor_asyncio import AsyncIOMotorClient
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    # Iter 212m-227 — production-grade pool config so the cleanup
+    # script never starves connections under Atlas M10 traffic.
+    client = AsyncIOMotorClient(
+        os.environ["MONGO_URL"],
+        maxPoolSize=10, minPoolSize=1, maxIdleTimeMS=30_000,
+        connectTimeoutMS=10_000,
+    )
     db = client[os.environ.get("DB_NAME", "aurem_dev")]
     report = await cleanup_orphans(db, apply=apply)
     mode = "DELETED" if apply else "would-delete"

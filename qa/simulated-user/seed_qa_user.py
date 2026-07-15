@@ -47,7 +47,12 @@ QA_PROJECT_B   = "p_qa_project_b"
 
 
 async def _seed():
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    # Iter 212m-227 — production-grade pool config even for QA seed.
+    client = AsyncIOMotorClient(
+        os.environ["MONGO_URL"],
+        maxPoolSize=5, minPoolSize=1, maxIdleTimeMS=30_000,
+        connectTimeoutMS=10_000,
+    )
     db     = client[os.environ["DB_NAME"]]
     now    = datetime.now(timezone.utc)
 

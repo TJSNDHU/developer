@@ -32,6 +32,15 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Copy application code
 COPY . .
 
+# Iter 212m-227 — CIS Docker Benchmark 4.1: run as non-root.
+# Creates an unprivileged system user, chowns /app, and drops
+# to it before starting uvicorn. Any RCE inside the container
+# now runs as UID 1001, not root.
+RUN groupadd --system --gid 1001 aurem \
+    && useradd --system --uid 1001 --gid aurem --home-dir /app --shell /bin/false aurem \
+    && chown -R aurem:aurem /app
+USER aurem
+
 # Expose port
 EXPOSE 8002
 

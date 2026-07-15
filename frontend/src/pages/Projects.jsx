@@ -18,6 +18,7 @@ import Shell, { PageHeader } from "../components/Shell";
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import RobotGuide, { RobotGuideKeyframes, escapeHtml, oraPulseRingStyle } from "../components/RobotGuide";
+import DOMPurify from "dompurify";
 import AddProjectWizard from "../components/AddProjectWizard";
 import FounderOfferPill from "../components/FounderOfferPill";
 
@@ -1522,7 +1523,10 @@ export function PatModal({ project, onClose, onSaved }) {
                 </div>
                 <div data-testid="proj-pat-failed-msg"
                      style={{ fontSize: 12, color: "#f8fafc", marginTop: 4, lineHeight: 1.55 }}
-                     dangerouslySetInnerHTML={{ __html: (testResult?.error || "Unknown error").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
+                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(
+                       (testResult?.error || "Unknown error").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"),
+                       { ALLOWED_TAGS: ["strong", "em", "b", "i", "br"], ALLOWED_ATTR: [] },
+                     ) }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>

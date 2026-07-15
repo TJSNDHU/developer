@@ -41,7 +41,14 @@ async def connect_mongo_with_retry() -> AsyncIOMotorClient:
     backoff = 1
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+            # Iter 212m-227 — production-grade pool config so the
+            # outbox worker never starves connections under bursts.
+            client = AsyncIOMotorClient(
+                MONGO_URL,
+                serverSelectionTimeoutMS=5000,
+                maxPoolSize=20, minPoolSize=2, maxIdleTimeMS=30_000,
+                connectTimeoutMS=10_000, retryWrites=True,
+            )
             await client.admin.command('ping')
             logger.info(f"MongoDB connected on attempt {attempt}")
             return client

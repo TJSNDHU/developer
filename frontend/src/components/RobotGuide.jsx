@@ -20,9 +20,21 @@
  *   - testid   : optional override for the root data-testid.
  */
 import React from "react";
+import DOMPurify from "dompurify";
 
 export default function RobotGuide({ message, kind = "info", testid = "robot-guide" }) {
   const palette = paletteFor(kind);
+  // Iter 212m-227 — sanitize incoming HTML with DOMPurify.  Callers
+  // pass small trusted snippets (`<strong>`, `<em>`, `<span class="ora-arrow">…</span>`)
+  // but a future change could accidentally interpolate user data;
+  // DOMPurify makes this XSS-safe by default.
+  const cleanHtml = React.useMemo(
+    () => DOMPurify.sanitize(String(message || ""), {
+      ALLOWED_TAGS: ["strong", "em", "b", "i", "u", "span", "br", "small", "code"],
+      ALLOWED_ATTR: ["class", "style"],
+    }),
+    [message],
+  );
   return (
     <div data-testid={testid} style={{
       background: palette.bg,
@@ -59,7 +71,7 @@ export default function RobotGuide({ message, kind = "info", testid = "robot-gui
         <div data-testid={`${testid}-msg`}
              style={{ fontSize: 13, color: "#f8fafc", lineHeight: 1.55 }}
              // eslint-disable-next-line react/no-danger
-             dangerouslySetInnerHTML={{ __html: message }} />
+             dangerouslySetInnerHTML={{ __html: cleanHtml }} />
       </div>
     </div>
   );

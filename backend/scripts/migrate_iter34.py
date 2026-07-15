@@ -62,7 +62,12 @@ async def main() -> None:
     args = ap.parse_args()
 
     mongo_url, db_name = _env_or_die()
-    db = AsyncIOMotorClient(mongo_url)[db_name]
+    # Iter 212m-227 — production-grade pool config.
+    db = AsyncIOMotorClient(
+        mongo_url,
+        maxPoolSize=10, minPoolSize=1, maxIdleTimeMS=30_000,
+        connectTimeoutMS=10_000,
+    )[db_name]
 
     cursor = db.chat_sessions.find(
         {}, {"_id": 1, "session_id": 1, "user_id": 1, "turns": 1},

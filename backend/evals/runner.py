@@ -265,7 +265,12 @@ async def run(quick: bool = False) -> dict:
             mongo_url = _os.environ.get("MONGO_URL")
             db_name = _os.environ.get("DB_NAME")
             if mongo_url and db_name:
-                client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=3000)
+                # Iter 212m-227 — production-grade pool config.
+                client = AsyncIOMotorClient(
+                    mongo_url, serverSelectionTimeoutMS=3000,
+                    maxPoolSize=5, minPoolSize=1, maxIdleTimeMS=30_000,
+                    connectTimeoutMS=10_000,
+                )
                 set_db(client[db_name])
     except Exception as e:
         report["mongo_bootstrap_warning"] = f"{type(e).__name__}: {e}"

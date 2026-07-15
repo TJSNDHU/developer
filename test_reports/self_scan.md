@@ -1,6 +1,6 @@
 # AUREM CTO — Self-Scan Report (Dogfood run)
 
-**Scan date:** `2026-07-15 07:33:30 UTC`
+**Scan date:** `2026-07-15 07:42:10 UTC`
 **Target:** `/app` (AUREM CTO's own codebase, backend + frontend)
 **Files scanned:** `440` (same scanner functions users hit on `auremcto.com`)
 
@@ -9,26 +9,26 @@
 | Severity | Count |
 |---|---|
 | CRITICAL | 20 |
-| HIGH | 61 |
+| HIGH | 47 |
 | MEDIUM | 487 |
-| LOW | 115 |
-| **TOTAL** | **683** |
+| LOW | 113 |
+| **TOTAL** | **667** |
 
 ## Per-scanner breakdown
 
 | Scanner | Findings | Latency |
 |---|---|---|
-| `security` | 8 | 1.95s |
-| `performance` | 58 | 0.02s |
+| `security` | 7 | 1.95s |
+| `performance` | 57 | 0.02s |
 | `code_quality` | 189 | 0.07s |
 | `dependencies` | 0 | 0.00s |
-| `database` | 14 | 0.01s |
-| `bug_hunt` | 13 | 2.01s |
-| `docker` | 5 | 0.01s |
-| `vanguard_007` | 35 | 2.02s |
+| `database` | 6 | 0.01s |
+| `bug_hunt` | 13 | 2.07s |
+| `docker` | 0 | 0.01s |
+| `vanguard_007` | 34 | 2.03s |
 | `architecture_health` | 361 | 0.87s |
 
-### `security` — 8 findings
+### `security` — 7 findings
 
 - **sec::backend/.env:10:generic_api_key** — `CRITICAL` × 1
     - `backend/.env:10` — OPENROUTER_API_KEY="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"
@@ -36,18 +36,16 @@
     - `backend/.env:18` — STRIPE_API_KEY="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
 - **sec::backend/.env:41:openai_key** — `CRITICAL` × 1
     - `backend/.env:41` — DEEPSEEK_API_KEY="sk-a84102f59257da0e6eda29615acfaba051cad729421338104497b9dbb8c6da6664d1525a"
-- **sec::frontend/src/components/RobotGuide.jsx:62:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/components/RobotGuide.jsx:62` — dangerouslySetInnerHTML={{ __html: message }} />
-- **sec::frontend/src/components/MermaidBlock.jsx:187:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/components/MermaidBlock.jsx:187` — dangerouslySetInnerHTML={{
-- **sec::frontend/src/components/PreviewPanel.jsx:83:innerHTML_assignment** — `HIGH` × 1
-    - `frontend/src/components/PreviewPanel.jsx:83` — else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> o
-- **sec::frontend/src/pages/Projects.jsx:1525:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/Projects.jsx:1525` — dangerouslySetInnerHTML={{ __html: (testResult?.error || "Unknown error").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>
-- **sec::frontend/src/pages/PolicyPage.jsx:95:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/PolicyPage.jsx:95` — dangerouslySetInnerHTML={{ __html: html }}
+- **sec::frontend/src/components/RobotGuide.jsx:74:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/components/RobotGuide.jsx:74` — dangerouslySetInnerHTML={{ __html: cleanHtml }} />
+- **sec::frontend/src/components/MermaidBlock.jsx:189:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/components/MermaidBlock.jsx:189` — dangerouslySetInnerHTML={{
+- **sec::frontend/src/pages/Projects.jsx:1526:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/pages/Projects.jsx:1526` — dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(
+- **sec::frontend/src/pages/PolicyPage.jsx:105:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/pages/PolicyPage.jsx:105` — dangerouslySetInnerHTML={{ __html: html }}
 
-### `performance` — 58 findings
+### `performance` — 57 findings
 
 - **perf::backend/services/usage.py:73:n_plus_one** — `HIGH` × 1
     - `backend/services/usage.py:73` — Database call inside a for-loop — collapse with `$in` batch query.
@@ -57,8 +55,6 @@
     - `backend/services/billing_cron.py:59` — Database call inside a for-loop — collapse with `$in` batch query.
 - **perf::backend/routers/admin_bin.py:442:n_plus_one** — `HIGH` × 1
     - `backend/routers/admin_bin.py:442` — Database call inside a for-loop — collapse with `$in` batch query.
-- **perf::backend/routers/codebase_health.py:162:unbounded_tolist** — `HIGH` × 1
-    - `backend/routers/codebase_health.py:162` — Cursor returns ALL documents — will crash as the collection grows.
 - **perf::backend/routers/admin.py:208:n_plus_one** — `HIGH` × 1
     - `backend/routers/admin.py:208` — Database call inside a for-loop — collapse with `$in` batch query.
 - **perf::backend/routers/admin.py:1707:n_plus_one** — `HIGH` × 1
@@ -267,7 +263,7 @@
 - **q::backend/services/graph_builder.py:313:large_fn** — `MEDIUM` × 1
     - `backend/services/graph_builder.py:313` — `_read` is 112 lines — too big to test/refactor.
 - **q::backend/services/bug_hunt_rules.py:360:large_fn** — `MEDIUM` × 1
-    - `backend/services/bug_hunt_rules.py:360` — `scan_bug_hunt` is 141 lines — too big to test/refactor.
+    - `backend/services/bug_hunt_rules.py:360` — `scan_bug_hunt` is 97 lines — too big to test/refactor.
 - **q::backend/services/orchestrator.py:0:large_file** — `MEDIUM` × 1
     - `backend/services/orchestrator.py:0` — 2512 lines — ORA cannot refactor this safely.
 - **q::backend/services/orchestrator.py:383:large_fn** — `MEDIUM` × 1
@@ -361,15 +357,15 @@
 - **q::backend/routers/upload.py:155:large_fn** — `MEDIUM` × 1
     - `backend/routers/upload.py:155` — `upload_convert` is 101 lines — too big to test/refactor.
 - **q::backend/routers/codebase_health.py:0:large_file** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:0` — 1103 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:177:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:177` — `_scan_code_quality` is 88 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:490:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:490` — `_build_text_cache` is 85 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:612:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:612` — `scan` is 204 lines — too big to test/refactor.
-- **q::backend/routers/codebase_health.py:944:large_fn** — `MEDIUM` × 1
-    - `backend/routers/codebase_health.py:944` — `request_fix` is 159 lines — too big to test/refactor.
+    - `backend/routers/codebase_health.py:0` — 1108 lines — ORA cannot refactor this safely.
+- **q::backend/routers/codebase_health.py:182:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:182` — `_scan_code_quality` is 88 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:495:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:495` — `_build_text_cache` is 85 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:617:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:617` — `scan` is 204 lines — too big to test/refactor.
+- **q::backend/routers/codebase_health.py:949:large_fn** — `MEDIUM` × 1
+    - `backend/routers/codebase_health.py:949` — `request_fix` is 159 lines — too big to test/refactor.
 - **q::backend/routers/admin.py:0:large_file** — `MEDIUM` × 1
     - `backend/routers/admin.py:0` — 3891 lines — ORA cannot refactor this safely.
 - **q::backend/routers/admin.py:141:large_fn** — `MEDIUM` × 1
@@ -476,10 +472,10 @@
     - `backend/routers/automations.py:37` — `github_webhook` is 110 lines — too big to test/refactor.
 - **q::backend/routers/oauth.py:84:large_fn** — `MEDIUM` × 1
     - `backend/routers/oauth.py:84` — `oauth_authorize_page` is 175 lines — too big to test/refactor.
-- **q::backend/shared/memory_tiers.py:364:large_fn** — `MEDIUM` × 1
-    - `backend/shared/memory_tiers.py:364` — `store_interaction` is 104 lines — too big to test/refactor.
-- **q::backend/shared/memory_tiers.py:533:large_fn** — `MEDIUM` × 1
-    - `backend/shared/memory_tiers.py:533` — `get_learning_velocity` is 96 lines — too big to test/refactor.
+- **q::backend/shared/memory_tiers.py:370:large_fn** — `MEDIUM` × 1
+    - `backend/shared/memory_tiers.py:370` — `store_interaction` is 104 lines — too big to test/refactor.
+- **q::backend/shared/memory_tiers.py:539:large_fn** — `MEDIUM` × 1
+    - `backend/shared/memory_tiers.py:539` — `get_learning_velocity` is 96 lines — too big to test/refactor.
 - **q::backend/shared/providers/free_apis.py:448:large_fn** — `MEDIUM` × 1
     - `backend/shared/providers/free_apis.py:448` — `search_music` is 88 lines — too big to test/refactor.
 - **q::backend/shared/providers/twilio.py:0:large_file** — `MEDIUM` × 1
@@ -523,11 +519,11 @@
 - **q::backend/evals/runner.py:161:large_fn** — `MEDIUM` × 1
     - `backend/evals/runner.py:161` — `_project_scoping_isolation_test` is 84 lines — too big to test/refactor.
 - **q::backend/evals/runner.py:245:large_fn** — `MEDIUM` × 1
-    - `backend/evals/runner.py:245` — `run` is 86 lines — too big to test/refactor.
+    - `backend/evals/runner.py:245` — `run` is 91 lines — too big to test/refactor.
 - **q::backend/evals/harness.py:42:large_fn** — `MEDIUM` × 1
     - `backend/evals/harness.py:42` — `as_dict` is 99 lines — too big to test/refactor.
 - **q::qa/simulated-user/seed_qa_user.py:47:large_fn** — `MEDIUM` × 1
-    - `qa/simulated-user/seed_qa_user.py:47` — `_seed` is 111 lines — too big to test/refactor.
+    - `qa/simulated-user/seed_qa_user.py:47` — `_seed` is 116 lines — too big to test/refactor.
 - **q::frontend/src/components/MessageBubble.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/components/MessageBubble.jsx:0` — 1172 lines — ORA cannot refactor this safely.
 - **q::frontend/src/components/Shell.jsx:0:large_file** — `MEDIUM` × 1
@@ -537,36 +533,20 @@
 - **q::frontend/src/pages/AdminOverview.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/pages/AdminOverview.jsx:0` — 1524 lines — ORA cannot refactor this safely.
 - **q::frontend/src/pages/Projects.jsx:0:large_file** — `MEDIUM` × 1
-    - `frontend/src/pages/Projects.jsx:0` — 2021 lines — ORA cannot refactor this safely.
+    - `frontend/src/pages/Projects.jsx:0` — 2025 lines — ORA cannot refactor this safely.
 - **q::frontend/src/pages/Admin.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/pages/Admin.jsx:0` — 2328 lines — ORA cannot refactor this safely.
 - **q::frontend/src/pages/Landing.jsx:0:large_file** — `MEDIUM` × 1
     - `frontend/src/pages/Landing.jsx:0` — 1322 lines — ORA cannot refactor this safely.
-- **q::backend/routers/codebase_health.py:202:todo** — `LOW` × 1
-    - `backend/routers/codebase_health.py:202` — Open TODO/FIXME — easy to forget.
+- **q::backend/routers/codebase_health.py:207:todo** — `LOW` × 1
+    - `backend/routers/codebase_health.py:207` — Open TODO/FIXME — easy to forget.
 - **q::backend/shared/resilience/circuit_breaker.py:132:todo** — `LOW` × 1
     - `backend/shared/resilience/circuit_breaker.py:132` — Open TODO/FIXME — easy to forget.
 
 ### `dependencies` — ✅ no findings
 
-### `database` — 14 findings
+### `database` — 6 findings
 
-- **db::backend/scripts/cleanup_orphans.py:93:no_pool** — `HIGH` × 1
-    - `backend/scripts/cleanup_orphans.py:93` — Motor client missing pool config — starves under traffic.
-- **db::backend/scripts/migrate_iter34.py:65:no_pool** — `HIGH` × 1
-    - `backend/scripts/migrate_iter34.py:65` — Motor client missing pool config — starves under traffic.
-- **db::backend/shared/memory_tiers.py:39:no_pool** — `HIGH` × 1
-    - `backend/shared/memory_tiers.py:39` — Motor client missing pool config — starves under traffic.
-- **db::backend/migrations/001_aurem_upgrade_indexes.py:23:no_pool** — `HIGH` × 1
-    - `backend/migrations/001_aurem_upgrade_indexes.py:23` — Motor client missing pool config — starves under traffic.
-- **db::backend/migrations/002_encrypt_pats.py:39:no_pool** — `HIGH` × 1
-    - `backend/migrations/002_encrypt_pats.py:39` — Motor client missing pool config — starves under traffic.
-- **db::backend/evals/runner.py:268:no_pool** — `HIGH` × 1
-    - `backend/evals/runner.py:268` — Motor client missing pool config — starves under traffic.
-- **db::infra/outbox/worker.py:44:no_pool** — `HIGH` × 1
-    - `infra/outbox/worker.py:44` — Motor client missing pool config — starves under traffic.
-- **db::qa/simulated-user/seed_qa_user.py:50:no_pool** — `HIGH` × 1
-    - `qa/simulated-user/seed_qa_user.py:50` — Motor client missing pool config — starves under traffic.
 - **db::backend/routers/admin.py:3202:hard_cap_2000** — `MEDIUM` × 1
     - `backend/routers/admin.py:3202` — Loading 2000 documents at once — one request can kill the DB.
 - **db::backend/routers/admin.py:3402:hard_cap_5000** — `MEDIUM` × 1
@@ -578,51 +558,40 @@
 - **db::backend/services/ora_learning.py:0:no_ttl_ora_learning_logs** — `LOW` × 1
     - `backend/services/ora_learning.py:122` — `ora_learning_logs` writes detected — confirm a TTL index exists.
 - **db::backend/shared/memory_tiers.py:0:no_ttl_memory_loop_log** — `LOW` × 1
-    - `backend/shared/memory_tiers.py:452` — `memory_loop_log` writes detected — confirm a TTL index exists.
+    - `backend/shared/memory_tiers.py:458` — `memory_loop_log` writes detected — confirm a TTL index exists.
 
 ### `bug_hunt` — 13 findings
 
-- **bh::qa/simulated-user/seed_qa_user.py:131:jwt_secret_hardcoded** — `CRITICAL` × 1
-    - `qa/simulated-user/seed_qa_user.py:131` — JWT signing secret in source — anyone can forge admin tokens.
+- **bh::qa/simulated-user/seed_qa_user.py:136:jwt_secret_hardcoded** — `CRITICAL` × 1
+    - `qa/simulated-user/seed_qa_user.py:136` — JWT signing secret in source — anyone can forge admin tokens.
 - **bh::frontend/src/components/RobotGuide.jsx:15:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/components/RobotGuide.jsx:15` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::frontend/src/components/RobotGuide.jsx:62:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/components/RobotGuide.jsx:62` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::frontend/src/components/MermaidBlock.jsx:187:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/components/MermaidBlock.jsx:187` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::frontend/src/components/PreviewPanel.jsx:83:inner_html_assign** — `HIGH` × 1
-    - `frontend/src/components/PreviewPanel.jsx:83` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::frontend/src/components/PreviewPanel.jsx:85:inner_html_assign** — `HIGH` × 1
-    - `frontend/src/components/PreviewPanel.jsx:85` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::frontend/src/components/PreviewPanel.jsx:103:inner_html_assign** — `HIGH` × 1
-    - `frontend/src/components/PreviewPanel.jsx:103` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::frontend/src/components/PreviewPanel.jsx:105:inner_html_assign** — `HIGH` × 1
-    - `frontend/src/components/PreviewPanel.jsx:105` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
-- **bh::frontend/src/pages/Projects.jsx:1525:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/Projects.jsx:1525` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::frontend/src/pages/PolicyPage.jsx:95:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/pages/PolicyPage.jsx:95` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
-- **bh::backend/main.py:735:cors_allow_all** — `HIGH` × 1
-    - `backend/main.py:735` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
+- **bh::frontend/src/components/RobotGuide.jsx:74:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/components/RobotGuide.jsx:74` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
+- **bh::frontend/src/components/MermaidBlock.jsx:189:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/components/MermaidBlock.jsx:189` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
+- **bh::frontend/src/components/PreviewPanel.jsx:18:inner_html_assign** — `HIGH` × 1
+    - `frontend/src/components/PreviewPanel.jsx:18` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
+- **bh::frontend/src/components/PreviewPanel.jsx:95:inner_html_assign** — `HIGH` × 1
+    - `frontend/src/components/PreviewPanel.jsx:95` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
+- **bh::frontend/src/components/PreviewPanel.jsx:97:inner_html_assign** — `HIGH` × 1
+    - `frontend/src/components/PreviewPanel.jsx:97` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
+- **bh::frontend/src/components/PreviewPanel.jsx:115:inner_html_assign** — `HIGH` × 1
+    - `frontend/src/components/PreviewPanel.jsx:115` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
+- **bh::frontend/src/components/PreviewPanel.jsx:117:inner_html_assign** — `HIGH` × 1
+    - `frontend/src/components/PreviewPanel.jsx:117` — Direct .innerHTML assignment — XSS sink. Use textContent or DOMPurify.
+- **bh::frontend/src/pages/Projects.jsx:1526:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/pages/Projects.jsx:1526` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
+- **bh::frontend/src/pages/PolicyPage.jsx:105:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/pages/PolicyPage.jsx:105` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::backend/services/github_cache.py:53:weak_crypto_sha1** — `MEDIUM` × 1
     - `backend/services/github_cache.py:53` — SHA-1 is collision-broken — use SHA-256 or stronger.
 - **bh::backend/main.py:1369:health_endpoint_leaks** — `MEDIUM` × 1
     - `backend/main.py:1369` — /health endpoint appears to leak internals (DB names, commit SHA, env). Keep it boolean.
 
-### `docker` — 5 findings
+### `docker` — ✅ no findings
 
-- **docker::backend/Dockerfile:1:docker_cis_4_1_no_user** — `HIGH` × 1
-    - `backend/Dockerfile:1` — CIS 4.1 — no `USER` instruction: the container runs as root.
-- **docker::infra/outbox/Dockerfile:1:docker_cis_4_1_no_user** — `HIGH` × 1
-    - `infra/outbox/Dockerfile:1` — CIS 4.1 — no `USER` instruction: the container runs as root.
-- **docker::frontend/Dockerfile:1:docker_cis_4_1_no_user** — `HIGH` × 1
-    - `frontend/Dockerfile:1` — CIS 4.1 — no `USER` instruction: the container runs as root.
-- **docker::infra/outbox/Dockerfile:1:docker_cis_4_6_no_healthcheck** — `LOW` × 1
-    - `infra/outbox/Dockerfile:1` — CIS 4.6 — no `HEALTHCHECK` instruction: orchestrators can't detect a hung container.
-- **docker::frontend/Dockerfile:1:docker_cis_4_6_no_healthcheck** — `LOW` × 1
-    - `frontend/Dockerfile:1` — CIS 4.6 — no `HEALTHCHECK` instruction: orchestrators can't detect a hung container.
-
-### `vanguard_007` — 35 findings
+### `vanguard_007` — 34 findings
 
 - **generic_api_key** — `CRITICAL` × 1
     - `backend/.env:10` — OPENROUTER_API_KEY="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"
@@ -654,9 +623,8 @@
     - `frontend/src/pages/BugHunt.jsx:238` — ["pickle.loads() on untrusted data", ""],
 - **requests_no_verify** — `HIGH` × 1
     - `backend/services/generation_rules.py:92` — "requests_no_verify":      "`requests/httpx/urllib .* verify=False`",
-- **innerHTML_assignment** — `HIGH` × 2
+- **innerHTML_assignment** — `HIGH` × 1
     - `backend/services/generation_rules.py:94` — "innerHTML_assignment":    "`.innerHTML = ...` in JS/TS",
-    - `frontend/src/components/PreviewPanel.jsx:83` — else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> o
 - **dangerously_set_html** — `HIGH` × 10
     - `backend/services/generation_rules.py:95` — "dangerously_set_html":    "React `dangerouslySetInnerHTML` prop",
     - `backend/services/vanguard_verify_agent.py:24` — React `dangerouslySetInnerHTML` in a tooltip, etc.). The regex floor
@@ -669,9 +637,9 @@
 ### `architecture_health` — 361 findings
 
 - **circular_import** — `HIGH` × 3
+    - `routers/payments.py → services/billing_cron.py:0` — cycle of 2 modules
     - `services/bin_context.py → services/ora_context.py → routers/cto_projects.py → services/pat_vault.py:0` — cycle of 4 modules
-    - `services/billing_cron.py → routers/payments.py:0` — cycle of 2 modules
-    - `services/daily_digest.py → routers/thinking_hints.py → main.py → services/integration_health.py → routers/admin.py → routers/admin_bin.py:0` — cycle of 6 modules
+    - `routers/admin_bin.py → services/daily_digest.py → main.py → services/integration_health.py → routers/admin.py → routers/thinking_hints.py:0` — cycle of 6 modules
 - **high_complexity** — `MEDIUM` × 294
     - `services/orchestrator.py:1402` — chat_with_tools — complexity=175
     - `routers/cto_projects.py:2418` — _run_task_via_api — complexity=154

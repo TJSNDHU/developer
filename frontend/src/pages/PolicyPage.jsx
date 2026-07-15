@@ -12,6 +12,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 const POLICY_MAP = {
   "privacy":            { file: "privacy-policy.md",        title: "Privacy Policy" },
@@ -40,7 +41,16 @@ export default function PolicyPage({ slug }) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.text();
       })
-      .then((md) => setHtml(marked.parse(md)))
+      .then((md) => {
+        // Iter 212m-227 — sanitize marked's output with DOMPurify.
+        // Even though these are our own static policy files, running
+        // them through DOMPurify hardens against any future template
+        // injection and satisfies the security scanner.
+        const rawHtml = marked.parse(md);
+        setHtml(DOMPurify.sanitize(rawHtml, {
+          USE_PROFILES: { html: true },
+        }));
+      })
       .catch((e) => setErr(String(e.message || e)));
   }, [meta.file]);
 

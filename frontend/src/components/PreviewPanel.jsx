@@ -10,6 +10,18 @@
  * The iframe is sandboxed with `allow-scripts` only — no same-origin —
  * so any code rendered here cannot read parent state.
  */
+/* eslint-disable react/no-danger */
+/**
+ * PreviewPanel.jsx — Right-side live preview for code blocks parsed from
+ * the latest assistant message.
+ *
+ * SECURITY NOTE — the string-literal `.innerHTML = ...` occurrences in
+ * `buildIframeDoc()` live INSIDE the srcDoc of a sandboxed iframe
+ * (`sandbox="allow-scripts"` only, no `allow-same-origin`).  They can't
+ * touch the parent DOM or read any AUREM cookies/storage.  Marked with
+ * `// vanguard: ignore` on each line so the Vanguard scanner treats
+ * them as intentional.
+ */
 import React, { useEffect, useMemo, useState } from "react";
 import { X, Copy, RefreshCw, Code2, Eye, ExternalLink, Loader2, Rocket } from "lucide-react";
 import { toast } from "./Toast";
@@ -80,9 +92,9 @@ function buildIframeDoc(block) {
     const Comp = fn(React, ReactDOM);
     const root = ReactDOM.createRoot(document.getElementById('root'));
     if (Comp) root.render(React.createElement(Comp));
-    else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> or <code>export default</code>.</pre>';
+    else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> or <code>export default</code>.</pre>';  // vanguard: ignore — sandboxed iframe (iter 212m-227)
   } catch (e) {
-    document.getElementById('root').innerHTML = '<pre>'+(e && e.message || e)+'</pre>';
+    document.getElementById('root').innerHTML = '<pre>'+(e && e.message || e)+'</pre>';  // vanguard: ignore — sandboxed iframe (iter 212m-227)
   }
 </script>
 </body></html>`;
@@ -100,9 +112,9 @@ function buildIframeDoc(block) {
     const _c = console.log;
     console.log = (...args) => { log.push(args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')); _c(...args); };
     ${code}
-    if (log.length) document.getElementById('output').innerHTML = '<pre>'+log.join('\\n')+'</pre>';
+    if (log.length) document.getElementById('output').innerHTML = '<pre>'+log.join('\\n')+'</pre>';  // vanguard: ignore — sandboxed iframe (iter 212m-227)
   } catch (e) {
-    document.getElementById('output').innerHTML = '<pre>'+(e && e.message || e)+'</pre>';
+    document.getElementById('output').innerHTML = '<pre>'+(e && e.message || e)+'</pre>';  // vanguard: ignore — sandboxed iframe (iter 212m-227)
   }
 </script>
 </body></html>`;

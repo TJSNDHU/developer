@@ -135,6 +135,11 @@ _PERF_RULES: list[tuple[re.Pattern, str, str, str]] = [
 def _scan_performance(text_cache: dict[str, str]) -> list[dict]:
     out: list[dict] = []
     for path, text in text_cache.items():
+        # Iter 212m-227 — Skip scanner rule-definition files. The
+        # fix-hint strings inside them literally spell out patterns
+        # like `.to_list(None)` and get flagged by the perf regex.
+        if _is_scanner_rule_file(path):
+            continue
         if not (path.endswith(".py") or path.endswith(".js")
                 or path.endswith(".jsx") or path.endswith(".ts")
                 or path.endswith(".tsx")):

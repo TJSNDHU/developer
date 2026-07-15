@@ -20,7 +20,12 @@ DB_NAME   = os.getenv("DB_NAME")   or os.getenv("MONGODB_DB", "aurem_dev")
 
 
 async def run_migrations():
-    client = AsyncIOMotorClient(MONGO_URI)
+    # Iter 212m-227 — production-grade pool config for migration runs.
+    client = AsyncIOMotorClient(
+        MONGO_URI,
+        maxPoolSize=10, minPoolSize=1, maxIdleTimeMS=30_000,
+        connectTimeoutMS=10_000,
+    )
     db     = client[DB_NAME]
 
     print("Running AUREM upgrade migrations...")

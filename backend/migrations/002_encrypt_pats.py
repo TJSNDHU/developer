@@ -36,7 +36,12 @@ async def migrate():
         print("✗ AUREM_MASTER_KEY missing or too short — refusing to run.")
         sys.exit(1)
 
-    client = AsyncIOMotorClient(MONGO_URI)
+    # Iter 212m-227 — production-grade pool config for migration runs.
+    client = AsyncIOMotorClient(
+        MONGO_URI,
+        maxPoolSize=10, minPoolSize=1, maxIdleTimeMS=30_000,
+        connectTimeoutMS=10_000,
+    )
     db = client[DB_NAME]
 
     # cto_projects.github_token is where PATs actually live in our schema.

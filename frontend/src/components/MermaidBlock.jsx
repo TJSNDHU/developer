@@ -19,6 +19,7 @@ import React, {
   useEffect, useRef, useState, useId, useCallback,
 } from "react";
 import mermaid from "mermaid";
+import DOMPurify from "dompurify";
 import { Copy, Check, AlertTriangle, Network } from "lucide-react";
 
 let _mermaidInitialised = false;
@@ -183,10 +184,12 @@ export default function MermaidBlock({ code, title }) {
           }}
           // Render mermaid SVG.  `svg` is produced by `mermaid.render`
           // (which we initialised with securityLevel: 'strict' — it
-          // strips event handlers + arbitrary HTML).
+          // strips event handlers + arbitrary HTML).  DOMPurify is
+          // an extra defence-in-depth layer per iter 212m-227.
           dangerouslySetInnerHTML={{
-            __html: svg ||
-              "<div style='color:#9aa3b2; font-family:\"JetBrains Mono\", monospace; font-size:11px'>Rendering diagram…</div>",
+            __html: svg
+              ? DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
+              : "<div style='color:#9aa3b2; font-family:\"JetBrains Mono\", monospace; font-size:11px'>Rendering diagram…</div>",
           }}
         />
       )}

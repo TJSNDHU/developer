@@ -1,6 +1,51 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-227 — Phase 5: Real HIGH-severity fixes
+
+**Founder ask:** Fix the 61 legitimate HIGH findings surfaced after scanner precision cleanup.
+
+**Fixes applied (batched by concern):**
+
+1. **Docker CIS 4.1 + 4.6** — All 3 Dockerfiles hardened:
+   - `backend/Dockerfile`: added `groupadd/useradd aurem` + `USER aurem` (already had HEALTHCHECK).
+   - `frontend/Dockerfile`: `USER nginx` + wget-based HEALTHCHECK on port 3001.
+   - `infra/outbox/Dockerfile`: `USER worker` + heartbeat-file HEALTHCHECK.
+   - **Impact**: docker scanner 5 → 0 findings.
+
+2. **Motor connection pool config on 7 script/migration/infra call sites**:
+   `scripts/cleanup_orphans.py`, `scripts/migrate_iter34.py`, `migrations/001_aurem_upgrade_indexes.py`, `migrations/002_encrypt_pats.py`, `shared/memory_tiers.py`, `infra/outbox/worker.py`, `qa/simulated-user/seed_qa_user.py` — all now pass `maxPoolSize`, `minPoolSize`, `maxIdleTimeMS`, `connectTimeoutMS`.
+   - **Impact**: database scanner 14 → 6 findings.
+
+3. **DOMPurify XSS sanitization on 4 real sinks**:
+   - `RobotGuide.jsx`: sanitizes `message` prop with allowed-tag whitelist (`strong`, `em`, `span`, `code`).
+   - `PolicyPage.jsx`: sanitizes `marked.parse(md)` output before injection.
+   - `MermaidBlock.jsx`: sanitizes mermaid SVG (defence-in-depth over `securityLevel: 'strict'`).
+   - `Projects.jsx:1525`: sanitizes the PAT-error `**bold**` string before render.
+   - `PreviewPanel.jsx`: 4 innerHTML assignments inside sandboxed iframe srcDoc marked with per-line `// vanguard: ignore` (they can't reach parent DOM by construction).
+
+4. **Scanner precision improvements (Phase 5-b)**:
+   - Bug-hunt ENDPOINT rules now build a comment-line mask and skip regex hits inside comments. Killed `main.py:735 cors_allow_all` false-positive (was flagging a comment explaining a FIXED bug).
+   - Perf scanner now honours `_is_scanner_rule_file()` — killed `codebase_health.py:162 unbounded_tolist` self-referential FP where fix-hint strings literally spelled out the anti-pattern.
+
+**Regression tests**: `test_iter212m227_high_severity_fixes.py` — 11 tests, all passing.
+
+**Impact:**
+| Bucket | Iter 212m-226 | Iter 212m-227 |
+|---|---|---|
+| Total | 683 | 667 |
+| 🔴 CRITICAL | 20 | 20 |
+| 🟠 HIGH | 61 | **47** (-14) |
+| docker | 5 | **0** |
+| database | 14 | **6** |
+| bug_hunt | 13 | 13 |
+
+**Remaining HIGH work** (deferred to Phase 5b):
+- 13 N+1 query instances across `admin.py` x4, `repo_status.py` x2, `findings.py`, `shipwall.py`, `usage.py`, `daily_digest.py`, `billing_cron.py`, `admin_bin.py` — each needs `$in` batch collapse.
+- `dev_users.no_pool` in `memory_tiers` was moved to production pool config (done).
+
+
+
 ### 2026-02-13 — Iter 212m-226 — Scanner precision Phase 4 (dogfood report fixes)
 
 **Founder ask:** "aur scanners ko bhi fix karo jo kamiyaan mili" — fix the flaws we found while dogfooding.

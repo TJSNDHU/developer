@@ -436,6 +436,31 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
                    (".py", ".js", ".jsx", ".ts", ".tsx", ".java")):
             continue
         file_has_admin_guard = any(m in text for m in _AUTH_GUARDED_MARKERS)
+        # Iter 212m-227 — Endpoint rules were firing on explainer
+        # comments (main.py:735 has `# CORS lockdown. allow_origins=['*']
+        # meant ANY website could hit the API.` — pure documentation
+        # of a FIXED bug, not the current code).  Build a mask of
+        # comment-only line ranges so we can skip regex hits that
+        # land inside them.
+        _comment_ranges: list[tuple[int, int]] = []
+        _cursor = 0
+        for _ln in text.split("\n"):
+            _s = _ln.strip()
+            _is_comment = (
+                _s.startswith("#") or _s.startswith("//")
+                or _s.startswith("/*") or _s.startswith("*")
+            )
+            _end = _cursor + len(_ln)
+            if _is_comment and _s:
+                _comment_ranges.append((_cursor, _end))
+            _cursor = _end + 1   # +1 for the newline
+
+        def _hit_in_comment(offset: int) -> bool:
+            for lo, hi in _comment_ranges:
+                if lo <= offset <= hi:
+                    return True
+            return False
+
         for rid, rx, sev, msg in _ENDPOINT_RULES:
             # Skip admin_route_no_auth if the file demonstrably wires
             # an admin/founder auth dependency somewhere — this is
@@ -445,6 +470,8 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
             if rid == "admin_route_no_auth" and file_has_admin_guard:
                 continue
             for m in rx.finditer(text):
+                if _hit_in_comment(m.start()):
+                    continue
                 line = text[:m.start()].count("\n") + 1
                 out.append(_mk(rid, sev, path, line, rid, msg,
                                _FIX_HINT.get(rid, "")))
