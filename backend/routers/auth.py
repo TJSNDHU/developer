@@ -4,6 +4,7 @@ Developer signup, login, token endpoints.
 """
 from __future__ import annotations
 import re
+import time
 import uuid
 import os
 import logging
@@ -208,7 +209,15 @@ async def signup(body: SignupBody) -> dict:
     is_founder = is_founder_email(email)
     tier = "founder" if is_founder else "free"
     starting_tokens = 10**9 if is_founder else 1000
-    created_at = datetime.now(timezone.utc)
+    # Iter 212m-222 — `created_at` MUST be a float (epoch seconds).
+    # The admin /users window filters do numeric $gte comparisons
+    # (`now - 86400`) so a `datetime` here means BSON type-order
+    # comparison kicks in and users either match every window or none.
+    # A retro-compat isoformat string is also stashed on the response
+    # so existing frontend code that expects an ISO string still works.
+    _now_ts = time.time()
+    created_at = _now_ts
+    created_iso = datetime.now(timezone.utc).isoformat()
     await db.dev_users.insert_one({
         "user_id": user_id,
         "email": email,
@@ -219,8 +228,9 @@ async def signup(body: SignupBody) -> dict:
         "is_admin": is_founder,
         "is_unlimited": is_founder,
         # Iter 212m-30 — `created_at` powers the 3-day chat-bg tint and
-        # the founder-offer `days_since_signup` check. Stored as tz-aware
-        # datetime so Mongo's BSON serialiser keeps the timezone intact.
+        # the founder-offer `days_since_signup` check.
+        # Iter 212m-222 — stored as float epoch (was datetime) so the
+        # admin /users window filter matches this row.
         "created_at": created_at,
     })
     token = create_token(user_id, email, is_admin=is_founder)
@@ -234,7 +244,7 @@ async def signup(body: SignupBody) -> dict:
         "tokens_remaining": starting_tokens,
         "is_admin": is_founder,
         "is_unlimited": is_founder,
-        "created_at": created_at.isoformat(),
+        "created_at": created_iso,
     }
 
 
@@ -299,7 +309,10 @@ async def google_session(body: GoogleSessionBody) -> dict:
         is_admin   = is_founder
         tier       = "founder" if is_founder else "free"
         tokens     = 10**9 if is_founder else 1000
-        created_at = datetime.now(timezone.utc)
+        # Iter 212m-222 — float epoch (was datetime) so admin /users
+        # window filter matches this row. See the /signup handler's
+        # comment for the full rationale.
+        created_at = time.time()
         await db.dev_users.insert_one({
             "user_id":          user_id,
             "email":            email,

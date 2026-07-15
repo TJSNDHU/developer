@@ -336,6 +336,71 @@ async def lifespan(app: FastAPI):
             logger.warning("fix_jobs orphan sweep failed: %r", e)
     _asyncio.create_task(_orphan_running_fix_jobs())
 
+    # Iter 212m-222 — created_at backfill for dev_users.  Three
+    # signup paths historically wrote created_at in three different
+    # ways (Python datetime, epoch float, or omitted entirely).  The
+    # admin /users window filters break on that heterogeneity.
+    #
+    # This idempotent one-shot sweep:
+    #   1. Converts every datetime-typed created_at → float (epoch s).
+    #   2. Fills missing created_at with `time.time()` — better than
+    #      never showing a user at all.  Users backfilled this way
+    #      surface only in `window="all"` because we don't know their
+    #      real signup date; a future audit can walk github.connected_at
+    #      / google.connected_at to recover better timestamps.
+    #
+    # Uses `bulk_write` with a modest batch cap so a large legacy
+    # collection doesn't hold the connection pool.  Skipped when no
+    # legacy rows are found (very cheap idle check on subsequent boots).
+    async def _backfill_dev_users_created_at():
+        try:
+            if app.state.db is None:
+                return
+            import time as _time
+            db = app.state.db
+            # Count legacy rows first — cheap indexed queries. If both
+            # zero we exit immediately (steady-state fast path).
+            n_datetime = await db.dev_users.count_documents(
+                {"created_at": {"$type": "date"}},
+                limit=1,   # only care that at least one exists
+            )
+            n_missing = await db.dev_users.count_documents(
+                {"created_at": {"$exists": False}},
+                limit=1,
+            )
+            if not n_datetime and not n_missing:
+                return
+            _now = _time.time()
+            # Convert datetime → float. `$toLong` returns ms since
+            # epoch; divide to get seconds. Uses a pipeline update
+            # so Mongo does the coercion server-side.
+            r1 = await db.dev_users.update_many(
+                {"created_at": {"$type": "date"}},
+                [{"$set": {"created_at":
+                    {"$divide": [{"$toLong": "$created_at"}, 1000]}}}],
+            )
+            # Missing → best-effort backfill.  Prefer the earliest
+            # available timestamp we can find (github.connected_at,
+            # google.connected_at) over `_now` so at least the
+            # ordering is roughly right.
+            r2 = await db.dev_users.update_many(
+                {"created_at": {"$exists": False}},
+                [{"$set": {"created_at": {
+                    "$ifNull": [
+                        "$github.connected_at",
+                        {"$ifNull": ["$google.connected_at", _now]},
+                    ]
+                }}}],
+            )
+            logger.info(
+                "dev_users.created_at backfill: %d datetime→float, "
+                "%d missing→now (or connected_at)",
+                r1.modified_count, r2.modified_count,
+            )
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("dev_users created_at backfill failed: %r", e)
+    _asyncio.create_task(_backfill_dev_users_created_at())
+
     # Iter 212m-129 — ORA fix-learning indexes.  Idempotent index
     # creation for the two new analytics collections the scan + fix
     # pipelines now write to (`ora_fix_learning`, `ora_scan_learning`).

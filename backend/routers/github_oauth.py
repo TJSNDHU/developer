@@ -353,6 +353,13 @@ async def callback(
                 "tokens_remaining": tokens,
                 "is_admin":         is_admin,
                 "is_unlimited":     is_admin,
+                # Iter 212m-222 — CRITICAL: this path was silently
+                # omitting created_at, so every GitHub-OAuth user was
+                # invisible in the admin /users 24h/7d/30d windowed
+                # filters (Mongo can't $gte on a missing field).
+                # Explicit float epoch matches the writes in
+                # /auth/signup and /auth/google/session.
+                "created_at":       time.time(),
                 "github": {
                     "id":           gh_id_num,        # iter 211 — immutable
                     "access_token": token,

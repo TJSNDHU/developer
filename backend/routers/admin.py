@@ -476,6 +476,27 @@ async def list_users(
         "7d":  now - 7 * 86_400,
         "30d": now - 30 * 86_400,
     }
+    # Iter 212m-222 — the three signup paths historically wrote
+    # `created_at` inconsistently: /auth/signup + /auth/google/session
+    # wrote a `datetime`, /auth/github/callback wrote NOTHING at all.
+    # Admin filters use float epoch, so BSON type-order + missing
+    # fields together made most legacy users invisible. All three
+    # writers now emit `time.time()` (float) but Mongo still has
+    # datetime-typed rows from before the fix.
+    #
+    # Read-path tolerance: use `$or` on both types so a `datetime`-
+    # typed row still matches the numeric window bound, and cast the
+    # datetime cutoff to a `datetime.utcfromtimestamp` for the
+    # datetime branch. Missing-field rows can't be reliably windowed;
+    # they surface in `window="all"` and in the total count.
+    from datetime import datetime as _dt, timezone as _tz
+    def _window_query(cutoff: float) -> dict:
+        _cutoff_dt = _dt.fromtimestamp(cutoff, tz=_tz.utc)
+        return {"$or": [
+            {"created_at": {"$gte": cutoff}},        # new float format
+            {"created_at": {"$gte": _cutoff_dt}},    # legacy datetime rows
+        ]}
+
     # Always compute the three bucket counts (cheap — one count_documents
     # each, all over an indexed `created_at`). These power the filter
     # pills in the admin UI.
@@ -483,14 +504,34 @@ async def list_users(
     # over the same indexed `created_at` field. Collapse into a single
     # aggregation pipeline: one round-trip, one index scan, all three
     # buckets returned together.
+    # Iter 212m-222 — the pipeline now normalises both created_at
+    # types into an epoch double before bucketing, so legacy datetime
+    # rows are counted correctly.
     bucket_counts: dict[str, int] = {"24h": 0, "7d": 0, "30d": 0}
     try:
         pipeline = [
-            {"$match": {"created_at": {"$gte": buckets["30d"]}}},
+            {"$addFields": {
+                "_created_ts": {
+                    "$switch": {
+                        "branches": [
+                            {"case": {"$eq": [{"$type": "$created_at"}, "double"]},
+                             "then": "$created_at"},
+                            {"case": {"$eq": [{"$type": "$created_at"}, "long"]},
+                             "then": "$created_at"},
+                            {"case": {"$eq": [{"$type": "$created_at"}, "int"]},
+                             "then": "$created_at"},
+                            {"case": {"$eq": [{"$type": "$created_at"}, "date"]},
+                             "then": {"$divide": [{"$toLong": "$created_at"}, 1000]}},
+                        ],
+                        "default": None,
+                    }
+                }
+            }},
+            {"$match": {"_created_ts": {"$gte": buckets["30d"]}}},
             {"$project": {
                 "_id": 0,
-                "is_24h": {"$gte": ["$created_at", buckets["24h"]]},
-                "is_7d":  {"$gte": ["$created_at", buckets["7d"]]},
+                "is_24h": {"$gte": ["$_created_ts", buckets["24h"]]},
+                "is_7d":  {"$gte": ["$_created_ts", buckets["7d"]]},
             }},
             {"$group": {
                 "_id":     None,
@@ -518,7 +559,13 @@ async def list_users(
             {"name": {"$regex": search, "$options": "i"}},
         ]}
     if window in buckets:
-        query["created_at"] = {"$gte": buckets[window]}
+        # Merge the window filter into the query. If a search filter
+        # was already using $or, wrap with $and so both constraints apply.
+        window_q = _window_query(buckets[window])
+        if "$or" in query:
+            query = {"$and": [query, window_q]}
+        else:
+            query.update(window_q)
 
     users = await db.dev_users.find(
         query, {"_id": 0, "password": 0, "password_hash": 0, "github.access_token": 0}

@@ -2,6 +2,39 @@
 
 ## Recent session (2026-02-Session-5) — status snapshot
 
+### 2026-02-13 — Iter 212m-222 — Signup created_at type drift causing admin blindness
+
+**Founder-reported bug:** "I didn't see any new users in my admin panel."
+
+**Root cause (3 stacked bugs):**
+1. `/auth/signup` (email+password) — wrote `created_at` as Python `datetime`
+2. `/auth/google/session` — wrote `created_at` as Python `datetime`
+3. `/auth/github/callback` — **DID NOT WRITE `created_at` AT ALL**
+
+The admin `/users` endpoint filters with float epoch (`now - 86400`).  MongoDB's BSON type-order ranks `Date > Number`, so datetime rows either matched every window OR none depending on cutoff, and github-OAuth users (missing field) matched NO window ever. Net effect: admin panel filter pills (24h / 7d / 30d) showed wrong or zero counts, and github signups were completely invisible from the panel.
+
+**Landed:**
+- **All 3 signup paths write `time.time()` (float epoch)** — one consistent type.
+- **Signup response still returns ISO-string `created_at`** for frontend compatibility (`_created_iso` sidecar in the response dict).
+- **Admin `/users` list_users now tolerates BOTH types** via `_window_query()` helper + aggregation pipeline that coerces `Date → float` server-side via `{$toLong / $divide 1000}`.
+- **Startup backfill task** (`_backfill_dev_users_created_at` in `main.py` lifespan) — idempotent one-shot on every deploy: converts every `datetime` row → float, fills missing rows from `github.connected_at` / `google.connected_at` / `now()` fallback chain. **Ran on first boot in preview: 79 datetime→float, 27 missing→now.**
+- **Verified end-to-end**: fresh signup shows in `/admin/users?window=24h` bucket immediately with correct `float` created_at.
+
+**Tests:** `tests/test_iter212m222_signup_created_at.py` — 6/6 pass. Static grep tests locking:
+- All 3 signup handlers write `time.time()` into created_at
+- github handler writes the field (no more silent omission)
+- Admin uses type-tolerant window query + aggregation
+- Backfill task remains in lifespan
+- Signup response still emits an ISO string
+
+**Files touched:**
+- `backend/routers/auth.py` — email + google signup paths
+- `backend/routers/github_oauth.py` — github signup path (added missing field)
+- `backend/routers/admin.py` — list_users type-tolerant filter + aggregation
+- `backend/main.py` — startup backfill task
+- `backend/tests/test_iter212m222_signup_created_at.py` (NEW)
+
+
 ### 2026-02-13 — Iter 212m-221 — Council + Scan hardening + Profile UI + Z-index
 
 **Fixes from 20-feature validation report:**
