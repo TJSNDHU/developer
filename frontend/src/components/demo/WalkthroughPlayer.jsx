@@ -23,15 +23,47 @@ export default function WalkthroughPlayer({
   mode = "full",
   loop = true,
   compact = false,
+  audioEnabled = true,           // Iter 212m-231 — voiceover toggle
+  audioBaseUrl = "/demo-audio",  // where step-{n}.mp3 files live
 }) {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [tick, setTick] = useState(0);   // 0..1 progress within step
+  const [muted, setMuted] = useState(false);
   const rafRef = useRef(null);
   const startedAtRef = useRef(null);
+  const audioRef = useRef(null);        // Iter 212m-231 — <audio> element handle
 
   const active = steps[idx];
   const duration = Math.max(1000, active?.duration ?? 8000);
+
+  // ── Audio sync ────────────────────────────────────────────────
+  // Iter 212m-231 — When the active step changes (or user restarts /
+  // jumps), swap the <audio> src to the matching MP3 and play/pause
+  // in lockstep with the visual player.  Every step is expected to
+  // have `audioSrc: "step-N.mp3"` in its config (or `${audioBaseUrl}/
+  // ${id}.mp3` as fallback).  If the file is missing (404), we
+  // gracefully skip audio for that step — visuals never wait for it.
+  useEffect(() => {
+    if (!audioEnabled) return;
+    const a = audioRef.current;
+    if (!a) return;
+    const src = active?.audioSrc
+      || (active?.id ? `${audioBaseUrl}/${active.id}.mp3` : null);
+    if (!src) return;
+    if (a.src.endsWith(src) === false) {
+      a.src = src;
+      a.load();
+    }
+    if (playing && !muted) {
+      // Autoplay may reject on first paint; that's fine — the caption
+      // is visible and the visual pipeline keeps running.
+      a.currentTime = 0;
+      a.play().catch(() => { /* browser autoplay policy — silent skip */ });
+    } else {
+      a.pause();
+    }
+  }, [idx, playing, muted, audioEnabled, active, audioBaseUrl]);
 
   // ── autoplay loop ─────────────────────────────────────────────
   useEffect(() => {
@@ -178,6 +210,43 @@ export default function WalkthroughPlayer({
         >
           {playing ? "❚❚" : "▶"}
         </button>
+        {/* Iter 212m-231 — Mute toggle for voiceover.  Off by default
+            respects browser autoplay policies; user opts IN by
+            clicking. */}
+        {audioEnabled && (
+          <button
+            type="button"
+            data-testid="walkthrough-mute"
+            onClick={() => setMuted((m) => !m)}
+            aria-label={muted ? "Unmute narration" : "Mute narration"}
+            title={muted ? "Unmute narration" : "Mute narration"}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              background: muted ? "#1f2937" : "#334155",
+              border: `1px solid ${muted ? "#374151" : "#f59e0b"}`,
+              color: muted ? "#64748b" : "#f59e0b",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 14,
+            }}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+        )}
+        {/* Hidden <audio> — driven programmatically from the effect above. */}
+        {audioEnabled && (
+          <audio
+            ref={audioRef}
+            data-testid="walkthrough-audio"
+            preload="auto"
+            muted={muted}
+            style={{ display: "none" }}
+          />
+        )}
         <button
           type="button"
           data-testid="walkthrough-restart"

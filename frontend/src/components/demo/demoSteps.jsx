@@ -763,6 +763,11 @@ const StepShip = ({ tick }) => (
 );
 
 // ─── Exported step arrays ─────────────────────────────────────
+// Iter 212m-231 — Each step now carries an `audioSrc` pointing to a
+// generated MP3 in /public/demo-audio/.  Run `python backend/scripts/
+// generate_demo_audio.py` (with EMERGENT_LLM_KEY set) to regenerate
+// the files.  Missing files degrade gracefully — visuals play on
+// without audio.
 
 export const FULL_STEPS = [
   {
@@ -770,6 +775,7 @@ export const FULL_STEPS = [
     caption: "Sign up in seconds — no credit card, 10 free tasks.",
     duration: 6000,
     urlPath: "/signup",
+    audioSrc: "/demo-audio/step-1.mp3",
     render: StepSignup,
   },
   {
@@ -777,6 +783,7 @@ export const FULL_STEPS = [
     caption: "Land on an empty dashboard — one clear next step.",
     duration: 5000,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-2.mp3",
     render: StepDashboard,
   },
   {
@@ -784,6 +791,7 @@ export const FULL_STEPS = [
     caption: "Pick a repo · paste a PAT with contents:read&write · Continue. That's it.",
     duration: 9000,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-3.mp3",
     render: StepConnect,
   },
   {
@@ -791,6 +799,7 @@ export const FULL_STEPS = [
     caption: "Green dot means ORA has secure repo context now.",
     duration: 5500,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-4.mp3",
     render: StepConnected,
   },
   {
@@ -798,6 +807,7 @@ export const FULL_STEPS = [
     caption: "Chat naturally — or use `/` for scan, plan, fix commands.",
     duration: 6500,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-5.mp3",
     render: StepChat,
   },
   {
@@ -805,6 +815,7 @@ export const FULL_STEPS = [
     caption: "LOOP mode drives PLAN → EXECUTE → VERIFY → SCAN → SHIP autonomously.",
     duration: 9500,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-6.mp3",
     render: StepLoop,
   },
   {
@@ -812,11 +823,14 @@ export const FULL_STEPS = [
     caption: "PR shipped — Vanguard-reviewed, ready to merge. That's a full loop.",
     duration: 7000,
     urlPath: "/dashboard",
+    audioSrc: "/demo-audio/step-7.mp3",
     render: StepShip,
   },
 ];
 
 // Teaser cut — 4 highlight moments only, faster pacing (~24s total).
+// Re-uses the same MP3 files where possible so we don't need extra
+// TTS generation for the compact landing embed.
 export const TEASER_STEPS = [
   { ...FULL_STEPS[0], duration: 4500,  caption: "Sign up · 10 free tasks." },
   { ...FULL_STEPS[2], duration: 6500,  caption: "Add repo — pick from your GitHub, drop a PAT, Continue." },
