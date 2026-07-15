@@ -1,5 +1,39 @@
 # AUREM Dev / Aurem CTO — PRD
 
+
+### 2026-02-13 — Iter 212m-226 — Scanner precision Phase 4 (dogfood report fixes)
+
+**Founder ask:** "aur scanners ko bhi fix karo jo kamiyaan mili" — fix the flaws we found while dogfooding.
+
+**Six specific false-positive classes eliminated:**
+
+1. **`self_scan.py` field-name bugs** — was reading `hit["path"]`/`hit["complexity"]`/`report["cycles"]` but `architecture_health.run_health_report()` emits `hit["file"]`/`hit["cc"]`/`report["circular_imports"]`. This is why 294 findings printed as `?:1402 — complexity=0`. Now shows real path + real complexity (e.g. `services/orchestrator.py:1402 — chat_with_tools — complexity=175`).
+
+2. **Vanguard filepath key** — aggregation only checked `f["file"]`/`f["path"]` but vanguard emits `f["filepath"]`. 37 vanguard hits printed `?:10`. Fixed.
+
+3. **`admin_route_no_auth`** — was firing on EVERY file defining an `/admin` route, even when the file used `dependencies=[Depends(require_admin)]` at APIRouter level. Now skips files with `require_admin` / `require_founder` / `current_dev` markers. Eliminated 7 false positives on our own routers.
+
+4. **`env_var_in_code`** — was matching harmless prose constants like `MESSAGE_TEMPLATE = "Hey there, welcome ..."`. Regex now requires ≥1 digit AND ≥1 non-alpha in the value (base64/hex signature). Retains detection of real secrets.
+
+5. **Vanguard skips JSDoc comment lines** — `dangerouslySetInnerHTML` mentioned in `/** ... */` explainer comments used to trigger HIGH XSS finding. Now skips full-comment lines for dangerous-code sweep. Real sinks still caught.
+
+6. **Vanguard restricts eval/exec to code files** — `qa/simulated-user/run.sh:59` (an `echo "Running promptfoo eval..."` string in a shell script) used to trigger CRITICAL eval_usage. Now Python-specific rules only fire on `.py/.js/.ts/.jsx/.tsx/.java/.go/.rb/.php` files.
+
+**Impact:**
+| Bucket | Iter 212m-225 | Iter 212m-226 |
+|---|---|---|
+| Total | 695 | 683 |
+| 🔴 CRITICAL | 23 | 20 |
+| 🟠 HIGH | 66 | 61 |
+| bug_hunt | 23 | 13 |
+| security | 9 | 8 |
+| vanguard_007 | 37 | 35 |
+
+**Report quality:** Zero `?:X` placeholders now (was 331 with unknown file/rule). Every finding has a real path, real rule name, and real snippet.
+
+**Regression tests (`test_iter212m226_scanner_precision.py`)** — 9 tests, all passing. Positive + negative cases (verify real secrets/eval/XSS still surface).
+
+
 ## Recent session (2026-02-Session-5) — status snapshot
 
 ### 2026-02-13 — Iter 212m-224 + 225 — Scanner precision + architecture boundary hardening

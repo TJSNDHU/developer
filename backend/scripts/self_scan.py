@@ -123,30 +123,35 @@ def main() -> None:
         t = time.time()
         report = run_health_report(["/app/backend"])
         latencies["architecture_health"] = time.time() - t
-        # report is a plain dict with keys: bloated_files, complexity_hits, cycles, boundary_violations
+        # Iter 212m-226 — Fixed field-name mismatches that caused
+        # "?" file paths and "complexity=0" placeholders in the report.
+        # ComplexityHit.as_dict() emits `file`/`func`/`line`/`cc`.
+        # BoundaryViolation.as_dict() emits `file`/`rule`/`detail`.
+        # FileMetric.as_dict() emits `path`/`rel`/`lines`/`extension`.
+        # The circular-imports key is `circular_imports`, not `cycles`.
         a_findings = []
         for hit in (report.get("complexity_hits") or []):
             a_findings.append({
                 "severity": "medium", "rule": "high_complexity",
-                "file": hit.get("path", "?"),
+                "file": hit.get("file", "?"),
                 "line": hit.get("line", 0),
-                "message": f"{hit.get('name','')} — complexity={hit.get('complexity', 0)}",
+                "message": f"{hit.get('func','')} — complexity={hit.get('cc', 0)}",
             })
         for bloat in (report.get("bloated_files") or []):
             a_findings.append({
                 "severity": "low", "rule": "bloated_file",
-                "file": bloat.get("path", "?"),
+                "file": bloat.get("rel") or bloat.get("path", "?"),
                 "line": 0,
                 "message": f"{bloat.get('lines', 0)} lines",
             })
         for viol in (report.get("boundary_violations") or []):
             a_findings.append({
                 "severity": "medium", "rule": viol.get("rule", "boundary"),
-                "file": viol.get("path", "?"),
-                "line": viol.get("line", 0),
+                "file": viol.get("file", "?"),
+                "line": 0,
                 "message": viol.get("detail", ""),
             })
-        for cyc in (report.get("cycles") or []):
+        for cyc in (report.get("circular_imports") or []):
             a_findings.append({
                 "severity": "high", "rule": "circular_import",
                 "file": " → ".join(cyc), "line": 0,
@@ -201,17 +206,24 @@ def main() -> None:
         lines.append("")
         findings_sorted = sorted(findings, key=lambda f: -sev_rank(f.get("severity", "")))
         # Group by rule for readability
+        # Iter 212m-226 — vanguard emits `name`; check it too so
+        # vanguard rules don't all bucket under "unknown".
         by_rule: dict[str, list[dict]] = defaultdict(list)
         for f in findings_sorted:
-            by_rule[f.get("rule") or f.get("id") or "unknown"].append(f)
+            by_rule[f.get("rule") or f.get("id") or f.get("name") or "unknown"].append(f)
         for rule, rows in by_rule.items():
             top_sev = max((sev_rank(r.get("severity", "")) for r in rows), default=0)
             sev_label = {4: "CRITICAL", 3: "HIGH", 2: "MEDIUM", 1: "LOW"}.get(top_sev, "—")
             lines.append(f"- **{rule}** — `{sev_label}` × {len(rows)}")
             for f in rows[:3]:
-                path = f.get("file") or f.get("path") or "?"
+                # Iter 212m-226 — Vanguard emits `filepath`; other
+                # scanners use `file` or `path`. Check all three so
+                # dogfood report doesn't print `?:0` for vanguard hits.
+                path = (f.get("file") or f.get("filepath")
+                        or f.get("path") or "?")
                 ln = f.get("line") or 0
-                msg = (f.get("message") or f.get("title") or "").strip()[:130]
+                msg = (f.get("message") or f.get("title")
+                       or f.get("snippet") or "").strip()[:130]
                 lines.append(f"    - `{path}:{ln}` — {msg}")
             if len(rows) > 3:
                 lines.append(f"    - _…and {len(rows)-3} more_")

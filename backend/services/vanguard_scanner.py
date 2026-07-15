@@ -144,6 +144,21 @@ def scan_text(
     # placeholder demo creds line in production code) without having
     # to whitelist the whole file path.
     _SUPPRESS_MARKER = "vanguard: ignore"
+    # Iter 212m-226 — Rules that only make sense against source code
+    # (eval/exec in Python, innerHTML in JS) must NOT fire on shell
+    # scripts / markdown / plain text where the same token appears
+    # as documentation prose.  `qa/simulated-user/run.sh:59` used to
+    # trigger `eval_usage` on the string "Running promptfoo eval …".
+    _CODE_ONLY_RULES = {
+        "eval_usage", "exec_usage", "subprocess_shell_true",
+        "os_system", "pickle_loads", "yaml_unsafe_load",
+        "sql_string_format",
+        "innerHTML_assignment", "dangerously_set_html",
+    }
+    _is_code_ext = filepath.endswith(
+        (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rb",
+         ".php", ".kt", ".cs", ".c", ".cpp", ".h", ".hpp")
+    )
     for name, pattern, severity in SECRET_PATTERNS:
         for i, line in enumerate(lines, 1):
             if _SUPPRESS_MARKER in line:
@@ -159,9 +174,37 @@ def scan_text(
                 })
                 break
     if include_dangerous:
+        # Iter 212m-226 — Skip comment-only lines for dangerous-code
+        # rules. JSDoc `* dangerouslySetInnerHTML` mentions and
+        # `# eval() is dangerous` explainer comments were surfacing
+        # as HIGH/CRITICAL findings on our own docs and code.
+        # Only strips full-comment lines — inline `code // comment`
+        # still gets scanned.
+        _is_code_file = filepath.endswith(
+            (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rb",
+             ".php", ".kt", ".cs", ".c", ".cpp", ".h", ".hpp")
+        )
+
+        def _is_comment_only(ln: str) -> bool:
+            s = ln.strip()
+            if not s:
+                return False
+            # Python / shell / YAML style
+            if s.startswith("#"):
+                return True
+            # JS / TS / Java / C style
+            if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
+                return True
+            return False
+
         for name, pattern, severity in DANGEROUS_PATTERNS:
+            # Iter 212m-226 — Code-only rules must skip non-code files.
+            if not _is_code_ext and name in _CODE_ONLY_RULES:
+                continue
             for i, line in enumerate(lines, 1):
                 if _SUPPRESS_MARKER in line:
+                    continue
+                if _is_code_file and _is_comment_only(line):
                     continue
                 if pattern.search(line):
                     findings.append({

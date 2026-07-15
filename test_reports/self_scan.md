@@ -1,6 +1,6 @@
 # AUREM CTO — Self-Scan Report (Dogfood run)
 
-**Scan date:** `2026-07-15 07:16:40 UTC`
+**Scan date:** `2026-07-15 07:33:30 UTC`
 **Target:** `/app` (AUREM CTO's own codebase, backend + frontend)
 **Files scanned:** `440` (same scanner functions users hit on `auremcto.com`)
 
@@ -8,27 +8,27 @@
 
 | Severity | Count |
 |---|---|
-| CRITICAL | 23 |
-| HIGH | 66 |
-| MEDIUM | 491 |
+| CRITICAL | 20 |
+| HIGH | 61 |
+| MEDIUM | 487 |
 | LOW | 115 |
-| **TOTAL** | **695** |
+| **TOTAL** | **683** |
 
 ## Per-scanner breakdown
 
 | Scanner | Findings | Latency |
 |---|---|---|
-| `security` | 9 | 1.66s |
+| `security` | 8 | 1.95s |
 | `performance` | 58 | 0.02s |
 | `code_quality` | 189 | 0.07s |
 | `dependencies` | 0 | 0.00s |
 | `database` | 14 | 0.01s |
-| `bug_hunt` | 23 | 2.01s |
+| `bug_hunt` | 13 | 2.01s |
 | `docker` | 5 | 0.01s |
-| `vanguard_007` | 37 | 1.72s |
-| `architecture_health` | 360 | 0.88s |
+| `vanguard_007` | 35 | 2.02s |
+| `architecture_health` | 361 | 0.87s |
 
-### `security` — 9 findings
+### `security` — 8 findings
 
 - **sec::backend/.env:10:generic_api_key** — `CRITICAL` × 1
     - `backend/.env:10` — OPENROUTER_API_KEY="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"
@@ -36,10 +36,8 @@
     - `backend/.env:18` — STRIPE_API_KEY="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
 - **sec::backend/.env:41:openai_key** — `CRITICAL` × 1
     - `backend/.env:41` — DEEPSEEK_API_KEY="sk-a84102f59257da0e6eda29615acfaba051cad729421338104497b9dbb8c6da6664d1525a"
-- **sec::qa/simulated-user/run.sh:59:eval_usage** — `CRITICAL` × 1
-    - `qa/simulated-user/run.sh:59` — echo "→ 3. Running promptfoo eval (self-hosted, no cloud calls)…"
-- **sec::frontend/src/components/RobotGuide.jsx:15:dangerously_set_html** — `HIGH` × 1
-    - `frontend/src/components/RobotGuide.jsx:15` — *   - message  : HTML string (rendered via dangerouslySetInnerHTML). Use
+- **sec::frontend/src/components/RobotGuide.jsx:62:dangerously_set_html** — `HIGH` × 1
+    - `frontend/src/components/RobotGuide.jsx:62` — dangerouslySetInnerHTML={{ __html: message }} />
 - **sec::frontend/src/components/MermaidBlock.jsx:187:dangerously_set_html** — `HIGH` × 1
     - `frontend/src/components/MermaidBlock.jsx:187` — dangerouslySetInnerHTML={{
 - **sec::frontend/src/components/PreviewPanel.jsx:83:innerHTML_assignment** — `HIGH` × 1
@@ -189,7 +187,7 @@
 - **q::backend/cto_services/codebase_indexer.py:118:large_fn** — `MEDIUM` × 1
     - `backend/cto_services/codebase_indexer.py:118` — `fetch_one` is 83 lines — too big to test/refactor.
 - **q::backend/scripts/self_scan.py:79:large_fn** — `MEDIUM` × 1
-    - `backend/scripts/self_scan.py:79` — `main` is 160 lines — too big to test/refactor.
+    - `backend/scripts/self_scan.py:79` — `main` is 172 lines — too big to test/refactor.
 - **q::backend/core/parliament.py:0:large_file** — `MEDIUM` × 1
     - `backend/core/parliament.py:0` — 1334 lines — ORA cannot refactor this safely.
 - **q::backend/core/parliament.py:359:large_fn** — `MEDIUM` × 1
@@ -268,8 +266,8 @@
     - `backend/services/graph_builder.py:199` — `build_graph` is 114 lines — too big to test/refactor.
 - **q::backend/services/graph_builder.py:313:large_fn** — `MEDIUM` × 1
     - `backend/services/graph_builder.py:313` — `_read` is 112 lines — too big to test/refactor.
-- **q::backend/services/bug_hunt_rules.py:355:large_fn** — `MEDIUM` × 1
-    - `backend/services/bug_hunt_rules.py:355` — `scan_bug_hunt` is 119 lines — too big to test/refactor.
+- **q::backend/services/bug_hunt_rules.py:360:large_fn** — `MEDIUM` × 1
+    - `backend/services/bug_hunt_rules.py:360` — `scan_bug_hunt` is 141 lines — too big to test/refactor.
 - **q::backend/services/orchestrator.py:0:large_file** — `MEDIUM` × 1
     - `backend/services/orchestrator.py:0` — 2512 lines — ORA cannot refactor this safely.
 - **q::backend/services/orchestrator.py:383:large_fn** — `MEDIUM` × 1
@@ -302,14 +300,14 @@
     - `backend/services/mode_d_debugger.py:538` — `run_debug_session` is 242 lines — too big to test/refactor.
 - **q::backend/services/topup_alerts.py:92:large_fn** — `MEDIUM` × 1
     - `backend/services/topup_alerts.py:92` — `upsert_alerts_from_snapshot` is 99 lines — too big to test/refactor.
-- **q::backend/services/vanguard_scanner.py:254:large_fn** — `MEDIUM` × 1
-    - `backend/services/vanguard_scanner.py:254` — `has_critical` is 114 lines — too big to test/refactor.
-- **q::backend/services/vanguard_scanner.py:484:large_fn** — `MEDIUM` × 1
-    - `backend/services/vanguard_scanner.py:484` — `run_two_round_scan` is 94 lines — too big to test/refactor.
+- **q::backend/services/vanguard_scanner.py:297:large_fn** — `MEDIUM` × 1
+    - `backend/services/vanguard_scanner.py:297` — `has_critical` is 114 lines — too big to test/refactor.
+- **q::backend/services/vanguard_scanner.py:527:large_fn** — `MEDIUM` × 1
+    - `backend/services/vanguard_scanner.py:527` — `run_two_round_scan` is 94 lines — too big to test/refactor.
 - **q::backend/services/loop_full_scan.py:56:large_fn** — `MEDIUM` × 1
     - `backend/services/loop_full_scan.py:56` — `persist_findings_to_backlog` is 96 lines — too big to test/refactor.
 - **q::backend/services/loop_engine.py:0:large_file** — `MEDIUM` × 1
-    - `backend/services/loop_engine.py:0` — 2251 lines — ORA cannot refactor this safely.
+    - `backend/services/loop_engine.py:0` — 2252 lines — ORA cannot refactor this safely.
 - **q::backend/services/loop_engine.py:257:large_fn** — `MEDIUM` × 1
     - `backend/services/loop_engine.py:257` — `sweep_expired_awaiting_confirmations` is 82 lines — too big to test/refactor.
 - **q::backend/services/loop_engine.py:661:large_fn** — `MEDIUM` × 1
@@ -326,10 +324,10 @@
     - `backend/services/loop_engine.py:1503` — `confirm_ship` is 145 lines — too big to test/refactor.
 - **q::backend/services/loop_engine.py:1781:large_fn** — `MEDIUM` × 1
     - `backend/services/loop_engine.py:1781` — `_generate_plan` is 113 lines — too big to test/refactor.
-- **q::backend/services/loop_engine.py:1996:large_fn** — `MEDIUM` × 1
-    - `backend/services/loop_engine.py:1996` — `_run_diff_security_scan` is 115 lines — too big to test/refactor.
-- **q::backend/services/loop_engine.py:2140:large_fn** — `MEDIUM` × 1
-    - `backend/services/loop_engine.py:2140` — `lookup_or_rehydrate` is 104 lines — too big to test/refactor.
+- **q::backend/services/loop_engine.py:1997:large_fn** — `MEDIUM` × 1
+    - `backend/services/loop_engine.py:1997` — `_run_diff_security_scan` is 115 lines — too big to test/refactor.
+- **q::backend/services/loop_engine.py:2141:large_fn** — `MEDIUM` × 1
+    - `backend/services/loop_engine.py:2141` — `lookup_or_rehydrate` is 104 lines — too big to test/refactor.
 - **q::backend/services/architecture_health.py:357:large_fn** — `MEDIUM` × 1
     - `backend/services/architecture_health.py:357` — `_scan_boundaries` is 110 lines — too big to test/refactor.
 - **q::backend/services/full_scan_orchestrator.py:112:large_fn** — `MEDIUM` × 1
@@ -582,7 +580,7 @@
 - **db::backend/shared/memory_tiers.py:0:no_ttl_memory_loop_log** — `LOW` × 1
     - `backend/shared/memory_tiers.py:452` — `memory_loop_log` writes detected — confirm a TTL index exists.
 
-### `bug_hunt` — 23 findings
+### `bug_hunt` — 13 findings
 
 - **bh::qa/simulated-user/seed_qa_user.py:131:jwt_secret_hardcoded** — `CRITICAL` × 1
     - `qa/simulated-user/seed_qa_user.py:131` — JWT signing secret in source — anyone can forge admin tokens.
@@ -606,26 +604,6 @@
     - `frontend/src/pages/PolicyPage.jsx:95` — React dangerouslySetInnerHTML — sanitize via DOMPurify or refuse to use it.
 - **bh::backend/main.py:735:cors_allow_all** — `HIGH` × 1
     - `backend/main.py:735` — FastAPI/Starlette CORS allow_origins=['*'] — combined with credentials this is critical.
-- **bh::backend/routers/suggestions.py:258:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/suggestions.py:258` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/suggestions.py:290:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/suggestions.py:290` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/thinking_hints.py:88:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/thinking_hints.py:88` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/thinking_hints.py:102:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/thinking_hints.py:102` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/thinking_hints.py:163:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/thinking_hints.py:163` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/thinking_hints.py:178:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/thinking_hints.py:178` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/version.py:77:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/version.py:77` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::backend/routers/onboarding.py:45:admin_route_no_auth** — `HIGH` × 1
-    - `backend/routers/onboarding.py:45` — /admin endpoint defined — verify the decorator above enforces is_admin/role check.
-- **bh::scripts/generate_logos.py:11:env_var_in_code** — `MEDIUM` × 1
-    - `scripts/generate_logos.py:11` — Looks like a .env line committed in source — move to .env and gitignore it.
-- **bh::backend/services/onboarding_email.py:34:env_var_in_code** — `MEDIUM` × 1
-    - `backend/services/onboarding_email.py:34` — Looks like a .env line committed in source — move to .env and gitignore it.
 - **bh::backend/services/github_cache.py:53:weak_crypto_sha1** — `MEDIUM` × 1
     - `backend/services/github_cache.py:53` — SHA-1 is collision-broken — use SHA-256 or stronger.
 - **bh::backend/main.py:1369:health_endpoint_leaks** — `MEDIUM` × 1
@@ -644,28 +622,65 @@
 - **docker::frontend/Dockerfile:1:docker_cis_4_6_no_healthcheck** — `LOW` × 1
     - `frontend/Dockerfile:1` — CIS 4.6 — no `HEALTHCHECK` instruction: orchestrators can't detect a hung container.
 
-### `vanguard_007` — 37 findings
+### `vanguard_007` — 35 findings
 
-- **unknown** — `CRITICAL` × 37
-    - `?:10` — 
-    - `?:18` — 
-    - `?:41` — 
-    - _…and 34 more_
+- **generic_api_key** — `CRITICAL` × 1
+    - `backend/.env:10` — OPENROUTER_API_KEY="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"
+- **stripe_live_key** — `CRITICAL` × 1
+    - `backend/.env:18` — STRIPE_API_KEY="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
+- **openai_key** — `CRITICAL` × 1
+    - `backend/.env:41` — DEEPSEEK_API_KEY="sk-a84102f59257da0e6eda29615acfaba051cad729421338104497b9dbb8c6da6664d1525a"
+- **db_connection_string** — `CRITICAL` × 1
+    - `backend/services/generation_rules.py:79` — "db_connection_string":    "`postgres://user:pass@` / `mongodb://user:pass@` style URI in source",
+- **eval_usage** — `CRITICAL` × 6
+    - `backend/services/generation_rules.py:86` — "eval_usage":              "any call to `eval(`",
+    - `backend/services/vanguard_verify_agent.py:235` — real hard-coded API key, eval(user_input), SQL string
+    - `backend/services/mode_e_auditor.py:68` — (r"eval\s*\(", "Use of eval() — code injection risk", "high"),
+    - _…and 3 more_
+- **exec_usage** — `CRITICAL` × 4
+    - `backend/services/generation_rules.py:87` — "exec_usage":              "any call to `exec(`",
+    - `backend/services/bug_hunt_rules.py:121` — "exec() with user-controlled input — direct RCE primitive."),
+    - `backend/routers/codebase_health.py:109` — "exec_usage":        "Replace exec() with a safer dispatch (dict of callables).",
+    - _…and 1 more_
+- **sql_string_format** — `CRITICAL` × 1
+    - `backend/services/generation_rules.py:93` — "sql_string_format":       "`cursor.execute(f\"…{var}…\")` — f-string SQL",
+- **password_assignment** — `CRITICAL` × 1
+    - `backend/services/vanguard_scanner.py:228` — # "secrets" (e.g. `password: "changeme"` in .env.example, demo
+- **os_system** — `HIGH` × 2
+    - `backend/services/generation_rules.py:89` — "os_system":               "any call to `os.system(`",
+    - `frontend/src/pages/BugHunt.jsx:241` — ["os.system() with user input", ""],
+- **pickle_loads** — `HIGH` × 2
+    - `backend/services/generation_rules.py:90` — "pickle_loads":            "any call to `pickle.load(` or `pickle.loads(`",
+    - `frontend/src/pages/BugHunt.jsx:238` — ["pickle.loads() on untrusted data", ""],
+- **requests_no_verify** — `HIGH` × 1
+    - `backend/services/generation_rules.py:92` — "requests_no_verify":      "`requests/httpx/urllib .* verify=False`",
+- **innerHTML_assignment** — `HIGH` × 2
+    - `backend/services/generation_rules.py:94` — "innerHTML_assignment":    "`.innerHTML = ...` in JS/TS",
+    - `frontend/src/components/PreviewPanel.jsx:83` — else document.getElementById('root').innerHTML = '<pre>No exported component found. Define a function named <b>App</b> o
+- **dangerously_set_html** — `HIGH` × 10
+    - `backend/services/generation_rules.py:95` — "dangerously_set_html":    "React `dangerouslySetInnerHTML` prop",
+    - `backend/services/vanguard_verify_agent.py:24` — React `dangerouslySetInnerHTML` in a tooltip, etc.). The regex floor
+    - `backend/services/mode_e_auditor.py:107` — (r"dangerouslySetInnerHTML", "dangerouslySetInnerHTML — XSS risk if unsanitised", "high"),
+    - _…and 7 more_
+- **yaml_unsafe_load** — `HIGH` × 2
+    - `backend/services/bug_hunt_rules.py:266` — "HIGH",     "pyyaml < 6.0 — yaml.load() arbitrary code execution."),
+    - `frontend/src/pages/BugHunt.jsx:239` — ["yaml.load() without Loader (use safe_load)", ""],
 
-### `architecture_health` — 360 findings
+### `architecture_health` — 361 findings
 
+- **circular_import** — `HIGH` × 3
+    - `services/bin_context.py → services/ora_context.py → routers/cto_projects.py → services/pat_vault.py:0` — cycle of 4 modules
+    - `services/billing_cron.py → routers/payments.py:0` — cycle of 2 modules
+    - `services/daily_digest.py → routers/thinking_hints.py → main.py → services/integration_health.py → routers/admin.py → routers/admin_bin.py:0` — cycle of 6 modules
 - **high_complexity** — `MEDIUM` × 294
-    - `?:1402` — — complexity=0
-    - `?:2418` — — complexity=0
-    - `?:345` — — complexity=0
+    - `services/orchestrator.py:1402` — chat_with_tools — complexity=175
+    - `routers/cto_projects.py:2418` — _run_task_via_api — complexity=154
+    - `routers/security_scan.py:345` — run_security_scan — complexity=74
     - _…and 291 more_
-- **service-imports-router** — `MEDIUM` × 2
-    - `?:0` — from routers.security_scan import (
-    - `?:0` — from routers.cto_projects import _user_gh_token
 - **bloated_file** — `LOW` × 64
-    - `/app/backend/routers/admin.py:0` — 3468 lines
-    - `/app/backend/routers/cto_projects.py:0` — 3432 lines
-    - `/app/backend/routers/chat.py:0` — 3223 lines
+    - `routers/admin.py:0` — 3468 lines
+    - `routers/cto_projects.py:0` — 3432 lines
+    - `routers/chat.py:0` — 3223 lines
     - _…and 61 more_
 
 ---

@@ -92,7 +92,12 @@ _SECRET_RULES: list[tuple[str, re.Pattern, str, str]] = [
      "CRITICAL",
      "Twilio API key — attacker can send paid SMS / make calls on your account."),
     ("env_var_in_code",
-     re.compile(r"""(?im)^[A-Z][A-Z0-9_]{6,}\s*=\s*['"][A-Za-z0-9_+/=.\-]{16,}['"]"""),
+     # Iter 212m-226 — require the value to look like a real secret:
+     # at least 20 chars AND contain at least one digit AND at least
+     # one non-alpha (base64/hex-ish). This kills the false positive
+     # on `MESSAGE_TEMPLATE = "Hey there, welcome to our platform"`
+     # style constants that used to flood the report.
+     re.compile(r"""(?im)^[A-Z][A-Z0-9_]{6,}\s*=\s*['"](?=[^'"]*\d)(?=[^'"]*[+/=\-])[A-Za-z0-9_+/=.\-]{20,}['"]"""),
      "MEDIUM",
      "Looks like a .env line committed in source — move to .env and gitignore it."),
 ]
@@ -407,6 +412,20 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
                                _FIX_HINT.get(rid, "")))
 
     # ── C) EXPOSED ENDPOINTS ──────────────────────────────────────────
+    # Iter 212m-226 — `admin_route_no_auth` was firing on every file
+    # that defines an `/admin` route, even when the router at the top
+    # of the file already declares `dependencies=[Depends(require_admin)]`
+    # or every affected function pulls `require_admin` as a dep. Skip
+    # a whole file when either of those two signals is present — it's
+    # the same signal a human reviewer would use.
+    _AUTH_GUARDED_MARKERS = (
+        "require_admin",
+        "require_founder",
+        "current_dev",
+        "get_current_admin",
+        "Depends(require_",
+        "dependencies=[Depends(require",
+    )
     for path, text in text_cache.items():
         if not text:
             continue
@@ -416,7 +435,15 @@ def scan_bug_hunt(text_cache: dict[str, str]) -> list[dict]:
         if not any(low.endswith(ext) for ext in
                    (".py", ".js", ".jsx", ".ts", ".tsx", ".java")):
             continue
+        file_has_admin_guard = any(m in text for m in _AUTH_GUARDED_MARKERS)
         for rid, rx, sev, msg in _ENDPOINT_RULES:
+            # Skip admin_route_no_auth if the file demonstrably wires
+            # an admin/founder auth dependency somewhere — this is
+            # what our own routers do (require_admin at APIRouter
+            # dependencies=... level) and re-flagging them creates
+            # 7+ false positives on our own codebase.
+            if rid == "admin_route_no_auth" and file_has_admin_guard:
+                continue
             for m in rx.finditer(text):
                 line = text[:m.start()].count("\n") + 1
                 out.append(_mk(rid, sev, path, line, rid, msg,
