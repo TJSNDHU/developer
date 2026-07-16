@@ -97,6 +97,28 @@ export default function PolicyPage({ slug }) {
         .policy-md table th { color: var(--text); font-weight: 600; }
         .policy-md hr { border: none; border-top: 1px solid var(--border, rgba(255,200,120,0.16)); margin: 28px 0; }
         .policy-md code { background: var(--bg-elev, #0a0c10); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+        /* Iter 212m-234 — DRAFT banner. Every draft policy file begins
+           with a > blockquote containing "⚠️ DRAFT — Pending Legal Review".
+           Style it as a full-width amber warning card so users can't
+           miss it. */
+        .policy-md blockquote {
+          background: rgba(255,180,60,0.08);
+          border-left: 3px solid rgba(255,180,60,0.75);
+          padding: 16px 20px;
+          margin: 12px 0 24px;
+          border-radius: 4px;
+        }
+        .policy-md blockquote h2 {
+          margin: 0 0 8px;
+          font-size: 15px !important;
+          color: rgb(255,180,60) !important;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .policy-md blockquote p, .policy-md blockquote li {
+          color: var(--text, #e8e3d3);
+          font-size: 13px;
+        }
       `}</style>
       <div
         className="policy-md"
