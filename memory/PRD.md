@@ -1,6 +1,33 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-236 — Personal Track homepage discovery (P0 pair)
+
+**Founder ask (Hinglish):** Non-tech visitors ko landing pe Personal Track discover karne ka rasta chahiye + legacy users (jinka `dev_users.track === null`) ko dashboard pe one-time nudge chahiye. Signup deep-link support taaki `/choose-track` skip ho jaaye jab user ne card se choice kar li ho.
+
+**Gap-check confirmed:** `Login.jsx` line 77/117 — jab `track` null/missing hota hai (purane accounts), ternary `track === "personal" ? "/build" : "/dashboard"` false ho ke silently `/dashboard` bhejta hai. **No crash, no error.** Banner is state ke liye perfect trigger.
+
+**Shipped:**
+- **NEW `frontend/src/components/PersonalTrackBanner.jsx`** — dismissible dashboard banner. `useEffect` par `/auth/me` fetch, sirf tab render karta hai jab `track` field null/undefined ho. `localStorage.aurem_personal_track_banner_dismissed = "1"` hone pe permanent hide. "Try it" click → same flag set + `/choose-track` navigate.
+- **Dashboard.jsx** — banner mount kiya `RepoCleanupBanner` ke upar, taaki purane users ko sabse pehle nazar aaye.
+- **Landing.jsx** — hero ke turant neeche naya "Two ways to ship" section:
+  * Personal Track card (orange `#E07A5F` accent, "NO CODE NEEDED" badge, `/signup?track=personal` deep-link)
+  * Developer Track card (blue `#3B82F6` accent, `/signup?track=developer` deep-link)
+  * Har card ke 3 bullets + apna CTA (`Start building →` / `Enter workspace →`)
+- **Signup.jsx** — `?track=personal|developer` URL param support. Signup complete hote hi agar valid param mila to `POST /auth/set-track` fire karke direct `/build` (personal) ya `next` (developer) par jaata hai, `/choose-track` skip. Fail ho to graceful fallback `/choose-track` par.
+
+**Live verification (preview):**
+- Screenshot: `landing-tracks-section` renders correctly with both cards, cookie banner non-blocking.
+- Click on `[data-testid=landing-track-personal]` → URL `/signup?track=personal` (verified).
+- Lint clean on all 4 changed files.
+
+**Data-testids added:** `landing-tracks-section`, `landing-track-personal`, `landing-track-personal-cta`, `landing-track-developer`, `landing-track-developer-cta`, `personal-track-banner`, `personal-track-banner-try`, `personal-track-banner-dismiss`.
+
+
+
+# AUREM Dev / Aurem CTO — PRD
+
+
 ### 2026-02-13 — Iter 212m-239 — Tier 2.5 Live Preview (Sandpack + E2B hybrid) + Resend Email Helper
 
 **Founder ask (Hinglish):** Revised Tier 2.5 scope — Sandpack in-browser for JS stacks (zero server cost), E2B ONLY for react-fastapi (Python needs real interpreter). Bar: Sandpack <2s load, E2B 20-min TTL + auto-cleanup, Resend helper across all boilerplates for real password-reset emails.

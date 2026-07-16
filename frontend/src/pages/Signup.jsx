@@ -21,6 +21,12 @@ export default function Signup() {
   const [searchParams] = useSearchParams();
   const rawNext = searchParams.get("next") || "";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  // Iter 212m-236 — Landing "Two ways to ship" cards deep-link into
+  // signup with ?track=personal|developer to skip the /choose-track
+  // screen when the user has already picked. Anything else falls
+  // back to the normal flow (ChooseTrack shown after signup).
+  const rawTrack = (searchParams.get("track") || "").toLowerCase();
+  const preselectedTrack = rawTrack === "personal" || rawTrack === "developer" ? rawTrack : null;
   const [form, setForm] = useState({ name: "", email: "", password: "", password_confirm: "" });
   const [agreed, setAgreed] = useState(false);
   // Iter 212m-187 — admin-editable welcome message
@@ -78,11 +84,24 @@ export default function Signup() {
       // exists and BEFORE navigation so the event leaves the page
       // before React unmounts.
       trackSignup();
-      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
+      try { localStorage.setItem("aurem_just_logged_in", "1"); } catch { /* ignore */ }
       // Iter 212m-235 — Personal Track rollout: new users MUST pick a
       // track before landing on any product surface. Existing users
       // (login flow) skip this step because they were backfilled to
       // "developer" by the startup migration.
+      //
+      // Iter 212m-236 — If the signup URL carries ?track=personal|
+      // developer (e.g. from the Landing "Two ways to ship" cards),
+      // persist that choice and skip /choose-track entirely. On any
+      // failure we fall back to the normal ChooseTrack flow so the
+      // user is never left in an ambiguous state.
+      if (preselectedTrack) {
+        try {
+          await api.post("/auth/set-track", { track: preselectedTrack });
+          navigate(preselectedTrack === "personal" ? "/build" : next, { replace: true });
+          return;
+        } catch { /* fall through to ChooseTrack */ }
+      }
       navigate("/choose-track", { replace: true, state: { next } });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign up failed.");

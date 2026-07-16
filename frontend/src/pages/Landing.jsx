@@ -194,6 +194,77 @@ const LANDING_CSS = `
 .ora-landing .proof-num { font-family: var(--font-mono); color: var(--accent); font-size: 36px; font-weight: 700; }
 .ora-landing .proof-label { color: var(--muted-2); font-size: 13px; margin-top: 4px; }
 
+/* Iter 212m-236 — "Two ways to ship" (Personal + Developer tracks).
+   Sits directly under the hero so non-technical visitors see the
+   Personal Track before the developer-heavy comparison table. */
+.ora-landing .tracks { padding: 44px 32px 24px; }
+.ora-landing .tracks-header { text-align: center; margin-bottom: 32px; }
+.ora-landing .tracks-eyebrow { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; }
+.ora-landing .tracks-title { font-family: var(--font-mono); font-weight: 700; font-size: clamp(24px, 3.4vw, 36px); margin: 8px 0 6px; letter-spacing: -1px; }
+.ora-landing .tracks-sub { color: var(--muted-1); font-size: 15px; }
+.ora-landing .tracks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 1040px; margin: 0 auto; }
+.ora-landing .track-card {
+  position: relative;
+  display: flex; flex-direction: column;
+  padding: 28px 26px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(15,23,42,0.55);
+  backdrop-filter: blur(10px);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  text-decoration: none;
+  color: inherit;
+}
+.ora-landing .track-card:hover { transform: translateY(-3px); }
+.ora-landing .track-card.personal {
+  border-color: rgba(224,122,95,0.28);
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(224,122,95,0.12), transparent 60%),
+    rgba(15,23,42,0.55);
+}
+.ora-landing .track-card.personal:hover { border-color: rgba(224,122,95,0.55); box-shadow: 0 12px 40px rgba(224,122,95,0.14); }
+.ora-landing .track-card.developer { border-color: rgba(59,130,246,0.24); }
+.ora-landing .track-card.developer:hover { border-color: rgba(59,130,246,0.5); box-shadow: 0 12px 40px rgba(59,130,246,0.12); }
+.ora-landing .track-badge {
+  position: absolute; top: 16px; right: 16px;
+  padding: 4px 10px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  border-radius: 999px;
+  background: rgba(224,122,95,0.16);
+  border: 1px solid rgba(224,122,95,0.4);
+  color: #f4a082;
+}
+.ora-landing .track-icon {
+  width: 44px; height: 44px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 18px; font-size: 22px;
+}
+.ora-landing .track-card.personal  .track-icon { background: rgba(224,122,95,0.16); color: #E07A5F; }
+.ora-landing .track-card.developer .track-icon { background: rgba(59,130,246,0.16); color: #3B82F6; }
+.ora-landing .track-name { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin: 0 0 6px; letter-spacing: -0.5px; }
+.ora-landing .track-desc { color: var(--muted-1); font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+.ora-landing .track-bullets { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
+.ora-landing .track-bullets li { font-size: 13px; color: var(--muted-1); display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.ora-landing .track-bullets li::before { content: "✓"; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+.ora-landing .track-card.personal  .track-bullets li::before { color: #E07A5F; }
+.ora-landing .track-card.developer .track-bullets li::before { color: #3B82F6; }
+.ora-landing .track-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 18px;
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: transform 0.15s ease, background 0.15s ease;
+  text-decoration: none;
+}
+.ora-landing .track-card.personal  .track-cta { background: #E07A5F; color: #0a0a0a; }
+.ora-landing .track-card.personal  .track-cta:hover { transform: translateX(2px); }
+.ora-landing .track-card.developer .track-cta { background: transparent; color: #3B82F6; border-color: rgba(59,130,246,0.4); }
+.ora-landing .track-card.developer .track-cta:hover { background: rgba(59,130,246,0.08); }
+
 /* Sections */
 .ora-landing .section { padding: 80px 32px; }
 .ora-landing .section-label { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; }
@@ -728,6 +799,68 @@ export default function Landing() {
               <div><div className="stat-num">1</div><div className="stat-label">tap to commit</div></div>
               <div><div className="stat-num">∞</div><div className="stat-label">repos</div></div>
             </div>
+          </div>
+        </section>
+
+        {/* ─── Two ways to ship (Personal + Developer tracks) ───
+            Iter 212m-236 — Non-technical visitors get a clear entry
+            point here instead of drowning in the developer-pitched
+            hero. Each card deep-links into signup with ?track= so
+            the /choose-track screen is skipped when the user has
+            already made up their mind. */}
+        <section className="tracks" data-testid="landing-tracks-section">
+          <div className="tracks-header">
+            <div className="tracks-eyebrow">▸ Two ways to ship</div>
+            <h2 className="tracks-title">Pick your track</h2>
+            <p className="tracks-sub">You can switch anytime from Settings.</p>
+          </div>
+          <div className="tracks-grid">
+            {/* Personal Track */}
+            <Link
+              to="/signup?track=personal"
+              className="track-card personal"
+              data-testid="landing-track-personal"
+            >
+              <span className="track-badge">No code needed</span>
+              <div className="track-icon">✦</div>
+              <h3 className="track-name">Personal Track</h3>
+              <p className="track-desc">
+                Describe your idea in plain English. AUREM handles the
+                repo, code, database and deploy — you just watch your
+                app come to life.
+              </p>
+              <ul className="track-bullets">
+                <li>No GitHub, no terminals, no jargon</li>
+                <li>Live preview as your app builds</li>
+                <li>One-click ship to a real live URL</li>
+              </ul>
+              <span className="track-cta" data-testid="landing-track-personal-cta">
+                Start building →
+              </span>
+            </Link>
+
+            {/* Developer Track */}
+            <Link
+              to="/signup?track=developer"
+              className="track-card developer"
+              data-testid="landing-track-developer"
+            >
+              <div className="track-icon">{"</>"}</div>
+              <h3 className="track-name">Developer Track</h3>
+              <p className="track-desc">
+                Connect your own repos. Full IDE-style control over
+                code, deploys and infra. Everything AUREM CTO has
+                built for pro developers.
+              </p>
+              <ul className="track-bullets">
+                <li>GitHub-native — real PRs, real commits</li>
+                <li>Vanguard security scans + Loop Mode</li>
+                <li>Bring your own Claude / DeepSeek / Gemini key</li>
+              </ul>
+              <span className="track-cta" data-testid="landing-track-developer-cta">
+                Enter workspace →
+              </span>
+            </Link>
           </div>
         </section>
 

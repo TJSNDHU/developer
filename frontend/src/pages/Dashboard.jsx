@@ -43,6 +43,7 @@ import {
 import NewUserWizard, { isWizardDismissed } from "../components/NewUserWizard";
 import ConnectRepoBanner from "../components/ConnectRepoBanner";
 import RepoCleanupBanner from "../components/RepoCleanupBanner";
+import PersonalTrackBanner from "../components/PersonalTrackBanner";
 import FinishSetupBanner from "../components/tour/FinishSetupBanner"; // Iter 212m-200
 import ConnectRepoTour from "../components/tour/ConnectRepoTour";     // Iter 212m-200
 import AddLiveSiteModal from "../components/AddLiveSiteModal";        // Iter 212m-203
@@ -679,6 +680,10 @@ function DashboardV2Body() {
                 when no projects are broken. Renders ABOVE
                 ConnectRepoBanner so the user is reminded to clean up
                 stale rows BEFORE we nudge them to connect a new repo. */}
+            {/* Legacy users (track === null) get a one-time nudge to
+                the new Personal Track. Auto-hides once they set a
+                track OR dismiss it. */}
+            <PersonalTrackBanner />
             <RepoCleanupBanner />
             {projectCount === 0 && (
               <ConnectRepoBanner onConnect={openWizardFromBanner} />
