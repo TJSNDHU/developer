@@ -59,6 +59,7 @@ from routers.fix_pipeline import router as fix_pipeline_router      # Iter 212m-
 from routers.repo_status import router as repo_status_router        # Iter 212m-125 live repo connection ping
 from routers.codebase_health import router as codebase_health_router # Iter 212m-72 5-category health scanner
 from routers.scaffold import router as scaffold_router                # Iter 212m-231 Personal Track blank-slate
+from routers.managed_db import router as managed_db_router            # Iter 212m-233 Personal Track shared DB
 from routers.findings      import router as findings_router         # Iter 212m-190 backlog + dismiss/snooze
 from routers.suggestions   import router as suggestions_router      # Iter 212m-193 founder suggestion box
 from routers.version       import router as version_router          # Iter 212m-205 build info + system health
@@ -1507,6 +1508,7 @@ app.include_router(wrapped_router,       prefix="/api/aurem-dev")
 app.include_router(hosted_deploy_router, prefix="/api/aurem-dev")
 app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(scaffold_router,      prefix="/api/aurem-dev")  # Iter 212m-231
+app.include_router(managed_db_router,    prefix="/api/aurem-dev")  # Iter 212m-233
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
 app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2

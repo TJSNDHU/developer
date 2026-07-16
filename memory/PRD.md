@@ -1,6 +1,78 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-233 — Personal Track Phase 3+4: Vercel platform-owned deploy + AUREM_MANAGED_DB
+
+**Founder ask (Hinglish):** Phase 3+4 combined — Vercel platform-owned deploy (aurem-{user}-{project} namespace, MUST-HAVE spend guardrail, plain-language errors) + AUREM_MANAGED_DB free-tier shared MongoDB (server-side cross-tenant isolation, per-app quota, boilerplate uses scoped SDK not raw Mongo). Vercel Pro team assumed to not yet exist — graceful-503 pattern.
+
+**Shipped:**
+
+1. **NEW: `services/vercel_platform_deploy.py`** — deploy orchestration:
+   - **Dedicated token** `AUREM_VERCEL_PLATFORM_TOKEN` (NEVER reuses shared founder `VERCEL_API_TOKEN` — explicit test enforces this)
+   - **Required team id** `VERCEL_PLATFORM_TEAM_ID` (no personal-account fallback)
+   - `is_available()` → 503 with setup instructions when either missing
+   - Namespace `aurem-{user_slug}-{project_slug}` (52-char Vercel cap respected)
+   - `_friendly_error()` translates Vercel 409/402/403/500 into plain sentences — non-tech users NEVER see raw JSON/build logs
+   - **MUST-HAVE spend guardrail**: `check_spend_alert()` polls Vercel usage API, tri-state (`ok` / `alert` at 10 GB / `kill` at 50 GB, both configurable via env)
+   - `pause_project()` suspends runaway projects when kill threshold crossed
+   - URL fallback: `{project-name}.vercel.app` (wildcard `*.aurem.app` DNS is separate backlog item, not blocking)
+
+2. **NEW: `services/aurem_managed_db.py`** — free-tier shared MongoDB helper:
+   - `build_scoped_filter(app_id, user_id, extra)` — **overwrites** client-supplied app_id/user_id so a crafted request cannot escape its tenant scope
+   - `check_quota()` — configurable per-app cap (default 10,000 docs)
+   - `validate_against_schema()` — lightweight JSON-schema-ish validator (types + required, no jsonschema dep)
+   - `export_app_data()` — Phase 5 migration helper (groups docs by `_collection`, strips Mongo internals, JSON-safe)
+   - Shared collection: `aurem_managed_app_data` — prefixed so it never collides with AUREM's own data
+
+3. **NEW: `routers/managed_db.py`** — 6 endpoints under `/api/aurem-dev/managed-db/{app_id}/`:
+   - `POST /{collection}/find` — filter → docs
+   - `POST /{collection}/find-one` — filter → single doc
+   - `POST /{collection}/insert` — payload + optional schema → inserted (429 when over quota)
+   - `PATCH /{collection}/update` — filter+patch → count (privileged fields `app_id`/`user_id`/`_collection` stripped from patch)
+   - `DELETE /{collection}/{doc_id}` — cascade-safe
+   - `GET /quota` — current usage
+   - **Every endpoint** calls `_verify_app_ownership` (checks `cto_projects.personal_track=True`) + `build_scoped_filter` — double isolation gate
+
+4. **Scaffold auto-deploys on materialize** — after successful GitHub push, `routers/scaffold.materialize_draft` best-effort calls `deploy_personal_track()`. Skipped gracefully with `skipped_reason: "vercel_platform_not_configured"` when env missing. Updates `cto_projects` with `live_url` + `vercel_project_id`.
+
+5. **Boilerplate updated** — `templates/stacks/react-fastapi/boilerplate/api/aurem_db_client.py`:
+   - Generated apps use `AuremDB()` SDK, NOT raw Mongo connection strings
+   - `.env.example` shows `AUREM_API_BASE` / `AUREM_APP_ID` / `AUREM_APP_TOKEN` — no `MONGO_URL` exposed
+   - Regression test asserts scaffold NEVER emits raw Mongo strings in generated apps
+
+6. **Regression tests (`test_iter212m233_phase3_4_deploy_managed_db.py`)** — 17 tests, all passing:
+   - Vercel config guards (both env vars required, no shared-token fallback)
+   - Slug + project name generation
+   - Plain-language error translation (409/402/500)
+   - **Cross-tenant isolation**: `build_scoped_filter` overwrites client-supplied `app_id`/`user_id`
+   - Static check every managed-db endpoint uses `build_scoped_filter` + `_verify_app_ownership`
+   - Update handler strips privileged fields from patch (prevents ownership hijack)
+   - Quota + schema validation
+   - Export routine is async
+   - Router registered + wired into main.py
+   - Generated boilerplate contains `aurem_db_client.py` + zero `MONGO_URL` exposure
+
+7. **End-to-end HTTP validation:**
+   - Cross-tenant isolation LIVE-TESTED: `POST /managed-db/pt_fake_app_id/todos/insert` with valid JWT → **HTTP 403** `"App not found or not owned by caller"` ✅
+   - Materialize with auto-deploy → graceful 503 (org not configured) — correct
+   - Generated boilerplate confirmed to have `aurem_db_client.py`, `AUREM_API_BASE` in env, **zero `MONGO_URL` references**
+
+**Total Personal Track tests across Phase 1+2+3+4:** **50 passing.**
+
+**To activate Phase 3 in production:**
+```bash
+# In backend/.env:
+AUREM_VERCEL_PLATFORM_TOKEN=<dedicated token for Personal Track Pro team>
+VERCEL_PLATFORM_TEAM_ID=<Pro team id>
+# Optional (defaults 10 GB / 50 GB):
+VERCEL_BANDWIDTH_ALERT_GB=10
+VERCEL_BANDWIDTH_KILL_GB=50
+```
+
+Phase 4 (managed DB) is **already active** — no env needed, uses AUREM's existing MongoDB.
+
+
+
 ### 2026-02-13 — Iter 212m-232 — Personal Track Phase 2: GitHub Auto-Create + Real Boilerplate
 
 **Founder ask (Hinglish):** Phase 2 shuru karo — GitHub auto-create + template boilerplate fill.

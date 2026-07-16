@@ -154,11 +154,17 @@ async def _generate_file_tree(
              "content": _load_template("react-fastapi/boilerplate/api/main.py")},
             {"path": "api/auth.py",
              "content": _load_template("react-fastapi/boilerplate/api/auth.py")},
+            {"path": "api/aurem_db_client.py",
+             "content": _load_template("react-fastapi/boilerplate/api/aurem_db_client.py")},
             {"path": "api/requirements.txt",
              "content": _load_template("react-fastapi/boilerplate/api/requirements.txt")},
             {"path": "api/.env.example",
-             "content": ("MONGO_URL=mongodb://mongo:27017\n"
-                         "DB_NAME=app_db\n"
+             "content": ("# Iter 212m-233 — Personal Track generated app uses\n"
+                         "# AUREM's managed shared MongoDB via a scoped REST\n"
+                         "# API — no raw Mongo connection string in your code.\n"
+                         "AUREM_API_BASE=https://api.auremcto.com\n"
+                         "AUREM_APP_ID=pt_replace_at_materialize_time\n"
+                         "AUREM_APP_TOKEN=eyJ_your_app_token\n"
                          "JWT_SECRET=change_me_use_a_long_random_string\n"
                          "FRONTEND_URL=http://localhost:3000\n")},
             {"path": "ui/src/App.jsx",
@@ -532,14 +538,50 @@ async def materialize_draft(
     logger.info("[materialize] SUCCESS: draft=%s repo=%s project_id=%s files=%d",
                 draft_id, real_repo_name, project_id, push.get("pushed"))
 
+    # ── Step 8: Phase-3 auto-deploy (best-effort, non-blocking) ──
+    # If VERCEL_PLATFORM_TEAM_ID + AUREM_VERCEL_PLATFORM_TOKEN are set,
+    # kick off a Vercel deploy right after materialization. Failures
+    # here don't roll back the materialize — the repo is still valid,
+    # user can retry deploy separately.
+    deploy_result: dict = {"attempted": False}
+    try:
+        from services.vercel_platform_deploy import (
+            is_available as _v_ok, deploy_personal_track,
+        )
+        if _v_ok():
+            framework = "vite" if draft.get("stack_detected") == "react-fastapi" else None
+            deploy_result = await deploy_personal_track(
+                user_id=user["user_id"],
+                project_id=project_id,
+                github_full_name=created["full_name"],
+                framework=framework,
+                display_name=draft.get("brief", "")[:32],
+            )
+            deploy_result["attempted"] = True
+            if deploy_result.get("ok"):
+                await db.cto_projects.update_one(
+                    {"project_id": project_id},
+                    {"$set": {
+                        "vercel_project_id": deploy_result.get("vercel_project_id"),
+                        "live_url":          deploy_result.get("live_url"),
+                    }},
+                )
+        else:
+            deploy_result["skipped_reason"] = "vercel_platform_not_configured"
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("[materialize] deploy step failed: %r", e)
+        deploy_result["error"] = str(e)[:200]
+
     return {
-        "ok":         True,
-        "draft_id":   draft_id,
-        "project_id": project_id,
-        "repo":       materialized_repo,
+        "ok":           True,
+        "draft_id":     draft_id,
+        "project_id":   project_id,
+        "repo":         materialized_repo,
         "files_pushed": push.get("pushed"),
-        "next_step":  "GET /api/aurem-dev/projects to see your new project, "
-                      "then Phase 3 will auto-deploy it to a live URL.",
+        "deploy":       deploy_result,
+        "next_step":    ("Your app is being deployed — check /projects for the live URL"
+                         if deploy_result.get("ok")
+                         else "Repo created. Deploy will retry once Vercel is configured."),
     }
 
 
