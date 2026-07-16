@@ -1,6 +1,50 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-234 — Tier 0: P0 admin fix + Phase 5 downgrade sweeper
+
+**Founder ask (Hinglish):** Downgrade policy `migrate_back` confirm. Sweeper cron ship karo (data-loss safe verification before delete + retry queue). Admin dashboard "pending downgrades" widget. Aur P0 blocker `auremcto.com` admin panel new-user visibility issue harden karo.
+
+**Shipped (Tier 0):**
+
+**#3 P0 Blocker — admin panel new-user visibility (production-safe):**
+   Code fix (Iter 212m-222) already merged: (a) all 3 signup writers (`/signup`, `/google/session`, `/github/callback`) now emit float epoch `time.time()` for `created_at`; (b) admin `list_users` read-path uses `$switch` on `$type` to tolerate both float + legacy datetime + missing; (c) idempotent startup task at `main.py:_backfill_dev_users_created_at` converts legacy rows on every boot. **Extra safety added this session:**
+   - `POST /api/aurem-dev/admin/dev-users/backfill-created-at` — founder-triggered manual re-run without pod restart. Returns `{datetime_fixed, missing_filled, still_pending, total_users}`.
+   - `GET  /api/aurem-dev/admin/dev-users/created-at-health` — cheap `$type` distribution probe. Reports `healthy: true/false`.
+   - Preview verification: `healthy: true`, 0 legacy rows. **User just needs to redeploy preview → prod; startup task auto-runs, health endpoint confirms.**
+
+**#2 Downgrade Sweeper Cron (Phase 5 hardening):**
+   - **NEW: `services/supabase_sweeper.py`** — daily background task (24h interval) that finalises expired-grace downgrades:
+     * **CRITICAL data-loss safeguard** — `migrate_back` policy verifies the reverse-migration into shared Mongo actually landed BEFORE the destructive Supabase delete. If the original migration claimed `total_rows>=1` but shared collection is empty at sweep time, we REFUSE to delete, requeue with `sweep_error`.
+     * `read_only` → deletes on expiry (data was frozen during grace).
+     * `export_delete` → requires `export_artifact_url` recorded; else requeues.
+     * `keep_bill_user` → NEVER deletes, only surfaces on admin widget.
+     * Retry limit `MAX_SWEEP_ATTEMPTS=5`; after that flip `sweep_status="needs_founder"` and stop auto-retrying.
+     * Escalated rows excluded from subsequent sweeps (need manual `rearm`).
+     * Successful finalisation writes an audit copy into `supabase_projects_history` BEFORE deleting the live row, and flips `cto_projects.storage_tier` back to `shared_mongo`.
+     * Any Supabase API failure requeues — we never orphan a live Postgres by dropping the local tracking row.
+   - **Wired: `main.py`** — `ENABLE_SUPABASE_SWEEPER=1` (default on). Uses `_asyncio.create_task(downgrade_sweeper_cron())` alongside the digest/backup/nudge cron pattern. No-op when Supabase not configured (safe in dev).
+   - **NEW admin widget endpoints in `routers/supabase.py`:**
+     * `GET  /api/aurem-dev/supabase/admin/pending-downgrades` — returns all pending rows sorted by soonest grace_until, with `grace_expired` + `seconds_to_grace` computed for the UI, and `escalated[]` list broken out.
+     * `POST /api/aurem-dev/supabase/admin/sweep-now` — founder-triggered manual sweep bypassing the 24h cadence.
+     * `POST /api/aurem-dev/supabase/admin/rearm/{app_id}` — clear `sweep_status="needs_founder"` after founder resolves the underlying issue.
+     * All three endpoints gated on `is_founder` OR `is_admin`.
+
+**Tests (13 new for sweeper, 8 new for P0):**
+   - `tests/test_iter212m234_phase5_sweeper.py` — 13 tests, in-memory Mongo shim, covers grace-window skip, read_only finalise, migrate_back data verification (both failure + success + zero-rows edge), Supabase delete failure requeue, escalation at max attempts, escalated-row skip, keep_bill_user never-delete, admin endpoints registered, cron wired.
+   - `tests/test_iter212m234_p0_dev_users_created_at.py` — 8 tests locking in read-path tolerance, backfill pipeline correctness, health endpoint shape reporting.
+
+**Regression sweep:** **91/91 tests pass** across all phases. Backend healthy. Live widget endpoints return clean empty-state.
+
+**Deploy checklist for user (production `auremcto.com`):**
+1. Redeploy preview → prod.
+2. On startup the `_backfill_dev_users_created_at` task auto-runs.
+3. Verify via `GET /api/aurem-dev/admin/dev-users/created-at-health` — expect `"healthy": true`.
+4. If any row shows `datetime_typed>0` or `missing_field>0`, hit `POST /api/aurem-dev/admin/dev-users/backfill-created-at` once, then re-check health.
+5. Sweeper cron activates automatically on prod (default `ENABLE_SUPABASE_SWEEPER=1`), no-op until first paid user downgrades.
+
+
+
 ### 2026-02-13 — Iter 212m-234 — Personal Track Phase 5: Supabase Provisioner (Paid Tier)
 
 **Founder ask (Hinglish):** Phase 5 shuru karo — Supabase Management API se async project creation, JSON→SQL schema translation, background data migration from Phase 4 shared Mongo, ops guardrails ($10/mo cost tracking), graceful 503 if `SUPABASE_MANAGEMENT_TOKEN` missing. Downgrade path product decision flag karo (paid → free tier ka data kya karna).

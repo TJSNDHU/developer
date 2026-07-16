@@ -454,6 +454,28 @@ async def lifespan(app: FastAPI):
             logger.warning("db backup cron not started: %r", e)
     else:
         app.state.backup_task = None
+
+    # Iter 212m-234 — Phase 5 Supabase downgrade sweeper.  Runs daily
+    # (24h interval) so paid users who dropped back to the free tier
+    # eventually see their dedicated Postgres cleaned up — but only
+    # AFTER verifying the reverse-migration into shared Mongo landed.
+    # Enabled by default; disable via ENABLE_SUPABASE_SWEEPER=0.  If
+    # Supabase itself isn't configured (`SUPABASE_MANAGEMENT_TOKEN`
+    # missing) the cron is a no-op — no calls fire — so leaving it on
+    # in dev is safe.
+    if os.environ.get("ENABLE_SUPABASE_SWEEPER", "1").lower() in ("1", "true", "yes"):
+        try:
+            from services.supabase_sweeper import downgrade_sweeper_cron
+            app.state.supabase_sweeper_task = _asyncio.create_task(
+                downgrade_sweeper_cron(),
+            )
+            logger.info("🧹 supabase downgrade sweeper enabled (daily)")
+        except Exception as e:                                # noqa: BLE001
+            app.state.supabase_sweeper_task = None
+            logger.warning("supabase_sweeper not started: %r", e)
+    else:
+        app.state.supabase_sweeper_task = None
+
     # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC.
     # OPT-IN via ENABLE_EVAL_CRON=1 env var. When the cron fired at 03:00
     # UTC on prod (Iter 124g initial deploy), 22 sequential LLM calls

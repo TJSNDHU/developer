@@ -3888,3 +3888,110 @@ async def admin_cache_invalidate(
     key = (body or {}).get("key")
     dropped = _cache_invalidate(key)
     return {"ok": True, "dropped": dropped, "key": key}
+
+
+
+# ── Iter 212m-234 P0 — Manual re-trigger for the dev_users.created_at
+# backfill sweep. The startup task in main.py auto-runs the same
+# logic on every backend boot, but this endpoint lets the founder
+# verify the fix post-deploy WITHOUT restarting the pod. Idempotent —
+# if legacy rows have already been converted the second call is a
+# ~1ms no-op.
+@router.post("/dev-users/backfill-created-at")
+async def admin_backfill_dev_users_created_at(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """P0 recovery endpoint (founder-only) — repair legacy `dev_users`
+    rows whose `created_at` is either datetime-typed OR missing.
+    Same logic as the startup task in `main.py:_backfill_dev_users_created_at`.
+
+    Returns:
+        {
+            ok: True,
+            datetime_fixed: int,        # rows converted from date → float
+            missing_filled: int,        # rows where created_at was absent
+            still_pending:   int,       # rows still on legacy shape (should be 0)
+            total_users:     int,
+        }
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    _now = time.time()
+
+    # 1. datetime → float (server-side coercion via aggregation pipeline).
+    r1 = await db.dev_users.update_many(
+        {"created_at": {"$type": "date"}},
+        [{"$set": {"created_at":
+            {"$divide": [{"$toLong": "$created_at"}, 1000]}}}],
+    )
+    # 2. Missing → best-effort backfill. Prefer github/google connected_at.
+    r2 = await db.dev_users.update_many(
+        {"created_at": {"$exists": False}},
+        [{"$set": {"created_at": {
+            "$ifNull": [
+                "$github.connected_at",
+                {"$ifNull": ["$google.connected_at", _now]},
+            ]
+        }}}],
+    )
+    # 3. Verify nothing is left on the legacy shape.
+    still_datetime = await db.dev_users.count_documents(
+        {"created_at": {"$type": "date"}},
+    )
+    still_missing = await db.dev_users.count_documents(
+        {"created_at": {"$exists": False}},
+    )
+    total = await db.dev_users.count_documents({})
+
+    logger.info(
+        "[P0 manual backfill] datetime_fixed=%d missing_filled=%d "
+        "still_pending=%d total=%d",
+        r1.modified_count, r2.modified_count,
+        still_datetime + still_missing, total,
+    )
+    return {
+        "ok":             True,
+        "datetime_fixed": r1.modified_count,
+        "missing_filled": r2.modified_count,
+        "still_pending":  still_datetime + still_missing,
+        "total_users":    total,
+    }
+
+
+@router.get("/dev-users/created-at-health")
+async def admin_dev_users_created_at_health(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Cheap read-only probe — reports the shape distribution of
+    `created_at` across the `dev_users` collection so the founder can
+    verify the P0 fix landed cleanly on production.
+
+    Healthy shape: `by_type.double + by_type.int/long == total_users`
+    and both `datetime_typed` + `missing_field` are zero.
+    """
+    await _require_admin(authorization)
+    db = require_db()
+    pipeline = [
+        {"$group": {
+            "_id": {
+                "$cond": [
+                    {"$eq": [{"$type": "$created_at"}, "missing"]}, "missing",
+                    {"$type": "$created_at"},
+                ]
+            },
+            "n": {"$sum": 1},
+        }},
+    ]
+    by_type: dict = {}
+    async for row in db.dev_users.aggregate(pipeline):
+        by_type[row["_id"] or "unknown"] = int(row["n"])
+    total = sum(by_type.values())
+    return {
+        "ok":              True,
+        "total_users":     total,
+        "by_type":         by_type,
+        "datetime_typed":  by_type.get("date", 0),
+        "missing_field":   by_type.get("missing", 0),
+        "healthy": (by_type.get("date", 0) == 0
+                    and by_type.get("missing", 0) == 0),
+    }

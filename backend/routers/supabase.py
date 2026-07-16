@@ -287,3 +287,76 @@ async def destroy(
              "$unset": {"supabase_ref": ""}},
         )
     return deleted
+
+
+
+# ── Founder-scoped admin widget + manual sweep triggers ──────────
+@router.get("/admin/pending-downgrades")
+async def list_pending_downgrades_endpoint(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Admin dashboard widget — returns every Supabase project in a
+    pending / escalated downgrade state, sorted by soonest grace_until.
+    Founder uses this to intervene on rows the sweeper couldn't
+    finalise automatically."""
+    user = await current_dev(authorization)
+    if not user.get("is_founder") and not user.get("is_admin"):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    from services.supabase_sweeper import (
+        list_pending_downgrades, MAX_SWEEP_ATTEMPTS,
+    )
+    rows = await list_pending_downgrades(db)
+    now = time.time()
+    for r in rows:
+        # Convenience fields for the UI — never blocks the list.
+        grace = r.get("downgrade_grace_until") or 0
+        r["grace_expired"]   = grace <= now
+        r["seconds_to_grace"] = max(0, int(grace - now))
+    return {
+        "ok":                    True,
+        "count":                 len(rows),
+        "max_sweep_attempts":    MAX_SWEEP_ATTEMPTS,
+        "escalated":             [r for r in rows
+                                  if r.get("sweep_status") == "needs_founder"],
+        "rows":                  rows,
+    }
+
+
+@router.post("/admin/sweep-now")
+async def sweep_now(authorization: Optional[str] = Header(None)) -> dict:
+    """Founder-triggered manual sweep — bypasses the 24h cron cadence.
+    Same code path as the background job. Idempotent."""
+    user = await current_dev(authorization)
+    if not user.get("is_founder") and not user.get("is_admin"):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    from services.supabase_sweeper import sweep_once
+    return await sweep_once(db)
+
+
+@router.post("/admin/rearm/{app_id}")
+async def rearm_escalated(
+    app_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Clear the `sweep_status="needs_founder"` flag so the next sweep
+    picks the row up again. Used after the founder has manually
+    resolved whatever caused the escalation."""
+    user = await current_dev(authorization)
+    if not user.get("is_founder") and not user.get("is_admin"):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    res = await db[sp.PROJECTS_COLLECTION].update_one(
+        {"app_id": app_id, "sweep_status": "needs_founder"},
+        {"$unset": {"sweep_status": "", "sweep_error": ""},
+         "$set":   {"sweep_attempts": 0}},
+    )
+    return {"ok": res.modified_count > 0, "app_id": app_id,
+            "modified": res.modified_count}
