@@ -504,6 +504,22 @@ async def lifespan(app: FastAPI):
     else:
         app.state.supabase_sweeper_task = None
 
+    # Iter 212m-239 — Preview-sandbox sweeper (E2B TTL cleanup).
+    # Every 5 min, kill any preview sandbox past its 20-min TTL.
+    async def _preview_sweeper_cron():
+        while True:
+            try:
+                from services.preview_sandbox import sweep_expired_previews
+                await sweep_expired_previews()
+            except Exception as e:                                # noqa: BLE001
+                logger.warning("preview sweeper pass errored: %r", e)
+            await _asyncio.sleep(300)
+    if os.environ.get("ENABLE_PREVIEW_SWEEPER", "1").lower() in ("1", "true", "yes"):
+        app.state.preview_sweeper_task = _asyncio.create_task(_preview_sweeper_cron())
+        logger.info("🧹 preview-sandbox sweeper enabled (5 min interval)")
+    else:
+        app.state.preview_sweeper_task = None
+
     # Iter 124g — daily persona-quality eval at EVAL_HOUR_UTC.
     # OPT-IN via ENABLE_EVAL_CRON=1 env var. When the cron fired at 03:00
     # UTC on prod (Iter 124g initial deploy), 22 sequential LLM calls

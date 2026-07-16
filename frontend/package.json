@@ -9,6 +9,7 @@
     "preview": "vite preview --port 3000 --host 0.0.0.0"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.11.0",
     "axios": "^1.7.7",

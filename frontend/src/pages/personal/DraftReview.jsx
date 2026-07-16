@@ -10,9 +10,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Palette, Database, Settings2, FileText, RotateCcw, Rocket,
+  Eye, Code2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PersonalShell, PrimaryButton, SecondaryButton } from "./_shell";
+import PreviewPanel from "./PreviewPanel";
 import { api } from "../../lib/api";
 
 /** Rule-based classification of a scaffolded path → a friendly bucket. */
@@ -42,6 +44,7 @@ export default function DraftReview() {
   const [err, setErr]     = useState("");
   const [busy, setBusy]   = useState(false);
   const [selected, setSelected] = useState(null);
+  const [view, setView] = useState("code");   // "code" | "preview"
 
   useEffect(() => {
     (async () => {
@@ -116,21 +119,44 @@ export default function DraftReview() {
           padding: "32px 24px 140px",  // bottom padding leaves room for sticky bar
         }}
       >
-        <div style={{ marginBottom: 24 }}>
-          <p style={{
-            fontSize: 12, color: "#8B8B7D",
-            textTransform: "uppercase", letterSpacing: "0.08em",
-            margin: "0 0 4px",
-          }}>Your draft</p>
-          <h1 style={{
-            fontFamily: "'Cabinet Grotesk', 'Manrope', sans-serif",
-            fontSize: 32, fontWeight: 500, letterSpacing: "-0.02em",
-            margin: 0,
-          }} data-testid="draft-brief-title">
-            {(draft.brief || "").slice(0, 100)}{draft.brief?.length > 100 ? "…" : ""}
-          </h1>
+        <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <p style={{
+              fontSize: 12, color: "#8B8B7D",
+              textTransform: "uppercase", letterSpacing: "0.08em",
+              margin: "0 0 4px",
+            }}>Your draft</p>
+            <h1 style={{
+              fontFamily: "'Cabinet Grotesk', 'Manrope', sans-serif",
+              fontSize: 32, fontWeight: 500, letterSpacing: "-0.02em",
+              margin: 0,
+            }} data-testid="draft-brief-title">
+              {(draft.brief || "").slice(0, 100)}{draft.brief?.length > 100 ? "…" : ""}
+            </h1>
+          </div>
+          {/* Iter 212m-239 — Code / Preview toggle */}
+          <div data-testid="draft-view-toggle" style={{
+            display: "inline-flex", padding: 4, borderRadius: 999,
+            background: "#F4F3EE", border: "1px solid #E5E5DF",
+          }}>
+            <button
+              data-testid="draft-view-code"
+              onClick={() => setView("code")}
+              style={toggleBtn(view === "code")}
+            ><Code2 size={13} /> Code</button>
+            <button
+              data-testid="draft-view-preview"
+              onClick={() => setView("preview")}
+              style={toggleBtn(view === "preview")}
+            ><Eye size={13} /> Preview</button>
+          </div>
         </div>
 
+        {view === "preview" ? (
+          <div data-testid="draft-preview-tab">
+            <PreviewPanel draft={draft} />
+          </div>
+        ) : (
         <div style={{
           display: "grid",
           gridTemplateColumns: "minmax(240px, 320px) 1fr",
@@ -241,6 +267,7 @@ export default function DraftReview() {
             </AnimatePresence>
           </div>
         </div>
+        )}
       </div>
 
       {/* ── Sticky glass action bar ── */}
@@ -278,4 +305,18 @@ export default function DraftReview() {
       </div>
     </PersonalShell>
   );
+}
+
+
+function toggleBtn(active) {
+  return {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "6px 14px", borderRadius: 999,
+    background: active ? "#FFFFFF" : "transparent",
+    color: active ? "#1C1C19" : "#6B6B63",
+    border: "none", cursor: "pointer",
+    fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+    boxShadow: active ? "0 1px 3px rgba(28,28,25,0.10)" : "none",
+    transition: "background 200ms ease, color 200ms ease",
+  };
 }

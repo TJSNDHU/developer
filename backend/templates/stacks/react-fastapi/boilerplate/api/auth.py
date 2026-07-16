@@ -275,12 +275,19 @@ async def password_reset_request(body: ResetRequestIn, request: Request):
             "created_at": time.time(),
         })
         # In production, wire this to your email provider. Personal
-        # Track apps default to console output so it's testable and
-        # doesn't need SMTP config to start.
+        # Track apps default to Resend if RESEND_API_KEY is set;
+        # otherwise falls back to console logging so it's testable
+        # without SMTP config.
         frontend = os.environ.get("FRONTEND_URL", "http://localhost:3000")
         reset_link = f"{frontend}/reset-password?token={token}"
-        print(f"[password-reset] {email} → {reset_link}",  # noqa: T201
-              flush=True)
+        try:
+            from generated_app_email import send_reset_email
+            sent = await send_reset_email(email, reset_link)
+        except Exception:
+            sent = False
+        if not sent:
+            print(f"[password-reset] {email} → {reset_link}",  # noqa: T201
+                  flush=True)
     return {
         "ok": True,
         "message": "If an account matches that email, we've sent a reset link.",

@@ -32,8 +32,16 @@ export async function POST(req) {
         used: false, created_at: Math.floor(Date.now() / 1000),
       });
       const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
-      // eslint-disable-next-line no-console
-      console.log(`[password-reset] ${lower} → ${frontend}/reset-password?token=${token}`);
+      const resetLink = `${frontend}/reset-password?token=${token}`;
+      let sent = false;
+      try {
+        const { sendResetEmail } = await import("@/lib/email");
+        sent = await sendResetEmail(lower, resetLink);
+      } catch { sent = false; }
+      if (!sent) {
+        // eslint-disable-next-line no-console
+        console.log(`[password-reset] ${lower} → ${resetLink}`);
+      }
     }
     return NextResponse.json({
       ok: true,

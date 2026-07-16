@@ -138,7 +138,15 @@ app.post("/api/auth/password-reset-request", rateLimit("reset_request"), async (
         expires_at: now + RESET_TTL_S, used: false, created_at: now,
       });
       const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
-      console.log(`[password-reset] ${lower} → ${frontend}/reset-password?token=${token}`);
+      const resetLink = `${frontend}/reset-password?token=${token}`;
+      let sent = false;
+      try {
+        const { sendResetEmail } = require("./email");
+        sent = await sendResetEmail(lower, resetLink);
+      } catch { sent = false; }
+      if (!sent) {
+        console.log(`[password-reset] ${lower} → ${resetLink}`);
+      }
     }
     res.status(202).json({
       ok: true,

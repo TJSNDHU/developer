@@ -1,6 +1,52 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-239 — Tier 2.5 Live Preview (Sandpack + E2B hybrid) + Resend Email Helper
+
+**Founder ask (Hinglish):** Revised Tier 2.5 scope — Sandpack in-browser for JS stacks (zero server cost), E2B ONLY for react-fastapi (Python needs real interpreter). Bar: Sandpack <2s load, E2B 20-min TTL + auto-cleanup, Resend helper across all boilerplates for real password-reset emails.
+
+**Shipped:**
+
+**Part 1 — Hybrid Live Preview:**
+- **NEW `services/preview_sandbox.py`** — E2B adapter, react-fastapi-only:
+  * `create_preview_sandbox(draft_id, files)` — writes files, launches `uvicorn api.main:app --port 8000 &` in background, returns public sandbox URL.
+  * 20-min TTL matches E2B's billing granularity.
+  * `sweep_expired_previews()` kills sandboxes past TTL — wired to `main.py` cron every 5 min, `ENABLE_PREVIEW_SWEEPER=1` default.
+  * Missing `E2B_API_KEY` → structured 503 shape (same pattern as Phases 2/3/5).
+- **NEW `POST /scaffold/{draft_id}/preview`** — react-fastapi-only gate (JS stacks get 400 `wrong_stack`), idempotent (reuses existing live sandbox when TTL > 60s remaining), tracks in `db.preview_sandboxes`.
+- **NEW frontend `pages/personal/PreviewPanel.jsx`**:
+  * JS stacks (nextjs-node → `template="nextjs"`, vue-express → `"vue"`, plain-html → `"static"`) render via `@codesandbox/sandpack-react`. Zero server cost, in-browser bundler.
+  * react-fastapi renders an E2B iframe with a "Live preview • expires in ~Nm • Open in new tab" header bar.
+  * E2B not configured → disabled-state card ("Live preview isn't available yet — you can still ship") — jargon-free, non-blocking.
+- **DraftReview toggle**: `data-testid="draft-view-code"` / `draft-view-preview` pill-shaped switcher above the split-screen. Framer-motion transition, active tab has glass elevation.
+
+**Live verification (preview environment):**
+- E2B path: real sandbox `iehl7y2iuxfi0k3pno7ve.e2b.app` provisioned in ~5s, iframe embedded correctly, 20-min countdown visible.
+- Sandpack path: component render, template routing, and toSandpackFiles VFS conversion all pass via unit tests + lint clean.
+
+**Part 2 — Resend email helper across all boilerplates:**
+- **NEW `templates/stacks/react-fastapi/boilerplate/api/generated_app_email.py`** — async `send_reset_email(to, link)`, fails soft on missing key.
+- **NEW `templates/stacks/nextjs-node/boilerplate/lib/email.js`** — ESM helper, uses native fetch.
+- **NEW `templates/stacks/vue-express/boilerplate/server/email.js`** — CommonJS helper, uses Node 18+ fetch.
+- Wired into all 3 stacks' `password-reset-request` endpoints: `try send_reset_email(); if !sent: console.log fallback` — reset flow keeps working even without RESEND_API_KEY.
+
+**Regression protection: `test_iter212m239_tier2_5_preview.py` — 15 tests, all pass:**
+- `PREVIEW_TTL_S` matches E2B billing (20 min)
+- Preview endpoint refuses non-react-fastapi stacks (400 `wrong_stack`)
+- Missing E2B → 503 with `https://e2b.dev` setup hint
+- Idempotent — reuses live sandbox instead of double-billing
+- Sweeper cron wired into `main.py` with env flag
+- Resend helper fails soft without key (async smoke test)
+- Resend helper hits correct API URL + Bearer header + JSON body (mocked smoke test)
+- All 3 stacks have email helpers on disk
+- All 3 stacks' reset endpoints attempt the helper before console fallback
+- Sandpack component covers nextjs, vue, static templates
+- DraftReview wires the code/preview toggle
+
+**Backlog logged:** Visual Editing (Onlook-inspired) — deferred per your instruction. Feasibility research + license verification for Onlook (commercial-use terms) is the first step, then decide between (a) build a small in-house version or (b) embed/self-host Onlook.
+
+
+
 ### 2026-02-13 — Iter 212m-237 & 212m-238 — Security Gate + Boilerplate Auth Hardening
 
 **Founder ask (Hinglish):** Two-part urgent security work. (1) Lovable-lesson audit: is the Vanguard scanner actually BLOCKING at materialize, or just informational? Fix immediately if not gated. (2) OWASP audit of every generated auth boilerplate — no localStorage tokens, refresh flow, rate limits, enumeration-safe password reset. Both fixes at the single source of truth so every future generated app inherits them.

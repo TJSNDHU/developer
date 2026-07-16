@@ -720,6 +720,86 @@ async def materialize_draft(
     }
 
 
+# ── Iter 212m-239 — Live preview (Sandpack-first, E2B for react-fastapi) ──
+@router.post("/{draft_id}/preview")
+async def create_live_preview(
+    draft_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Spin up an E2B preview for react-fastapi drafts.
+
+    JS-based stacks (nextjs-node, vue-express, plain-html) preview
+    in-browser via Sandpack — they don't hit this endpoint at all.
+    react-fastapi (Python) needs a real interpreter → E2B.
+
+    Idempotent per (draft_id): returns the existing live sandbox
+    if one exists and hasn't expired.  Records the sandbox in
+    `db.preview_sandboxes` so `sweep_expired_previews()` can
+    clean it up on TTL expiry.
+    """
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+
+    draft = await _read_draft(db, draft_id, user["user_id"])
+    if not draft:
+        raise HTTPException(404, "Draft not found or expired")
+    stack = draft.get("stack_detected")
+    if stack != "react-fastapi":
+        raise HTTPException(
+            400,
+            {"reason": "wrong_stack",
+             "detail": f"E2B preview is only for react-fastapi. "
+                       f"{stack} stacks preview client-side via Sandpack."},
+        )
+
+    from services import preview_sandbox as ps
+    if not ps.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "reason":  "e2b_not_configured",
+                "message": ("Live preview requires E2B_API_KEY in "
+                            "backend/.env. Get one free at https://e2b.dev."),
+            },
+        )
+
+    # Reuse an existing live sandbox if we have one.
+    existing = await db[ps.PREVIEW_COLLECTION].find_one(
+        {"draft_id": draft_id, "user_id": user["user_id"], "killed": {"$ne": True}},
+    )
+    now = time.time()
+    if existing and (existing.get("expires_at") or 0) > now + 60:
+        return {
+            "ok":         True,
+            "reused":     True,
+            "sandbox_id": existing["sandbox_id"],
+            "url":        existing.get("url"),
+            "expires_at": existing.get("expires_at"),
+        }
+
+    created = await ps.create_preview_sandbox(draft_id, draft.get("files") or [])
+    if not created.get("ok"):
+        raise HTTPException(502, detail=created)
+    await db[ps.PREVIEW_COLLECTION].update_one(
+        {"draft_id": draft_id, "user_id": user["user_id"]},
+        {"$set": {
+            "draft_id":   draft_id,
+            "user_id":    user["user_id"],
+            "sandbox_id": created["sandbox_id"],
+            "url":        created["url"],
+            "expires_at": created["expires_at"],
+            "created_at": now,
+            "killed":     False,
+        }},
+        upsert=True,
+    )
+    return {"ok": True, "reused": False, **{
+        k: created[k] for k in ("sandbox_id", "url", "expires_at")
+    }}
+
+
 @router.delete("/{draft_id}")
 async def abandon_draft(
     draft_id: str,
