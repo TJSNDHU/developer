@@ -17,7 +17,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, RefreshCw, ShieldAlert, ShieldCheck, Package,
   Database, Wand2, Cpu, ExternalLink, AlertTriangle, CheckCircle2,
-  Clock, Loader2, GitBranch,
+  Clock, Loader2, GitBranch, DollarSign,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { toast } from "../../components/Toast";
@@ -66,6 +66,7 @@ export default function PersonalTrackAdmin() {
   const [blocked,        setBlocked]        = useState([]);
   const [projects,       setProjects]       = useState([]);
   const [downgrades,     setDowngrades]     = useState(null);
+  const [revenue,        setRevenue]        = useState(null);
   const [llmHealth,      setLlmHealth]      = useState(null);
   const [llmLoading,     setLlmLoading]     = useState(true);
 
@@ -86,15 +87,16 @@ export default function PersonalTrackAdmin() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [sumRes, healthRes, blockedRes, projRes, dgRes] =
+      const [sumRes, healthRes, blockedRes, projRes, dgRes, revRes] =
         await Promise.allSettled([
           api.get("/scaffold/admin/draft-summary"),
           api.get("/admin/dev-users/created-at-health"),
           api.get("/scaffold/admin/blocked-drafts"),
           api.get("/scaffold/admin/personal-projects"),
           api.get("/supabase/admin/pending-downgrades"),
+          api.get("/scaffold/admin/revenue-snapshot"),
         ]);
-      const results = [sumRes, healthRes, blockedRes, projRes, dgRes];
+      const results = [sumRes, healthRes, blockedRes, projRes, dgRes, revRes];
       const all401 = results.every(
         (r) => r.status === "rejected" && r.reason?.response?.status === 401,
       );
@@ -107,6 +109,7 @@ export default function PersonalTrackAdmin() {
       if (blockedRes.status === "fulfilled") setBlocked(blockedRes.value.data?.rows || []);
       if (projRes.status    === "fulfilled") setProjects(projRes.value.data?.rows || []);
       if (dgRes.status      === "fulfilled") setDowngrades(dgRes.value.data);
+      if (revRes.status     === "fulfilled") setRevenue(revRes.value.data);
     } catch (e) {
       toast.error("Load failed");
     } finally {
@@ -198,7 +201,15 @@ export default function PersonalTrackAdmin() {
         </div>
 
         {/* Headline tiles */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+          <StatTile
+            icon={DollarSign}
+            label="MRR"
+            value={`$${revenue?.mrr_usd ?? 0}`}
+            sub={`${revenue?.paid_users ?? 0} paid • ${revenue?.stripe_linked ?? 0} stripe-linked`}
+            tone={(revenue?.mrr_usd ?? 0) > 0 ? "good" : "default"}
+            testid="pt-tile-mrr"
+          />
           <StatTile
             icon={Wand2}
             label="Drafts"

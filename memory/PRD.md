@@ -12614,3 +12614,20 @@ NEEDS PRODUCTION REDEPLOY.
 **Status report delivered to user:** Tier 2.5 shipped (Sandpack <2s, E2B isolated), P0 created-at-health healthy:true, mcp.py router fully independent.
 
 **Remaining P1s:** Ask Advisor → RAG few-shot logs (chat.py ora_panel skip), destructive loop testing F03/F08/F10/F19 on sandbox repo, Phase 1 MCP sidecar, *.aurem.app wildcard DNS.
+
+---
+## Iter 212m-241 — Evidence Delivery + Revenue Snapshot Tile (June 2026)
+
+**Evidence delivered to founder (raw outputs, not paraphrase):**
+- Tier 2.5: Sandpack ^2.20.0 in PreviewPanel.jsx (JS stacks browser-only; E2B only react-fastapi); Resend/send_reset_email wired in react-fastapi + nextjs-node + vue-express boilerplates (plain-html has no backend — expected); test_iter212m239_tier2_5_preview.py 14/14 green
+- P0 raw JSON: {"ok":true,"total_users":2,"by_type":{"double":2},"datetime_typed":0,"missing_field":0,"healthy":true}
+- MCP independence basis: mcp.py imports only cto_services.auth + cto_services.db (app-wide infra); zero personal_track/scaffold/quota imports; own APIRouter prefix + JSON-RPC error path; no shared middleware/rate-limit state
+- Frontend 90% breakdown: 30s spinner (FIXED), 401 silent spinner (FIXED), window.prompt a11y note (accepted); zero env-limitations
+
+**NEW — Revenue Snapshot (verified):**
+- Backend: GET /scaffold/admin/revenue-snapshot (MRR from dev_users tiers via plan_price, paid_users, stripe_linked count) — curl 200
+- Frontend: MRR tile first position in PersonalTrackAdmin (pt-tile-mrr) — screenshot-verified "$0 · 0 paid · 0 stripe-linked"
+
+**P1 backlog PARKED per founder decision:** RAG bug, destructive loop testing, MCP sidecar — not launch-blocking.
+
+**LAUNCH BLOCKER (founder action):** 3 infra tokens never set — GitHub Org+App token, Vercel Pro team+platform token, Supabase Management token+org ID. No real user can use Personal Track until these exist.

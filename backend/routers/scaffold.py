@@ -1168,3 +1168,45 @@ async def draft_summary(
         "drafts_by_status":     counts,
         "personal_projects":    projects,
     }
+
+
+@router.get("/admin/revenue-snapshot")
+async def revenue_snapshot(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """MRR snapshot from dev_users tiers — first signal that billing
+    gates work (a bug treating paid users as free shows up here)."""
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    from services.subscription_tiers import plan_price
+    pipeline = [{"$group": {"_id": "$tier", "n": {"$sum": 1}}}]
+    by_tier: dict[str, int] = {}
+    async for row in db.dev_users.aggregate(pipeline):
+        by_tier[row["_id"] or "free"] = row["n"]
+    mrr = 0
+    paid_users = 0
+    breakdown = {}
+    for tier, n in by_tier.items():
+        try:
+            price = plan_price(tier)
+        except Exception:
+            price = 0
+        breakdown[tier] = {"users": n, "price_monthly": price, "mrr": price * n}
+        mrr += price * n
+        if price > 0:
+            paid_users += n
+    stripe_linked = await db.dev_users.count_documents(
+        {"stripe_customer_id": {"$exists": True, "$nin": [None, ""]}}
+    )
+    return {
+        "ok":             True,
+        "mrr_usd":        mrr,
+        "paid_users":     paid_users,
+        "total_users":    sum(by_tier.values()),
+        "stripe_linked":  stripe_linked,
+        "by_tier":        breakdown,
+    }
