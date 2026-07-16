@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only UI verification of new /admin/personal-track (PersonalTrackAdmin). Login via test@aurem.dev succeeds. /admin sidebar contains 'Personal Track ops' link (data-testid=admin-nav-personal-track). Clicking navigates to /admin/personal-track. Page eventually renders correctly with heading 'Personal Track Ops', all 4 stat tiles (Drafts=7, Materialized=0, Blocked=0, Pending Downgrades=0), both health cards, and all three empty-state sections ('No blocked drafts', 'No Personal Track projects yet', 'No pending downgrades'). All 6 backend calls returned 200 (draft-summary, blocked-drafts, personal-projects, llm-health, pending-downgrades, dev-users/created-at-health). No console errors, no page errors. HOWEVER, the page shows a full-screen loader for ~30s before rendering because GET /scaffold/admin/llm-health takes ~29-32s and load() uses Promise.allSettled — the loading flag stays true until *all* six promises settle, so the entire admin dashboard is gated on the slowest (non-critical) probe.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/aurem-dev/scaffold/admin/llm-health", "issue": "Very slow: ~29-32s per request (measured via curl and browser). Returns 200 with fallback active / file_count=0. Not a functional failure, but latency drives the UX issue below."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PersonalTrackAdmin", "issue": "Full-screen spinner blocks the entire page for ~30s on first load because load() awaits Promise.allSettled of all six probes before flipping loading=false; llm-health is the slow one (~30s). Users perceive page as hung/blank. Recommend: (a) render the page immediately with per-card skeletons/loading states, or (b) fire llm-health as a separate non-blocking effect, or (c) attach a per-request timeout (e.g. 5s) for llm-health so a slow probe doesn't gate the whole dashboard.", "selector": "[data-testid=pt-tile-drafts] (never appears until ~30s)", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/screenshots/pt_admin_page.jpeg", "/app/test_reports/screenshots/pt_admin_rendered.jpeg"],
+  "action_items": [
+    "Decouple loading state from llm-health probe (either non-blocking useEffect for llm-health, per-card skeletons, or short per-request timeout) so the admin dashboard renders in <1s instead of ~30s.",
+    "Investigate why /scaffold/admin/llm-health takes ~30s (falls back after a network timeout to some upstream LLM?). Consider caching the probe result server-side for 30-60s.",
+    "Optional: verify auth-protection behavior for unauthenticated visits to /admin/personal-track — current behavior is that the page mounts and stays on the spinner (backend returns 401 on the probes) rather than redirecting to /login. Non-admin users still cannot see data, but the UX is a silent spinner. Consider redirecting to /login when probes return 401."
+  ],
+  "critical_code_review_comments": [
+    "PersonalTrackAdmin.load(): using Promise.allSettled on 6 probes and only flipping loading=false in the finally block means the whole page is gated on the slowest probe. Prefer per-widget loading states or split fast/slow probes.",
+    "override() uses window.prompt() — acceptable for admin tool but not friendly on mobile / accessibility. Non-blocking suggestion.",
+    "No explicit admin-role guard in the component — relies purely on backend 401s. If an unauthenticated user hits the route directly, they see a permanent spinner (see action item)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "90% (page renders + all endpoints wired correctly + empty states OK; 1 UX issue: 30s spinner)"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! (preview) — worked",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login via POST /api/aurem-dev/auth/login returns {token} (not access_token). /admin sidebar link testid = admin-nav-personal-track. All expected data-testids on the page work once it renders. The one recurring pitfall: waiting less than ~35s after load() causes the page to appear blank/spinning — always use wait_for_selector('[data-testid=pt-tile-drafts]', timeout=50000).",
+  "rca of the issue": "RCA — 30s blank spinner on /admin/personal-track: load() in PersonalTrackAdmin.jsx does `await Promise.allSettled([...6 api.get(...)])` then flips loading=false in finally. Backend /scaffold/admin/llm-health consistently takes ~29-32s (measured curl 32.55s, browser 29.14s reported in fallback UI). The other 5 probes finish in <200ms. Because allSettled waits for the slowest, users see a full-screen Loader2 for ~30s. Reproduction: login → navigate to /admin/personal-track → observe spinner for ~30s → then full page renders with correct data. Mitigation: split llm-health into an independent, non-blocking effect (or add a Promise.race timeout around it), and/or cache the llm-health probe server-side."
+}

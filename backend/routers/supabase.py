@@ -40,6 +40,11 @@ class DowngradeBody(BaseModel):
     policy: Optional[str] = None   # migrate_back | read_only | export_delete | keep_bill_user
 
 
+class TransferSupabaseBody(BaseModel):
+    target_organization_id: str    # user's own Supabase org id (they own it)
+    confirm: bool = False          # UI must set this True to actually run
+
+
 async def _verify_paid_app_ownership(db, app_id: str, user_id: str) -> dict:
     """Same guard as routers/managed_db._verify_app_ownership but with
     an additional paid-tier check for the provision endpoint."""
@@ -93,6 +98,11 @@ async def provision(
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
+
+    # ── Tier 3 gate: dedicated Supabase Postgres is a paid-tier feature.
+    # Founder bypasses. Free/Starter → HTTP 402 with an upgrade prompt.
+    from services.personal_track_quotas import enforce_feature_or_402
+    await enforce_feature_or_402(db, user, "dedicated_db")
 
     await _verify_paid_app_ownership(db, app_id, user["user_id"])
 
@@ -287,6 +297,92 @@ async def destroy(
              "$unset": {"supabase_ref": ""}},
         )
     return deleted
+
+
+
+# ── Iter 212m-240 (Tier 3) — Transfer ownership to user's own Supabase org ──
+@router.post("/{app_id}/transfer-to-user")
+async def transfer_to_user(
+    app_id: str,
+    body:   TransferSupabaseBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Transfer this dedicated Supabase project from AUREM's org to
+    the user's own Supabase organization.
+
+    Requirements:
+      - Caller owns the app (personal_track project).
+      - Caller is on a tier with `transfer_ownership=True` (Starter+).
+      - `body.confirm=True` — front-end explicitly confirms this is
+        irreversible: AUREM will no longer bill or manage the project.
+      - `body.target_organization_id` is the user's Supabase org id.
+
+    On success:
+      - Supabase project moves to the target org.
+      - `cto_projects.storage_tier` flips back to `shared_mongo` (AUREM
+        won't route future data to a project we no longer control).
+      - `supabase_projects` row marked `transferred=True` for audit; NOT
+        deleted, so we retain the historical record.
+    """
+    user = await current_dev(authorization)
+    _503_if_missing()
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+
+    from services.personal_track_quotas import enforce_feature_or_402
+    await enforce_feature_or_402(db, user, "transfer_ownership")
+
+    await _verify_paid_app_ownership(db, app_id, user["user_id"])
+
+    if not body.confirm:
+        raise HTTPException(
+            400,
+            {"reason": "confirmation_required",
+             "user_message": "Transfer is irreversible. Set confirm=true to proceed."},
+        )
+
+    row = await db[sp.PROJECTS_COLLECTION].find_one(
+        {"app_id": app_id, "user_id": user["user_id"]},
+    )
+    if not row or not row.get("project_ref"):
+        raise HTTPException(404, "No Supabase project for this app")
+    if row.get("transferred"):
+        return {
+            "ok":                True,
+            "already_done":      True,
+            "transferred_to":    row.get("transferred_to"),
+            "project_ref":       row["project_ref"],
+        }
+
+    result = await sp.transfer_project_to_org(
+        row["project_ref"], body.target_organization_id,
+    )
+    if not result.get("ok"):
+        raise HTTPException(502, detail=result)
+
+    now = time.time()
+    await db[sp.PROJECTS_COLLECTION].update_one(
+        {"app_id": app_id, "user_id": user["user_id"]},
+        {"$set": {
+            "transferred":      True,
+            "transferred_to":   body.target_organization_id,
+            "transferred_at":   now,
+            "updated_at":       now,
+        }},
+    )
+    await db.cto_projects.update_one(
+        {"project_id": app_id, "user_id": user["user_id"]},
+        {"$set": {"storage_tier": "shared_mongo"},
+         "$unset": {"supabase_ref": ""}},
+    )
+    logger.warning(
+        "[supabase] TRANSFERRED project ref=%s app=%s → org=%s (user=%s)",
+        row["project_ref"], app_id, body.target_organization_id, user["user_id"],
+    )
+    return {"ok": True, "project_ref": row["project_ref"],
+            "transferred_to": body.target_organization_id,
+            "user_message": "Transfer complete. AUREM no longer manages this database."}
 
 
 

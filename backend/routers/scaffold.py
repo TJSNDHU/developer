@@ -70,6 +70,11 @@ class RegenerateBody(BaseModel):
     stack_preference: Optional[str] = None
 
 
+class TransferRepoBody(BaseModel):
+    new_owner: str        # GitHub username or org name the user controls
+    confirm:   bool = False
+
+
 # ── Draft store helpers ──────────────────────────────────────────
 async def _ensure_ttl_index(db) -> None:
     """Create a TTL index on `scaffold_drafts.created_at` (idempotent).
@@ -369,6 +374,10 @@ async def create_new_project(
     if db is None:
         raise HTTPException(503, "Database not connected")
 
+    # Tier 4 gate — daily scaffold-drafts cap (per plan). Founder bypass.
+    from services.personal_track_quotas import enforce_daily_rate_or_429
+    quota = await enforce_daily_rate_or_429(db, user, "scaffold_drafts_per_day")
+
     stack = _detect_stack(body.brief, body.stack_preference)
     draft_id = uuid.uuid4().hex[:16]
     now = time.time()
@@ -400,6 +409,7 @@ async def create_new_project(
         "files":           files,
         "truncated":       len(files) >= _MAX_FILES_PER_DRAFT,
         "expires_at":      now + _DRAFT_TTL_SECONDS,
+        "quota":           quota,
         "next_step":       "review + POST /scaffold/{draft_id}/materialize",
     }
 
@@ -434,6 +444,10 @@ async def regenerate_draft(
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
+
+    # Tier 4 — regenerate counts against the same daily cap.
+    from services.personal_track_quotas import enforce_daily_rate_or_429
+    await enforce_daily_rate_or_429(db, user, "scaffold_drafts_per_day")
 
     draft = await _read_draft(db, draft_id, user["user_id"])
     if not draft:
@@ -816,6 +830,130 @@ async def abandon_draft(
     return {"ok": True, "deleted": res.deleted_count > 0}
 
 
+# ── Iter 212m-240 (Tier 3) — Transfer AUREM-org repo to user's account ──
+@router.post("/{project_id}/transfer-repo")
+async def transfer_repo(
+    project_id: str,
+    body:       TransferRepoBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Transfer a materialized Personal Track repo from AUREM's org to
+    the user's own GitHub account.
+
+    Requirements:
+      - Caller owns the project.
+      - Caller is on a tier with `transfer_ownership=True` (Starter+).
+      - `body.confirm=True` — transfer is a one-way action.
+
+    GitHub transfers require the receiving account to accept the invite,
+    so we return `transfer_pending=True` and flip
+    `cto_projects.repo_transferred=True` as an audit marker.
+    """
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+
+    from services.personal_track_quotas import enforce_feature_or_402
+    await enforce_feature_or_402(db, user, "transfer_ownership")
+
+    proj = await db.cto_projects.find_one({
+        "project_id":     project_id,
+        "user_id":        user["user_id"],
+        "personal_track": True,
+    })
+    if not proj:
+        raise HTTPException(404, "Project not found or not owned by caller")
+    if proj.get("repo_transferred"):
+        return {"ok": True, "already_done": True,
+                "transferred_to": proj.get("repo_transferred_to")}
+
+    if not body.confirm:
+        raise HTTPException(
+            400,
+            {"reason": "confirmation_required",
+             "user_message": "Repo transfer is irreversible. Set confirm=true to proceed."},
+        )
+
+    from services.github_org_client import (
+        is_configured as _org_configured,
+        transfer_repo_to_user,
+    )
+    if not _org_configured():
+        raise HTTPException(
+            503,
+            {"reason": "aurem_org_not_configured",
+             "message": "Founder must configure AUREM_ORG_NAME and AUREM_ORG_GITHUB_APP_TOKEN."},
+        )
+
+    repo_name = proj.get("github_repo")
+    if not repo_name:
+        raise HTTPException(400, "Project has no repo to transfer")
+
+    result = await transfer_repo_to_user(repo_name, body.new_owner)
+    if not result.get("ok"):
+        raise HTTPException(502, detail=result)
+
+    now = time.time()
+    await db.cto_projects.update_one(
+        {"project_id": project_id, "user_id": user["user_id"]},
+        {"$set": {
+            "repo_transferred":     True,
+            "repo_transferred_to":  body.new_owner.strip(),
+            "repo_transferred_at":  now,
+            "updated_at":           now,
+        }},
+    )
+    logger.warning(
+        "[scaffold] REPO TRANSFERRED: project=%s repo=%s → %s (user=%s)",
+        project_id, repo_name, body.new_owner, user["user_id"],
+    )
+    return {
+        "ok":               True,
+        "transfer_pending": True,
+        "transferred_to":   body.new_owner.strip(),
+        "user_message":     result.get("user_message"),
+    }
+
+
+# ── Iter 212m-240 (Tier 4) — Daily quota status ──────────────────
+@router.get("/quota/status")
+async def quota_status(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Return the caller's current daily scaffold-drafts quota — used
+    by the Build UI to show "You have N drafts left today" nudges.
+    """
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+
+    from services.personal_track_quotas import (
+        get_user_tier, get_numeric_limit, is_founder,
+        _COUNTER_COLLECTION, _today_utc_date,
+    )
+    if is_founder(user):
+        return {"tier": "founder", "used": 0, "limit": None,
+                "remaining": None, "unlimited": True}
+    tier  = await get_user_tier(db, user["user_id"])
+    limit = get_numeric_limit(tier, "scaffold_drafts_per_day")
+    if limit is None:
+        return {"tier": tier, "used": 0, "limit": None,
+                "remaining": None, "unlimited": True}
+    row = await db[_COUNTER_COLLECTION].find_one(
+        {"user_id": user["user_id"], "feature": "scaffold_drafts_per_day",
+         "date_key": _today_utc_date()},
+        {"count": 1, "_id": 0},
+    ) or {}
+    used = int(row.get("count") or 0)
+    return {"tier":      tier,
+            "used":      used,
+            "limit":     limit,
+            "remaining": max(0, limit - used),
+            "unlimited": False}
+
+
 
 # ── Iter 212m-237 — Founder-only security-gate override ──────────
 class FounderOverrideBody(BaseModel):
@@ -951,4 +1089,82 @@ async def llm_health(
         "model_used":    "parliament",   # actual model attribution is in the accounting log
         "fallback":      False,
         "elapsed_ms":    elapsed,
+    }
+
+
+
+# ── Iter 212m-240 — Personal Track admin panel data endpoints ────
+@router.get("/admin/blocked-drafts")
+async def list_blocked_drafts(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """List every draft the security gate blocked. Founder uses this
+    to spot systemic false-positives and drives the override CTA."""
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    cursor = db.scaffold_drafts.find(
+        {"status": "blocked_by_scan"},
+        {"draft_id": 1, "user_id": 1, "brief": 1, "stack_detected": 1,
+         "scan_summary": 1, "scan_blocked_at": 1, "override_active": 1,
+         "_id": 0},
+    ).sort("scan_blocked_at", -1).limit(100)
+    rows = []
+    async for r in cursor:
+        r["brief"] = (r.get("brief") or "")[:200]
+        rows.append(r)
+    return {"ok": True, "count": len(rows), "rows": rows}
+
+
+@router.get("/admin/personal-projects")
+async def list_personal_projects(
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Consolidated list of materialized Personal Track projects with
+    live-URL, deploy state, and Supabase-tier status."""
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    cursor = db.cto_projects.find(
+        {"personal_track": True},
+        {"_id": 0, "project_id": 1, "user_id": 1, "name": 1,
+         "github_owner": 1, "github_repo": 1, "stack": 1, "live_url": 1,
+         "storage_tier": 1, "supabase_ref": 1,
+         "repo_transferred": 1, "repo_transferred_to": 1,
+         "created_at": 1, "vercel_project_id": 1},
+    ).sort("created_at", -1).limit(max(1, min(int(limit), 200)))
+    rows = [r async for r in cursor]
+    return {"ok": True, "count": len(rows), "rows": rows}
+
+
+@router.get("/admin/draft-summary")
+async def draft_summary(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Counts of drafts by status (draft, materialized, blocked_by_scan)
+    for the admin dashboard headline widget."""
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    pipeline = [
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+    ]
+    counts: dict[str, int] = {}
+    async for row in db.scaffold_drafts.aggregate(pipeline):
+        counts[row["_id"] or "unknown"] = row["n"]
+    projects = await db.cto_projects.count_documents({"personal_track": True})
+    return {
+        "ok":                   True,
+        "drafts_by_status":     counts,
+        "personal_projects":    projects,
     }

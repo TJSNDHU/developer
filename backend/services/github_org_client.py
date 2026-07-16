@@ -258,7 +258,47 @@ async def delete_org_repo(repo_name: str) -> dict:
     return {"ok": False, "reason": f"github_{r.status_code}", "detail": r.text[:200]}
 
 
+async def transfer_repo_to_user(repo_name: str, new_owner: str) -> dict:
+    """Iter 212m-240 (Tier 3) — transfer an AUREM-org repo to the user's
+    own GitHub username or one of their organizations.
+
+    Uses the GitHub REST API's repo-transfer endpoint. The `new_owner`
+    must be a valid GitHub username or org name; the user must accept
+    the transfer request from their GitHub account.
+
+    Returns `{ok: True, transferred_to, transfer_pending: True}` because
+    GitHub queues transfers behind an acceptance step on the receiving
+    account's side — we consider the API call successful once the queue
+    entry is created.
+    """
+    if not is_configured():
+        return {"ok": False, "reason": "aurem_org_not_configured"}
+    if not new_owner or not isinstance(new_owner, str):
+        return {"ok": False, "reason": "missing_new_owner"}
+    payload = {"new_owner": new_owner.strip()}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as cli:
+        r = await cli.post(
+            f"{_API_ROOT}/repos/{_org_name()}/{repo_name}/transfer",
+            headers=_headers(), json=payload,
+        )
+    if r.status_code in (200, 201, 202):
+        return {
+            "ok":               True,
+            "repo":             repo_name,
+            "transferred_to":   new_owner,
+            "transfer_pending": True,
+            "user_message":     (f"Transfer initiated. Accept it on GitHub as "
+                                 f"'{new_owner}' to finalise."),
+        }
+    return {
+        "ok":       False,
+        "reason":   f"github_{r.status_code}",
+        "detail":   r.text[:300],
+    }
+
+
 __all__ = [
     "is_configured", "sanitize_repo_name",
     "create_org_repo", "push_file", "push_files_bulk", "delete_org_repo",
+    "transfer_repo_to_user",
 ]

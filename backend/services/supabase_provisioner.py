@@ -301,6 +301,43 @@ async def delete_project(project_ref: str) -> dict:
             "detail": r.text[:300]}
 
 
+async def transfer_project_to_org(project_ref: str, target_org_id: str) -> dict:
+    """Iter 212m-240 (Tier 3) — transfer a project from AUREM's org to
+    the user's own Supabase organization.
+
+    Uses the Supabase Management API's project-transfer endpoint. The
+    user must have already accepted a transfer invite / installed a
+    Supabase org they own that this project can move into.
+
+    On success the row in `supabase_projects` should be deleted by
+    the caller (or flipped to `transferred=True`) since AUREM no
+    longer owns the project.
+    """
+    if not is_configured():
+        return _not_configured_error()
+    if not target_org_id or not isinstance(target_org_id, str):
+        return {"ok": False, "reason": "missing_target_org_id"}
+    payload = {"target_organization_id": target_org_id.strip()}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as cli:
+        r = await cli.post(
+            f"{_API_ROOT}/v1/projects/{project_ref}/transfer",
+            headers=_headers(), json=payload,
+        )
+    if r.status_code in (200, 201, 202, 204):
+        logger.info(
+            "[supabase-provision] transferred project ref=%s → org=%s",
+            project_ref, target_org_id,
+        )
+        return {"ok": True, "project_ref": project_ref,
+                "transferred_to": target_org_id}
+    return {
+        "ok":            False,
+        "reason":        f"supabase_{r.status_code}",
+        "user_message":  _friendly_error(r.status_code, r.text),
+        "detail":        r.text[:300],
+    }
+
+
 # ── Schema translation (JSON → SQL) ───────────────────────────────
 _JSON_TO_PG_TYPE = {
     "string":  "TEXT",

@@ -444,6 +444,11 @@ async def stripe_webhook(request: Request) -> dict:
                 logger.warning(f"[webhook] referral reward failed: {e!r}")
     elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
         sub_id = event["data"]["object"]["id"]
+        # Find the user first so we know whose Supabase projects to downgrade.
+        user_row = await db.dev_users.find_one(
+            {"stripe_sub_id": sub_id},
+            {"user_id": 1, "_id": 0},
+        )
         await db.dev_users.update_one(
             {"stripe_sub_id": sub_id},
             {"$set": {
@@ -453,6 +458,36 @@ async def stripe_webhook(request: Request) -> dict:
                 "tier_updated_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
+        # Iter 212m-240 — Tier 3: paid → free means any dedicated Supabase
+        # Postgres projects the user has must enter the downgrade grace
+        # window using the configured policy (default = migrate_back,
+        # which copies data BACK into shared Mongo first). The sweeper
+        # cron finalises after the grace expires.
+        if user_row and user_row.get("user_id"):
+            try:
+                from services import supabase_provisioner as _sp
+                if _sp.is_configured():
+                    rows = db[_sp.PROJECTS_COLLECTION].find(
+                        {"user_id": user_row["user_id"],
+                         "downgrade_status": {"$exists": False}},
+                        {"app_id": 1, "user_id": 1, "_id": 0},
+                    )
+                    async for r in rows:
+                        try:
+                            await _sp.apply_downgrade(
+                                db, r["app_id"], r["user_id"], policy=None,
+                            )
+                            logger.info(
+                                "[webhook] Supabase downgrade queued for %s (user=%s)",
+                                r["app_id"], r["user_id"],
+                            )
+                        except Exception as ie:  # noqa: BLE001
+                            logger.warning(
+                                "[webhook] supabase downgrade failed for %s: %r",
+                                r["app_id"], ie,
+                            )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[webhook] supabase downgrade sweep errored: %r", e)
     return {"ok": True}
 
 

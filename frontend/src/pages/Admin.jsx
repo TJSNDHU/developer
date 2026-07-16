@@ -2308,6 +2308,13 @@ export default function Admin({ initialTab = "overview" }) {
                           color: "var(--text-faint)", textDecoration: "none" }}>
             <ExternalLink size={11} /> back to app
           </Link>
+          <Link to="/admin/personal-track"
+                data-testid="admin-nav-personal-track"
+                style={{ display: "flex", alignItems: "center", gap: 8,
+                          padding: "6px 8px", fontSize: 11,
+                          color: "var(--text-faint)", textDecoration: "none" }}>
+            <Zap size={11} /> Personal Track ops
+          </Link>
           <button onClick={logout} className="btn-ghost"
                   data-testid="admin-logout"
                   style={{ display: "flex", alignItems: "center", gap: 8,

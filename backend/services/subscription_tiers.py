@@ -32,6 +32,12 @@ TIER_LIMITS: dict[Tier, dict] = {
         "parallel_agents":     False,
         "priority_queue":      False,
         "price_monthly":       0,
+        # ── Personal Track (Iter 212m-240 — Tier 3/4) ──
+        "dedicated_db":         False,   # Supabase provisioning gate
+        "custom_domain":        False,   # *.aurem.app / user-owned domain
+        "transfer_ownership":   False,   # transfer repo / DB to user account
+        "scaffold_drafts_per_day":   3,  # free tier draft cap
+        "personal_track_projects":   1,  # max materialized apps
     },
     Tier.STARTER: {
         "tasks_per_month":     50,
@@ -41,6 +47,11 @@ TIER_LIMITS: dict[Tier, dict] = {
         "parallel_agents":     False,
         "priority_queue":      False,
         "price_monthly":       9,
+        "dedicated_db":         False,
+        "custom_domain":        False,
+        "transfer_ownership":   True,
+        "scaffold_drafts_per_day":  10,
+        "personal_track_projects":   3,
     },
     Tier.PRO: {
         "tasks_per_month":     300,
@@ -50,6 +61,11 @@ TIER_LIMITS: dict[Tier, dict] = {
         "parallel_agents":     True,
         "priority_queue":      False,
         "price_monthly":       19,
+        "dedicated_db":         True,
+        "custom_domain":        True,
+        "transfer_ownership":   True,
+        "scaffold_drafts_per_day":  50,
+        "personal_track_projects":  10,
     },
     Tier.TEAM: {
         "tasks_per_month":     400,
@@ -59,6 +75,11 @@ TIER_LIMITS: dict[Tier, dict] = {
         "parallel_agents":     True,
         "priority_queue":      True,
         "price_monthly":       49,
+        "dedicated_db":         True,
+        "custom_domain":        True,
+        "transfer_ownership":   True,
+        "scaffold_drafts_per_day": 100,
+        "personal_track_projects":  20,
     },
     Tier.FOUNDER: {
         "tasks_per_month":     None,
@@ -68,6 +89,11 @@ TIER_LIMITS: dict[Tier, dict] = {
         "parallel_agents":     True,
         "priority_queue":      True,
         "price_monthly":       0,
+        "dedicated_db":         True,
+        "custom_domain":        True,
+        "transfer_ownership":   True,
+        "scaffold_drafts_per_day":  None,   # unlimited
+        "personal_track_projects":  None,
     },
 }
 
