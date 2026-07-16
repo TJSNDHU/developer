@@ -37,7 +37,7 @@ async def current_dev(authorization: Optional[str] = None) -> dict:
             u = await db.dev_users.find_one(
                 {"user_id": payload["user_id"]},
                 {"_id": 0, "tier": 1, "is_unlimited": 1, "is_admin": 1,
-                 "plan": 1, "plan_limit": 1, "email": 1},
+                 "is_founder": 1, "plan": 1, "plan_limit": 1, "email": 1},
             )
             if u:
                 payload = {**payload, **u}

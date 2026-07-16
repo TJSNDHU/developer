@@ -1,119 +1,132 @@
-import React, { useEffect, useState } from "react";
-import { Toaster, toast } from "sonner";
-import { LogIn, LogOut, Plus, Trash2 } from "lucide-react";
+/**
+ * App.jsx — Personal Track starter UI (cookie-based auth).
+ *
+ * Iter 212m-238 security hardening: NO localStorage token access.
+ * The backend sets httpOnly cookies on sign-in — the browser sends
+ * them on every request automatically. We just add
+ * `credentials: 'include'` and check the 401 → refresh → retry loop.
+ */
+import React, { useEffect, useState, useCallback } from "react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8001";
+const API = import.meta.env.VITE_API_URL || "";
+
+/** Wrapper around fetch that:
+ *   1. Always sends cookies (credentials: 'include')
+ *   2. On 401, silently attempts POST /auth/refresh and retries once
+ *   3. Never touches localStorage — cookies handle everything
+ */
+async function apiFetch(path, opts = {}) {
+  const url = `${API}${path.startsWith("/") ? path : `/${path}`}`;
+  const doCall = () => fetch(url, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    ...opts,
+  });
+  let r = await doCall();
+  if (r.status === 401 && !opts._retried) {
+    const refresh = await fetch(`${API}/api/auth/refresh`, {
+      method: "POST", credentials: "include",
+    });
+    if (refresh.ok) r = await doCall();
+  }
+  return r;
+}
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem("token") || "");
-  const [items, setItems] = useState([]);
-  const [title, setTitle] = useState("");
+  const [me, setMe]         = useState(null);
+  const [ready, setReady]   = useState(false);
+  const [mode, setMode]     = useState("login");
+  const [email, setEmail]   = useState("");
+  const [pw, setPw]         = useState("");
+  const [err, setErr]       = useState("");
+  const [busy, setBusy]     = useState(false);
 
-  const auth = { Authorization: `Bearer ${token}` };
+  const checkSession = useCallback(async () => {
+    try {
+      const r = await apiFetch("/api/auth/me");
+      if (r.ok) setMe(await r.json());
+    } catch { /* offline is fine */ }
+    setReady(true);
+  }, []);
+  useEffect(() => { checkSession(); }, [checkSession]);
 
-  async function loadItems() {
-    if (!token) return;
-    const r = await fetch(`${API}/api/items`, { headers: auth });
-    if (r.ok) setItems((await r.json()).items || []);
-  }
-
-  useEffect(() => { loadItems(); }, [token]);
-
-  async function login(e) {
+  async function submit(e) {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const r = await fetch(`${API}/api/auth/login`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`${API}/api/auth/${mode}`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pw }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || "Something went wrong.");
+      setMe(j);
+    } catch (ex) {
+      setErr(ex.message);
+    } finally { setBusy(false); }
+  }
+
+  async function signout() {
+    await fetch(`${API}/api/auth/logout`, {
+      method: "POST", credentials: "include",
     });
-    if (!r.ok) return toast.error("Invalid credentials");
-    const { token } = await r.json();
-    localStorage.setItem("token", token);
-    setToken(token);
-    toast.success("Signed in");
+    setMe(null);
   }
 
-  async function addItem(e) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const r = await fetch(`${API}/api/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...auth },
-      body: JSON.stringify({ title }),
-    });
-    if (r.ok) { setTitle(""); loadItems(); toast.success("Added"); }
-  }
+  if (!ready) return null;
 
-  async function del(id) {
-    const r = await fetch(`${API}/api/items/${id}`, { method: "DELETE", headers: auth });
-    if (r.ok) { loadItems(); toast.success("Deleted"); }
-  }
-
-  function logout() {
-    localStorage.removeItem("token");
-    setToken("");
-    setItems([]);
-  }
-
-  if (!token) {
+  if (me?.email) {
     return (
-      <div style={{ maxWidth: 360, margin: "10vh auto", fontFamily: "system-ui" }}>
-        <Toaster />
-        <h1>Welcome</h1>
-        <form onSubmit={login} style={{ display: "grid", gap: 12 }}>
-          <input name="email" type="email" placeholder="Email" required
-                 style={{ padding: 10, borderRadius: 8, border: "1px solid #ccc" }} />
-          <input name="password" type="password" placeholder="Password" required minLength={8}
-                 style={{ padding: 10, borderRadius: 8, border: "1px solid #ccc" }} />
-          <button type="submit"
-                  style={{ padding: 12, borderRadius: 8, background: "#0ea5e9", color: "#fff", border: 0, cursor: "pointer" }}>
-            <LogIn size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
-            Sign in
-          </button>
-        </form>
-        <p style={{ fontSize: 13, opacity: 0.7, marginTop: 16 }}>
-          POST /api/auth/signup with the same body to create a new account.
-        </p>
-      </div>
+      <main style={styles.wrap}>
+        <h1 style={styles.h1}>Welcome, {me.email}</h1>
+        <p style={styles.p}>Your app is running. Extend <code>ui/src/</code>.</p>
+        <button style={styles.btn} onClick={signout}>Sign out</button>
+      </main>
     );
   }
 
   return (
-    <div style={{ maxWidth: 640, margin: "5vh auto", fontFamily: "system-ui", padding: 16 }}>
-      <Toaster />
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>Your Items</h1>
-        <button onClick={logout} style={{ background: "transparent", border: "1px solid #ccc",
-                borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
-          <LogOut size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-          Sign out
-        </button>
-      </header>
-
-      <form onSubmit={addItem} style={{ display: "flex", gap: 8, marginTop: 20 }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)}
-               placeholder="What do you want to remember?"
-               style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ccc" }} />
-        <button type="submit"
-                style={{ padding: "0 16px", borderRadius: 8, background: "#0ea5e9", color: "#fff", border: 0, cursor: "pointer" }}>
-          <Plus size={16} />
+    <main style={styles.wrap}>
+      <h1 style={styles.h1}>{mode === "login" ? "Sign in" : "Create account"}</h1>
+      <form onSubmit={submit}>
+        <input style={styles.input} type="email" placeholder="Email"
+               value={email} onChange={(e) => setEmail(e.target.value)}
+               required autoComplete="email" />
+        <input style={styles.input} type="password" placeholder="Password (≥ 8 chars)"
+               value={pw} onChange={(e) => setPw(e.target.value)}
+               required autoComplete={mode === "login" ? "current-password" : "new-password"} />
+        {err && <p style={styles.err}>{err}</p>}
+        <button style={styles.btn} type="submit" disabled={busy}>
+          {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Sign up"}
         </button>
       </form>
-
-      <ul style={{ listStyle: "none", padding: 0, marginTop: 20 }}>
-        {items.map((it) => (
-          <li key={it.id} style={{ display: "flex", justifyContent: "space-between",
-                                    padding: "10px 12px", borderRadius: 8, background: "#f6f7f9",
-                                    marginBottom: 8 }}>
-            <span>{it.title}</span>
-            <button onClick={() => del(it.id)}
-                    style={{ background: "transparent", border: 0, cursor: "pointer", color: "#dc2626" }}>
-              <Trash2 size={16} />
-            </button>
-          </li>
-        ))}
-        {items.length === 0 && <p style={{ opacity: 0.6 }}>No items yet.</p>}
-      </ul>
-    </div>
+      <p style={styles.p}>
+        {mode === "login" ? (
+          <>
+            <a href="#" onClick={(e) => { e.preventDefault(); setMode("signup"); }}>
+              Don&apos;t have an account? Sign up
+            </a>
+            <br />
+            <a href="/reset-password" style={{ fontSize: 13, marginTop: 8, display: "inline-block" }}>
+              Forgot your password?
+            </a>
+          </>
+        ) : (
+          <a href="#" onClick={(e) => { e.preventDefault(); setMode("login"); }}>
+            Already have an account? Sign in
+          </a>
+        )}
+      </p>
+    </main>
   );
 }
+
+const styles = {
+  wrap:  { maxWidth: 400, margin: "80px auto", fontFamily: "system-ui", padding: 24 },
+  h1:    { fontSize: 24, marginBottom: 16 },
+  input: { display: "block", width: "100%", padding: "10px 12px", marginBottom: 10, borderRadius: 6, border: "1px solid #ddd", font: "inherit" },
+  btn:   { padding: "10px 16px", width: "100%", background: "#111", color: "#fff", border: "none", borderRadius: 6, fontWeight: 500, cursor: "pointer" },
+  p:     { marginTop: 12, textAlign: "center" },
+  err:   { color: "crimson", fontSize: 14, margin: "8px 0" },
+};

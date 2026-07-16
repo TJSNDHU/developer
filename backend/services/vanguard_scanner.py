@@ -55,7 +55,7 @@ _SECRET_PATTERN_DEFS = [
      r"""(?i)(?<![_a-z])(?:secret|signing[_-]?key|encryption[_-]?key)\s*[:=]\s*['\"][^'\"]{16,}['\"]""",
      "HIGH"),
     ("db_connection_string",
-     r"""(?i)(?:mysql|postgres|postgresql|mongodb|redis|amqp):\/\/[^:]+:[^@]+@""",
+     r"""(?i)(?:mysql|postgres|postgresql|mongodb(?:\+srv)?|redis|amqp):\/\/[^:]+:[^@]+@""",
      "CRITICAL"),
     ("stripe_live_key",
      r"""(?:sk|pk|rk)_live_[A-Za-z0-9]{20,}""",

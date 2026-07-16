@@ -218,9 +218,10 @@ async def _generate_file_tree(
                          "dist/\nbuild/\n.venv/\n")},
         ])
     elif stack == "nextjs-node":
-        # Iter 212m-236 — Real Next.js boilerplate with JWT auth +
-        # aurem-db client. `docker compose up` after materialize gives
-        # a working sign-up/sign-in flow out of the box.
+        # Iter 212m-236/238 — Real Next.js boilerplate with httpOnly-cookie
+        # JWT auth, refresh tokens, rate-limiting, and enumeration-safe
+        # password reset. `docker compose up` after materialize gives
+        # a full production-shaped auth flow out of the box.
         files.extend([
             {"path": "docker-compose.yml",
              "content": _load_template("nextjs-node/docker-compose.yml")},
@@ -228,17 +229,31 @@ async def _generate_file_tree(
              "content": _load_template("nextjs-node/boilerplate/package.json")},
             {"path": "lib/aurem-db.js",
              "content": _load_template("nextjs-node/boilerplate/lib/aurem-db.js")},
+            {"path": "lib/auth.js",
+             "content": _load_template("nextjs-node/boilerplate/lib/auth.js")},
             {"path": "app/page.jsx",
              "content": _load_template("nextjs-node/boilerplate/app/page.jsx")},
             {"path": "app/api/auth/signup/route.js",
              "content": _load_template("nextjs-node/boilerplate/app/api/auth/signup/route.js")},
             {"path": "app/api/auth/login/route.js",
              "content": _load_template("nextjs-node/boilerplate/app/api/auth/login/route.js")},
+            {"path": "app/api/auth/refresh/route.js",
+             "content": _load_template("nextjs-node/boilerplate/app/api/auth/refresh/route.js")},
+            {"path": "app/api/auth/logout/route.js",
+             "content": _load_template("nextjs-node/boilerplate/app/api/auth/logout/route.js")},
+            {"path": "app/api/auth/me/route.js",
+             "content": _load_template("nextjs-node/boilerplate/app/api/auth/me/route.js")},
+            {"path": "app/api/auth/password-reset-request/route.js",
+             "content": _load_template("nextjs-node/boilerplate/app/api/auth/password-reset-request/route.js")},
+            {"path": "app/api/auth/password-reset-confirm/route.js",
+             "content": _load_template("nextjs-node/boilerplate/app/api/auth/password-reset-confirm/route.js")},
             {"path": ".env.example",
              "content": ("AUREM_API_BASE=https://api.auremcto.com\n"
                          "AUREM_APP_ID=pt_replace_at_materialize_time\n"
                          "AUREM_APP_TOKEN=eyJ_your_app_token\n"
-                         "JWT_SECRET=change_me_use_a_long_random_string\n")},
+                         "JWT_SECRET=change_me_use_a_long_random_string\n"
+                         "FRONTEND_URL=http://localhost:3000\n"
+                         "APP_ENV=development\n")},
             {"path": ".gitignore",
              "content": "node_modules/\n.next/\n.env\n.env.local\n"},
         ])
@@ -494,6 +509,61 @@ async def materialize_draft(
             "project_id":   draft.get("project_id"),
         }
 
+    files = draft.get("files") or []
+    if not files:
+        raise HTTPException(400, "Draft has no files to materialize")
+
+    # ── Step 2.5 — SECURITY GATE (Iter 212m-237, Lovable-hardened) ──
+    # Runs BEFORE any AUREM-owned resource is created (repo, project,
+    # deploy) AND before the org-config 503 check — so a scan block
+    # is visible to the user even if some downstream integration
+    # isn't configured. Retroactive by construction — every
+    # materialize call re-runs it, so purane drafts jab redeploy
+    # ho toh they must also pass.
+    from services.scaffold_security_gate import (
+        scan_files as _scan_files,
+        friendly_user_message as _friendly_scan_msg,
+    )
+    override_active = bool(draft.get("override_active"))
+    scan = await _scan_files(files)
+    if not scan["ok"] and not override_active:
+        # Mark the draft as blocked so the frontend can surface the
+        # right state and the founder can inspect from admin.
+        await db.scaffold_drafts.update_one(
+            {"draft_id": draft_id, "user_id": user["user_id"]},
+            {"$set": {
+                "status":             "blocked_by_scan",
+                "scan_summary":       scan["summary"],
+                "scan_blocked_at":    time.time(),
+                "scan_findings_snapshot": scan["findings"][:50],
+            }},
+        )
+        logger.warning(
+            "[materialize] BLOCKED by security gate: draft=%s user=%s summary=%s",
+            draft_id, user["user_id"], scan["summary"],
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason":         "security_scan_failed",
+                "user_message":   _friendly_scan_msg(scan["summary"]),
+                "summary":        scan["summary"],
+                "override_hint":  ("Founders can bypass via POST "
+                                   "/scaffold/{draft_id}/founder-override "
+                                   "(audit-logged)."),
+            },
+        )
+    if override_active and not scan["ok"]:
+        logger.warning(
+            "[materialize] OVERRIDE-BYPASS: draft=%s user=%s reason=%r summary=%s",
+            draft_id, user["user_id"], draft.get("override_reason"), scan["summary"],
+        )
+    # Medium findings are logged but do not block — user's approved
+    # threshold policy.
+    if scan["summary"].get("medium", 0) > 0:
+        logger.info("[materialize] draft=%s advisory medium findings: %d",
+                    draft_id, scan["summary"]["medium"])
+
     if not _org_configured():
         raise HTTPException(
             status_code=503,
@@ -505,10 +575,6 @@ async def materialize_draft(
                 "docs":         "See backend/services/github_org_client.py",
             },
         )
-
-    files = draft.get("files") or []
-    if not files:
-        raise HTTPException(400, "Draft has no files to materialize")
 
     # Repo name: use user's own slug + short id so collisions are rare.
     # Draft-id suffix guarantees uniqueness inside the org.
@@ -668,3 +734,141 @@ async def abandon_draft(
         {"draft_id": draft_id, "user_id": user["user_id"]},
     )
     return {"ok": True, "deleted": res.deleted_count > 0}
+
+
+
+# ── Iter 212m-237 — Founder-only security-gate override ──────────
+class FounderOverrideBody(BaseModel):
+    reason: str = Field(..., min_length=8, max_length=500)
+
+
+@router.post("/{draft_id}/founder-override")
+async def founder_override(
+    draft_id: str,
+    body:     FounderOverrideBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Force-approve a draft that was blocked by the security gate.
+
+    Founder-only (checks `is_founder=True`).  Never mutates the
+    draft's files — only writes an override record that
+    `materialize_draft` will check before re-running the gate.
+    Every override is audit-logged to `db.scaffold_scan_overrides`
+    so we have a paper trail of every bypass, forever.
+
+    Requires a `reason` string (min 8 chars) so we never have
+    unexplained bypasses in the audit log.
+    """
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+
+    draft = await _read_draft(db, draft_id, user["user_id"])
+    if not draft:
+        raise HTTPException(404, "Draft not found or expired")
+    if draft.get("status") != "blocked_by_scan":
+        raise HTTPException(
+            400,
+            {"reason": "not_blocked",
+             "detail": "This draft was not blocked by the security gate."},
+        )
+
+    now = time.time()
+    # Audit log (append-only) — indexed by draft_id + user_id.
+    await db.scaffold_scan_overrides.insert_one({
+        "draft_id":            draft_id,
+        "draft_user_id":       user["user_id"],
+        "overridden_by":       user["user_id"],
+        "overridden_by_email": user.get("email"),
+        "reason":              body.reason.strip()[:500],
+        "findings_snapshot":   draft.get("scan_findings_snapshot") or [],
+        "summary_snapshot":    draft.get("scan_summary") or {},
+        "created_at":          now,
+    })
+    # Flip the draft back to `draft` status so materialize can pick it
+    # up.  materialize_draft will still re-run the scan gate on the
+    # next call — the override is checked in that flow (below).
+    await db.scaffold_drafts.update_one(
+        {"draft_id": draft_id, "user_id": user["user_id"]},
+        {"$set": {
+            "status":              "draft",
+            "override_active":     True,
+            "override_at":         now,
+            "override_reason":     body.reason.strip()[:500],
+        }, "$unset": {
+            "scan_summary":       "",
+            "scan_blocked_at":    "",
+        }},
+    )
+    logger.warning(
+        "[scaffold] FOUNDER OVERRIDE: draft=%s reason=%r by=%s",
+        draft_id, body.reason[:80], user["user_id"],
+    )
+    return {"ok": True, "draft_id": draft_id, "override_active": True,
+            "next_step": "POST /scaffold/{draft_id}/materialize now proceeds."}
+
+
+# ── Iter 212m-237 — LLM health diagnostic (founder-only) ─────────
+@router.get("/admin/llm-health")
+async def llm_health(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Canary probe that fires a tiny scaffold prompt through the
+    Parliament LLM path so the founder can see immediately post-deploy
+    whether real customised generation is firing or whether the
+    endpoint is silently falling back to the heuristic.
+
+    Returns:
+        {
+            ok:            bool,
+            llm_reachable: bool,       # True iff the LLM returned a parseable payload
+            file_count:    int,        # how many files the canary produced
+            model_used:    str | None,
+            fallback:      bool,       # True iff generate_scaffold_via_parliament returned None
+            elapsed_ms:    int,
+        }
+    """
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    from services.scaffold_llm import generate_scaffold_via_parliament
+    import time as _t
+    t0 = _t.time()
+    try:
+        files = await generate_scaffold_via_parliament(
+            brief="A very tiny hello-world app with a signup form.",
+            stack="react-fastapi",
+            user_id=user["user_id"],
+            draft_id="canary_llm_health",
+        )
+    except Exception as e:                                 # noqa: BLE001
+        return {
+            "ok":            False,
+            "llm_reachable": False,
+            "file_count":    0,
+            "model_used":    None,
+            "fallback":      True,
+            "error":         type(e).__name__,
+            "elapsed_ms":    int((_t.time() - t0) * 1000),
+        }
+    elapsed = int((_t.time() - t0) * 1000)
+    if not files:
+        return {
+            "ok":            True,      # Fallback still constitutes a working system
+            "llm_reachable": False,
+            "file_count":    0,
+            "model_used":    None,
+            "fallback":      True,
+            "elapsed_ms":    elapsed,
+        }
+    return {
+        "ok":            True,
+        "llm_reachable": True,
+        "file_count":    len(files),
+        "model_used":    "parliament",   # actual model attribution is in the accounting log
+        "fallback":      False,
+        "elapsed_ms":    elapsed,
+    }

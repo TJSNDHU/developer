@@ -1,6 +1,73 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-237 & 212m-238 — Security Gate + Boilerplate Auth Hardening
+
+**Founder ask (Hinglish):** Two-part urgent security work. (1) Lovable-lesson audit: is the Vanguard scanner actually BLOCKING at materialize, or just informational? Fix immediately if not gated. (2) OWASP audit of every generated auth boilerplate — no localStorage tokens, refresh flow, rate limits, enumeration-safe password reset. Both fixes at the single source of truth so every future generated app inherits them.
+
+**Audit Result — Iter 212m-237 (Security Gate):** ❌ **NOT GATED**. Zero scan calls in `materialize_draft`. Vanguard existed but wasn't invoked at the ingress point. Same failure mode as Lovable's April 2026 breach.
+
+**Audit Result — Iter 212m-238 (Boilerplate Auth):**
+| Stack | localStorage | httpOnly | Refresh | Rate limit | Password reset |
+|-------|-------------|----------|---------|------------|----------------|
+| react-fastapi | ❌ XSS-vulnerable | ❌ | ❌ | ❌ | ❌ |
+| nextjs-node | ✅ | ✅ | ❌ | ❌ | ❌ |
+| vue-express | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+**Shipped — Iter 212m-237 (Security Gate):**
+- **NEW `services/scaffold_security_gate.py`** — single-source `scan_files(files)` reused by every ship path:
+  * Threshold policy: CRITICAL+HIGH block, MEDIUM warn, INFO log.
+  * Two layers: (1) Vanguard 007 pattern catalog (25+ rules: secrets, SQLi, eval, shell=True, pickle, yaml.load, XSS, DB URIs); (2) path-safety (blocks `../`, absolute, disallowed extensions).
+  * **Fail-CLOSED on scanner error** — a scanner crash rejects the ship, opposite of most fault-tolerance patterns but the correct security posture.
+  * `friendly_user_message()` translates severity totals into jargon-free copy for non-tech users.
+- **UPDATED `routers/scaffold.py:materialize_draft`** — scan gate wired BEFORE `create_org_repo`, `push_files_bulk`, and Vercel deploy. Blocked drafts marked `status="blocked_by_scan"` with summary + findings snapshot persisted for admin inspection.
+- **NEW `POST /scaffold/{draft_id}/founder-override`** — audit-logged bypass (min 8-char reason required), writes to `db.scaffold_scan_overrides`, requires `is_founder OR is_admin`.
+- **NEW `GET /scaffold/admin/llm-health`** — canary probe returning `{ok, llm_reachable, file_count, fallback, elapsed_ms}` so founder can post-deploy verify whether Parliament LLM is firing or fallback is active.
+- **Retroactive coverage**: single `scan_files()` function reused everywhere; new draft OR redeploy both re-scan.
+- **Fixed Vanguard gap**: `db_connection_string` regex extended to match `mongodb+srv://` (Atlas URI form) — was previously missed.
+
+**Live verification (preview):**
+- Injected AWS key + eval() into a draft → materialize returned **HTTP 422** with `reason: security_scan_failed`, friendly user message, and `summary: {critical: 2}`.
+- Draft flipped to `status: blocked_by_scan`. Founder override → 200 with audit log written.
+- LLM health probe returns `{llm_reachable: false, fallback: true, elapsed_ms: 29449}` on preview (expected, key not routed for `mode=code`).
+
+**Shipped — Iter 212m-238 (Boilerplate Auth Hardening):**
+- **`react-fastapi/api/auth.py`** rewritten (110→200 LOC):
+  * httpOnly + Secure-in-prod + SameSite=Lax cookies (killed localStorage read/write in App.jsx)
+  * Access token 1h + refresh token 30d, `POST /auth/refresh` rotates both
+  * Sliding-window rate limit (5/15min/IP) per bucket (signup, login, reset_request, reset_confirm)
+  * `POST /auth/password-reset-request` → **202 with generic message ALWAYS** (enumeration-safe), 15-min single-use token, printed to server logs in dev
+  * `POST /auth/password-reset-confirm` → token in BODY, never URL
+  * Constant-time bcrypt on login even when user missing (timing side-channel guard)
+- **`react-fastapi/ui/src/App.jsx`** — `credentials: "include"` on all fetches, `apiFetch()` wrapper handles 401 → auto-refresh → retry, NO localStorage anywhere.
+- **`nextjs-node/`** — added `lib/auth.js` shared helper, new `refresh/`, `logout/`, `me/`, `password-reset-request/`, `password-reset-confirm/` route.js files. All same invariants.
+- **`vue-express/server/index.js`** rewritten — same invariants: rate-limit middleware, refresh endpoint, password reset flow, constant-time bcrypt.
+- **UPDATED `routers/scaffold.py`** — nextjs-node stack now emits 12 files (was 5), including the full auth suite.
+
+**Regression protection: `test_iter212m238_boilerplate_auth_audit.py` — 15 tests, ALL GREEN:**
+- `test_no_localstorage_token_storage_in_any_boilerplate` — banned pattern regex on EVERY auth file, fails CI if reintroduced
+- httpOnly / SameSite / Secure-in-prod on all 3 stacks
+- refresh endpoint exists on all 3
+- access-token TTL ≤ 1h
+- rate limit on signup/login/reset_request/reset_confirm across all 3
+- password reset: 202 + generic message + body-only token + 15-min TTL + single-use
+- constant-time bcrypt on missing users
+- neutral messaging on taken-email signup
+
+**Regression protection: `test_iter212m237_security_gate.py` — 22 tests, ALL GREEN:**
+- 9 parametrized attack patterns (AWS/OpenAI/Mongo secrets, SQLi, eval, shell=True, pickle, yaml.load, innerHTML) each cause `ok=False`
+- path traversal rejected
+- clean files pass
+- medium-only findings don't block
+- scanner crash fails CLOSED
+- static assertions on router wire-in order (gate BEFORE create_org_repo/push_files_bulk/deploy)
+- founder override requires reason + audit log entry
+- LLM health endpoint founder-only + returns expected shape
+
+**Test totals: 155+ passing across all phases** (P0 + Phases 1-5 + Track + Tier 2 + Security Gate + Auth Audit).
+
+
+
 ### 2026-02-13 — Iter 212m-236 — Tier 2: Parliament LLM wire-in + real boilerplate for 3 stacks
 
 **Founder ask (Hinglish):** Heuristic scaffolder ko replace karo real Parliament call se. User ke brief ko actually process karo, custom code + file tree emit karo. Boilerplate base template ki tarah reference use karo. `_MAX_FILES_PER_DRAFT=20` cap maintain karo. Per-generation LLM cost `financials.py` mein log karo. Aur baaki 3 stacks (nextjs-node, vue-express, plain-html) ki real boilerplate — same bar jo react-fastapi ka hai: clone+run genuinely works, auth included, aurem_db_client SDK wired.

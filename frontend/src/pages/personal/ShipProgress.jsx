@@ -77,7 +77,21 @@ export default function ShipProgress() {
       } catch (e) {
         if (cancelled) return;
         // NEVER surface raw error content. Always plain language.
-        const kind = e?.response?.status === 503 ? "config" : "unknown";
+        // Iter 212m-237: HTTP 422 with reason=security_scan_failed
+        // means the security gate blocked us. Route that to a
+        // distinct branch so the user sees the "refine your brief"
+        // guidance and NOT the "try again" retry loop.
+        const status = e?.response?.status;
+        const detail = e?.response?.data?.detail || {};
+        if (status === 422 && detail.reason === "security_scan_failed") {
+          setFailed("scan");
+          toast.error(
+            detail.user_message ||
+            "We spotted something we don't want to ship as-is. Refine your brief.",
+          );
+          return;
+        }
+        const kind = status === 503 ? "config" : "unknown";
         setFailed(kind);
         toast.error(
           kind === "config"
@@ -137,34 +151,50 @@ export default function ShipProgress() {
 
         {failed && (
           <div style={{
-            marginTop: 40, padding: "16px 20px",
-            background: "rgba(224,122,95,0.08)",
+            marginTop: 40, padding: "20px 22px",
+            background: failed === "scan" ? "rgba(224,122,95,0.06)" : "rgba(224,122,95,0.08)",
             border: "1px solid rgba(224,122,95,0.24)",
-            borderRadius: 12,
+            borderRadius: 12, textAlign: "left",
           }}>
-            <p style={{ fontSize: 14, color: "#1C1C19", margin: 0 }}>
-              We couldn&apos;t finish this one. Your draft is safe — try shipping again
-              in a minute, or head back to review it.
-            </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 12, justifyContent: "center" }}>
-              <button
-                data-testid="ship-retry-button"
-                onClick={() => window.location.reload()}
-                style={{
-                  border: "none", background: "#E07A5F", color: "#fff",
-                  padding: "10px 20px", borderRadius: 999, fontSize: 13,
-                  fontWeight: 600, cursor: "pointer",
-                }}
-              >Try again</button>
+            {failed === "scan" ? (
+              <>
+                <p style={{ fontSize: 15, fontWeight: 600, color: "#1C1C19", margin: "0 0 8px" }}>
+                  We spotted something we don&apos;t want to ship yet.
+                </p>
+                <p style={{ fontSize: 14, color: "#4B4B45", margin: 0, lineHeight: 1.6 }}>
+                  Try being more specific in your brief — especially about
+                  how users sign in and what data your app stores.
+                  We&apos;ll try again with a safer version.
+                </p>
+              </>
+            ) : (
+              <p style={{ fontSize: 14, color: "#1C1C19", margin: 0 }}>
+                We couldn&apos;t finish this one. Your draft is safe — try shipping again
+                in a minute, or head back to review it.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "center" }}>
+              {failed !== "scan" && (
+                <button
+                  data-testid="ship-retry-button"
+                  onClick={() => window.location.reload()}
+                  style={{
+                    border: "none", background: "#E07A5F", color: "#fff",
+                    padding: "10px 20px", borderRadius: 999, fontSize: 13,
+                    fontWeight: 600, cursor: "pointer",
+                  }}
+                >Try again</button>
+              )}
               <button
                 data-testid="ship-back-button"
                 onClick={() => nav(`/build/${draftId}`)}
                 style={{
-                  border: "1px solid #E5E5DF", background: "transparent",
+                  border: "1px solid #E5E5DF", background: failed === "scan" ? "#E07A5F" : "transparent",
                   padding: "10px 20px", borderRadius: 999, fontSize: 13,
-                  fontWeight: 500, cursor: "pointer", color: "#1C1C19",
+                  fontWeight: failed === "scan" ? 600 : 500, cursor: "pointer",
+                  color: failed === "scan" ? "#fff" : "#1C1C19",
                 }}
-              >Back to draft</button>
+              >{failed === "scan" ? "Refine my brief" : "Back to draft"}</button>
             </div>
           </div>
         )}
