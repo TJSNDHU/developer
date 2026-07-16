@@ -12597,3 +12597,20 @@ The specific prod trigger was most likely a 403 secondary rate-limit on the foun
 - Cloudflare's HTML intercept only fires on 5xx, so 4xx errors always surface as clean JSON now
 
 NEEDS PRODUCTION REDEPLOY.
+
+---
+## Iter 212m-240 — Tier 3/4 Backend + Personal Track Admin Panel (VERIFIED — June 2026)
+
+**Backend (pytest 29/29 green — test_iter212m240_tier3_tier4_billing_gate.py):**
+- Tier 3: /supabase/provision gated by billing tier; Stripe webhook wires downgrades; transfer-to-user endpoints (DB: POST /supabase/{app_id}/transfer-to-user, Repo: POST /scaffold/{draft_id}/transfer-repo)
+- Tier 4: rate limiting on scaffold generation/regeneration via personal_track_quotas.py; GET /scaffold/quota/status works (founder=unlimited)
+- Admin API: /scaffold/admin/{draft-summary,blocked-drafts,personal-projects} — all curl-verified 200
+
+**Frontend (testing_agent iteration_29.json — 90% pass, 1 UX bug FIXED):**
+- /admin/personal-track (PersonalTrackAdmin.jsx) renders tiles, health cards, empty states; sidebar link works
+- FIXED: 30s full-page spinner — llm-health probe (~30s upstream) split into independent non-blocking effect with per-card loading state; page now renders <6s (screenshot-verified)
+- FIXED: all-401 probe responses now redirect to /login instead of silent spinner
+
+**Status report delivered to user:** Tier 2.5 shipped (Sandpack <2s, E2B isolated), P0 created-at-health healthy:true, mcp.py router fully independent.
+
+**Remaining P1s:** Ask Advisor → RAG few-shot logs (chat.py ora_panel skip), destructive loop testing F03/F08/F10/F19 on sandbox repo, Phase 1 MCP sidecar, *.aurem.app wildcard DNS.

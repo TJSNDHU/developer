@@ -67,34 +67,55 @@ export default function PersonalTrackAdmin() {
   const [projects,       setProjects]       = useState([]);
   const [downgrades,     setDowngrades]     = useState(null);
   const [llmHealth,      setLlmHealth]      = useState(null);
+  const [llmLoading,     setLlmLoading]     = useState(true);
+
+  // Slow probe (~30s upstream LLM canary) — fired independently so it
+  // never gates the rest of the dashboard.
+  const loadLlmHealth = useCallback(async () => {
+    setLlmLoading(true);
+    try {
+      const res = await api.get("/scaffold/admin/llm-health");
+      setLlmHealth(res.data);
+    } catch (e) {
+      setLlmHealth(null);
+    } finally {
+      setLlmLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [sumRes, healthRes, blockedRes, projRes, dgRes, llmRes] =
+      const [sumRes, healthRes, blockedRes, projRes, dgRes] =
         await Promise.allSettled([
           api.get("/scaffold/admin/draft-summary"),
           api.get("/admin/dev-users/created-at-health"),
           api.get("/scaffold/admin/blocked-drafts"),
           api.get("/scaffold/admin/personal-projects"),
           api.get("/supabase/admin/pending-downgrades"),
-          api.get("/scaffold/admin/llm-health"),
         ]);
+      const results = [sumRes, healthRes, blockedRes, projRes, dgRes];
+      const all401 = results.every(
+        (r) => r.status === "rejected" && r.reason?.response?.status === 401,
+      );
+      if (all401) {
+        nav("/login");
+        return;
+      }
       if (sumRes.status     === "fulfilled") setSummary(sumRes.value.data);
       if (healthRes.status  === "fulfilled") setHealth(healthRes.value.data);
       if (blockedRes.status === "fulfilled") setBlocked(blockedRes.value.data?.rows || []);
       if (projRes.status    === "fulfilled") setProjects(projRes.value.data?.rows || []);
       if (dgRes.status      === "fulfilled") setDowngrades(dgRes.value.data);
-      if (llmRes.status     === "fulfilled") setLlmHealth(llmRes.value.data);
     } catch (e) {
       toast.error("Load failed");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [nav]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadLlmHealth(); }, [load, loadLlmHealth]);
 
   const override = async (draftId) => {
     const reason = window.prompt(
@@ -166,7 +187,7 @@ export default function PersonalTrackAdmin() {
             </div>
           </div>
           <button
-            onClick={load}
+            onClick={() => { load(); loadLlmHealth(); }}
             disabled={refreshing}
             className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition text-sm"
             data-testid="pt-admin-refresh"
@@ -235,19 +256,28 @@ export default function PersonalTrackAdmin() {
               icon={Cpu}
               title="Parliament LLM (scaffold canary)"
             />
-            <div className="flex items-baseline gap-3">
-              <span className={`text-2xl font-semibold ${llmReachable ? "text-emerald-300" : "text-amber-300"}`}>
-                {llmReachable ? "reachable" : (llmHealth?.fallback ? "fallback active" : "unavailable")}
-              </span>
-              <span className="text-xs text-white/50">
-                {llmHealth?.file_count || 0} files • {llmHealth?.elapsed_ms || 0}ms
-              </span>
-            </div>
-            <div className="mt-3 text-xs text-white/40">
-              {llmReachable
-                ? "Real customised generation is firing."
-                : "Generated apps use the heuristic boilerplate (still runnable)."}
-            </div>
+            {llmLoading ? (
+              <div className="flex items-center gap-2 text-white/50 text-sm" data-testid="pt-llm-probing">
+                <Loader2 size={16} className="animate-spin" />
+                Probing LLM canary (can take ~30s)…
+              </div>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-3">
+                  <span className={`text-2xl font-semibold ${llmReachable ? "text-emerald-300" : "text-amber-300"}`}>
+                    {llmReachable ? "reachable" : (llmHealth?.fallback ? "fallback active" : "unavailable")}
+                  </span>
+                  <span className="text-xs text-white/50">
+                    {llmHealth?.file_count || 0} files • {llmHealth?.elapsed_ms || 0}ms
+                  </span>
+                </div>
+                <div className="mt-3 text-xs text-white/40">
+                  {llmReachable
+                    ? "Real customised generation is firing."
+                    : "Generated apps use the heuristic boilerplate (still runnable)."}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
