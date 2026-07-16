@@ -68,6 +68,12 @@ FIXED_INFRA_USD_PER_MONTH = {
     "Domain + SSL":       2,
 }
 
+# Iter 212m-234 — Phase 5 marginal cost per provisioned Supabase
+# project. AUREM absorbs the base plan and passes only the per-project
+# compute figure into the P&L. If no projects are provisioned this
+# adds zero to the burn.
+SUPABASE_PROJECT_USD_PER_MONTH = 10.0
+
 
 # ─── Live FX rate (USD → CAD), cached 24h in process memory ───────────
 _fx_cache: dict = {"rate": None, "fetched_at": 0.0, "source": "init"}
@@ -242,6 +248,28 @@ async def _real_maxx_usage_this_month(db) -> int:
     return 0
 
 
+async def _real_supabase_projects_cost(db) -> dict:
+    """Iter 212m-234 — Sum the per-month compute cost of every
+    active (non-downgrading) Supabase project across all users.
+
+    Returns:
+        { "count": int, "monthly_usd": float }
+    """
+    try:
+        active = await db.supabase_projects.count_documents({
+            "$or": [
+                {"downgrade_pending": {"$exists": False}},
+                {"downgrade_pending": False},
+            ]
+        })
+    except Exception:
+        active = 0
+    return {
+        "count":       int(active),
+        "monthly_usd": round(active * SUPABASE_PROJECT_USD_PER_MONTH, 2),
+    }
+
+
 # ─── Master compute ───────────────────────────────────────────────────
 async def compute_financials(db) -> dict:
     settings = await get_settings(db)
@@ -291,6 +319,12 @@ async def compute_financials(db) -> dict:
     # Fixed costs
     fixed_costs = dict(FIXED_INFRA_USD_PER_MONTH)
     fixed_costs["Dev pay (yours)"] = round(settings["dev_salary_usd"], 2)
+    # Iter 212m-234 — Phase 5 Supabase compute is variable but predictable
+    # per active project. Surface it as its own fixed-cost line so the
+    # admin dashboard shows the running per-project burn separately.
+    supabase_cost = await _real_supabase_projects_cost(db)
+    if supabase_cost["count"] > 0:
+        fixed_costs[f"Supabase dedicated ({supabase_cost['count']} projects)"] = supabase_cost["monthly_usd"]
     total_fixed = sum(fixed_costs.values())
 
     total_burn = total_fixed + ai_cost + stripe_fees
@@ -367,6 +401,7 @@ async def compute_financials(db) -> dict:
         "real_user_counts": real_counts,
         "real_mrr_usd":     real_mrr,
         "maxx_used_total":  maxx_used_total,
+        "supabase_projects": supabase_cost,
         "metrics": {
             "mrr_usd":           round(mrr, 2),
             "mrr_source":        mrr_source,

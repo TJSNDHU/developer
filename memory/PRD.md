@@ -1,6 +1,76 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-234 — Personal Track Phase 5: Supabase Provisioner (Paid Tier)
+
+**Founder ask (Hinglish):** Phase 5 shuru karo — Supabase Management API se async project creation, JSON→SQL schema translation, background data migration from Phase 4 shared Mongo, ops guardrails ($10/mo cost tracking), graceful 503 if `SUPABASE_MANAGEMENT_TOKEN` missing. Downgrade path product decision flag karo (paid → free tier ka data kya karna).
+
+**Shipped:**
+
+1. **NEW: `services/supabase_provisioner.py`** — end-to-end provisioning module:
+   - **Config gates**: requires BOTH `SUPABASE_MANAGEMENT_TOKEN` and `SUPABASE_ORG_ID`; missing either → `is_configured()` False, callers return graceful 503 with plain-text founder instructions (same pattern as Phase 2 GitHub org + Phase 3 Vercel).
+   - **`create_project(user_id, project_id, region, display_name)`** — POSTs to `https://api.supabase.com/v1/projects` with a namespaced `aurem-{user}-{name}` slug (40-char cap), deterministic-per-project DB password derived from `SUPABASE_DB_PASSWORD_SALT`, returns project ref immediately (async — cluster comes up in 1-3 min).
+   - **`get_project_status(project_ref)`** — polls Management API for `ACTIVE_HEALTHY`.
+   - **`run_sql(project_ref, sql)`** — executes DDL/DML via the Management API's `/database/query` endpoint.
+   - **`translate_schema_to_sql(schemas)`** — JSON-schema → `CREATE TABLE IF NOT EXISTS` with type mapping (`string`→TEXT, `integer`→BIGINT, `number`→DOUBLE PRECISION, `boolean`→BOOLEAN, `object`/`array`→JSONB). Every table auto-gets `id UUID PRIMARY KEY`, `user_id TEXT NOT NULL`, `created_at TIMESTAMPTZ`. `_pg_ident()` strips non-alphanumerics + prefixes digit-leading names — SQL-injection-safe at the identifier level.
+   - **`migrate_from_shared_mongo(db, app_id, user_id, project_ref)`** — reuses Phase 4's `export_app_data()` helper (respects `{app_id, user_id}` scope), infers a JSON schema from observed data, batches INSERTs at 200 rows/query. Returns per-collection migration counts + errors.
+   - **`apply_downgrade(db, app_id, user_id, policy)`** — writes `downgrade_pending` marker with grace-until timestamp. Four policies (env-configurable via `SUPABASE_DOWNGRADE_POLICY`):
+     * `migrate_back` (**DEFAULT**) — copies dedicated Postgres data BACK into shared Mongo, 7-day grace, then project deleted
+     * `read_only` — writes blocked, 30-day grace
+     * `export_delete` — SQL dump emailed to user, 7-day grace
+     * `keep_bill_user` — project preserved, transfer option to user's own Supabase org
+   - **`delete_project(project_ref)`** — cleanup for aborted provisions and grace-expiry sweeper.
+   - `_friendly_error()` translates Supabase 402/409/401/500 into plain sentences — non-tech users NEVER see raw JSON.
+   - **Cost constant** `COST_USD_PER_PROJECT_PER_MONTH = 10.0` exposed for `financials.py`.
+
+2. **NEW: `routers/supabase.py`** — REST facade at `/api/aurem-dev/supabase`:
+   - `POST /{app_id}/provision` — auth → 503-check → ownership → idempotent create → schedule background migration task
+   - `GET  /{app_id}/status` — poll provisioning + migration progress (fetches live Supabase status too)
+   - `POST /{app_id}/downgrade` — apply configured policy with founder override
+   - `DELETE /{app_id}` — force-destroy (founder-only via `is_founder` check, skips grace period)
+   - Auth-first-then-503 order: unauth callers get 401 (leak-safe), authenticated founder gets useful 503 setup message.
+   - Every endpoint calls `_verify_paid_app_ownership()` — 4+ call-sites enforce cross-tenant isolation.
+
+3. **UPDATED: `services/financials.py`** — Supabase cost line item in the P&L:
+   - `SUPABASE_PROJECT_USD_PER_MONTH = 10.0` constant.
+   - `_real_supabase_projects_cost(db)` counts active (non-downgrading) projects.
+   - `compute_financials()` output now includes `"supabase_projects": {count, monthly_usd}` and dynamically adds `"Supabase dedicated (N projects)"` line to `fixed_costs`.
+
+4. **WIRED: `main.py`** — `supabase_router` imported + registered under `/api/aurem-dev`.
+
+5. **NEW: `backend/tests/test_iter212m234_phase5_supabase.py`** — 20 tests, all passing:
+   - Config guards (both env vars required, structured 503 body)
+   - Slug + project name length caps
+   - SQL identifier safety (no injection possible)
+   - Deterministic password derivation with salt
+   - Schema translation covers all 7 JSON types
+   - SQL literal escaping (quotes, None→NULL, dict→JSONB)
+   - INSERT batching + empty-docs guard
+   - Downgrade policy default + env override + invalid fallback
+   - Friendly error never leaks raw JSON
+   - Cost constant + financials wire-in
+   - Router registration + all 4 endpoints present
+   - Force-destroy is founder-gated
+   - Every endpoint calls ownership verifier
+   - Migration uses `export_app_data` helper
+
+**Regression:** 70 tests across Phases 1-5 all pass. Backend healthy. Unauth probes get 401 (not 503).
+
+**Product decision pending (user):** Downgrade path — default is `migrate_back` (safest for user data) but user asked to flag this for explicit confirmation. Configurable via `SUPABASE_DOWNGRADE_POLICY` env var; 4 policies coded.
+
+**Configuration needed for live use:**
+```
+SUPABASE_MANAGEMENT_TOKEN  = sbp_...   # https://supabase.com/dashboard/account/tokens
+SUPABASE_ORG_ID            = <AUREM org id>
+SUPABASE_DEFAULT_REGION    = us-east-1  # optional
+SUPABASE_DB_PASSWORD_SALT  = <long random>  # optional but recommended
+SUPABASE_DOWNGRADE_POLICY  = migrate_back    # optional; migrate_back|read_only|export_delete|keep_bill_user
+```
+
+Without these the graceful 503 fires — no crashes, no partial state.
+
+
+
 ### 2026-02-13 — Iter 212m-233 — Personal Track Phase 3+4: Vercel platform-owned deploy + AUREM_MANAGED_DB
 
 **Founder ask (Hinglish):** Phase 3+4 combined — Vercel platform-owned deploy (aurem-{user}-{project} namespace, MUST-HAVE spend guardrail, plain-language errors) + AUREM_MANAGED_DB free-tier shared MongoDB (server-side cross-tenant isolation, per-app quota, boilerplate uses scoped SDK not raw Mongo). Vercel Pro team assumed to not yet exist — graceful-503 pattern.
