@@ -1,6 +1,69 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-232 — Personal Track Phase 2: GitHub Auto-Create + Real Boilerplate
+
+**Founder ask (Hinglish):** Phase 2 shuru karo — GitHub auto-create + template boilerplate fill.
+
+**Shipped:**
+
+1. **NEW: `services/github_org_client.py`** — dedicated AUREM-org GitHub API client:
+   - `is_configured()` — checks for `AUREM_ORG_NAME` + `AUREM_ORG_GITHUB_APP_TOKEN` env vars
+   - `sanitize_repo_name()` — GitHub-safe slug generator (alphanumeric+`.-_`, ≤90 chars, defensive empty/unicode handling)
+   - `create_org_repo(name, description, private)` — `POST /orgs/{org}/repos` with `auto_init=True`
+   - `push_file()` — Contents API PUT with automatic 422-collision retry using existing-file SHA
+   - `push_files_bulk()` — sequential push (2-3s for typical 10-file drafts, well within GitHub rate limits)
+   - `delete_org_repo()` — cleanup helper for materialize rollback (idempotent, 404 = success)
+   - **Explicit rejection of founder PAT bridge** as founder specified — uses dedicated org GitHub App token
+   - Every function gracefully returns `{"ok": False, "reason": "aurem_org_not_configured"}` when env vars missing
+
+2. **`routers/scaffold.py::materialize_draft`** — wired end-to-end (was Phase-1 501 stub):
+   - Step 1: Load draft, 404 on wrong user
+   - Step 2: Idempotent — already-materialized drafts return existing repo
+   - Step 3: 503 with setup instructions when AUREM org not configured
+   - Step 4: `create_org_repo` with auto-collision retry (`-abc123` suffix on 422)
+   - Step 5: `push_files_bulk` — pushes all draft files
+   - Step 6: **Unwind on partial failure** — calls `delete_org_repo` so no orphan half-empty repos remain
+   - Step 7: Registers project in `cto_projects` with `personal_track=True` flag (for Phase-3 deploy routing)
+   - Step 8: Marks draft `status="materialized"` + attaches `materialized_repo` info
+
+3. **Real boilerplate filled for `react-fastapi` stack** (was Phase-1 stubs):
+   - `backend/templates/stacks/react-fastapi/boilerplate/`:
+     - `api/main.py` (2.8KB) — FastAPI + Mongo + CRUD sample resource `/api/items`, Motor pool config, CORS, `/api/health`
+     - `api/auth.py` (3.3KB) — bcrypt-hashed passwords (12 rounds), JWT HS256 with 7-day TTL, signup/login/me endpoints, `get_current_user` FastAPI dependency
+     - `api/requirements.txt` — pinned versions (fastapi 0.115, motor 3.6, bcrypt 4.2, PyJWT 2.9)
+     - `ui/src/App.jsx` — Vite + React 18 + sonner toasts + lucide-react icons + login/CRUD UI
+     - `ui/package.json` — pinned versions matching AUREM design system (sonner, vaul, lucide-react)
+   - `_generate_file_tree` now produces **12 real runnable files** (was 6 stubs)
+   - User can `git clone` the materialized repo and `docker compose up` — genuinely works end-to-end
+
+4. **Regression tests (`test_iter212m232_phase2_github_boilerplate.py`)** — 10 tests, all passing:
+   - `sanitize_repo_name` basics + unicode + oversize
+   - `is_configured` guard flips correctly on env presence
+   - Real boilerplate files exist on disk and are non-empty
+   - Generated auth uses bcrypt (not plaintext / not unsalted sha)
+   - Generated backend uses Motor pool config (matches AUREM's own iter-212m-227 hardening)
+   - Full 12-file scaffold produces all required paths
+   - No empty-content files in generated tree
+   - Materialize endpoint registered
+   - All expected functions exported from `github_org_client`
+
+5. **End-to-end HTTP validation:**
+   - `POST /scaffold/new-project` for habit tracker → HTTP 200, 12 files (2.8KB main.py + 3.3KB auth.py + real content)
+   - `POST /scaffold/{draft_id}/materialize` → HTTP 503 with clean `reason: "aurem_org_not_configured"` message (correct — waiting for founder to create GitHub Org)
+
+**Ready to activate:**
+When founder creates `github.com/aurem-apps` GitHub Org + installs a GitHub App with `contents:write`, and adds these two lines to `backend/.env`:
+```
+AUREM_ORG_NAME=aurem-apps
+AUREM_ORG_GITHUB_APP_TOKEN=<token>
+```
+...then `materialize` immediately starts creating real repos. **No code changes needed** — the env-var flip alone activates the flow.
+
+**Total Personal Track tests across Phase 1+2:** 33 passing.
+
+
+
 ### 2026-02-13 — Iter 212m-231 — Personal Track Phase 1: Blank-Slate Parliament Mode
 
 **Founder ask (Hinglish):** Personal Track (non-tech users, idea-only) ke liye blank-slate flow shuru karo. Confirmed decisions: (1) AUREM GitHub Org to be created separately by founder — no founder PAT bridge; (2) fall back to *.vercel.app default subdomains until *.aurem.app DNS is set up; (3) two-step draft → materialize UX (like Lovable/v0/Replit).

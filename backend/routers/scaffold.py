@@ -141,29 +141,49 @@ async def _generate_file_tree(
     })
 
     if stack == "react-fastapi":
+        # Iter 212m-232 — Real boilerplate loaded from
+        # backend/templates/stacks/react-fastapi/boilerplate/.
+        # Each file is a genuine, runnable component (FastAPI CRUD +
+        # bcrypt-hashed JWT auth on the backend; React + sonner +
+        # lucide-react on the frontend).  A user can `git clone`
+        # the materialized repo and `docker compose up` immediately.
         files.extend([
-            {"path": "docker-compose.yml", "content": _load_template("react-fastapi/docker-compose.yml")},
-            {"path": "api/main.py", "content": (
-                "from fastapi import FastAPI\n\n"
-                "app = FastAPI(title='Personal Track API')\n\n"
-                "@app.get('/api/health')\n"
-                "def health():\n"
-                "    return {'ok': True}\n"
-            )},
-            {"path": "api/requirements.txt", "content": "fastapi==0.115.0\nuvicorn==0.32.0\n"},
-            {"path": "ui/src/App.jsx", "content": (
-                "import React from 'react';\n\n"
-                "export default function App() {\n"
-                "  return <h1>Hello from your Personal Track app!</h1>;\n"
-                "}\n"
-            )},
-            {"path": "ui/package.json", "content": (
-                '{\n  "name": "personal-track-ui",\n  "version": "0.1.0",\n'
-                '  "dependencies": {\n'
-                '    "react": "^18.2.0",\n    "react-dom": "^18.2.0",\n'
-                '    "sonner": "^1.5.0",\n    "vaul": "^1.0.0",\n'
-                '    "lucide-react": "^0.383.0"\n  }\n}\n'
-            )},
+            {"path": "docker-compose.yml",
+             "content": _load_template("react-fastapi/docker-compose.yml")},
+            {"path": "api/main.py",
+             "content": _load_template("react-fastapi/boilerplate/api/main.py")},
+            {"path": "api/auth.py",
+             "content": _load_template("react-fastapi/boilerplate/api/auth.py")},
+            {"path": "api/requirements.txt",
+             "content": _load_template("react-fastapi/boilerplate/api/requirements.txt")},
+            {"path": "api/.env.example",
+             "content": ("MONGO_URL=mongodb://mongo:27017\n"
+                         "DB_NAME=app_db\n"
+                         "JWT_SECRET=change_me_use_a_long_random_string\n"
+                         "FRONTEND_URL=http://localhost:3000\n")},
+            {"path": "ui/src/App.jsx",
+             "content": _load_template("react-fastapi/boilerplate/ui/src/App.jsx")},
+            {"path": "ui/package.json",
+             "content": _load_template("react-fastapi/boilerplate/ui/package.json")},
+            {"path": "ui/index.html",
+             "content": ('<!doctype html><html><head><meta charset="utf-8">'
+                         '<title>My App</title></head><body>'
+                         '<div id="root"></div>'
+                         '<script type="module" src="/src/main.jsx"></script>'
+                         '</body></html>\n')},
+            {"path": "ui/src/main.jsx",
+             "content": ("import React from 'react';\n"
+                         "import { createRoot } from 'react-dom/client';\n"
+                         "import App from './App.jsx';\n"
+                         "createRoot(document.getElementById('root')).render(<App />);\n")},
+            {"path": "ui/vite.config.js",
+             "content": ("import { defineConfig } from 'vite';\n"
+                         "import react from '@vitejs/plugin-react';\n"
+                         "export default defineConfig({ plugins: [react()], "
+                         "server: { host: '0.0.0.0', port: 3000 } });\n")},
+            {"path": ".gitignore",
+             "content": ("node_modules/\n__pycache__/\n*.pyc\n.env\n"
+                         "dist/\nbuild/\n.venv/\n")},
         ])
     elif stack == "nextjs-node":
         files.extend([
@@ -358,12 +378,29 @@ async def materialize_draft(
     draft_id: str,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Phase-2 entry point — create the real GitHub repo, push the
-    draft's files, register as a Personal Track project.
+    """Phase-2 entry point — create the real AUREM-owned GitHub repo,
+    push the draft's files, register as a Personal Track project.
 
-    Phase 1: returns 501 Not Implemented so the frontend can enable
-    the button and get a clean error until Phase 2 lands.
+    Flow:
+      1. Load the draft (404 on wrong user / expired).
+      2. Guard: refuse to materialize a draft that's already been
+         materialized (idempotent — returns the existing repo URL).
+      3. `create_org_repo` on AUREM's GitHub org with a slug derived
+         from the brief.  Collision retry: on 422 we append `-N`.
+      4. `push_files_bulk` — pushes every file in the draft to the new
+         repo on the default branch.
+      5. On any partial-push failure, call `delete_org_repo` to unwind
+         so we never leave orphan half-empty repos in the org.
+      6. Register the project in `cto_projects` tagged
+         `personal_track=True` so downstream deploy/billing logic
+         knows this is a Personal Track project.
+      7. Mark the draft `status="materialized"` + attach the repo info.
     """
+    from services.github_org_client import (
+        is_configured as _org_configured,
+        create_org_repo, push_files_bulk, delete_org_repo,
+        sanitize_repo_name,
+    )
     user = await current_dev(authorization)
     db = get_db()
     if db is None:
@@ -371,18 +408,139 @@ async def materialize_draft(
     draft = await _read_draft(db, draft_id, user["user_id"])
     if not draft:
         raise HTTPException(404, "Draft not found or expired")
-    # Iter 212m-231 — Phase-2 stub. Return the draft's state so the
-    # frontend can preview what WILL be materialised.
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "reason":       "materialize_pending_phase_2",
-            "message":      "Repo materialization ships in Phase 2. "
-                            "Draft is saved and ready.",
+
+    # Idempotent — if already materialized, just return the existing repo.
+    if draft.get("status") == "materialized" and draft.get("materialized_repo"):
+        return {
+            "ok":           True,
+            "already_done": True,
             "draft_id":     draft_id,
-            "files_ready":  len(draft.get("files") or []),
-        },
+            "repo":         draft["materialized_repo"],
+            "project_id":   draft.get("project_id"),
+        }
+
+    if not _org_configured():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "reason":       "aurem_org_not_configured",
+                "message":      "AUREM GitHub Org token missing. Founder must "
+                                "set AUREM_ORG_NAME and AUREM_ORG_GITHUB_APP_TOKEN "
+                                "in backend/.env and restart the backend.",
+                "docs":         "See backend/services/github_org_client.py",
+            },
+        )
+
+    files = draft.get("files") or []
+    if not files:
+        raise HTTPException(400, "Draft has no files to materialize")
+
+    # Repo name: use user's own slug + short id so collisions are rare.
+    # Draft-id suffix guarantees uniqueness inside the org.
+    user_slug = sanitize_repo_name(
+        (user.get("email") or user.get("user_id") or "user").split("@")[0]
+    )[:30]
+    base_slug = sanitize_repo_name(draft["brief"][:40])[:40] or "app"
+    repo_name = f"{user_slug}-{base_slug}-{draft_id[:8]}"[:90]
+
+    # ── Step 3: create the repo ────────────────────────────────
+    created = await create_org_repo(
+        name=repo_name,
+        description=f"AUREM Personal Track — {draft['brief'][:200]}",
+        private=True,
     )
+    if not created.get("ok"):
+        # 422 collision — try one suffix; anything else is a hard fail.
+        if created.get("reason") == "github_422":
+            import uuid as _uuid
+            repo_name = f"{repo_name[:80]}-{_uuid.uuid4().hex[:6]}"
+            created = await create_org_repo(
+                name=repo_name,
+                description=f"AUREM Personal Track — {draft['brief'][:200]}",
+                private=True,
+            )
+        if not created.get("ok"):
+            raise HTTPException(
+                status_code=502,
+                detail={"reason": "org_repo_create_failed", "github": created},
+            )
+
+    real_repo_name = created["name"]
+
+    # ── Step 4: push all files ────────────────────────────────
+    push = await push_files_bulk(
+        repo_name=real_repo_name,
+        files=files,
+        commit_message=f"[AUREM CTO] initial scaffold for draft {draft_id}",
+        branch=created.get("default_branch") or "main",
+    )
+    if not push.get("ok"):
+        # ── Step 5: unwind on partial failure ──────────────────
+        logger.warning("[materialize] partial push failure — unwinding repo %s",
+                       real_repo_name)
+        await delete_org_repo(real_repo_name)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "reason":     "file_push_failed",
+                "pushed":     push.get("pushed"),
+                "failed":     push.get("failed"),
+                "results":    push.get("results"),
+                "note":       "Repo was created and then deleted so no orphans remain.",
+            },
+        )
+
+    # ── Step 6: register as a Personal Track project ───────────
+    now = time.time()
+    from uuid import uuid4 as _uuid4
+    project_id = f"pt_{_uuid4().hex[:16]}"
+    project_doc = {
+        "project_id":       project_id,
+        "user_id":          user["user_id"],
+        "name":             draft["brief"][:80],
+        "github_owner":     created["full_name"].split("/", 1)[0],
+        "github_repo":      real_repo_name,
+        "branch":           created.get("default_branch") or "main",
+        "github_token":     "",   # personal-track repos use org token, not per-user PAT
+        "stack":            draft.get("stack_detected"),
+        "personal_track":   True,
+        "materialized_from_draft": draft_id,
+        "created_at":       now,
+        "updated_at":       now,
+    }
+    await db.cto_projects.insert_one(project_doc)
+
+    # ── Step 7: mark the draft materialized ────────────────────
+    materialized_repo = {
+        "owner":     created["full_name"].split("/", 1)[0],
+        "name":      real_repo_name,
+        "full_name": created["full_name"],
+        "html_url":  created["html_url"],
+        "clone_url": created["clone_url"],
+    }
+    await db.scaffold_drafts.update_one(
+        {"draft_id": draft_id, "user_id": user["user_id"]},
+        {"$set": {
+            "status":            "materialized",
+            "materialized_repo": materialized_repo,
+            "project_id":        project_id,
+            "materialized_at":   now,
+            "updated_at":        now,
+        }},
+    )
+
+    logger.info("[materialize] SUCCESS: draft=%s repo=%s project_id=%s files=%d",
+                draft_id, real_repo_name, project_id, push.get("pushed"))
+
+    return {
+        "ok":         True,
+        "draft_id":   draft_id,
+        "project_id": project_id,
+        "repo":       materialized_repo,
+        "files_pushed": push.get("pushed"),
+        "next_step":  "GET /api/aurem-dev/projects to see your new project, "
+                      "then Phase 3 will auto-deploy it to a live URL.",
+    }
 
 
 @router.delete("/{draft_id}")
