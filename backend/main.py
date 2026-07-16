@@ -412,6 +412,34 @@ async def lifespan(app: FastAPI):
             logger.warning("dev_users created_at backfill failed: %r", e)
     _asyncio.create_task(_backfill_dev_users_created_at())
 
+    # Iter 212m-235 — track backfill for dev_users. Personal Track
+    # rollout adds `track` field ("developer" | "personal"). Every
+    # existing user pre-dates this rollout, so they belong on the
+    # Developer Track. Idempotent — second boot finds zero rows to
+    # touch and exits after one indexed count.
+    async def _backfill_dev_users_track():
+        try:
+            if app.state.db is None:
+                return
+            db = app.state.db
+            missing = await db.dev_users.count_documents(
+                {"track": {"$exists": False}}, limit=1,
+            )
+            if not missing:
+                return
+            r = await db.dev_users.update_many(
+                {"track": {"$exists": False}},
+                {"$set": {"track": "developer",
+                          "track_updated_at": time.time()}},
+            )
+            logger.info(
+                "dev_users.track backfill: %d rows → 'developer'",
+                r.modified_count,
+            )
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("dev_users track backfill failed: %r", e)
+    _asyncio.create_task(_backfill_dev_users_track())
+
     # Iter 212m-129 — ORA fix-learning indexes.  Idempotent index
     # creation for the two new analytics collections the scan + fix
     # pipelines now write to (`ora_fix_learning`, `ora_scan_learning`).

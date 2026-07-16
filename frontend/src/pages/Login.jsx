@@ -64,7 +64,21 @@ export default function Login() {
         tokens_remaining: r.data.tokens_remaining,
       });
       try { localStorage.setItem("aurem_just_logged_in", "1"); } catch { /* ignore */ }
-      navigate(next, { replace: true });
+      // Iter 212m-235 — Track-based routing on LOGIN (never re-prompt
+      // the /choose-track screen — that's signup-only). Fetch the
+      // user's persisted track from /auth/me and route accordingly.
+      // If ?next=… was set explicitly, that always wins.
+      if (next !== "/dashboard") {
+        navigate(next, { replace: true });
+      } else {
+        try {
+          const me = await api.get("/auth/me");
+          const track = me.data?.user?.track;
+          navigate(track === "personal" ? "/build" : "/dashboard", { replace: true });
+        } catch {
+          navigate("/dashboard", { replace: true });
+        }
+      }
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign in failed. Try again.");
     } finally {
@@ -92,7 +106,19 @@ export default function Login() {
         tokens_remaining: r.data.tokens_remaining,
       });
       try { localStorage.setItem("aurem_just_logged_in", "1"); } catch { /* ignore */ }
-      navigate(next, { replace: true });
+      // Iter 212m-235 — same track-based routing as the primary
+      // login handler above.
+      if (next !== "/dashboard") {
+        navigate(next, { replace: true });
+      } else {
+        try {
+          const me = await api.get("/auth/me");
+          const track = me.data?.user?.track;
+          navigate(track === "personal" ? "/build" : "/dashboard", { replace: true });
+        } catch {
+          navigate("/dashboard", { replace: true });
+        }
+      }
     } catch (e) {
       setError(e?.response?.data?.detail || "Invalid 2FA code. Try again.");
     } finally {

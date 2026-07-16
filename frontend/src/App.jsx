@@ -78,6 +78,13 @@ const OAuthFinish       = lazy(() => import("./pages/OAuthFinish"));
 const VsDevin           = lazy(() => import("./pages/VsDevin"));
 const Pricing          = lazy(() => import("./pages/Pricing"));
 const Demo             = lazy(() => import("./pages/Demo"));                  // Iter 212m-200
+// Iter 212m-235 — Personal Track (Phase 6). Warm cream/terracotta
+// aesthetic; distinct from Developer Track's IDE-dark shell.
+const ChooseTrack      = lazy(() => import("./pages/personal/ChooseTrack"));
+const BuildHome        = lazy(() => import("./pages/personal/BuildHome"));
+const DraftReview      = lazy(() => import("./pages/personal/DraftReview"));
+const ShipProgress     = lazy(() => import("./pages/personal/ShipProgress"));
+const BuildSuccess     = lazy(() => import("./pages/personal/BuildSuccess"));
 
 // Minimal loading state for the brief fetch window. Avoids the
 // jarring "blank page" between click and hydration. Pure CSS so it
@@ -177,6 +184,12 @@ export default function App() {
           <Route path="/login"           element={<Login />} />
           <Route path="/signup"          element={<Signup />} />
           <Route path="/dashboard"       element={<Dashboard />} />
+          {/* Iter 212m-235 — Personal Track routes */}
+          <Route path="/choose-track"    element={<ChooseTrack />} />
+          <Route path="/build"           element={<BuildHome />} />
+          <Route path="/build/:draftId"  element={<DraftReview />} />
+          <Route path="/build/:draftId/ship"    element={<ShipProgress />} />
+          <Route path="/build/:draftId/success" element={<BuildSuccess />} />
           <Route path="/integrations"    element={<Integrations />} />
           <Route path="/deploy"          element={<Deploy />} />
           <Route path="/domain"          element={<Domain />} />

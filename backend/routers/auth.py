@@ -529,3 +529,47 @@ async def get_tokens(authorization: Optional[str] = Header(None)) -> dict:
         {"user_id": payload["user_id"]}, {"_id": 0, "tokens_remaining": 1}
     )
     return {"ok": True, "tokens_remaining": int((u or {}).get("tokens_remaining", 0))}
+
+
+
+# ── Iter 212m-235 — Track selection (Personal Track vs Developer Track).
+# Users pick their track at signup and CAN switch later via Settings.
+# Existing users are backfilled to "developer" via a startup task in
+# main.py (see _backfill_dev_users_track).
+_ALLOWED_TRACKS = ("developer", "personal")
+
+
+class SetTrackBody(BaseModel):
+    track: str
+
+
+@router.post("/set-track")
+async def set_track(
+    body: SetTrackBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Set the caller's track. Called by:
+      1. Signup flow — right after account creation, once per user.
+      2. Settings → "Switch to Developer Mode" (or reverse) — any time.
+
+    Idempotent — writing the same value twice is a no-op. The updated
+    field surfaces on the next `/auth/me` call so the frontend can
+    re-route without a session refresh.
+    """
+    payload = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    track = (body.track or "").strip().lower()
+    if track not in _ALLOWED_TRACKS:
+        raise HTTPException(
+            400,
+            {"reason": "invalid_track",
+             "allowed": list(_ALLOWED_TRACKS)},
+        )
+    now = time.time()
+    await db.dev_users.update_one(
+        {"user_id": payload["user_id"]},
+        {"$set": {"track": track, "track_updated_at": now}},
+    )
+    return {"ok": True, "track": track, "updated_at": now}

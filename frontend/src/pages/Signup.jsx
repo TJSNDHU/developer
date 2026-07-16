@@ -79,7 +79,11 @@ export default function Signup() {
       // before React unmounts.
       trackSignup();
       try { localStorage.setItem("aurem_just_logged_in", "1"); } catch {}
-      navigate(next, { replace: true });
+      // Iter 212m-235 — Personal Track rollout: new users MUST pick a
+      // track before landing on any product surface. Existing users
+      // (login flow) skip this step because they were backfilled to
+      // "developer" by the startup migration.
+      navigate("/choose-track", { replace: true, state: { next } });
     } catch (e) {
       setError(e?.response?.data?.detail || "Sign up failed.");
     } finally {

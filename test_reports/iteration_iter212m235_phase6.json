@@ -1,0 +1,32 @@
+{
+  "summary": "Phase 6 Personal Track + P0 admin endpoint validation. Backend 9/9 pytest passed (set-track valid/invalid, /me reflects track, created-at-health, backfill idempotent, pending-downgrades, sweep-now). Frontend end-to-end flow verified: login -> /choose-track (both cards visible) -> Personal card -> /build (prompt + submit + 5 chips) -> chip click populates prompt -> Build submit -> /build/:draftId (draft-review-page, 13 file-tree nodes, lucide icons, 0 emojis, Regenerate + Ship visible) -> Ship click -> /build/:draftId/ship (4 progress-step-items). Materialize returned expected 503 (SUPABASE_MANAGEMENT_TOKEN absent) and UI showed graceful failure fallback. Policy pages /refund-policy and /acceptable-use render amber DRAFT banner correctly (verified visually). /dashboard still renders (developer track regression clean).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TrackSwitcher in Settings.jsx", "issue": "Line 463 uses CommonJS `require(\"react-router-dom\").useNavigate()` inside a Vite/ESM module. Throws `require is not defined` at runtime. TrackSwitcher component crashes; [data-testid='settings-track-switcher'] and 'settings-switch-mode-button' never render. Fix: replace with a top-of-file `import { useNavigate } from 'react-router-dom'` and use `const nav = useNavigate()`.", "selector": "[data-testid='settings-track-switcher']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter212m235_phase6_track_and_p0.py",
+    "/app/test_reports/pytest/phase6_iter212m235.xml"
+  ],
+  "action_items": [
+    "Fix /app/frontend/src/pages/Settings.jsx line 463: replace `require(\"react-router-dom\").useNavigate()` with proper ESM import + hook usage. This is the only functional bug blocking Phase 6 acceptance."
+  ],
+  "critical_code_review_comments": [
+    "Settings.jsx: mixing CommonJS require() inside a Vite/ESM React component is a fatal anti-pattern; component throws on render. Should be caught by ESLint no-undef rule.",
+    "PolicyPage rendering relies on client-side markdown fetch; DRAFT banner visible confirms this works, but consider SSR/prerender for policy SEO in future iterations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter212m235_phase6_track_and_p0.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "~94% (14/15 verified; TrackSwitcher broken)"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! (preview)",
+  "seed_data_creation": "None; test user already existed and had track toggled between developer/personal by pytest.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes Settings.jsx require() bug, retest /settings TrackSwitcher: expect [data-testid='settings-track-switcher'] to render, [data-testid='settings-switch-mode-button'] to open [data-testid='track-switch-confirm-modal'], and confirm to call POST /api/aurem-dev/auth/set-track then navigate to /build (if switching to personal) or /dashboard (if switching to developer). All other flows are green. Note: materialize returns 503 in preview because SUPABASE_MANAGEMENT_TOKEN is unset -- that's expected per problem statement; do not treat as a bug. Draft-review flow up to Ship click all works with heuristic scaffolder. Signup->/choose-track redirect was not directly re-tested (existing user logs into /dashboard); if that flow is needed, use a new signup with fresh email.",
+  "rca of the issue": "Settings.jsx line 463: `const nav = require(\"react-router-dom\").useNavigate();`. Vite runs the file as native ESM in the browser; there is no CommonJS `require` global, so evaluating this line throws ReferenceError, React error boundary triggers, and the whole TrackSwitcher subtree unmounts with the error `require is not defined`. Fix by adding `import { useNavigate } from 'react-router-dom';` at the top of Settings.jsx (or reuse existing imports if present) and replacing line 463 with `const nav = useNavigate();`."
+}

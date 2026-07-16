@@ -339,6 +339,7 @@ export default function Settings() {
               <Row k="name" v={me?.name || "—"} />
               <Row k="user id" v={me?.user_id || "—"} />
               <Row k="tier" v={me?.tier || usage?.tier || "free"} />
+              <Row k="track" v={me?.track || "developer"} />
               {usage && usage.monthly_task_cap != null && (
                 <Row k="tasks this month"
                      v={`${usage.tasks_this_month} / ${usage.monthly_task_cap}`} />
@@ -347,6 +348,9 @@ export default function Settings() {
                 <Row k="tasks this month" v={`${usage.tasks_this_month} / unlimited`} />
               )}
             </section>
+
+            {/* Iter 212m-235 — Switch between Personal and Developer Track.  */}
+            <TrackSwitcher currentTrack={me?.track || "developer"} onSwitched={(t) => setMe((m) => m ? { ...m, track: t } : m)} />
 
             <TrustLevelCard />
             <ReferralShare />
@@ -448,5 +452,106 @@ function Row({ k, v }) {
       }}>{k}</span>
       <span style={{ color: "var(--text)" }}>{v}</span>
     </div>
+  );
+}
+
+
+// Iter 212m-235 — Switch Personal ↔ Developer Track from Settings.
+function TrackSwitcher({ currentTrack, onSwitched }) {
+  const [showConfirm, setShowConfirm] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const nav = require("react-router-dom").useNavigate();
+  const target = currentTrack === "personal" ? "developer" : "personal";
+  const targetLabel = target === "personal" ? "Personal Track" : "Developer Track";
+  const currentLabel = currentTrack === "personal" ? "Personal Track" : "Developer Track";
+
+  async function apply() {
+    setBusy(true);
+    try {
+      await api.post("/auth/set-track", { track: target });
+      onSwitched?.(target);
+      // Route to the destination track's home surface so the change
+      // is immediately visible without a manual refresh.
+      nav(target === "personal" ? "/build" : "/dashboard", { replace: true });
+    } catch (e) {
+      setBusy(false);
+      setShowConfirm(false);
+      // eslint-disable-next-line no-alert
+      alert("Couldn't switch modes just now. Please try again.");
+    }
+  }
+
+  return (
+    <section className="card" data-testid="settings-track-switcher">
+      <h3 style={{ fontSize: 14, color: "var(--text)", margin: 0, marginBottom: 14 }}>
+        Workspace mode
+      </h3>
+      <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 14px", lineHeight: 1.6 }}>
+        You're on <strong style={{ color: "var(--text)" }}>{currentLabel}</strong>.
+        {target === "personal"
+          ? " Personal Track is the no-code, chat-based way to build apps from an idea."
+          : " Developer Track is the full-control workspace — connect your own repos, deploy, and manage everything."}
+      </p>
+      <button
+        className="btn-ghost"
+        data-testid="settings-switch-mode-button"
+        onClick={() => setShowConfirm(true)}
+        style={{ fontSize: 13 }}
+      >
+        Switch to {targetLabel} →
+      </button>
+
+      {showConfirm && (
+        <div
+          data-testid="track-switch-confirm-modal"
+          style={{
+            position: "fixed", inset: 0, zIndex: 60,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+          onClick={() => !busy && setShowConfirm(false)}
+        >
+          <div
+            role="dialog" aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 440, width: "100%",
+              background: "var(--bg, #0a0e1a)",
+              border: "1px solid var(--border)",
+              borderRadius: 12, padding: 24,
+            }}
+          >
+            <h3 style={{ fontSize: 18, margin: "0 0 8px", color: "var(--text)" }}>
+              Switch to {targetLabel}?
+            </h3>
+            <p style={{ fontSize: 14, color: "var(--text-dim)", lineHeight: 1.6, margin: "0 0 20px" }}>
+              Your projects and settings stay where they are — only the workspace
+              you see will change. You can switch back anytime.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                className="btn-ghost"
+                data-testid="track-switch-cancel"
+                disabled={busy}
+                onClick={() => setShowConfirm(false)}
+                style={{ fontSize: 13 }}
+              >Cancel</button>
+              <button
+                data-testid="track-switch-confirm"
+                disabled={busy}
+                onClick={apply}
+                style={{
+                  fontSize: 13, padding: "8px 18px",
+                  borderRadius: 6, border: "1px solid var(--accent, #ff8a2a)",
+                  background: "var(--accent, #ff8a2a)", color: "#0a0e1a",
+                  fontWeight: 600, cursor: busy ? "wait" : "pointer",
+                }}
+              >{busy ? "Switching…" : `Yes, switch`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
