@@ -1170,6 +1170,29 @@ async def draft_summary(
     }
 
 
+@router.post("/admin/smoke-test")
+async def run_infra_smoke_test(
+    cleanup: bool = True,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Founder-only: run the full Personal Track infra pipeline with a
+    throwaway smoke project. Per-step pass/fail so a bad token points
+    at exactly one step. See services/personal_track_smoke.py."""
+    user = await current_dev(authorization)
+    if not (user.get("is_founder") or user.get("is_admin")):
+        raise HTTPException(403, "Founder / admin only.")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB not connected")
+    from services.personal_track_smoke import run_smoke
+    result = await run_smoke(db, user, cleanup=cleanup)
+    await db.smoke_test_runs.insert_one(
+        {**result, "user_id": user["user_id"]}
+    )
+    result.pop("_id", None)
+    return result
+
+
 @router.get("/admin/revenue-snapshot")
 async def revenue_snapshot(
     authorization: Optional[str] = Header(None),

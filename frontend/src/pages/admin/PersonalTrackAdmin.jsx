@@ -17,7 +17,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, RefreshCw, ShieldAlert, ShieldCheck, Package,
   Database, Wand2, Cpu, ExternalLink, AlertTriangle, CheckCircle2,
-  Clock, Loader2, GitBranch, DollarSign,
+  Clock, Loader2, GitBranch, DollarSign, Zap,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { toast } from "../../components/Toast";
@@ -69,6 +69,23 @@ export default function PersonalTrackAdmin() {
   const [revenue,        setRevenue]        = useState(null);
   const [llmHealth,      setLlmHealth]      = useState(null);
   const [llmLoading,     setLlmLoading]     = useState(true);
+  const [smoke,          setSmoke]          = useState(null);
+  const [smokeRunning,   setSmokeRunning]   = useState(false);
+
+  const runSmoke = async () => {
+    setSmokeRunning(true);
+    setSmoke(null);
+    try {
+      const res = await api.post("/scaffold/admin/smoke-test?cleanup=true");
+      setSmoke(res.data);
+      if (res.data?.ok) toast.success("Smoke test: all configured steps passed");
+      else toast.error("Smoke test found issues — see step results");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Smoke test failed to run");
+    } finally {
+      setSmokeRunning(false);
+    }
+  };
 
   // Slow probe (~30s upstream LLM canary) — fired independently so it
   // never gates the rest of the dashboard.
@@ -242,8 +259,7 @@ export default function PersonalTrackAdmin() {
           />
         </div>
 
-        {/* Second row: infra health */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+        {/* Second row: infra health */}        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
           <div className={cardBase} data-testid="pt-health-dev-users">
             <SectionHeader
               icon={dbHealthy ? ShieldCheck : ShieldAlert}
@@ -291,6 +307,86 @@ export default function PersonalTrackAdmin() {
             )}
           </div>
         </div>
+
+        {/* Infra smoke test */}
+        <section className="mb-10">
+          <SectionHeader
+            icon={Zap}
+            title="Infra smoke test (pipeline tokens)"
+            right={
+              <button
+                onClick={runSmoke}
+                disabled={smokeRunning}
+                className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/20 hover:bg-emerald-500/25 text-emerald-200 text-xs transition disabled:opacity-50"
+                data-testid="pt-smoke-run"
+              >
+                {smokeRunning
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <Zap size={13} />}
+                {smokeRunning ? "Running…" : "Run smoke test"}
+              </button>
+            }
+          />
+          {!smoke && !smokeRunning && (
+            <div className={`${cardBase} text-sm text-white/50`} data-testid="pt-smoke-idle">
+              Draft → GitHub repo → Vercel deploy → managed-DB roundtrip → cleanup.
+              Har step ka alag pass/fail — galat token exactly ek step pe point karega.
+              Throwaway resources auto-delete hote hain.
+            </div>
+          )}
+          {smokeRunning && (
+            <div className={`${cardBase} text-sm text-white/50 flex items-center gap-2`}>
+              <Loader2 size={16} className="animate-spin" />
+              Running pipeline steps — repo create + push + deploy (~15-30s)…
+            </div>
+          )}
+          {smoke && (
+            <div className={cardBase} data-testid="pt-smoke-results">
+              <div className="flex items-center gap-2 mb-4 text-sm">
+                {smoke.ok ? (
+                  <span className="flex items-center gap-1.5 text-emerald-300">
+                    <CheckCircle2 size={16} /> All configured steps passed
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-amber-300">
+                    <AlertTriangle size={16} />
+                    {smoke.not_configured?.length > 0 &&
+                      `Not configured: ${smoke.not_configured.join(", ")}`}
+                    {smoke.failed_steps?.length > 0 &&
+                      ` Failed: ${smoke.failed_steps.join(", ")}`}
+                  </span>
+                )}
+                <span className="text-white/40 text-xs ml-auto">run {smoke.run_id}</span>
+              </div>
+              <div className="space-y-2">
+                {(smoke.steps || []).map((s) => {
+                  const styles = {
+                    pass:            "bg-emerald-500/15 text-emerald-300",
+                    fail:            "bg-rose-500/15 text-rose-300",
+                    not_configured:  "bg-amber-500/15 text-amber-300",
+                    skipped:         "bg-white/5 text-white/40",
+                  };
+                  return (
+                    <div
+                      key={s.name}
+                      className="flex items-start gap-3 py-2 border-t border-white/5 first:border-0"
+                      data-testid={`pt-smoke-step-${s.name}`}
+                    >
+                      <span className={`px-2 py-0.5 rounded-full text-xs shrink-0 w-32 text-center ${styles[s.status] || styles.skipped}`}>
+                        {s.status}
+                      </span>
+                      <span className="text-sm text-white/80 w-44 shrink-0 font-mono">{s.name}</span>
+                      <span className="text-xs text-white/50 break-all flex-1">
+                        {typeof s.detail === "string" ? s.detail : JSON.stringify(s.detail)}
+                      </span>
+                      <span className="text-xs text-white/30 shrink-0">{s.elapsed_ms}ms</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* Blocked drafts */}
         <section className="mb-10">

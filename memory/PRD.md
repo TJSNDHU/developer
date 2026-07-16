@@ -12631,3 +12631,17 @@ NEEDS PRODUCTION REDEPLOY.
 **P1 backlog PARKED per founder decision:** RAG bug, destructive loop testing, MCP sidecar — not launch-blocking.
 
 **LAUNCH BLOCKER (founder action):** 3 infra tokens never set — GitHub Org+App token, Vercel Pro team+platform token, Supabase Management token+org ID. No real user can use Personal Track until these exist.
+
+---
+## Iter 212m-242 — Founder Infra Smoke Test (VERIFIED — June 2026)
+
+**Backend:** POST /api/aurem-dev/scaffold/admin/smoke-test?cleanup=true (founder/admin only)
+- services/personal_track_smoke.py — per-step pass/fail/not_configured/skipped: preflight (exact missing env vars per token group) → draft (static files, no LLM) → github_repo (create+push) → vercel_deploy → managed_db_shared (Mongo write/read/delete roundtrip) → supabase_mgmt_token (GET /v1/organizations, no project provisioned — avoids minutes+billing) → cleanup (best-effort: repo/vercel/draft delete). Results logged to db.smoke_test_runs.
+- Token env vars checked: AUREM_ORG_NAME, AUREM_ORG_GITHUB_APP_TOKEN, AUREM_VERCEL_PLATFORM_TOKEN, VERCEL_PLATFORM_TEAM_ID, SUPABASE_MANAGEMENT_TOKEN, SUPABASE_ORG_ID
+- Without tokens: clean "not_configured: [ENV_NAMES]" per step (no 503 wall) — curl + UI verified. draft/mongo/cleanup pass.
+
+**Frontend:** PersonalTrackAdmin "Infra smoke test" section — Run button (pt-smoke-run), per-step chips (pt-smoke-step-{name}), summary banner. Screenshot-verified. Bug fixed during build: missing Zap lucide import crashed the page (caught via console log).
+
+**Regression:** 43/43 pytest green (tier3/4 billing gate + tier2.5 preview suites).
+
+**NOTE:** App is now DEPLOYED to production (auremcto.com). This smoke feature needs a redeploy to reach prod. Real token verification happens after founder sets the 3 token groups.
