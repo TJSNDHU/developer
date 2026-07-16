@@ -61,6 +61,7 @@ from routers.codebase_health import router as codebase_health_router # Iter 212m
 from routers.scaffold import router as scaffold_router                # Iter 212m-231 Personal Track blank-slate
 from routers.managed_db import router as managed_db_router            # Iter 212m-233 Personal Track shared DB
 from routers.supabase   import router as supabase_router              # Iter 212m-234 Personal Track paid-tier Supabase
+from routers.personal_track import router as personal_track_router    # Iter 212m-237 Personal Track activation events
 from routers.findings      import router as findings_router         # Iter 212m-190 backlog + dismiss/snooze
 from routers.suggestions   import router as suggestions_router      # Iter 212m-193 founder suggestion box
 from routers.version       import router as version_router          # Iter 212m-205 build info + system health
@@ -1577,6 +1578,7 @@ app.include_router(codebase_router,      prefix="/api/aurem-dev")
 app.include_router(scaffold_router,      prefix="/api/aurem-dev")  # Iter 212m-231
 app.include_router(managed_db_router,    prefix="/api/aurem-dev")  # Iter 212m-233
 app.include_router(supabase_router,      prefix="/api/aurem-dev")  # Iter 212m-234 Phase 5 paid-tier
+app.include_router(personal_track_router, prefix="/api/aurem-dev")  # Iter 212m-237 activation events
 app.include_router(github_deploy_router, prefix="/api/aurem-dev")   # iter 123
 app.include_router(thinking_hints_router, prefix="/api/aurem-dev")  # iter 158
 app.include_router(repo_indexing_router,  prefix="/api/aurem-dev")  # Iter 212m-30 PR-2

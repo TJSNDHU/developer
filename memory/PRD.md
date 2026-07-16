@@ -1,6 +1,34 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-237 — Personal Track activation metric (`personal_nudge_clicked_at`)
+
+**Founder ask (Hinglish):** Legacy-user banner ke "Try it" click ko dev_users row par timestamp ke tarah save karna, taaki 2 hafte baad activation metric dekh sake — agar zero legacy users click karein to matlab discovery weak hai aur P1 dual-hero jaldi banana padega.
+
+**Shipped:**
+- **NEW `backend/routers/personal_track.py`** — kept separate from scaffold.py because these are pure activation-metric writes (no draft/deploy dependencies). Router mounted at `/api/aurem-dev/personal-track` in `main.py`.
+- **NEW endpoint `POST /personal-track/legacy-nudge-click`** — authenticated. First call writes `dev_users.personal_nudge_clicked_at = time.time()` and returns `first_click: true`. Subsequent calls are idempotent (first click wins) and return `first_click: false` with the original timestamp. Endpoint does NOT set `track` — that still requires explicit user choice on /choose-track. This is purely an interest signal.
+- **`PersonalTrackBanner.jsx`** — "Try it" onClick fires the endpoint fire-and-forget (`.catch` no-op) so a network hiccup never blocks navigation to `/choose-track`.
+
+**Live verification (preview):**
+- `HTTP 401` on unauthenticated POST (auth guard working).
+- 1st authenticated call → `{"ok": true, "first_click": true, "clicked_at": 1784240375.22}`.
+- 2nd authenticated call → `{"ok": true, "first_click": false, "clicked_at": 1784240375.22}` (idempotent, same timestamp).
+- Lint clean on both files.
+
+**Future query (for launch+14d review):**
+```
+db.dev_users.count_documents({
+  "personal_nudge_clicked_at": {"$exists": True},
+  "track": {"$in": [None, "developer"]}
+})  # legacy nudges that DIDN'T convert to personal
+db.dev_users.count_documents({
+  "personal_nudge_clicked_at": {"$exists": True},
+  "track": "personal"
+})  # legacy nudges that DID convert
+```
+
+
 ### 2026-02-16 — Iter 212m-236 — Personal Track homepage discovery (P0 pair)
 
 **Founder ask (Hinglish):** Non-tech visitors ko landing pe Personal Track discover karne ka rasta chahiye + legacy users (jinka `dev_users.track === null`) ko dashboard pe one-time nudge chahiye. Signup deep-link support taaki `/choose-track` skip ho jaaye jab user ne card se choice kar li ho.

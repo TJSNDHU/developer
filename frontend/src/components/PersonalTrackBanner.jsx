@@ -51,6 +51,9 @@ export default function PersonalTrackBanner() {
 
   const tryIt = () => {
     try { localStorage.setItem(DISMISS_KEY, "1"); } catch { /* ignore */ }
+    // Iter 212m-237 — activation metric. Fire-and-forget so a
+    // network hiccup never blocks the navigation.
+    api.post("/personal-track/legacy-nudge-click").catch(() => { /* non-blocking */ });
     navigate("/choose-track");
   };
 
