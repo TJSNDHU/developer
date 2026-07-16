@@ -1,6 +1,43 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-235 — Tier 1: Phase 6 Personal Track (frontend + routing)
+
+**Founder ask (Hinglish):** Chat-UI journey for non-tech users + track-based routing. Shared shell, only content-area theme differs. Lucide icons in file tree (no emoji). Mandatory /choose-track after signup, never on login. Skip dev-dashboard nudge for this batch. Also publish policy static pages with DRAFT banner (non-blocking).
+
+**Shipped:**
+
+**Backend (Iter 212m-235):**
+- **NEW: `POST /api/aurem-dev/auth/set-track`** — accepts `{track: "developer"|"personal"}`, writes to `dev_users.track` + `track_updated_at`, rejects invalid values with 400 `{reason: "invalid_track", allowed: [...]}`. Idempotent.
+- **NEW startup task: `_backfill_dev_users_track`** in `main.py` — backfills every existing user to `track="developer"` on first boot after this rollout. Idempotent (uses `$exists: False` guard); subsequent boots find zero rows and exit fast.
+- Auth `/me` already returns full user document → frontend reads `.user.track` for track-aware routing without extra API calls.
+
+**Frontend (`src/pages/personal/`):**
+- **NEW: `_shell.jsx`** — `PersonalShell` component (shared logo/nav/settings header, warm cream body), `PrimaryButton` (terracotta pill w/ hover translate-y), `SecondaryButton`. Design rule enforced: shell is consistent across tracks, only main-content aesthetic changes.
+- **NEW: `ChooseTrack.jsx`** at `/choose-track` — 2-card bento layout (Personal card = light+`Wand2` icon+terracotta, Developer card = dark+`TerminalSquare` icon+blue). Hovering one dims the other to 50%. Keyboard-accessible.
+- **NEW: `BuildHome.jsx`** at `/build` — massive prompt textarea (`text-2xl` placeholder), `⌘↵` submit hint, 5 example chips that TYPE the example into the input character-by-character (22ms/char), Sparkles pill badge.
+- **NEW: `DraftReview.jsx`** at `/build/:draftId` — split-screen with non-technical file tree left (buckets: **Frontend** `Palette`, **Database** `Database`, **Logic & Config** `Settings2`, **Overview** `FileText` — all lucide, zero emoji). Right pane shows README on load, individual file source on click. Sticky bottom glass action bar: Regenerate + Ship It.
+- **NEW: `ShipProgress.jsx`** at `/build/:draftId/ship` — 4-step vertical timeline with lucide icons (`GitBranch → Cloud → Database → Sparkles`), heartbeat pulse on active step (2px expanding ring, 1.8s loop), moss-green (`#81B29A`) `Check` on complete. Friendly status toasts cycled every 6s ("Warming up the servers…"). **All errors translated to plain language** — HTTP 503 becomes "Our platform's still connecting to the internet plumbing." Never surfaces raw error/stack traces.
+- **NEW: `BuildSuccess.jsx`** at `/build/:draftId/success` — confetti burst (`canvas-confetti`, terracotta+moss+cream palette), huge glass live-URL card, secondary View Code + Manage Database buttons, "Build another" CTA.
+- **UPDATED: `Signup.jsx`** — post-signup navigates to `/choose-track` (was `/dashboard`) with `state.next` preserved.
+- **UPDATED: `Login.jsx`** — both primary and 2FA-verify paths now fetch `/auth/me` and route by track (`personal` → `/build`, `developer` → `/dashboard`). Never re-prompts `/choose-track`.
+- **UPDATED: `Settings.jsx`** — new `TrackSwitcher` section with confirmation modal. Post-confirm navigates directly to target track's home (no manual refresh).
+- **UPDATED: `App.jsx`** — 5 new lazy-loaded routes.
+
+**Dependencies added:** `framer-motion@12.42.2`, `canvas-confetti@1.9.4`.
+
+**Also shipped (parallel, non-blocking):**
+- **Refund & Acceptable-Use draft policies published** at `/refund-policy` + `/acceptable-use` with an amber "⚠️ DRAFT — Pending Legal Review" blockquote banner. Existing footer links (`footer-refund`, `footer-aup`) already wired. Content: user's Personal-Track-focused draft verbatim, with all `[BRACKET]` placeholders preserved for legal review.
+
+**Testing:**
+- Backend: 7 new pytest for `/auth/set-track` + startup migration — **97/97 tests pass across all phases** (Phases 1-6 + P0 + sweeper + track).
+- Frontend: testing agent verified end-to-end flow — login → /choose-track (both cards visible) → Personal card → /build → prompt+chips → Build → /build/:draftId (13 file-tree nodes, lucide icons, 0 emojis) → Ship → /build/:draftId/ship (4-step timeline). One HIGH bug found (CommonJS `require()` in ESM module) — FIXED and re-verified via screenshot.
+- Materialize returns expected 503 in preview (SUPABASE_MANAGEMENT_TOKEN not set) — UI shows graceful failure card, not a stack trace.
+
+**Verified by testing agent (14/15 frontend behaviours, 100% backend behaviours, both P0 admin endpoints working correctly).**
+
+
+
 ### 2026-02-13 — Iter 212m-234 — Tier 0: P0 admin fix + Phase 5 downgrade sweeper
 
 **Founder ask (Hinglish):** Downgrade policy `migrate_back` confirm. Sweeper cron ship karo (data-loss safe verification before delete + retry queue). Admin dashboard "pending downgrades" widget. Aur P0 blocker `auremcto.com` admin panel new-user visibility issue harden karo.

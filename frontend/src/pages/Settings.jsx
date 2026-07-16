@@ -460,7 +460,7 @@ function Row({ k, v }) {
 function TrackSwitcher({ currentTrack, onSwitched }) {
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const nav = require("react-router-dom").useNavigate();
+  const nav = useNavigate();
   const target = currentTrack === "personal" ? "developer" : "personal";
   const targetLabel = target === "personal" ? "Personal Track" : "Developer Track";
   const currentLabel = currentTrack === "personal" ? "Personal Track" : "Developer Track";
@@ -487,7 +487,7 @@ function TrackSwitcher({ currentTrack, onSwitched }) {
         Workspace mode
       </h3>
       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 14px", lineHeight: 1.6 }}>
-        You're on <strong style={{ color: "var(--text)" }}>{currentLabel}</strong>.
+        You&apos;re on <strong style={{ color: "var(--text)" }}>{currentLabel}</strong>.
         {target === "personal"
           ? " Personal Track is the no-code, chat-based way to build apps from an idea."
           : " Developer Track is the full-control workspace — connect your own repos, deploy, and manage everything."}
