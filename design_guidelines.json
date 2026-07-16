@@ -1,0 +1,176 @@
+{
+  "theme_strategy": {
+    "developer_track": {
+      "aesthetic": "Retro-Futurism / IDE Dark",
+      "mode": "dark",
+      "colors": {
+        "background": "#0A0A0A",
+        "surface": "#141414",
+        "border": "#27272A",
+        "text_primary": "#FFFFFF",
+        "text_secondary": "#A1A1AA",
+        "primary": "#3B82F6"
+      }
+    },
+    "personal_track": {
+      "aesthetic": "Organic & Earthy / Framer-meets-Notion",
+      "mode": "light",
+      "colors": {
+        "background": "#FDFDF9",
+        "surface": "#FFFFFF",
+        "surface_glass": "rgba(255, 255, 255, 0.7)",
+        "border": "#E5E5DF",
+        "text_primary": "#1C1C19",
+        "text_secondary": "#6B6B63",
+        "primary": "#E07A5F",
+        "primary_hover": "#D56A4F",
+        "success": "#81B29A"
+      }
+    }
+  },
+  "typography": {
+    "personal_track": {
+      "headings": {
+        "font_family": "Cabinet Grotesk, sans-serif",
+        "weights": ["500", "800"],
+        "tracking": "tracking-tight"
+      },
+      "body": {
+        "font_family": "Manrope, sans-serif",
+        "weights": ["400", "500"]
+      }
+    },
+    "developer_track": {
+      "headings": {
+        "font_family": "IBM Plex Sans, sans-serif",
+        "weights": ["600"]
+      },
+      "body": {
+        "font_family": "IBM Plex Mono, monospace",
+        "weights": ["400"]
+      }
+    },
+    "hierarchy_rules": [
+      "H1 (Hero): text-5xl sm:text-6xl tracking-tight leading-none",
+      "H2 (Section): text-3xl sm:text-4xl tracking-tight",
+      "Body: text-base sm:text-lg leading-relaxed text-secondary"
+    ]
+  },
+  "visual_enhancers": {
+    "glassmorphism": "Used for floating bottom bars (Draft Review) and sticky navs. bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.08)]",
+    "neumorphism": "Avoid in Personal track. Use subtle drop shadows for depth: shadow-sm border border-stone-200",
+    "noise_texture": "Apply a 2% opacity SVG grain overlay on the Personal Track background to remove the 'digital flatness'.",
+    "borders": "Soft radiuses. rounded-2xl or rounded-3xl for major containers, rounded-full for pills and chips."
+  },
+  "component_guidelines": {
+    "TrackChoiceScreen": {
+      "layout": "100vh flex-center, bg-background. 2-card Bento-style selector (grid-cols-1 md:grid-cols-2 gap-6 p-6 max-w-4xl).",
+      "cards": {
+        "personal": "Light background, warm borders. Icon: Magic Wand. Copy: 'Personal Track - Build a full app just by describing it. No code required.' Button: 'Start Building'",
+        "developer": "Dark IDE background, monospace font accents. Icon: Terminal. Copy: 'Developer Track - Full control, connect repos, advanced settings.' Button: 'Enter Workspace'"
+      },
+      "micro_interaction": "Hovering a card scales it slightly (scale-105) and increases shadow, fading the other card to 50% opacity."
+    },
+    "PersonalTrackHome": {
+      "layout": "Generous spacing. py-32 px-6 max-w-3xl mx-auto flex flex-col items-center text-center.",
+      "hero_prompt": {
+        "design": "Massive input area. text-2xl or text-3xl placeholder. Auto-resizing textarea. Bottom-right embedded submit button (arrow-right icon).",
+        "surface": "Solid white background, deeply rounded (rounded-3xl), rich ambient shadow (shadow-2xl shadow-stone-200/50), subtle border."
+      },
+      "example_chips": {
+        "design": "Below the prompt. Staggered flex wrap layout.",
+        "pills": "rounded-full bg-stone-100 px-4 py-2 text-sm text-stone-600 hover:bg-stone-200 cursor-pointer transition-colors.",
+        "micro_interaction": "Clicking a chip types its text into the big prompt with a simulated keystroke animation."
+      }
+    },
+    "DraftReviewScreen": {
+      "layout": "Split screen (grid-cols-1 md:grid-cols-12 gap-8 p-8 h-[calc(100vh-80px)]).",
+      "left_panel_file_tree": {
+        "span": "md:col-span-4",
+        "design": "Non-technical file tree. Use clear folders (🎨 Frontend, 🗄️ Database, ⚙️ Logic) instead of raw paths (src/components). Nodes must be collapsible, padded (p-2), with hover highlights.",
+        "typography": "text-sm, Manrope, high contrast."
+      },
+      "right_panel_preview": {
+        "span": "md:col-span-8",
+        "design": "Markdown-rendered README. Gives the user confidence their app structure makes sense.",
+        "surface": "bg-white rounded-2xl p-8 border border-stone-200 overflow-y-auto"
+      },
+      "bottom_action_bar": {
+        "design": "Sticky glassmorphism bar at the bottom. flex justify-between items-center. Left: 'Regenerate', Right: 'Ship It 🚀' (Terracotta primary button).",
+        "accessibility": "Always visible, z-50."
+      }
+    },
+    "ShipProgressScreen": {
+      "layout": "Centered column, max-w-2xl mx-auto py-24.",
+      "timeline": "4-step vertical visual timeline (Creating repo -> Deploying -> Database -> Live).",
+      "active_step": "Pulse animation on the active node. Text is bold and dark. Secondary text (honest states) updates below it.",
+      "completed_step": "Turns Moss Green (#81B29A) with a Check icon.",
+      "pending_step": "Muted text, gray outline node.",
+      "micro_interaction": "Heartbeat pulse on active node. Plain-language random status toasts (e.g., 'Warming up the servers...'). NEVER show stack traces."
+    },
+    "SuccessScreen": {
+      "layout": "Celebratory. Center-aligned, confetti on load.",
+      "primary_card": "Massive 'Live URL' card. Crystal glass style, large text. 'your-app.fly.dev' (example).",
+      "actions": "Secondary buttons: 'View Code on GitHub', 'View Database'.",
+      "cta": "Tertiary link: 'Build another app'."
+    },
+    "DeveloperNudge": {
+      "design": "Ambient, dismissible banner at the top of the developer dashboard. 'Try Personal Track — build without code'. Light contrast to stand out against dark mode."
+    }
+  },
+  "micro_interactions": {
+    "page_transitions": "Fade in and slight slide up (y: 20 to y: 0) using framer-motion.",
+    "buttons": "Hover: translate-y-[-2px] and slightly increased shadow. Active: scale-95.",
+    "file_tree": "Reveal animation stagger (delay: 0.05s per item).",
+    "typing_effect": "Used on example chips moving to input."
+  },
+  "copywriting_tone": {
+    "guidelines": [
+      "Plain language, jargon-free.",
+      "Warm and celebratory, never robotic.",
+      "Honest progress tracking ('Setting up your database...' instead of 'Running migration scripts...')"
+    ],
+    "examples": {
+      "error": "Hmm, something got tangled up. Let's try that again.",
+      "success": "Your app is live to the world!"
+    }
+  },
+  "accessibility": {
+    "keyboard_nav": "All inputs, buttons, and file tree nodes must have visible focus-visible rings (ring-2 ring-primary ring-offset-2).",
+    "aria_labels": "Use aria-live='polite' on the Ship Progress screen for screen readers to hear status changes.",
+    "contrast": "Ensure text meets WCAG AA (4.5:1). Do not use pure transparent backgrounds for text-bearing overlays."
+  },
+  "data_testid_conventions": {
+    "format": "kebab-case, role-based, prefixed with context.",
+    "examples": [
+      "track-selector-personal-card",
+      "track-selector-developer-card",
+      "home-prompt-input",
+      "home-prompt-submit-button",
+      "home-example-chip",
+      "draft-file-tree-node",
+      "draft-regenerate-button",
+      "draft-ship-button",
+      "progress-step-item",
+      "success-live-url-link",
+      "settings-switch-mode-button"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Phase 6: You must build the Track Chooser screen at signup.",
+    "Ensure 'dev_users' has a 'track' field ('developer' | 'personal'). Backfill existing users with 'developer'.",
+    "Implement the Personal Track React components with the warm, light theme.",
+    "Use framer-motion for the timeline pulsing and staggered file tree reveal.",
+    "Use shadcn/ui components but strip the Vercel-look by overriding tailwind classes (rounder corners, warmer borders).",
+    "Settings page must include a 'Switch to Developer Mode' with a confirmation modal.",
+    "DO NOT show stack traces on the UI in Personal track, catch errors and show plain-language Sonner toasts."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": {
+    "design_system": "Do not converge towards generic SaaS aesthetics. Use the requested padding scales (generous, 2-3x normal).",
+    "transitions": "NEVER use 'transition: all'. Apply specific transitions (opacity, transform, background-color).",
+    "alignment": "Do NOT apply universal text-align: center on the App container.",
+    "shadows": "Use layered ambient shadows. Drop shadows should tint towards the background hue.",
+    "icons": "Use lucide-react. Do NOT use emojis as UI icons unless specifically for the non-technical file tree markers.",
+    "testing": "Always attach data-testid per the conventions above."
+  }
+}
