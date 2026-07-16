@@ -1,0 +1,17 @@
+{
+  "name": "personal-track-nextjs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev":   "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

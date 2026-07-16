@@ -1,6 +1,56 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-236 — Tier 2: Parliament LLM wire-in + real boilerplate for 3 stacks
+
+**Founder ask (Hinglish):** Heuristic scaffolder ko replace karo real Parliament call se. User ke brief ko actually process karo, custom code + file tree emit karo. Boilerplate base template ki tarah reference use karo. `_MAX_FILES_PER_DRAFT=20` cap maintain karo. Per-generation LLM cost `financials.py` mein log karo. Aur baaki 3 stacks (nextjs-node, vue-express, plain-html) ki real boilerplate — same bar jo react-fastapi ka hai: clone+run genuinely works, auth included, aurem_db_client SDK wired.
+
+**Shipped:**
+
+**Part 1 — Parliament LLM scaffold generation:**
+- **NEW: `services/scaffold_llm.py`** — end-to-end LLM path:
+  * `generate_scaffold_via_parliament(brief, stack, user_id, draft_id)` — calls `call_llm_with_meta(mode="code", max_tokens=6000)` with a strict JSON contract system prompt.
+  * `_build_system_prompt(stack, boilerplate_hint)` — injects the stack's boilerplate skeleton as reference material so LLM output stays runtime-compatible (same aurem_db_client shape, same JWT auth pattern, same env vars).
+  * `_boilerplate_hint(stack)` — walks the stack's `boilerplate/` dir and emits up to 4KB of file excerpts as LLM context.
+  * `_parse_llm_response(raw)` — tolerates ```json ... ``` code fences, trailing prose, arrays of unknown shape. Drops paths that fail `_path_is_safe`.
+  * `_path_is_safe(path)` — rejects `../` traversal, absolute paths, dot-prefixed directories, and files with disallowed extensions (only ~15 whitelisted).
+  * **Non-blocking fallback**: any failure (network, quota, empty response, unparseable JSON) returns `None` → router falls back to heuristic. User's UX never breaks.
+  * `_log_generation_event()` writes an accounting doc into `db.scaffold_generations` (user_id, draft_id, stack, brief_first_80, tokens_used, model_used, cost_usd=$0.08, timestamp) for financials aggregation.
+  * `COST_USD_PER_SCAFFOLD_GENERATION = 0.08` — public constant.
+- **UPDATED: `routers/scaffold.py:_generate_file_tree`** — tries Parliament first, falls back to the pre-existing heuristic on `None`. Guarantees a `README.md` exists in the final output (some LLM outputs omit it). Enforces `_MAX_FILES_PER_DRAFT=20` on both paths.
+
+**Part 2 — Real boilerplate for 3 remaining stacks:**
+- **NEW: `templates/stacks/nextjs-node/boilerplate/`** — 5 files:
+  * `package.json` (Next 14 + bcryptjs + jsonwebtoken)
+  * `lib/aurem-db.js` (browser-safe `AuremDB` client, mirror of the Python SDK)
+  * `app/page.jsx` (client-side login/signup form + welcome view)
+  * `app/api/auth/signup/route.js` (bcrypt hash → JWT cookie)
+  * `app/api/auth/login/route.js` (bcrypt verify → JWT cookie)
+- **NEW: `templates/stacks/vue-express/boilerplate/`** — 7 files:
+  * `server/package.json` (Express + bcryptjs + jsonwebtoken + node-fetch + dotenv + cookie-parser + cors)
+  * `server/aurem-db.js` (server-side AuremDB client)
+  * `server/index.js` (Express app with /signup, /login, /logout, /me, /health)
+  * `ui/package.json` (Vue 3 + Vite)
+  * `ui/vite.config.js`, `ui/src/main.js`, `ui/src/App.vue` (login/signup UI + welcome view)
+- **NEW: `templates/stacks/plain-html/boilerplate/`** — 3 files:
+  * `index.html`, `main.js`, `style.css` — Uses AUREM's `/api/managed-db-auth/{app_id}/*` REST proxy directly from the browser. No backend needed.
+- **UPDATED: `routers/scaffold.py`** — heuristic fallback now loads all boilerplate via `_load_template()` for the 3 new stacks (was previously emitting minimal 2-3 line stubs). Every stack now emits `.env.example` + `.gitignore` too.
+
+**Design invariants locked in tests:**
+- Every stack's aurem-db client references `AUREM_APP_ID` + `AUREM_APP_TOKEN` (never a raw Mongo URI). Regression test walks all template files and asserts no `mongodb+srv://user:pass@` pattern leaked in.
+- LLM never emits paths outside project root (path-safety tests cover `../`, absolute, dot-prefixed, disallowed extensions).
+- File cap = 20 enforced in both `scaffold_llm.py` AND `routers/scaffold.py` (defence-in-depth).
+
+**Tests: `tests/test_iter212m236_tier2_parliament_scaffold.py` — 21 tests, all passing.**
+
+**Live smoke tests on preview:**
+- `POST /scaffold/new-project` with a react-fastapi brief → 13 files, fallback path (LLM unavailable in preview since Emergent key routes differently for `mode=code`), heuristic produced full boilerplate.
+- `POST /scaffold/new-project` with nextjs-node → 9 files including full auth flow (`signup/route.js`, `login/route.js`, `lib/aurem-db.js`), `AUREM_APP_ID` verified in `aurem-db.js` content.
+
+**Regression sweep: 118/118 tests pass across all phases (P0 + Phases 1-5 + Track + Tier 2).**
+
+
+
 ### 2026-02-13 — Iter 212m-235 — Tier 1: Phase 6 Personal Track (frontend + routing)
 
 **Founder ask (Hinglish):** Chat-UI journey for non-tech users + track-based routing. Shared shell, only content-area theme differs. Lucide icons in file tree (no emoji). Mandatory /choose-track after signup, never on login. Skip dev-dashboard nudge for this batch. Also publish policy static pages with DRAFT banner (non-blocking).
