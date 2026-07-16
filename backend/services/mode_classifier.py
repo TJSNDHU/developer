@@ -55,6 +55,31 @@ _SIGNALS_F = (
     "positioning", "gtm", "copy for", "pitch", "competitor", "value prop",
 )
 
+# Iter 212m-231 — Personal Track "new project from scratch" signals.
+# HIGH-precision phrases only. A single hit lifts the score above the
+# 0.55 confirm threshold so ambiguous cases still ask the user.
+_SIGNALS_NEW_PROJECT = (
+    "build me an app", "build me a website", "build me a site",
+    "create an app", "create a new app", "create a website",
+    "make me an app", "make me a website", "make me a site",
+    "i want to build", "i want to make", "i want a website",
+    "i want an app", "i have an idea", "start a new project",
+    "new project from scratch", "from scratch", "blank slate",
+    "no repo", "don't have a repo", "no github", "without github",
+    "brand new project", "greenfield project", "vibe code",
+    "app idea", "website idea", "project idea",
+)
+
+
+def _has_new_project_intent(msg: str) -> bool:
+    """True when the user explicitly wants to scaffold a new project.
+    Kept as a separate high-precision detector because these phrases
+    would otherwise fight `_SIGNALS_C` ("build", "create") for the
+    Mode-C classification score.
+    """
+    low = (msg or "").lower()
+    return any(phrase in low for phrase in _SIGNALS_NEW_PROJECT)
+
 
 def _count_hits(msg: str, vocab: tuple[str, ...]) -> int:
     """Case-insensitive substring count for any vocab term in msg."""
@@ -89,6 +114,19 @@ def classify_intent_v2(
             "scores": {"A": 0.0, "B": 0.0, "C": 0.0, "D": 1.0, "E": 0.0, "F": 0.0},
             "needs_confirm": False,
             "f12_forced": True,
+        }
+
+    # Iter 212m-231 — Personal Track short-circuit. Explicit "build me
+    # an app" / "I have an idea" / "from scratch" intent must route to
+    # NEW_PROJECT scaffold flow (not Mode-C repo-bound edit flow).
+    if _has_new_project_intent(msg):
+        return {
+            "mode": "NEW_PROJECT",
+            "confidence": 0.90,
+            "scores": {"A": 0.02, "B": 0.02, "C": 0.02, "D": 0.02,
+                       "E": 0.01, "F": 0.01, "NEW_PROJECT": 0.90},
+            "needs_confirm": False,
+            "f12_forced": False,
         }
 
     # Short message / greeting → Mode A with high confidence.

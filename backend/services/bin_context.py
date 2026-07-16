@@ -35,7 +35,9 @@ Why not just pass the raw project dict?
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+import uuid
+from dataclasses import dataclass, field
 from typing import Optional
 
 from fastapi import HTTPException
@@ -53,10 +55,66 @@ class BINContext:
     branch:     str    # target branch
     pat:        str    # DECRYPTED PAT — in-memory only, never persisted
     is_founder: bool   # JWT-derived founder/admin flag
+    # Iter 212m-231 — Personal Track (blank-slate) fields. Defaulted
+    # so existing Developer Track code paths that build a BINContext
+    # without these keywords keep working unchanged.
+    is_draft:   bool = False   # True → VirtualBINContext (no real repo yet)
+    draft_id:   str  = ""      # ephemeral id for Phase-1 drafts
 
     def repo_slug(self) -> str:
         """Convenience: 'owner/repo' for log lines + GitHub URL fragments."""
         return f"{self.repo_owner}/{self.repo_name}"
+
+    @property
+    def is_virtual(self) -> bool:
+        """True when this context represents an in-progress scaffold that
+        does NOT yet have a materialised GitHub repo. Tools that need
+        repo-backed behaviour (write_repo_file, get_commit_diff, etc.)
+        should short-circuit on this and buffer to the draft store
+        instead of calling GitHub."""
+        return self.is_draft
+
+
+# ── Iter 212m-231 ── Blank-Slate / Personal Track factory ────────────
+#
+# Personal Track users don't have a project yet — they type an idea,
+# Parliament generates a draft file tree, and the user later confirms
+# to materialise it into a real GitHub repo (Phase 2).
+#
+# During draft phase, code that expects a `BINContext` still gets one,
+# but with `is_draft=True` and placeholder repo fields. Tools inspect
+# `ctx.is_virtual` to switch to buffered/in-memory behaviour.
+#
+# Cleanup: drafts have a TTL enforced by a MongoDB TTL index on
+# `scaffold_drafts.created_at` (see routers/scaffold.py setup).
+
+def build_virtual_bin_context(
+    user_id:    str,
+    draft_id:   Optional[str] = None,
+    is_founder: bool = False,
+) -> BINContext:
+    """Return a BINContext for a Personal Track draft that has no real
+    GitHub repo yet.  The `pid` field carries the draft id (prefixed
+    `draft_`) so downstream code that logs/audits by project_id still
+    has a stable identifier.  Tools MUST check `ctx.is_virtual` before
+    hitting GitHub APIs.
+
+    Raises: never — this factory is pure.  Failures happen at the
+    tool level when the tool needs a real repo (they should return
+    `{"ok": False, "reason": "draft_mode_no_repo"}`).
+    """
+    did = (draft_id or "").strip() or f"draft_{uuid.uuid4().hex[:16]}"
+    return BINContext(
+        bin_id=user_id,
+        pid=f"draft_{did}" if not did.startswith("draft_") else did,
+        repo_owner="",     # placeholder — materialised in Phase 2
+        repo_name="",
+        branch="main",
+        pat="",
+        is_founder=bool(is_founder),
+        is_draft=True,
+        draft_id=did,
+    )
 
 
 async def build_bin_context(
@@ -190,4 +248,9 @@ async def build_bin_context_optional(
     return await build_bin_context(user_id, project_id, db, is_founder)
 
 
-__all__ = ["BINContext", "build_bin_context", "build_bin_context_optional"]
+__all__ = [
+    "BINContext",
+    "build_bin_context",
+    "build_bin_context_optional",
+    "build_virtual_bin_context",   # iter 212m-231
+]

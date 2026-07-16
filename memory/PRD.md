@@ -1,6 +1,58 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-13 — Iter 212m-231 — Personal Track Phase 1: Blank-Slate Parliament Mode
+
+**Founder ask (Hinglish):** Personal Track (non-tech users, idea-only) ke liye blank-slate flow shuru karo. Confirmed decisions: (1) AUREM GitHub Org to be created separately by founder — no founder PAT bridge; (2) fall back to *.vercel.app default subdomains until *.aurem.app DNS is set up; (3) two-step draft → materialize UX (like Lovable/v0/Replit).
+
+**Shipped:**
+
+1. **`services/bin_context.py`** — extended:
+   - New `is_draft: bool = False` + `draft_id: str = ""` fields on `BINContext` (default off so existing Developer Track code paths are untouched).
+   - New `is_virtual` property so tools can short-circuit repo-backed behaviour.
+   - New factory `build_virtual_bin_context(user_id, draft_id=None)` for Personal Track — returns a locked context with placeholder repo fields.
+
+2. **`services/mode_classifier.py`** — extended:
+   - New `_SIGNALS_NEW_PROJECT` vocabulary (28 high-precision phrases: "build me an app", "from scratch", "vibe code", "I have an idea", etc.).
+   - New `_has_new_project_intent()` short-circuit routes matching messages to `mode="NEW_PROJECT"` @ 0.90 confidence BEFORE the existing Mode-A/B/C/D/E/F scoring runs. Ensures explicit blank-slate intent doesn't fight `_SIGNALS_C` ("build", "create").
+
+3. **NEW: `routers/scaffold.py`** — 4 endpoints under `/api/aurem-dev/scaffold/`:
+   - `POST /new-project` — creates a draft, generates file tree, persists to `db.scaffold_drafts` with 48h TTL. Returns `{draft_id, stack_detected, files, truncated, expires_at, next_step}`.
+   - `GET /{draft_id}` — fetch draft for review.
+   - `POST /{draft_id}/regenerate` — regenerate with refined brief.
+   - `POST /{draft_id}/materialize` — returns HTTP 501 (Phase 2 hook — real repo creation ships next).
+   - `DELETE /{draft_id}` — user-initiated abandon.
+   
+   Guardrails: `_MAX_FILES_PER_DRAFT = 20` (component-count cap prevents LLM context degradation), heuristic stack detection (`react-fastapi` default), draft ownership enforced via 404 on cross-user reads (no leak), MongoDB TTL index (`scaffold_drafts.created_at`) for auto-GC.
+
+4. **`main.py`** — registered `scaffold_router` under `/api/aurem-dev`.
+
+5. **Regression tests (`test_iter212m231_phase1_blank_slate.py`)** — 23 tests, all passing:
+   - VirtualBINContext creation + `is_draft`/`is_virtual` propagation.
+   - Developer Track BINContext untouched (default `is_draft=False`).
+   - 8 parametrised phrases routed to `NEW_PROJECT` (positive).
+   - 4 parametrised phrases stay in Mode C (negative — no over-correction).
+   - All 4 endpoints registered under `/scaffold/*`.
+   - Router wired into `main.py`.
+   - Stack detection: default fallback, preference-wins, keyword-inference.
+   - File-tree generation respects `_MAX_FILES_PER_DRAFT` cap.
+   - OpenAPI tag `Personal Track`.
+
+6. **End-to-end HTTP validation (via `test@aurem.dev` account):**
+   - `POST /scaffold/new-project` with `"I want to build a habit tracker app"` → HTTP 200, `draft_id`, stack=`react-fastapi`, 6 files including `api/main.py`, `ui/src/App.jsx`.
+   - `GET /scaffold/{draft_id}` → returns full draft with status=`draft`.
+   - `POST /scaffold/{draft_id}/materialize` → HTTP 501 (correct — Phase-2 stub).
+   - `DELETE /scaffold/{draft_id}` → `{"ok": true, "deleted": true}`.
+
+**Phase 2 handoff:**
+- `_generate_file_tree()` is a heuristic that returns a minimal-but-runnable skeleton. Phase 2 will:
+  - Swap in a full Parliament call for LLM-driven customisation based on the user's brief.
+  - Add `create_user_github_repo()` helper for AUREM-owned GitHub org (`aurem-apps`).
+  - Wire `materialize` endpoint to actually create the repo + push files.
+  - Fill in real boilerplate code (auth stubs, sample models, working docker-compose) in `backend/templates/stacks/`.
+
+
+
 ### 2026-02-13 — Iter 212m-230 — Phase 7: Zero circular imports + Scanner Feedback dashboard
 
 **Founder ask (Hinglish):** "phase 7" — complete the two Phase 7 items (circular import refactor + scanner-feedback loop).
