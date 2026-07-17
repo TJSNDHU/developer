@@ -174,7 +174,9 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
           let obj = {};
           try { obj = JSON.parse(dataStr); } catch { continue; }
           if (evtType === "route" || obj.type === "route") {
-            routeMeta = { route: obj.route, model: obj.model, temperature: obj.temperature };
+            routeMeta = { route: obj.route, model: obj.model, temperature: obj.temperature,
+                           sources: obj.sources, sources_fired: obj.sources_fired,
+                           downgraded: obj.downgraded };
             setStream(s => ({ ...s, ...routeMeta }));
           } else if (evtType === "delta" || obj.type === "delta") {
             assistantBuf += obj.content || "";
@@ -191,6 +193,9 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
               role: "assistant", content: assistantBuf,
               route: routeMeta.route, model: routeMeta.model,
               temperature: routeMeta.temperature,
+              sources: routeMeta.sources || obj.sources,
+              sources_fired: routeMeta.sources_fired || obj.sources_fired,
+              downgraded: routeMeta.downgraded || obj.downgraded,
               cost_usd: obj.cost_usd, tokens_in: obj.input_tokens,
               tokens_out: obj.output_tokens,
               interrupted: !!errored,
@@ -552,12 +557,14 @@ function MessageBubble({ msg }) {
           flexWrap: "wrap",
         }}>
           {msg.route && (
-            <span style={{
+            <span data-testid="ora-drawer-route-badge" style={{
               padding: "1px 6px", borderRadius: 4,
               background: "rgba(255,255,255,0.04)",
               fontFamily: "ui-monospace, monospace",
             }}>
               <Zap size={9} /> {msg.route}
+              {msg.route === "deep" && msg.sources && ` · ${msg.sources}`}
+              {msg.downgraded && ` · downgraded`}
               {msg.temperature !== undefined && ` · t=${msg.temperature}`}
             </span>
           )}

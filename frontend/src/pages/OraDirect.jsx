@@ -297,7 +297,9 @@ function ChatShell({ onLogout }) {
           if (!dataStr) continue;
           let obj = {}; try { obj = JSON.parse(dataStr); } catch { continue; }
           if (evtType === "route" || obj.type === "route") {
-            routeMeta = { route: obj.route, model: obj.model, temperature: obj.temperature };
+            routeMeta = { route: obj.route, model: obj.model, temperature: obj.temperature,
+                           sources: obj.sources, sources_fired: obj.sources_fired,
+                           downgraded: obj.downgraded };
             setStream(s => ({ ...s, ...routeMeta }));
           } else if (evtType === "delta" || obj.type === "delta") {
             buf += obj.content || "";
@@ -513,10 +515,13 @@ function Bubble({ m }) {
         <div style={{ marginTop: 6, fontSize: 10, color: PAL.faint,
                         display: "flex", gap: 6, alignItems: "center" }}>
           {m.route && (
-            <span style={{ padding: "1px 6px", borderRadius: 4,
+            <span data-testid="ora-route-badge" style={{ padding: "1px 6px", borderRadius: 4,
                              background: PAL.chip,
                              fontFamily: "ui-monospace, monospace" }}>
-              {m.route}{m.temperature !== undefined && ` · t=${m.temperature}`}
+              {m.route}
+              {m.route === "deep" && m.sources && ` · ${m.sources}`}
+              {m.downgraded && ` · downgraded`}
+              {m.temperature !== undefined && ` · t=${m.temperature}`}
             </span>
           )}
           {m.streaming && <span>streaming…</span>}

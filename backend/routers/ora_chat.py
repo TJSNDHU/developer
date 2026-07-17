@@ -30,6 +30,7 @@ from cto_services.auth import require_admin, create_token
 from services.rate_limiter import check_rate_limit, client_ip_from_request
 from services.ora_chat import cost_tracker, session as ora_session
 from services.ora_chat import house_rules as ora_house_rules
+from services.ora_chat import deep_research as ora_deep
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
 )
@@ -257,6 +258,26 @@ async def send_message(body: MessageBody,
     if parsed:
         return await _stream_slash_result(user, sess, body.content.strip(), parsed, b_status, user_tz)
 
+    # Iter 212m-245 — Auto Deep-Research pre-check.
+    # Run the multi-label classifier BEFORE the single-route regex.
+    # Only fire the multi-source path if >=2 substantive labels match
+    # (or NEEDS_DEEP is explicit). Otherwise fall through to the
+    # existing single-route flow — keeps single-topic queries cheap.
+    # Skip entirely in `economy` mode (budget-degraded, single-source
+    # only) and when the Claude tool_orchestration flag is on (the
+    # follow-up will route to Anthropic direct instead — stub returns
+    # False today so this branch is inert).
+    if b_status["mode"] != "economy" and not ora_deep.use_claude_tools():
+        try:
+            labels = await ora_deep.classify_labels(body.content)
+        except Exception as e:
+            logger.warning("deep-research classifier failed: %s", e)
+            labels = []
+        if labels and await ora_deep.should_go_deep(labels):
+            return await _stream_deep_research(
+                user, sess, body.content, labels, b_status, user_tz,
+            )
+
     # Regular chat — pick route via keyword rules.
     route_name = classify_intent(body.content)
     # Iter 212m-239 — Economy mode forces GLM-5.2 fallback for all
@@ -451,7 +472,141 @@ async def _stream_slash_result(user: dict, sess: dict,
     return EventSourceResponse(sse_events())
 
 
-# ── Usage + config endpoints (for admin dashboard) ──────────────────
+# ── Deep Research streaming envelope (Iter 212m-245) ───────────────
+_DELTA_CHUNK_LEN = 48  # chars per synthetic delta so the UI streams smoothly
+
+
+def _labels_to_source_tag(fired: list[str]) -> str:
+    """Turn `['github', 'web']` into `github+web` for the route badge."""
+    order = ["github", "social", "news", "web"]
+    seen: list[str] = []
+    for tag in order:
+        if tag in fired and tag not in seen:
+            seen.append(tag)
+    for tag in fired:
+        if tag not in seen:
+            seen.append(tag)
+    return "+".join(seen) if seen else "none"
+
+
+async def _stream_deep_research(user: dict, sess: dict,
+                                 raw_text: str, labels: list[str],
+                                 b_status: dict,
+                                 user_tz: Optional[str] = None):
+    """SSE envelope for the multi-source deep-research path.
+
+    Semantics:
+      - Persist the user turn immediately.
+      - Emit a `route` event with `route="deep"` + `sources` string.
+      - Call `orchestrate()` which fires up to 4 tools in parallel then
+        does ONE DeepSeek V3 synthesis pass.
+      - Chunk the synthesized text into ~48-char deltas so the UI
+        renders progressively (orchestrate itself returns full text —
+        it's a one-shot call, not a stream).
+      - Log cost via `cost_tracker.log_call` so daily budget accrues.
+      - Emit a `final` event with `sources_fired`, `downgraded`,
+        `tool_cost_usd` so the frontend badge can show what actually ran.
+    """
+    session_id = sess["session_id"]
+
+    # Persist user turn before we start — transcript stays honest if
+    # any tool fails mid-flight.
+    await ora_session.append_message(
+        session_id, user["user_id"],
+        role="user", content=raw_text,
+    )
+
+    hr_text = await ora_house_rules.get_effective_text(user["user_id"])
+
+    async def event_stream():
+        # Announce the route up front — sources list will be
+        # patched in the `final` event since we don't yet know which
+        # tools succeeded until orchestrate returns.
+        cfg = resolve("deep")
+        yield {"type": "route", "route": "deep",
+                "model": cfg["model"], "temperature": cfg["temperature"],
+                "labels": labels,
+                "budget_mode": b_status["mode"]}
+
+        try:
+            out = await ora_deep.orchestrate(
+                query=raw_text, labels=labels,
+                house_rules_text=hr_text, user_tz=user_tz,
+            )
+        except Exception as e:
+            logger.exception("deep-research orchestrator crashed")
+            yield {"type": "error", "error": f"deep_research_failed: {type(e).__name__}"}
+            out = {"ok": False, "text": "", "sources_fired": [],
+                    "errors": [str(e)], "tool_cost_usd": 0.0,
+                    "downgraded": False}
+
+        text = out.get("text") or ""
+        sources_fired = out.get("sources_fired") or []
+        sources_tag = _labels_to_source_tag(sources_fired)
+
+        # Emit an updated `route` event now that we know which tools
+        # fired — frontend uses this to render `deep · github+web`.
+        yield {"type": "route", "route": "deep",
+                "model": cfg["model"], "temperature": cfg["temperature"],
+                "sources": sources_tag,
+                "sources_fired": sources_fired,
+                "downgraded": bool(out.get("downgraded")),
+                "budget_mode": b_status["mode"]}
+
+        # Chunk the response into synthetic deltas so the UI paints
+        # progressively (better perceived latency).
+        if text:
+            for i in range(0, len(text), _DELTA_CHUNK_LEN):
+                yield {"type": "delta", "content": text[i:i+_DELTA_CHUNK_LEN]}
+                await asyncio.sleep(0)
+        elif not out.get("ok"):
+            fallback_msg = ("Sources didn't respond in time. Try again "
+                             "in a moment, or narrow the question.")
+            for i in range(0, len(fallback_msg), _DELTA_CHUNK_LEN):
+                yield {"type": "delta", "content": fallback_msg[i:i+_DELTA_CHUNK_LEN]}
+            text = fallback_msg
+
+        # Book the synthesis LLM call against the daily budget.
+        synth_usage = out.get("synthesis_usage") or {}
+        cost = 0.0
+        if synth_usage:
+            cost = await cost_tracker.log_call(
+                user_id=user["user_id"],
+                session_id=session_id,
+                route="deep",
+                model=out.get("synthesis_model") or cfg["model"],
+                temperature=cfg["temperature"],
+                input_tokens=synth_usage.get("input_tokens", 0),
+                output_tokens=synth_usage.get("output_tokens", 0),
+            )
+
+        await ora_session.append_message(
+            session_id, user["user_id"],
+            role="assistant", content=text,
+            route="deep",
+            model=out.get("synthesis_model") or cfg["model"],
+            temperature=cfg["temperature"],
+            input_tokens=synth_usage.get("input_tokens", 0),
+            output_tokens=synth_usage.get("output_tokens", 0),
+            cost_usd=cost,
+        )
+
+        yield {"type": "final",
+                "cost_usd":       cost,
+                "tool_cost_usd":  round(float(out.get("tool_cost_usd") or 0.0), 6),
+                "sources":        sources_tag,
+                "sources_fired":  sources_fired,
+                "downgraded":     bool(out.get("downgraded")),
+                "errors":         out.get("errors") or [],
+                "input_tokens":   synth_usage.get("input_tokens", 0),
+                "output_tokens":  synth_usage.get("output_tokens", 0)}
+
+    async def sse_events():
+        async for evt in event_stream():
+            yield {"event": evt["type"], "data": json.dumps(evt)}
+            await asyncio.sleep(0)
+
+    return EventSourceResponse(sse_events())
 @router.get("/usage")
 async def usage(authorization: Optional[str] = Header(None)):
     await require_admin(authorization)

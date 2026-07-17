@@ -1,0 +1,30 @@
+{
+  "summary": "Iter 212m-245 Auto Deep-Research feature — full backend + frontend validation. 71/71 pytest green (24 new deep_research + 47 regression). Live SSE endpoints verified for all 4 scenarios (multi-source→deep, single-topic→general, /help→slash, research query→research). Frontend /ora page renders `deep · github · t=0.3` badge with correct data-testid.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ora_chat_deep_research.py",
+    "/app/backend/tests/test_ora_chat.py",
+    "/app/test_reports/pytest/deep_research.xml"
+  ],
+  "test_results": {
+    "pytest_deep_research": "24/24 PASSED",
+    "pytest_ora_chat_regression": "47/47 PASSED",
+    "live_sse_multi_source": "route=deep, 2 route events (labels then sources_fired), delta+final events, final carries tool_cost_usd/sources_fired/downgraded/errors. Reddit returned http_403 as expected (graceful degradation) — github tool succeeded and synthesis produced.",
+    "live_sse_single_topic_kya_haal_hai": "route=general (NOT deep) — confirmed deep-research skipped when <2 substantive labels.",
+    "live_sse_slash_help": "route=slash, deterministic model, slash_result event with full command list including /help.",
+    "live_sse_research_aaj_ka_news": "route=research (Perplexity Sonar), fallback to glm-5.2 fired (primary_failed) — NOT deep, matches spec.",
+    "config_endpoint": "GET /config lists 7 routes: research, general, reasoning, fallback, slash_explain, deep, tool_orchestration ✓",
+    "feature_flag": "dr.use_claude_tools() returns False by default, True only when ORA_ENABLE_CLAUDE_TOOLS=1 AND ANTHROPIC_API_KEY set (unit-verified).",
+    "frontend_ora_page": "PIN 7668 login OK, multi-source query rendered badge <span data-testid='ora-route-badge'>deep · github · t=0.3</span>. Assistant message correctly shows 'Sources checked: github' and cost meter incremented ($0.0027 → $0.0029)."
+  },
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "PIN 7668 (ora-chat/pin-login)",
+  "seed_data_creation": "None — used existing session-create endpoint",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Deep-research feature fully working end-to-end. Reddit JSON returns http_403 from preview IP (expected, graceful). Multi-source live query costs ~$0.0002. If testing frontend, note: after PIN login, a 'Recent sessions' modal appears — click '+ New chat' to dismiss and start fresh. Send is triggered by pressing Enter in the textarea (no data-testid on send button, but not required as chat submission works via keyboard)."
+}

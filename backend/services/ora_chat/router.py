@@ -88,6 +88,35 @@ _ROUTES: dict[str, RouteConfig] = {
         pp_env="ORA_PP_SLASH",          pp_default=0.1,
         max_tokens_env="ORA_MAX_TOKENS_SLASH", max_tokens_default=512,
     ),
+    # Iter 212m-245 — Auto Deep-Research synthesis route.
+    # Runs ONE final call over pooled results from
+    # GitHub/Reddit/GDELT/Sonar. DeepSeek V3 kept cheap; temperature
+    # slightly higher than research (0.3) so the model can meaningfully
+    # combine claims across sources instead of just quoting one.
+    "deep": RouteConfig(
+        name="deep", model=os.getenv("ORA_MODEL_DEEP",
+                                      "deepseek/deepseek-chat"),
+        temp_env="ORA_TEMP_DEEP",      temp_default=0.3,
+        top_p_env="ORA_TOP_P_DEEP",     top_p_default=0.9,
+        pp_env="ORA_PP_DEEP",           pp_default=0.1,
+        max_tokens_env="ORA_MAX_TOKENS", max_tokens_default=2048,
+    ),
+    # Iter 212m-245 — Feature-flagged stub for Anthropic Claude
+    # Haiku 4.5 with server-side web_search + web_fetch tools.
+    # DISABLED by default (`ORA_ENABLE_CLAUDE_TOOLS=0`). When the
+    # founder provides `ANTHROPIC_API_KEY` and flips the flag, this
+    # route replaces the free-API fan-out for multi-source queries.
+    # NOTE: Actual Anthropic-direct HTTP client is NOT wired here —
+    # see deep_research.py::use_claude_tools() for the check-only
+    # gate that keeps this route inert until keys arrive.
+    "tool_orchestration": RouteConfig(
+        name="tool_orchestration",
+        model=os.getenv("ORA_MODEL_TOOL_ORCH", "claude-haiku-4-5"),
+        temp_env="ORA_TEMP_TOOL_ORCH", temp_default=0.15,
+        top_p_env="ORA_TOP_P_TOOL_ORCH", top_p_default=0.9,
+        pp_env="ORA_PP_TOOL_ORCH",       pp_default=0.0,
+        max_tokens_env="ORA_MAX_TOKENS", max_tokens_default=2048,
+    ),
 }
 
 

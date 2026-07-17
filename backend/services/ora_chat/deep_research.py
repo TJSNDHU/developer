@@ -44,6 +44,23 @@ _MAX_PARALLEL = 4
 _DOWNGRADE_MARGIN = 0.50  # USD — if remaining daily budget < this, downgrade
 
 
+def use_claude_tools() -> bool:
+    """Feature-flag gate for the Anthropic Claude Haiku 4.5 route with
+    server-side `web_search` + `web_fetch` tools.
+
+    DISABLED by default. Enabled ONLY when BOTH:
+      - `ORA_ENABLE_CLAUDE_TOOLS=1` (explicit opt-in)
+      - `ANTHROPIC_API_KEY` is set (direct Anthropic API, NOT OpenRouter)
+
+    Kept as a stub in this iteration — the actual Anthropic-direct HTTP
+    client + tool-use loop is a follow-up. This gate keeps the codebase
+    ready without introducing a paid dependency early.
+    """
+    if os.getenv("ORA_ENABLE_CLAUDE_TOOLS", "0").strip() not in ("1", "true", "yes"):
+        return False
+    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+
+
 # ═══ 1. Classifier ═══════════════════════════════════════════════
 _LABELS = ("NEEDS_WEB", "NEEDS_GITHUB", "NEEDS_SOCIAL", "NEEDS_NEWS", "NEEDS_DEEP")
 
@@ -254,7 +271,7 @@ async def orchestrate(query: str, labels: list[str],
         parts.append(f"[{tool.upper()}]\n{wrap_untrusted(body, source_url=tool)}")
     joined = "\n\n".join(parts)
 
-    synth_cfg = resolve("general")
+    synth_cfg = resolve("deep")
     synth_prompt = (
         f"Original user question: {query}\n\n"
         f"Results from {len(raw)} sources are below. Each is wrapped in "
