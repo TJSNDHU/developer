@@ -424,7 +424,13 @@ function ChatShell({ onLogout }) {
           <>
             <div ref={listRef} data-testid="ora-messages"
                  style={{ flex: 1, overflow: "auto",
-                            padding: "24px 20px 140px" }}>
+                            // Iter 212m-247 — bottom pad must clear the
+                            // widened 5-row input (form ~120 px + wrapper
+                            // ~40 px + gradient fade + safe-area). Was
+                            // 140 px for the old 3-row input which hid
+                            // ~60 px of the latest reply behind the
+                            // input panel.
+                            padding: "24px 20px min(240px, 32vh)" }}>
               <div style={{ maxWidth: containerW.maxW, width: containerW.pct,
                               margin: "0 auto",
                               display: "flex", flexDirection: "column", gap: 16 }}>
