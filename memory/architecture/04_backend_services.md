@@ -1,5 +1,5 @@
-# 04 — BACKEND: SERVICES (87 modules — `backend/services/`)
-(Self-contained context module. System map: file 01. Routers that call these: file 03.)
+# 04 — BACKEND: SERVICES (108 modules — `backend/services/`) + 9-module `ora_chat/` subpackage
+(Self-contained context module. System map: file 01. Routers that call these: file 03. See also: `/app/memory/CODEBASE_MAP.md`.)
 
 ## CATEGORIES
 
@@ -32,6 +32,12 @@
 
 ### Misc Infra
 `feature_flags.py`, `db_backup.py`, `daily_digest.py`, `onboarding_email.py`, `error_translator.py`, `langfuse_tracing.py`, `external_services_registry.py`, `seo/`, `mfa.py`, `vault.py`, `tool_executor.py`, ~~`tools_bridge.py`~~ (moved to AI Orchestration), `local_tools.py`, `mcp_scoped_tools.py`, `url_fetcher.py`, `web_skills.py`, `vercel_skills.py`, `sandbox_runner.py`, `admin_analytics_cache.py`, `bin_context.py`, `deploy_logger.py`, `vanguard_audit.py`, `vanguard_config.py`, `generation_rules.py` (Iter 212m-190 · LLM persona-injected safety rules), `loop_full_scan.py` (Iter 212m-190 · 5-scanner Loop-Mode aggregator with depth gate + 3× auto-retry)
+
+### Personal Track (Iter 212m-230+, T0-T4 non-technical user flow)
+`personal_track_quotas.py`, `personal_track_smoke.py`, `preview_sandbox.py`, `scaffold_llm.py`, `aurem_managed_db.py`, `supabase_provisioner.py`, `github_org_client.py` — powers `routers/personal_track.py` + `routers/supabase.py` + `routers/managed_db.py`. Stack templates live in `backend/templates/stacks/{react-fastapi,nextjs-node,vue-express,plain-html}/`.
+
+### ORA Chat (Iter 212m-244+, founder-only PIN-gated chat) — `backend/services/ora_chat/` subpackage
+9 modules — `router.py` (route configs: general/research/deep/slash/slash_explain/tool_orchestration), `safety.py` (CORE_SAFETY_RULES + AUREM_CONTEXT + assemble_system_prompt + KNOWN_COMMANDS), `providers.py` (OpenRouter wrapper), `session.py` (persistent Mongo sessions), `cost_tracker.py` (daily/monthly budget), `house_rules.py` (admin custom prefs), `slash_commands.py` (11 deterministic commands — 5 DB + 5 codebase + help), `deep_research.py` (Iter 212m-245: multi-label classifier + parallel fan-out GitHub/Reddit/GDELT/Sonar + DeepSeek V3 synth + cost-guard downgrade + feature-flagged Claude Haiku 4.5 tool_orchestration stub), `codebase_index.py` (Iter 212m-246: walks 803 files in ~0.3 s, BM25-lite retrieval with min_tokens=2/min_score=3.5 guards + curated `system_highlights()` + path-traversal-safe `read_file`).
 
 ## RULES FOR THE AI DEVELOPER (hard constraints)
 1. All LLM calls route through `llm_router.py`/`smart_router.py` — never call a provider SDK/API directly from a scanner, fixer, or feature module. Never hardcode a provider API key.

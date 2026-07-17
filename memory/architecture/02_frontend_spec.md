@@ -4,11 +4,14 @@
 ## STACK
 React SPA on port 3000 (supervisor-managed, hot reload). Tailwind + Shadcn UI (`src/components/ui/`) + Context API for state + SSE for real-time streaming. Package manager: **yarn only**.
 
-## PAGES (37 total — `src/pages/`)
-- **Public/Marketing**: `Landing`, `Pricing`, `VsDevin`, `PolicyPage`, `BugHunt` (has custom `bug-hunt-bg.png` background, scoped to this page only)
+## PAGES (51 total — `src/pages/`)
+- **Public/Marketing**: `Landing`, `Pricing`, `Demo`, `VsDevin`, `WhyOra`, `PolicyPage`, `BugHunt` (has custom `bug-hunt-bg.png` background, scoped to this page only)
 - **Auth**: `Login`, `Signup`, `OAuthFinish`
 - **App Core**: `Dashboard`, `DashboardPreviewV2`, `Projects`, `CodebaseHealth`, `ToolsPage`, `Settings`, `Integrations`, `Tokens`, `Domain`, `Deploy`, `Automations`, `Analytics`, `BrainDump`, `FeatureWindow`, `OpsRecipes`, `ShipWall`, `Wrapped`, `SystemStatsPage`, `SidebarPreview`
-- **Admin Suite**: `Admin`, `AdminOverview`, `AdminFinancials`, `AdminVanguard`, `AdminLLMCredits`, `AdminParliamentLive`, `AdminFeatureFlags`, `AdminBINTracker`, `AdminApiKeys`, `AdminIntegrations`
+- **ORA Chat** (Iter 212m-244+, founder-only PIN 7668 gate): `OraDirect` at `/ora` — SSE streaming + deep-research + codebase awareness + colored thinking dots + Stop button + plaster background + 40% fullscreen width
+- **Personal Track** (Iter 212m-230+, `src/pages/personal/` — 7 pages): `_shell`, `ChooseTrack`, `BuildHome`, `DraftReview`, `PreviewPanel`, `ShipProgress`, `BuildSuccess`
+- **Admin Suite (root)**: `Admin`, `AdminOverview`, `AdminSystemHealth`, `AdminFinancials`, `AdminVanguard`, `AdminLLMCredits`, `AdminParliamentLive`, `AdminFeatureFlags`, `AdminBINTracker`, `AdminApiKeys`, `AdminIntegrations`, `AdminSuggestions`
+- **Admin nested** (`src/pages/admin/` — 2 pages): `PersonalTrackAdmin`, `OraChat`
 
 ## KEY COMPONENTS (`src/components/`)
 | Component | Purpose |

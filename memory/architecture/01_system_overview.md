@@ -11,12 +11,12 @@
 ┌──────────────────────────▼──────────────────────────────────┐
 │              FRONTEND — React SPA (Port 3000)                │
 │   Tailwind + Shadcn UI + Context API + SSE Streaming         │
-│   37 pages, ~90 components (see file 02)                     │
+│   51 pages (42 root + 7 personal + 2 admin), 81 components   │
 └──────────────────────────┬──────────────────────────────────┘
                            │ /api/* (Kubernetes Ingress)
 ┌──────────────────────────▼──────────────────────────────────┐
 │              BACKEND — FastAPI (Port 8001)                   │
-│   47 Routers → Core (Parliament) → 87 Services → External    │
+│   55 Routers → Core (Parliament) → 108 Services → External   │
 │   Entry: backend/main.py (all include_router calls live here)│
 └──────────┬───────────────┬───────────────┬──────────────────┘
            │               │               │
@@ -30,13 +30,14 @@
 ```
 
 ## LAYER RESPONSIBILITIES (one line each)
-- **Frontend**: React SPA — chat UI, dashboards, wizards, admin suite. Talks to backend only via `/api/*` using `REACT_APP_BACKEND_URL`. → file 02
+- **Frontend**: React SPA — chat UI, dashboards, wizards, admin suite, Personal Track (T0-T4), ORA Chat (`/ora`). Talks to backend only via `/api/*` using `REACT_APP_BACKEND_URL`. → file 02
 - **Backend Core ("Parliament")**: intent classification + multi-agent routing (`backend/core/`). → file 03
-- **Backend Routers**: 47 HTTP endpoint groups (`backend/routers/`) — auth, scanning, fixing, repo, business, deploy, admin, suggestions. → file 03
-- **Backend Services**: 87 modules (`backend/services/`) — AI orchestration, scanners, fix engine, repo intelligence, safety guards, learning, billing. → file 04
-- **Data Layer**: MongoDB via Motor — users, projects, tasks, fixed-findings ledger, audit logs. → file 05
-- **External Integrations**: GitHub REST API, LLM providers, Google Auth, Meta Pixel, SSE. → file 05
-- **Business Logic**: tier/quota system (`subscription_tiers.py` + `scan_fix_quota.py`). → file 06
+- **Backend Routers**: 55 HTTP endpoint groups (`backend/routers/`) — auth, scanning, fixing, repo, business, deploy, admin, Personal Track, ORA Chat, Supabase, managed DB. → file 03
+- **Backend Services**: 108 modules + 9 in `services/ora_chat/` (`backend/services/`) — AI orchestration, scanners, fix engine, repo intelligence, safety guards, learning, billing, Personal Track scaffolding, Supabase provisioning. → file 04
+- **Data Layer**: MongoDB via Motor — users, projects, tasks, fixed-findings ledger, ORA sessions, house rules, audit logs. → file 05
+- **External Integrations**: GitHub REST, LLM providers (OpenRouter/Anthropic/DeepSeek/Sonar), Google Auth, Stripe, Vercel, Supabase, Meta Pixel, SSE. → file 05
+- **Business Logic**: tier/quota system (`subscription_tiers.py` + `scan_fix_quota.py`), Personal Track quotas (`personal_track_quotas.py`). → file 06
+- **See also**: `/app/memory/CODEBASE_MAP.md` for a single-file, always-fresh structural snapshot with subsystem-level detail.
 
 ## THE 5 CORE DESIGN PATTERNS
 (Check which pattern your change touches BEFORE writing code. Follow the existing convention — never invent a parallel one.)
