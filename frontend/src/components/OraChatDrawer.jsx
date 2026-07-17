@@ -102,12 +102,20 @@ export default function OraChatDrawer() {
     try {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
+      // Iter 212m-240 — auto-detect browser timezone (IANA name) and
+      // pass to backend so the runtime-context block uses the user's
+      // real local time, no manual config anywhere.
+      let clientTz = "";
+      try {
+        clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      } catch { /* very old browser — backend falls back to env default */ }
       const res = await fetch(`${BASE}/message`, {
         method:  "POST",
         headers: {
           "Content-Type":  "application/json",
           "Authorization": `Bearer ${getToken()}`,
           "Accept":        "text/event-stream",
+          ...(clientTz ? { "X-Client-TZ": clientTz } : {}),
         },
         body: JSON.stringify({ session_id: sessionId, content: text }),
         signal: ctrl.signal,

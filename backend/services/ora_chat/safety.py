@@ -185,19 +185,20 @@ DEFAULT_HOUSE_RULES = (
 
 
 def assemble_system_prompt(house_rules_text: Optional[str] = None,
-                            include_runtime: bool = True) -> str:
+                            include_runtime: bool = True,
+                            user_tz: Optional[str] = None) -> str:
     """Compose the final system prompt in strict priority order:
     CORE_SAFETY_RULES → AUREM_CONTEXT → Runtime context → (optional)
     <user_preferences>.
 
-    Runtime context (fresh date/time) is placed BEFORE house rules so
-    the founder's style preferences can never reframe or replace it,
-    but AFTER AUREM_CONTEXT so the self-verification instruction is
-    already in place when the model reads the runtime values.
+    `user_tz` (e.g. "Asia/Kolkata", "America/New_York") is threaded
+    from the client browser via the X-Client-TZ header — falls back
+    to ORA_USER_TZ env var, then to Asia/Kolkata default inside
+    build_runtime_context().
     """
     parts = [CORE_SAFETY_RULES, "", AUREM_CONTEXT]
     if include_runtime:
-        parts.extend(["", build_runtime_context()])
+        parts.extend(["", build_runtime_context(user_tz=user_tz)])
     if house_rules_text and house_rules_text.strip():
         text = house_rules_text.strip()
         parts.extend([

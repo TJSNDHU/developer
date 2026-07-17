@@ -52,6 +52,22 @@ _BURST_PER_MIN = 20
 
 
 # ── Session endpoints ──────────────────────────────────────────────
+def _valid_tz(tz: Optional[str]) -> Optional[str]:
+    """Whitelist-lite validation — IANA TZ names are simple ASCII with
+    slashes/underscores/hyphens. Reject anything that could be a
+    prompt-injection vector via the header (we're going to render
+    this into the LLM prompt, so untrusted).
+    """
+    if not tz or not isinstance(tz, str):
+        return None
+    if len(tz) > 64:
+        return None
+    import re as _re
+    if not _re.match(r"^[A-Za-z][A-Za-z0-9/_\-+]{0,63}$", tz):
+        return None
+    return tz
+
+
 class NewSessionBody(BaseModel):
     title: Optional[str] = Field(default="", max_length=80)
 
@@ -91,8 +107,10 @@ class SlashBody(BaseModel):
 @router.post("/slash")
 async def run_slash(body: SlashBody,
                      request: Request,
-                     authorization: Optional[str] = Header(None)):
+                     authorization: Optional[str] = Header(None),
+                     x_client_tz: Optional[str] = Header(None)):
     user = await require_admin(authorization)
+    user_tz = _valid_tz(x_client_tz)
 
     # Rate + budget gates apply to slash-commands too (they still touch DB).
     ip = client_ip_from_request(request)
@@ -133,7 +151,7 @@ async def run_slash(body: SlashBody,
         # Fetch the caller's house rules so the explain sentence
         # honors their tone preferences too.
         hr_text = await ora_house_rules.get_effective_text(user["user_id"])
-        system_prompt = assemble_system_prompt(hr_text)
+        system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz)
         msg = (
             f"A slash-command just ran. Explain this result in ONE crisp "
             f"sentence (Hinglish is fine). Do NOT invent numbers. Do NOT "
@@ -205,8 +223,10 @@ class MessageBody(BaseModel):
 @router.post("/message")
 async def send_message(body: MessageBody,
                         request: Request,
-                        authorization: Optional[str] = Header(None)):
+                        authorization: Optional[str] = Header(None),
+                        x_client_tz: Optional[str] = Header(None)):
     user = await require_admin(authorization)
+    user_tz = _valid_tz(x_client_tz)
 
     # Rate + budget gates.
     ip = client_ip_from_request(request)
@@ -234,7 +254,7 @@ async def send_message(body: MessageBody,
     # only needs one path.
     parsed = parse_slash_command(body.content.strip())
     if parsed:
-        return await _stream_slash_result(user, sess, body.content.strip(), parsed, b_status)
+        return await _stream_slash_result(user, sess, body.content.strip(), parsed, b_status, user_tz)
 
     # Regular chat — pick route via keyword rules.
     route_name = classify_intent(body.content)
@@ -260,7 +280,7 @@ async def send_message(body: MessageBody,
     llm_messages = await ora_session.build_llm_messages(sess or {})
     # System prompt with layered house rules — safety layer FIRST.
     hr_text = await ora_house_rules.get_effective_text(user["user_id"])
-    system_prompt = assemble_system_prompt(hr_text)
+    system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz)
     llm_messages = [{"role": "system", "content": system_prompt}] + llm_messages
 
     async def event_stream():
@@ -348,7 +368,8 @@ async def send_message(body: MessageBody,
 
 async def _stream_slash_result(user: dict, sess: dict,
                                 raw_text: str, parsed: tuple[str, str],
-                                b_status: dict):
+                                b_status: dict,
+                                user_tz: Optional[str] = None):
     """Wrap the deterministic slash path in the same SSE envelope so
     the frontend has one code path for messages."""
     cmd, args = parsed
@@ -371,7 +392,7 @@ async def _stream_slash_result(user: dict, sess: dict,
         chosen = resolve("slash_explain")
         if b_status["mode"] not in ("economy", "spike_hard_stop") and result.get("ok"):
             hr_text = await ora_house_rules.get_effective_text(user["user_id"])
-            system_prompt = assemble_system_prompt(hr_text)
+            system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz)
             msg = (
                 f"A slash-command just ran. Explain this result in ONE "
                 f"crisp sentence. Do NOT invent numbers.\n\n"
