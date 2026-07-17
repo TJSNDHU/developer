@@ -654,9 +654,18 @@ body.aurem-glass #root {
   .composer-toolbar [data-testid="composer-footer-caption"] {
     display: none !important;
   }
-  /* Caption was the flex-1 spacer — re-split left/right clusters. */
-  .composer-toolbar [data-testid="intent-tier-indicator"] {
+  /* Caption was the flex-1 spacer — push the right cluster (QUERY
+     pill → LOOP toggle → send) to the proper right edge. */
+  .composer-toolbar [data-testid="intent-tier-indicator"],
+  .composer-toolbar [data-testid="loop-mode-toggle"],
+  .composer-toolbar [data-testid="loop-mode-toggle-locked"] {
     margin-left: auto;
+  }
+  /* When the QUERY pill is present it takes the spacer role — reset
+     the loop toggle back to normal flow. */
+  .composer-toolbar [data-testid="intent-tier-indicator"] ~ [data-testid="loop-mode-toggle"],
+  .composer-toolbar [data-testid="intent-tier-indicator"] ~ [data-testid="loop-mode-toggle-locked"] {
+    margin-left: 0;
   }
 }
 
