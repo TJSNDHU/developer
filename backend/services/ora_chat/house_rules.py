@@ -26,7 +26,7 @@ from services.ora_chat.safety import (
 )
 
 
-MAX_LEN = 2000
+MAX_LEN = 4000
 HISTORY_KEEP = 5
 
 

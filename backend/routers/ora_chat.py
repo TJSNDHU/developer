@@ -676,7 +676,7 @@ async def config(authorization: Optional[str] = Header(None)):
 
 # ── House Rules endpoints (Iter 212m-239) ──────────────────────────
 class HouseRulesBody(BaseModel):
-    rules_text: str = Field(..., max_length=2000)
+    rules_text: str = Field(..., max_length=4000)
 
 
 @router.get("/house-rules")

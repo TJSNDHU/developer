@@ -10,7 +10,7 @@ import React, { useEffect, useState } from "react";
 import { X, RotateCcw, AlertTriangle } from "lucide-react";
 import { api } from "../lib/api";
 
-const MAX_LEN = 2000;
+const MAX_LEN = 4000;
 
 export default function OraChatHouseRulesPanel({ onClose }) {
   const [text, setText]         = useState("");
