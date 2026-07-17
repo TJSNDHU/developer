@@ -657,22 +657,24 @@ function Bubble({ m }) {
         <button type="button" onClick={doCopy}
                 data-testid={`ora-copy-${m.role}`}
                 title={copied ? "Copied!" : "Copy message"}
-                style={{ marginTop: 4, padding: "3px 8px",
+                aria-label={copied ? "Copied" : "Copy message"}
+                style={{ marginTop: 4, padding: "4px 6px",
                            // Iter 212m-259 — light-sky-blue confirmation
-                           // state. When `copied` is true the pill flips
-                           // to a soft sky-blue fill + border so the
-                           // click feels responsive and unmistakable.
+                           // state. Iter 212m-260 — icon-only (no label
+                           // text) — cleaner outer chrome, easier to
+                           // scan long threads.
                            background: copied ? "#DBEEFB" : "transparent",
                            border: `1px solid ${copied ? "#7DB9E8" : PAL.border}`,
                            borderRadius: 999,
                            color: copied ? "#1F6FB2" : PAL.faint,
-                           fontSize: 10, cursor: "pointer",
-                           display: "flex", alignItems: "center", gap: 4,
-                           fontWeight: copied ? 600 : 400,
+                           cursor: "pointer",
+                           display: "flex", alignItems: "center",
+                           justifyContent: "center",
+                           lineHeight: 0,
                            transition: "color 120ms, background 120ms, border-color 120ms" }}
                 onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = PAL.muted; }}
                 onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = PAL.faint; }}>
-          {copied ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+          {copied ? <Check size={11} /> : <Copy size={11} />}
         </button>
       )}
     </div>
