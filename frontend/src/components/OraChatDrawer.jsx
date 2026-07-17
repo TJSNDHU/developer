@@ -20,8 +20,8 @@ import OraChatHouseRulesPanel from "./OraChatHouseRulesPanel";
 
 const BASE = `${process.env.REACT_APP_BACKEND_URL}/api/aurem-dev/ora-chat`;
 
-export default function OraChatDrawer() {
-  const [open, setOpen] = useState(false);
+export default function OraChatDrawer({ forceOpen = false, fullscreen = false } = {}) {
+  const [open, setOpen] = useState(forceOpen);
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -223,8 +223,9 @@ export default function OraChatDrawer() {
 
   return (
     <>
-      {/* Floating trigger — bottom-right on every /admin/* page */}
-      {!open && (
+      {/* Floating trigger — bottom-right on every /admin/* page.
+          Hidden in fullscreen mode (already inside a full page). */}
+      {!open && !fullscreen && (
         <button
           type="button"
           data-testid="ora-chat-open"
@@ -247,11 +248,14 @@ export default function OraChatDrawer() {
         <div
           data-testid="ora-chat-drawer"
           style={{
-            position: "fixed", right: 0, top: 0, bottom: 0,
-            width: "min(440px, 96vw)", zIndex: 101,
+            position: "fixed",
+            right: 0, top: 0, bottom: 0,
+            left: fullscreen ? 0 : "auto",
+            width: fullscreen ? "100vw" : "min(440px, 96vw)",
+            zIndex: 101,
             background: "#0f1113", color: "#e8e3d3",
-            borderLeft: "1px solid rgba(255,255,255,0.06)",
-            boxShadow: "-12px 0 40px rgba(0,0,0,0.4)",
+            borderLeft: fullscreen ? "none" : "1px solid rgba(255,255,255,0.06)",
+            boxShadow: fullscreen ? "none" : "-12px 0 40px rgba(0,0,0,0.4)",
             display: "flex", flexDirection: "column",
             fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
           }}
@@ -311,11 +315,14 @@ export default function OraChatDrawer() {
             <button
               type="button"
               data-testid="ora-chat-close"
-              onClick={() => setOpen(false)}
+              onClick={() => { if (!fullscreen) setOpen(false); }}
+              disabled={fullscreen}
               aria-label="Close"
               style={{
                 background: "transparent", border: "none",
-                color: "#a39d8a", cursor: "pointer", padding: 6,
+                color: fullscreen ? "#3a362d" : "#a39d8a",
+                cursor: fullscreen ? "default" : "pointer", padding: 6,
+                visibility: fullscreen ? "hidden" : "visible",
               }}
             >
               <X size={16} />

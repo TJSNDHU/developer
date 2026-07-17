@@ -70,6 +70,7 @@ const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const AdminSystemHealth = lazy(() => import("./pages/AdminSystemHealth"));   // Iter 212m-205
 const PersonalTrackAdmin = lazy(() => import("./pages/admin/PersonalTrackAdmin")); // Iter 212m-240
 const OraChat            = lazy(() => import("./pages/admin/OraChat"));            // Iter 212m-238
+const OraDirect          = lazy(() => import("./pages/OraDirect"));                 // Iter 212m-241 public PIN-gated
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
 const ShipWall          = lazy(() => import("./pages/ShipWall"));
@@ -188,6 +189,7 @@ export default function App() {
           <Route path="/dashboard"       element={<Dashboard />} />
           {/* Iter 212m-235 — Personal Track routes */}
           <Route path="/choose-track"    element={<ChooseTrack />} />
+          <Route path="/ora"             element={<OraDirect />} />
           <Route path="/build"           element={<BuildHome />} />
           <Route path="/build/:draftId"  element={<DraftReview />} />
           <Route path="/build/:draftId/ship"    element={<ShipProgress />} />

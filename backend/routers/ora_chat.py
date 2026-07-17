@@ -19,13 +19,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from cto_services.auth import require_admin
+from cto_services.auth import require_admin, create_token
 from services.rate_limiter import check_rate_limit, client_ip_from_request
 from services.ora_chat import cost_tracker, session as ora_session
 from services.ora_chat import house_rules as ora_house_rules
@@ -519,3 +520,76 @@ async def restore_house_rules(version: int,
 async def reset_house_rules(authorization: Optional[str] = Header(None)):
     user = await require_admin(authorization)
     return await ora_house_rules.reset_to_default(user["user_id"])
+
+
+# ── PIN login for the public /ora quick-access route (Iter 212m-241) ──
+# The route auremcto.com/ora is deliberately unauthenticated at the
+# HTML layer so the founder can bookmark it on any device and reach
+# ORA in one tap. Security lives in this endpoint:
+#   1. Rate-limited by IP — 5 attempts / hour, then hard 429
+#   2. PIN compared to `ORA_QUICK_PIN` env (constant-time hmac.compare_digest)
+#   3. On success, a real admin JWT is minted (7-day expiry, same as
+#      login flow) bound to the founder account resolved from Mongo.
+#   4. If no founder row is found (fresh install) we refuse — never
+#      auto-privilege escalate.
+class PinLoginBody(BaseModel):
+    pin: str = Field(..., min_length=1, max_length=16)
+
+
+@router.post("/pin-login")
+async def pin_login(body: PinLoginBody,
+                     request: Request):
+    ip = client_ip_from_request(request)
+    # Coarse hourly counter over `ora_chat_pin_attempts` — one aggregate.
+    from cto_services.db import get_db
+    import hmac, time as _time
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database unavailable")
+    cutoff = _time.time() - 3600
+    n_fail = await db.ora_chat_pin_attempts.count_documents({
+        "ip": ip, "ok": False, "ts": {"$gte": cutoff},
+    })
+    if n_fail >= 5:
+        raise HTTPException(429, {
+            "error":   "too_many_attempts",
+            "message": "Too many wrong PIN attempts. Try again in an hour.",
+        })
+
+    expected = os.getenv("ORA_QUICK_PIN", "").strip()
+    if not expected:
+        raise HTTPException(503, "PIN login not configured")
+    ok = hmac.compare_digest(body.pin.strip(), expected)
+
+    await db.ora_chat_pin_attempts.insert_one({
+        "ip": ip, "ok": ok, "ts": _time.time(),
+    })
+    if not ok:
+        remaining = max(0, 5 - (n_fail + 1))
+        raise HTTPException(401, {
+            "error":              "invalid_pin",
+            "attempts_remaining": remaining,
+        })
+
+    # Resolve the founder → mint a real admin JWT tied to that identity.
+    # Never falls back to a random admin (privilege-escalation risk).
+    founder = await db.dev_users.find_one(
+        {"is_founder": True},
+        {"user_id": 1, "email": 1, "is_admin": 1, "_id": 0},
+    )
+    if not founder:
+        # Fresh install / seed missing — refuse rather than issue a
+        # token that could bind to whoever we pick.
+        raise HTTPException(503, "Founder identity not configured")
+
+    token = create_token(
+        user_id=founder["user_id"],
+        email=founder["email"],
+        is_admin=True,
+    )
+    return {
+        "ok":         True,
+        "token":      token,
+        "expires_in": 86400 * 7,
+        "user":       {"email": founder["email"], "is_admin": True},
+    }
