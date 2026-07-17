@@ -15,7 +15,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus, Square, Copy, Check } from "lucide-react";
+import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus, Square, Copy } from "lucide-react";
 import { api, setToken, getToken } from "../lib/api";
 import OraChatHouseRulesPanel from "../components/OraChatHouseRulesPanel";
 
@@ -674,7 +674,10 @@ function Bubble({ m }) {
                            transition: "color 120ms, background 120ms, border-color 120ms" }}
                 onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = PAL.muted; }}
                 onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = PAL.faint; }}>
-          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {/* Iter 212m-261 — Icon stays SAME (Copy) always.
+              Only the color + background flashes sky-blue for 1.5 s
+              on click as confirmation. No tick swap. */}
+          <Copy size={11} />
         </button>
       )}
     </div>
