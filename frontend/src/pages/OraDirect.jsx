@@ -231,12 +231,13 @@ function ChatShell({ onLogout }) {
         const r = await api.get("/ora-chat/sessions");
         const rows = r.data.sessions || [];
         setRecent(rows);
-        if (rows.length === 0) {
-          const c = await api.post("/ora-chat/sessions", { title: "Quick chat" });
-          setSessionId(c.data.session.session_id);
-        } else {
-          setShowPicker(true);
-        }
+        // Iter 212m-262 — Always auto-create a fresh session on load
+        // so the founder can start typing immediately. Older chats
+        // stay accessible via the "Continue last chat →" link in the
+        // hero AND via the Clock icon in the header. No pop-up modal
+        // on entry.
+        const c = await api.post("/ora-chat/sessions", { title: "Quick chat" });
+        setSessionId(c.data.session.session_id);
       } catch { /* token invalid — fall through */ }
     })();
   }, []);
@@ -438,6 +439,29 @@ function ChatShell({ onLogout }) {
                   </button>
                 ))}
               </div>
+              {/* Iter 212m-262 — Subtle single-line "Continue last chat" link.
+                  Only rendered when a recent session exists AND we're in a
+                  brand-new (empty) session. Founder-friendly: one click to
+                  resume, no popup. Full history stays behind the Clock
+                  icon in the header. */}
+              {recentSessions.length > 0 && (
+                <div style={{ marginTop: 20, textAlign: "center" }}>
+                  <button type="button"
+                          data-testid="ora-continue-last"
+                          onClick={() => openSession(recentSessions[0].session_id)}
+                          style={{ padding: "6px 12px", background: "transparent",
+                                     border: "none", color: PAL.muted, fontSize: 13,
+                                     cursor: "pointer", fontFamily: "inherit",
+                                     textDecoration: "underline",
+                                     textUnderlineOffset: 3,
+                                     textDecorationColor: PAL.border,
+                                     transition: "color 120ms" }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = PAL.text}
+                          onMouseLeave={(e) => e.currentTarget.style.color = PAL.muted}>
+                    Continue last chat →
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -685,6 +709,18 @@ function Bubble({ m }) {
 }
 
 function PickerModal({ recent, onClose, onNew, onOpen }) {
+  // Iter 212m-262 — group sessions by date bucket so browsing older
+  // chats stays scannable at any list length.
+  const now = Date.now() / 1000;
+  const DAY = 86400;
+  const buckets = { "Today": [], "Yesterday": [], "This week": [], "Older": [] };
+  for (const s of recent) {
+    const age = now - (s.updated_at || 0);
+    if      (age < DAY)     buckets["Today"].push(s);
+    else if (age < 2 * DAY) buckets["Yesterday"].push(s);
+    else if (age < 7 * DAY) buckets["This week"].push(s);
+    else                    buckets["Older"].push(s);
+  }
   return (
     <div data-testid="ora-picker"
          onClick={onClose}
@@ -699,7 +735,7 @@ function PickerModal({ recent, onClose, onNew, onOpen }) {
                       overflow: "auto", padding: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between",
                         alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Recent sessions</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Chat history</div>
           <button data-testid="ora-picker-new" onClick={onNew}
                   style={{ background: PAL.accent, color: "#fff",
                              border: "none", borderRadius: 8,
@@ -712,22 +748,34 @@ function PickerModal({ recent, onClose, onNew, onOpen }) {
         {recent.length === 0 && (
           <div style={{ fontSize: 13, color: PAL.muted }}>No previous sessions.</div>
         )}
-        {recent.map(s => (
-          <button key={s.session_id} data-testid={`ora-picker-${s.session_id}`}
-                  onClick={() => onOpen(s.session_id)}
-                  style={{ display: "block", width: "100%", textAlign: "left",
-                             padding: "12px 14px", marginBottom: 8,
-                             background: PAL.chip,
-                             border: `1px solid ${PAL.border}`,
-                             borderRadius: 10, cursor: "pointer",
-                             color: PAL.text, fontFamily: "inherit" }}>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>
-              {s.title || "Untitled"}
+        {["Today", "Yesterday", "This week", "Older"].map(bucket => (
+          buckets[bucket].length > 0 && (
+            <div key={bucket} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: PAL.faint,
+                              textTransform: "uppercase",
+                              letterSpacing: 1, marginBottom: 6,
+                              fontWeight: 600 }}>
+                {bucket}
+              </div>
+              {buckets[bucket].map(s => (
+                <button key={s.session_id} data-testid={`ora-picker-${s.session_id}`}
+                        onClick={() => onOpen(s.session_id)}
+                        style={{ display: "block", width: "100%", textAlign: "left",
+                                   padding: "10px 12px", marginBottom: 6,
+                                   background: PAL.chip,
+                                   border: `1px solid ${PAL.border}`,
+                                   borderRadius: 8, cursor: "pointer",
+                                   color: PAL.text, fontFamily: "inherit" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    {s.title || "Untitled"}
+                  </div>
+                  <div style={{ fontSize: 10, color: PAL.faint, marginTop: 2 }}>
+                    {s.message_count || 0} messages · {new Date((s.updated_at || 0) * 1000).toLocaleString()}
+                  </div>
+                </button>
+              ))}
             </div>
-            <div style={{ fontSize: 11, color: PAL.faint, marginTop: 3 }}>
-              {s.message_count || 0} messages · {new Date(s.updated_at * 1000).toLocaleString()}
-            </div>
-          </button>
+          )
         ))}
       </div>
     </div>
