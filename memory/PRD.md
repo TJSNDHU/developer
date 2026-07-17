@@ -1,6 +1,50 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-245 — Auto Deep-Research for ORA Chat
+
+**Founder ask (Hinglish):** Multi-label classifier + parallel fan-out (GitHub REST + Reddit JSON + GDELT + Perplexity Sonar) + one DeepSeek V3 synthesis pass with source citations. Feature-flagged Claude Haiku 4.5 tool_orchestration route as stub (disabled by default; enabled later when Anthropic key arrives, direct API only — NOT via OpenRouter).
+
+**Shipped:**
+
+*Backend:*
+- **`services/ora_chat/deep_research.py`** — end-to-end orchestration:
+  * `classify_labels(query)` — DeepSeek V3 (cheap) multi-label JSON classifier (NEEDS_WEB/GITHUB/SOCIAL/NEWS/DEEP). Tolerates code-fenced JSON, drops invalid labels, falls back to `[NEEDS_WEB]` on error.
+  * `should_go_deep(labels)` — True iff ≥2 substantive labels OR `NEEDS_DEEP` explicit.
+  * Tool adapters: `_fetch_github` (GitHub Search API — auto-uses `GITHUB_API_TOKEN` if set), `_fetch_gdelt` (free global news, no key), `_fetch_reddit` (public JSON), `_fetch_sonar` (existing Perplexity route).
+  * `orchestrate(query, labels)` — parallel `asyncio.gather` (max 4 tools), untrusted-wraps each result, DeepSeek V3 synth pass with citation prompt. Returns `{text, sources_fired, tool_cost_usd, downgraded, errors, synthesis_usage}`.
+  * **Cost guard**: if daily budget remaining <$0.50 → silent downgrade to single-Sonar (no user-facing block).
+  * `use_claude_tools()` — feature-flag gate for future Anthropic native tools route. Requires BOTH `ORA_ENABLE_CLAUDE_TOOLS=1` AND `ANTHROPIC_API_KEY` set. Disabled by default.
+- **`services/ora_chat/router.py`** — 2 new routes: `deep` (DeepSeek V3, temp 0.3, for synthesis) and `tool_orchestration` stub (Claude Haiku 4.5, feature-flagged). All 7 routes env-tunable.
+- **`routers/ora_chat.py::send_message`** — pre-check inserted before single-route classification: if `should_go_deep(labels)` AND not in economy mode AND Claude tools flag off → route to `_stream_deep_research`. New helper emits 2 route events (first with labels, second with `sources_fired`), chunks synthesized text into ~48-char deltas for smooth streaming, logs synth cost via cost_tracker, emits final with `tool_cost_usd`, `sources`, `sources_fired`, `downgraded`, `errors`.
+
+*Frontend:*
+- **`OraDirect.jsx`** + **`OraChatDrawer.jsx`** — route event handlers now capture `sources/sources_fired/downgraded`. Badge renders `deep · github+reddit+web · t=0.3` (or `· downgraded` when budget-throttled). Canonical source order: github+social+news+web. New data-testids: `ora-route-badge`, `ora-drawer-route-badge`.
+
+**Test suite: 71/71 PASS** (24 new + 47 regression):
+- `tests/test_ora_chat_deep_research.py` — classifier fallback (JSON/code-fence/error), should_go_deep threshold, tool dispatch, badge ordering, orchestrate happy + failure paths, downgrade (remaining <$0.50 → forces web-only), route registration, feature flag matrix.
+
+**Live end-to-end verified (preview):**
+| Query | Route fired | Badge |
+|---|---|---|
+| "compare fastapi vs express on github and what reddit is saying" | `deep` | `deep · github · t=0.3` (Reddit http_403 gracefully degraded — synth quoted `(source: github)`) |
+| "kya haal hai bhai" (single-topic) | `general` | `general · t=0.4` (deep skipped correctly) |
+| "aaj ka latest news kya hai" | `research` | `research · t=0.15` (Sonar, not deep) |
+| `/help` | `slash` | slash_result event — commands listed |
+
+**Explicit non-goals honored:**
+- No X/Twitter API (paid, deferred)
+- No generic URL crawler (Sonar + tools cover the use case)
+- Claude tool_orchestration route present but DISABLED — no dependency on Anthropic key today
+
+**Config knobs:**
+```
+ORA_MODEL_DEEP=deepseek/deepseek-chat  ORA_TEMP_DEEP=0.3
+ORA_MODEL_TOOL_ORCH=claude-haiku-4-5   ORA_ENABLE_CLAUDE_TOOLS=0
+ANTHROPIC_API_KEY=<future>             GITHUB_API_TOKEN=<optional, 5000/hr vs 60/hr>
+```
+
+
 ### 2026-02-16 — Iter 212m-240 — Runtime date/time injection + auto-timezone detection
 
 **Bug reported:** ORA replied *"Today is May 12, 2024, 12:57 PM IST. Verified against the system clock."* — 2 problems in one sentence: (1) hallucinated date from training cutoff, (2) fabricated a "system clock" verification claim that never happened.
