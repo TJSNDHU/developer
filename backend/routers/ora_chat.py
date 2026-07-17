@@ -742,14 +742,46 @@ async def pin_login(body: PinLoginBody,
 
     # Resolve the founder → mint a real admin JWT tied to that identity.
     # Never falls back to a random admin (privilege-escalation risk).
-    founder = await db.dev_users.find_one(
-        {"is_founder": True},
-        {"user_id": 1, "email": 1, "is_admin": 1, "_id": 0},
-    )
+    #
+    # Iter 212m-248 — Production PIN was failing 503 because it only
+    # trusted the `is_founder=True` DB flag. That flag isn't reliably
+    # backfilled on prod Mongo; the authoritative signal is
+    # `FOUNDER_EMAILS` (env, with a hardcoded fallback for the company
+    # founder in services/usage.py::founder_emails()). So we now:
+    #   1. Look up any dev_users row whose email is in the trusted
+    #      founder set.
+    #   2. Fall back to the legacy `is_founder=True` flag.
+    #   3. If a founder row is found but lacks the flag, backfill it
+    #      idempotently so downstream code stays consistent.
+    from services.usage import founder_emails as _founder_emails_set
+    trusted = list(_founder_emails_set())
+    founder = None
+    if trusted:
+        founder = await db.dev_users.find_one(
+            {"email": {"$in": trusted}},
+            {"user_id": 1, "email": 1, "is_admin": 1, "is_founder": 1, "_id": 0},
+        )
+    if not founder:
+        founder = await db.dev_users.find_one(
+            {"is_founder": True},
+            {"user_id": 1, "email": 1, "is_admin": 1, "is_founder": 1, "_id": 0},
+        )
     if not founder:
         # Fresh install / seed missing — refuse rather than issue a
         # token that could bind to whoever we pick.
         raise HTTPException(503, "Founder identity not configured")
+
+    # Idempotent backfill: keep the `is_founder` DB flag in sync with
+    # the env-declared founder identity. Safe because we only reach
+    # here after a valid PIN + trusted-email lookup.
+    if not founder.get("is_founder"):
+        try:
+            await db.dev_users.update_one(
+                {"user_id": founder["user_id"]},
+                {"$set": {"is_founder": True, "is_admin": True}},
+            )
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("founder flag backfill failed: %r", e)
 
     token = create_token(
         user_id=founder["user_id"],
