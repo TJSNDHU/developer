@@ -1,7 +1,67 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-### 2026-02-16 — Iter 212m-249 — ORA Chat "meta-question hallucination" fix
+### 2026-02-16 — Iter 212m-253/254/255/256 — Hallucination Prevention Stack
+
+**Founder ask (Hinglish):** Step 1 — abstain threshold strict karo. Step 2 — 3-step self-improving loop banao: (a) auto-detect ungrounded claims + log, (b) weekly batch-classify recurring patterns via DeepSeek, (c) HUMAN-approved promotion into house rules (no auto-inject).
+
+**Ship — 4 layers, all in preview:**
+
+*Layer 1 — Iter 212m-253: Abstain threshold + explicit no-cite signal*
+- `codebase_index.py::bm25_relevant_files` — default `min_score` 3.5 → **8.0** (evidence-based: real matches score 15+, noise scores 9-14). Env-tunable via `ORA_CODEBASE_MIN_SCORE`.
+- `deep_research.py::_fetch_codebase` — when BM25 returns [], now returns `{ok: True, abstain: True, results: []}` instead of silently dropping. Abstain signal PROPAGATES.
+- `deep_research.py::orchestrate` — synth prompt reads the abstain marker and injects: *"CRITICAL — codebase abstain in effect: You MUST NOT cite specific file paths, function names, test-file names, or make specific claims about how OUR code implements anything…"*
+- `safety.py::AUREM_CONTEXT` — new **Anti-fabrication rule** applies to ALL responses (not just deep-research). Names the specific prior hallucination (`test_iter212m201_tenant_leak.py`) as a concrete "don't do this" example. Provides fallback template: *"I don't have a confident code match — want me to /find or /read a specific area?"*
+
+*Layer 2 — Iter 212m-254: Auto-detect (grounding_check)*
+- **NEW** `services/ora_chat/grounding_check.py` — pure-regex claim extractor (NO LLM cost). Detects specific file paths, `test_iter*.py`, backtick symbols, `*_cron.py`. Filters common false positives (Python keywords, HTTP verbs, generic acronyms).
+- Fires **fire-and-forget** after every deep-research SSE final event (`asyncio.create_task`) — never blocks the reply.
+- Ungrounded claims → written to Mongo `ora_hallucination_log` with query + reply + retrieved context + system prompt blobs. Dedup: same session + same claim-set within 60 s is skipped.
+
+*Layer 3 — Iter 212m-255: Auto-classify (batch job)*
+- **NEW** `services/ora_chat/hallucination_classifier.py` — reads unreviewed rows from `ora_hallucination_log` in batches of 40 max.
+- Trigger: manual admin call OR unreviewed count ≥ 20.
+- Cheap DeepSeek V3 call (temp 0.15) → asks for "≤3 recurring patterns, each seen ≥3 times". Robust JSON parser handles code fences.
+- Patterns land in `ora_hallucination_patterns` with `status: "pending"`, `seen_count`, `proposed_rule`, `example_cases`. Dedup on slug — re-observed pattern bumps `seen_count`, no duplicate rows.
+
+*Layer 4 — Iter 212m-256: Human-approved promotion (admin endpoints)*
+- **4 NEW admin endpoints** on `routers/ora_chat.py` (all `require_admin`):
+  - `GET  /api/aurem-dev/ora-chat/hallucination-patterns` → list pending + unreviewed_count
+  - `POST /api/aurem-dev/ora-chat/hallucination-patterns/classify-now` → manual batch trigger
+  - `POST /api/aurem-dev/ora-chat/hallucination-patterns/approve` → PROMOTES to house_rules (founder-only)
+  - `POST /api/aurem-dev/ora-chat/hallucination-patterns/reject` → marks rejected
+- **Approve** appends the rule to the founder's `ora_chat_house_rules` (via `house_rules.update()`) — the safety layer's `assemble_system_prompt` picks it up on next message. Static test asserts `house_rules` import lives INSIDE `approve_pattern`, not at module scope (prevents accidental auto-application).
+- **No auto-injection anywhere.** Human gate is enforced by having ZERO code path that auto-promotes a pattern to house_rules.
+
+**Test suite: 133/133 PASS** (19 new + 10 new + 104 pre-existing):
+- `tests/test_ora_chat_abstain.py` — 10 tests: threshold enforcement, env-var override, abstain marker propagation, synth prompt injection, anti-fabrication rule static checks
+- `tests/test_ora_chat_hallucination_loop.py` — 19 tests: claim extraction, ungrounded detection, log gate, classifier parsing (JSON + code-fence), batch trigger gate, HUMAN-IN-THE-LOOP static invariant
+
+**Live end-to-end verified (same "kya best build" query, before/after fix):**
+
+| Field | Original bug | After 212m-249 | Now (212m-253+) |
+|---|---|---|---|
+| Files cited | Domain.jsx, redis test | Council+Loop, Personal Track (real subsystems) | Same real subsystems + real live counts (56 routers, 177 files, 7 files) |
+| Route | `deep · codebase` | `general` | `general` (correct — no unnecessary tools) |
+| Fabricated `test_iter*.py`? | Yes | No | No — anti-fabrication rule active |
+| Next-step suggestion | None | `/read <path>` | `/read` or `/find` (correct) |
+| Hallucination log created? | N/A | N/A | Yes (auto — flags ungrounded claims for founder review) |
+
+**Config knobs:**
+```
+ORA_CODEBASE_MIN_SCORE=8.0     # BM25 score threshold (default 8.0)
+# Classifier auto-triggers when ora_hallucination_log unreviewed >= 20
+# Manual trigger via POST /hallucination-patterns/classify-now
+```
+
+
+### 2026-02-16 — Iter 212m-252 — Codebase mapping refresh
+
+- **NEW** `/app/memory/CODEBASE_MAP.md` — 350-line comprehensive structural map.
+- Counts refreshed in 4 architecture docs (01/02/03/04): 55 routers · 108 services + 9 ora_chat · 51 pages · 81 components · 330 tests.
+
+
+### 2026-02-16 — Iter 212m-249/250/251 — Meta-hallucination fix + background + tighter width
 
 **Founder ask (Hinglish):** *"ora dekhna kya bkk rha hai"* — ORA meta questions like "kya best build hai hmara system main aur kya gaps hain" pe randomly `Domain.jsx`, `test_iter212m76_redis_cache.py` jaise irrelevant files cite kar raha tha aur "best build" bata raha tha.
 

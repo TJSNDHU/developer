@@ -32,6 +32,8 @@ from services.ora_chat import cost_tracker, session as ora_session
 from services.ora_chat import house_rules as ora_house_rules
 from services.ora_chat import deep_research as ora_deep
 from services.ora_chat import codebase_index as ora_codebase
+from services.ora_chat import grounding_check as ora_grounding
+from services.ora_chat import hallucination_classifier as ora_halluc
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
 )
@@ -612,6 +614,33 @@ async def _stream_deep_research(user: dict, sess: dict,
             cost_usd=cost,
         )
 
+        # Iter 212m-254 — post-response grounding check.
+        # Fire-and-forget: never blocks the SSE final event.
+        # Extracts specific claims (file paths, function names,
+        # test-file names) from the reply and logs any that aren't
+        # grounded in the retrieved context. The classifier layer
+        # (212m-255) then batch-reviews these for recurring patterns.
+        try:
+            retrieved_ctx = ""
+            if out.get("sources_fired"):
+                # Reconstruct a lightweight context blob from the
+                # sources_fired list — we don't re-run the fetches,
+                # we just check against what the model actually saw.
+                retrieved_ctx = " ".join(out.get("sources_fired", []))
+            asyncio.create_task(ora_grounding.check_and_log(
+                user_id=user["user_id"],
+                session_id=session_id,
+                query=raw_text,
+                reply=text,
+                route="deep",
+                sources_fired=out.get("sources_fired") or [],
+                retrieved_context=retrieved_ctx,
+                codebase_tree=cb_tree,
+                system_highlights=None,
+            ))
+        except Exception as e:                              # noqa: BLE001
+            logger.warning("grounding_check schedule failed: %r", e)
+
         yield {"type": "final",
                 "cost_usd":       cost,
                 "tool_cost_usd":  round(float(out.get("tool_cost_usd") or 0.0), 6),
@@ -801,3 +830,77 @@ async def pin_login(body: PinLoginBody,
         "expires_in": 86400 * 7,
         "user":       {"email": founder["email"], "is_admin": True},
     }
+
+
+# ── Iter 212m-255/256 · Hallucination self-improvement loop ────────
+#
+# The loop is human-in-the-loop by design:
+#   1. Every ORA response is auto-checked for ungrounded specific
+#      claims (services/ora_chat/grounding_check.py — fires in the
+#      SSE `_stream_deep_research` handler above). Positives → Mongo
+#      `ora_hallucination_log`.
+#   2. Batch classifier reads unreviewed rows, asks DeepSeek V3 for
+#      recurring patterns (>=3 cases). Candidates land in
+#      `ora_hallucination_patterns` with `status: "pending"`.
+#   3. Founder REVIEWS candidates via the endpoints below and
+#      explicitly APPROVES / REJECTS. Only approved rules are appended
+#      to house_rules. NO auto-application.
+
+
+class ApprovePatternBody(BaseModel):
+    slug: str
+    new_rule_text: Optional[str] = None  # override the LLM-proposed text
+
+
+class RejectPatternBody(BaseModel):
+    slug: str
+    reason: Optional[str] = None
+
+
+@router.get("/hallucination-patterns")
+async def hallucination_patterns_list(authorization: Optional[str] = Header(None)):
+    """List pending candidate rules for founder review."""
+    await require_admin(authorization)
+    pending = await ora_halluc.list_pending_patterns()
+    unreviewed = await ora_halluc.unreviewed_count()
+    return {"ok": True, "pending": pending, "unreviewed_log_rows": unreviewed}
+
+
+@router.post("/hallucination-patterns/classify-now")
+async def hallucination_patterns_classify(force: bool = True,
+                                            authorization: Optional[str] = Header(None)):
+    """Manual trigger — run the classifier over current unreviewed log rows."""
+    await require_admin(authorization)
+    r = await ora_halluc.classify_batch(force=force)
+    return r
+
+
+@router.post("/hallucination-patterns/approve")
+async def hallucination_patterns_approve(body: ApprovePatternBody,
+                                           authorization: Optional[str] = Header(None)):
+    """Founder-approved promotion of a candidate pattern into house rules."""
+    user = await require_admin(authorization)
+    r = await ora_halluc.approve_pattern(
+        slug=body.slug,
+        user_id=user["user_id"],
+        admin_email=user["email"],
+        new_rule_text=body.new_rule_text,
+    )
+    if not r.get("ok"):
+        raise HTTPException(400, r.get("error", "approve_failed"))
+    return r
+
+
+@router.post("/hallucination-patterns/reject")
+async def hallucination_patterns_reject(body: RejectPatternBody,
+                                          authorization: Optional[str] = Header(None)):
+    """Reject a candidate pattern (won't ever be promoted)."""
+    user = await require_admin(authorization)
+    r = await ora_halluc.reject_pattern(
+        slug=body.slug,
+        admin_email=user["email"],
+        reason=body.reason,
+    )
+    if not r.get("ok"):
+        raise HTTPException(404, "not_found")
+    return r

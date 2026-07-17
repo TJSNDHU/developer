@@ -206,12 +206,24 @@ async def _fetch_sonar(query: str) -> dict:
 
 
 async def _fetch_codebase(query: str) -> dict:
-    """Local codebase search — BM25-lite retrieval + top-3 file excerpts."""
+    """Local codebase search — BM25-lite retrieval + top-3 file excerpts.
+
+    Iter 212m-253 — Abstain-on-weak-signal:
+    When BM25 returns [] (all matches below `ORA_CODEBASE_MIN_SCORE`
+    OR query has too few substantive tokens), we return an EXPLICIT
+    abstention marker (`ok=True, abstain=True, results=[]`) instead
+    of a silent failure. Orchestrator's synth prompt reads this and
+    injects a hard rule: "No confident codebase match found — do not
+    cite specific files or make claims about specific code." This
+    prevents the model from fabricating filenames when NEEDS_CODEBASE
+    fires but retrieval has no signal (the "kya best build" incident).
+    """
     try:
         hits = await codebase_index.bm25_relevant_files(query, top_k=3)
         if not hits:
-            return {"tool": "codebase", "ok": False,
-                     "error": "no_matches"}
+            return {"tool": "codebase", "ok": True,
+                     "abstain": True, "results": [],
+                     "reason": "no_confident_match_above_threshold"}
         return {"tool": "codebase", "ok": True, "results": hits}
     except Exception as e:
         return {"tool": "codebase", "ok": False,
@@ -301,14 +313,41 @@ async def orchestrate(query: str, labels: list[str],
 
     # Synthesis prompt
     parts = []
+    codebase_abstained = False
     for r in raw:
         tool = r["tool"]
+        # Iter 212m-253 — Abstain marker from _fetch_codebase means
+        # BM25 had no confident hit. Include an EXPLICIT no-cite
+        # instruction in the synth prompt for this tool's slot.
+        if tool == "codebase" and r.get("abstain"):
+            codebase_abstained = True
+            parts.append(
+                f"[CODEBASE]\n<codebase_abstain reason=\"{r.get('reason','low_confidence')}\">"
+                "\nThe codebase retrieval returned NO file with a confidence "
+                "score above the threshold for this query.\n"
+                "</codebase_abstain>"
+            )
+            continue
         body = json.dumps(r.get("results") if "results" in r else r.get("text"),
                           ensure_ascii=False)[:6000]
         parts.append(f"[{tool.upper()}]\n{wrap_untrusted(body, source_url=tool)}")
     joined = "\n\n".join(parts)
 
     synth_cfg = resolve("deep")
+    abstain_rule = ""
+    if codebase_abstained:
+        abstain_rule = (
+            "\n\n**CRITICAL — codebase abstain in effect:** "
+            "No confident codebase match was found for this query. You MUST NOT "
+            "cite specific file paths, function names, test-file names, or make "
+            "specific claims about how OUR code implements anything. If the user "
+            "asked about our system specifically, either (a) answer from the "
+            "AUREM system-highlights block only (subsystem-level, no file names), "
+            "or (b) say honestly: 'I don't have a confident code match for that — "
+            "want me to /find or /read a specific area?' Fabricating a filename "
+            "here is the WORST failure mode and violates the core safety rules."
+        )
+
     synth_prompt = (
         f"Original user question: {query}\n\n"
         f"Results from {len(raw)} sources are below. Each is wrapped in "
@@ -316,10 +355,11 @@ async def orchestrate(query: str, labels: list[str],
         f"{joined}\n\n"
         "Synthesize ONE clean answer to the user's question. Rules:\n"
         "- Cite which source each claim came from inline: (source: github), "
-        "(source: news), (source: web), (source: social)\n"
+        "(source: news), (source: web), (source: social), (source: codebase)\n"
         "- Do NOT dump raw JSON — summarize + combine\n"
         "- Match the language of the user's original question\n"
         "- End with a short 'Sources checked:' line listing every tool that fired"
+        + abstain_rule
     )
     system_prompt = assemble_system_prompt(house_rules_text, user_tz=user_tz,
                                             codebase_tree=codebase_tree)

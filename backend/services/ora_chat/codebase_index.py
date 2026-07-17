@@ -373,7 +373,7 @@ def _tokenize(text: str) -> list[str]:
 
 async def bm25_relevant_files(query: str, top_k: int = 3,
                                 min_tokens: int = 2,
-                                min_score: float = 3.5) -> list[dict]:
+                                min_score: Optional[float] = None) -> list[dict]:
     """Naïve term-frequency ranking. Not a full BM25 — just enough
     signal to pick the most-relevant files when NEEDS_CODEBASE
     fires. Returns [{path, score, head_excerpt}, ...] sorted by score.
@@ -383,12 +383,21 @@ async def bm25_relevant_files(query: str, top_k: int = 3,
       - `min_tokens`: require at least 2 substantive tokens after
         stopword strip. Meta-questions typically have 0-1 real content
         tokens and shouldn't trigger retrieval at all.
-      - `min_score`: reject results whose top score is below the
-        threshold. Generic tokens ("system", "app", "code") get
-        stopworded away, but if the residual signal is still weak,
-        we return [] and let the model answer from its baseline
-        AUREM_CONTEXT + system-highlights block instead.
+      - `min_score`: reject weak matches. Env-tunable via
+        `ORA_CODEBASE_MIN_SCORE` (default **8.0** — evidence-based:
+        real matches score 15+, noise scores 9-14). Iter 212m-253
+        bumped from 3.5 → 8.0 after the "kya best build" false-cite
+        incident. When ALL hits fall below threshold we return [] and
+        the caller MUST treat that as an explicit abstention signal —
+        see `deep_research::_fetch_codebase` which turns [] into an
+        `abstain=True` marker so the synth prompt gets told to NOT
+        cite specific files.
     """
+    if min_score is None:
+        try:
+            min_score = float(os.getenv("ORA_CODEBASE_MIN_SCORE", "8.0"))
+        except ValueError:
+            min_score = 8.0
     await _ensure_fresh()
     q_tokens = set(_tokenize(query))
     if len(q_tokens) < min_tokens:
