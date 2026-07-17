@@ -232,6 +232,12 @@ async def compact_tree(max_files: int = 120) -> str:
     """Return a compact top-level directory listing for the system prompt.
     Groups files by directory, caps at `max_files` overall so the block
     stays under ~4 KB.
+
+    Iter 212m-263 — Prefixed with a HARD warning: this is a FILENAME
+    INDEX, not file CONTENT. Prior versions were being misinterpreted
+    by the model as "I've read these files, so I know what they do" —
+    leading to fabricated content descriptions when the model saw a
+    filename that looked meaningful.
     """
     await _ensure_fresh()
     files = _CACHE["files"]
@@ -242,7 +248,16 @@ async def compact_tree(max_files: int = 120) -> str:
         key = "/".join(parts[:2]) if len(parts) > 2 else parts[0]
         groups.setdefault(key, []).append("/".join(parts[2:]) if len(parts) > 2 else parts[-1])
     # Cap group members so no single dir dominates.
-    lines: list[str] = ["AUREM repo tree (compact — auto-generated, always fresh):"]
+    lines: list[str] = [
+        "═══ AUREM repo FILENAME INDEX (paths only — NOT content) ═══",
+        "⚠️  This is a LIST OF FILE PATHS. You have NOT read the contents",
+        "    of any of these files. Do NOT describe what a file DOES,",
+        "    what tests it runs, or what functions it contains — based",
+        "    solely on this list. To know a file's content you MUST",
+        "    dispatch a /read <path> slash-command and see the actual",
+        "    source in the next turn. Names can be misleading.",
+        "",
+    ]
     shown = 0
     for key in sorted(groups):
         members = groups[key][:8]

@@ -187,3 +187,25 @@ class TestGlobalAntiFabricationRule:
         # The rule must give the model an escape hatch — an honest
         # sentence to say when it doesn't know.
         assert "confident code match" in AUREM_CONTEXT
+
+    def test_filename_neq_content_rule_present(self):
+        # Iter 212m-263 — must explicitly teach the model that seeing
+        # a filename in the index ≠ knowing its content.
+        assert "Filename" in AUREM_CONTEXT and "content" in AUREM_CONTEXT
+        assert "PATHS only" in AUREM_CONTEXT or "index lists PATHS" in AUREM_CONTEXT
+
+    def test_pushback_retraction_rule_present(self):
+        # Iter 212m-263 — when user challenges, model must retract,
+        # not double down. Specific challenge phrases named.
+        assert "RETRACT" in AUREM_CONTEXT
+        # Must warn against inventing more filenames to defend
+        assert "double down" in AUREM_CONTEXT or "invent additional" in AUREM_CONTEXT
+
+    def test_names_the_iter263_hallucination_cluster(self):
+        # The new batch of caught hallucinations from the same user
+        # feedback loop — locks in the anti-recurrence expectation.
+        for name in ("test_iter212m55_domain_flow",
+                      "test_iter212m88_stripe_stress",
+                      "cache_orchestrator.py",
+                      "frontend/src/hooks/useDB.js"):
+            assert name in AUREM_CONTEXT

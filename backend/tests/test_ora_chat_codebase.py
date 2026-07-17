@@ -45,7 +45,10 @@ class TestCompactTree:
     @pytest.mark.asyncio
     async def test_compact_tree_bounded(self):
         text = await cb.compact_tree(max_files=120)
-        assert "AUREM repo tree" in text
+        # Iter 212m-263 — header changed from "AUREM repo tree" to
+        # "AUREM repo FILENAME INDEX (paths only — NOT content)".
+        assert "FILENAME INDEX" in text
+        assert "NOT content" in text or "not read" in text.lower()
         # Must stay well under 8 KB so it doesn't blow token budget
         assert len(text) < 8000
 
@@ -149,7 +152,8 @@ class TestSlashCommandsWired:
     async def test_repo_tree_handler_returns_text(self):
         r = await DISPATCH["repo-tree"]({}, "")
         assert r["ok"] is True
-        assert "AUREM repo tree" in r["value"]
+        # Iter 212m-263 — new header wording
+        assert "FILENAME INDEX" in r["value"] or "NOT content" in r["value"]
 
     @pytest.mark.asyncio
     async def test_find_handler_missing_arg(self):
