@@ -157,9 +157,35 @@ class TestUntrustedWrapper:
 class TestBuildPrompt:
     def test_no_untrusted_content(self):
         sys_p, user_p = build_prompt(user_message="Hi ORA")
-        assert sys_p == SYSTEM_PROMPT
+        # build_prompt() now injects fresh runtime context (date/time)
+        # so exact-string equality with the static SYSTEM_PROMPT is no
+        # longer meaningful. Assert the invariants that matter: safety
+        # layer first, AUREM_CONTEXT present, runtime context present.
+        assert sys_p.startswith("CORE SAFETY RULES")
+        assert "You are ORA" in sys_p
+        assert "Runtime context" in sys_p
+        assert "now_utc" in sys_p
         assert user_p == "Hi ORA"
         assert UNTRUSTED_OPEN[:-1] not in user_p
+
+    def test_runtime_context_has_current_year(self):
+        """Regression guard for the 'ORA said May 12, 2024' bug — the
+        injected runtime block must contain the actual current year,
+        not a stale training-cutoff date."""
+        from datetime import datetime, timezone
+        sys_p, _ = build_prompt(user_message="today?")
+        current_year = str(datetime.now(timezone.utc).year)
+        assert current_year in sys_p, (
+            f"Runtime context missing current year {current_year} — "
+            f"regression to the May-2024 hallucination bug"
+        )
+
+    def test_anti_fabrication_rule_present(self):
+        """The AUREM_CONTEXT must forbid fake verification claims
+        (e.g. 'verified against the system clock')."""
+        from services.ora_chat.safety import AUREM_CONTEXT
+        assert "NEVER fabricate a verification" in AUREM_CONTEXT
+        assert "system clock" in AUREM_CONTEXT.lower()
 
     def test_untrusted_content_wrapped_in_user_turn(self):
         sys_p, user_p = build_prompt(

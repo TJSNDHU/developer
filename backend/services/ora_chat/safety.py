@@ -127,7 +127,54 @@ Self-verification (single-user context — apply always):
   (e.g. "based on the /revenue-snapshot output above" or "per the
   Perplexity result cited"). If you cannot verify, say so.
 - When completing a task, note the specific evidence that shows it
-  succeeded (a tool result, a citation, a computation shown)."""
+  succeeded (a tool result, a citation, a computation shown).
+- NEVER fabricate a verification. Do NOT claim to have "checked the
+  system clock", "queried the database directly", "run a tool", or
+  "verified via [anything you did not actually receive as data in
+  this prompt]". Your ONLY sources of ground-truth are:
+    (a) content the user just typed,
+    (b) the Runtime context block below (dates, config values),
+    (c) explicit search/slash-command results included in the prompt.
+  If the answer requires information outside those three sources,
+  say "I don't have that data — try [specific slash-command / ask
+  Perplexity route]"."""
+
+
+# ────────────────────────────────────────────────────────────────────
+# 3b. Runtime context — injected fresh per call (never stale)
+# ────────────────────────────────────────────────────────────────────
+def build_runtime_context(user_tz: Optional[str] = None) -> str:
+    """Return a short "Runtime context" block the router prepends to
+    every LLM call. This is how the model learns the current date/time
+    without needing a tool — LLMs have no built-in clock, so this
+    injected block IS its source of truth.
+
+    Timezones: canonical UTC always shown. If `user_tz` is given (via
+    env `ORA_USER_TZ`), a second human-readable line in that TZ is
+    added — defaults to Asia/Kolkata for the founder.
+    """
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    lines = [
+        "Runtime context (freshly injected — this is your ONLY source of truth for date/time):",
+        f"  now_utc = {now_utc.isoformat(timespec='seconds')}",
+    ]
+    tz = user_tz or __import__("os").getenv("ORA_USER_TZ", "Asia/Kolkata")
+    try:
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:  # pragma: no cover — py<3.9 fallback
+            ZoneInfo = None  # type: ignore
+        if ZoneInfo is not None:
+            local = now_utc.astimezone(ZoneInfo(tz))
+            lines.append(
+                f"  now_{tz.split('/')[-1].lower()} = "
+                f"{local.strftime('%A, %B %d, %Y at %I:%M %p %Z')}"
+            )
+    except Exception:
+        # Bad TZ config — never break the chat over it.
+        pass
+    return "\n".join(lines)
 
 
 # Default house rule pre-filled for new admins (single-user, direct-answers style).
@@ -137,15 +184,20 @@ DEFAULT_HOUSE_RULES = (
 )
 
 
-def assemble_system_prompt(house_rules_text: Optional[str] = None) -> str:
+def assemble_system_prompt(house_rules_text: Optional[str] = None,
+                            include_runtime: bool = True) -> str:
     """Compose the final system prompt in strict priority order:
-    CORE_SAFETY_RULES → AUREM_CONTEXT → (optional) <user_preferences>.
+    CORE_SAFETY_RULES → AUREM_CONTEXT → Runtime context → (optional)
+    <user_preferences>.
 
-    The house-rules block is explicitly framed as *style preferences*
-    and is preceded by a hard reminder that safety rules cannot be
-    overridden by anything in this block.
+    Runtime context (fresh date/time) is placed BEFORE house rules so
+    the founder's style preferences can never reframe or replace it,
+    but AFTER AUREM_CONTEXT so the self-verification instruction is
+    already in place when the model reads the runtime values.
     """
     parts = [CORE_SAFETY_RULES, "", AUREM_CONTEXT]
+    if include_runtime:
+        parts.extend(["", build_runtime_context()])
     if house_rules_text and house_rules_text.strip():
         text = house_rules_text.strip()
         parts.extend([
@@ -165,7 +217,10 @@ def assemble_system_prompt(house_rules_text: Optional[str] = None) -> str:
 
 # Backward-compat convenience for callers that don't want to fetch
 # house rules from Mongo (tests, background jobs, quick smoke tests).
-SYSTEM_PROMPT = assemble_system_prompt(None)
+# NOTE: uses `include_runtime=False` so the static SYSTEM_PROMPT
+# constant remains deterministic across calls (important for tests
+# that assert exact string contents).
+SYSTEM_PROMPT = assemble_system_prompt(None, include_runtime=False)
 
 
 def build_prompt(*, user_message: str, untrusted_content: str = "",
