@@ -1,6 +1,73 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-249 — ORA Chat "meta-question hallucination" fix
+
+**Founder ask (Hinglish):** *"ora dekhna kya bkk rha hai"* — ORA meta questions like "kya best build hai hmara system main aur kya gaps hain" pe randomly `Domain.jsx`, `test_iter212m76_redis_cache.py` jaise irrelevant files cite kar raha tha aur "best build" bata raha tha.
+
+**Root cause (3 layered issues):**
+1. **Weak BM25 tokenizer** — stopword list was too small (~20 words). Generic query tokens like "system", "build", "main", "hmara" treated as content signal. BM25 scored any file mentioning "system" high → Domain.jsx / Redis test file scored highest by accident.
+2. **No score threshold** — BM25 returned top-3 even when the top score was tiny (11-14 pts) and clearly noise.
+3. **Classifier over-fired NEEDS_CODEBASE** on meta/opinion queries. Prompt said "asks about OUR code" which model interpreted as "any question about AUREM", so even opinion questions triggered BM25 retrieval → junk.
+
+**Fix (3 layers):**
+
+*Layer 1 — Tighter BM25 (`services/ora_chat/codebase_index.py`):*
+- Stopword list expanded from ~20 → ~120 tokens (English + Hindi/Hinglish + generic tech words: "system", "build", "code", "app", "file", "best", "worst"). "System"/"build"/"main" no longer contribute noise.
+- New `min_tokens=2` guard — if <2 substantive tokens after strip, return `[]`.
+- New `min_score=3.5` threshold — junk hits (11-14 pts) rejected; real matches (20-35 pts) pass.
+
+*Layer 2 — Curated `system_highlights()` block:*
+- Auto-injected into every message system prompt AFTER the compact tree.
+- Lists AUREM's actual crown-jewel subsystems with real paths: Council + Loop, Personal Track, Feature Window, ORA Chat, Stripe Billing, Ask Advisor, Codebase Health, GitHub/Vercel/Supabase integrations, Admin panel, Codebase Indexer.
+- Live counts computed from the index: **56 routers · 126 services · 51 pages · 100 components · 328 test files**.
+- Explicit instruction embedded: *"If the question is META (best/worst/gaps/overview), answer from THIS block, not from BM25."*
+
+*Layer 3 — Classifier prompt sharpening (`services/ora_chat/deep_research.py`):*
+- NEEDS_CODEBASE now explicitly excludes meta questions:
+  > "Do NOT fire this for META questions like 'what's the best build in our system', 'overall gaps', 'kya banaya hai overall'."
+
+**Before → After (same query, same PIN, preview):**
+
+| Field | Before | After |
+|---|---|---|
+| Route | `deep · codebase · t=0.3` | `general · t=0.4` (correctly skipped deep) |
+| Files cited | Domain.jsx, redis_cache test (random) | Council + Loop, Personal Track, Feature Window (real crown jewels) |
+| File paths | Random / low-relevance | Real: `codebase_health.py`, `Admin*.jsx`, `billing_cron.py` |
+| Next-step suggestions | None | Correct `/read` commands |
+
+**Test suite: 104/104 PASS** — all pre-existing (including 25 codebase + 24 deep_research) still green.
+
+**Live verified (preview):**
+- Meta Q: "kya best build hai hmara system main" → `general` route, real subsystems cited
+- Specific Q: "stripe billing subscription" → still finds `stripe_client.py`, `billing_cron.py`, `payments.py`
+- Specific Q: "deep research classifier" → still finds `deep_research.py`, `test_ora_chat_deep_research.py`
+
+
+### 2026-02-16 — Iter 212m-248 — Production PIN Login Fix
+
+**Founder ask:** PIN not working on `auremcto.com/ora`.
+
+**Root cause:** `pin_login` did `db.dev_users.find_one({"is_founder": True})` but prod Mongo doesn't have that flag backfilled. Returned HTTP 503 `"Founder identity not configured"`.
+
+**Fix (`routers/ora_chat.py::pin_login`):**
+1. Look up founder by email against `FOUNDER_EMAILS` env + hardcoded default (`teji.ss1986@gmail.com`) — this is the authoritative signal.
+2. Fall back to legacy `is_founder=True` DB flag.
+3. Idempotently backfill `is_founder=True, is_admin=True` once resolved.
+4. Still refuses to mint token if neither path finds a row — no privilege-escalation risk.
+
+**Tests:** 7 new regression tests in `tests/test_ora_chat_pin_login.py`.
+
+
+### 2026-02-16 — Iter 212m-247 — ORA message list bottom-padding fix
+
+**Founder ask:** Reply hidden below the chat input.
+
+**Root cause:** `/ora` page's input is `position: absolute` (bottom-pinned); message list had hard-coded `padding-bottom: 140px` sized for the OLD 3-row input. Widened 5-row input (iter 212m-246) grew to ~200 px → last ~60 px of every reply hidden.
+
+**Fix (`OraDirect.jsx`):** `padding: "24px 20px min(240px, 32vh)"` clears the 5-row input + gradient fade + safe-area, capped at 32vh for mobile.
+
+
 ### 2026-02-16 — Iter 212m-246 — ORA Codebase Awareness + Wider Input + Thinking Dots + Stop Button
 
 **Founder ask (Hinglish):** ORA ko full codebase access do — har file ki knowledge honi chahiye. Input window ko 2 lines aur wider karo. Colored 3-dot thinking indicator + Stop button add karo.

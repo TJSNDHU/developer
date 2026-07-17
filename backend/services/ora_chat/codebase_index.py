@@ -337,10 +337,32 @@ async def search_defs(name: str, limit: int = 15) -> list[dict]:
 
 # ─── BM25-lite retrieval for the NEEDS_CODEBASE branch ───────────
 _STOPWORDS = {
+    # English
     "the", "is", "in", "at", "of", "and", "or", "to", "for", "on",
     "a", "an", "how", "does", "do", "our", "we", "have", "has", "with",
-    "kya", "hai", "mein", "aur", "yaha", "wo", "ye", "kaise", "kaunsa",
-    "kar", "karo", "karta", "karti", "kiya", "hoga", "bhai",
+    "this", "that", "what", "which", "who", "when", "where", "why",
+    "are", "was", "were", "be", "been", "being", "will", "would",
+    "should", "could", "can", "may", "might", "must", "shall",
+    "not", "no", "yes", "any", "some", "all", "each", "every",
+    "system", "systems", "build", "builds", "gap", "gaps", "code",
+    "codebase", "app", "apps", "file", "files", "part", "parts",
+    "best", "worst", "good", "bad", "great", "better", "worse",
+    "kind", "type", "types", "thing", "things", "here", "there",
+    "get", "got", "give", "given", "make", "made", "take", "taken",
+    "want", "need", "know", "think", "see", "seen", "look", "looking",
+    "abhi", "still", "yet", "now", "then", "soon", "later",
+    # Hindi / Hinglish
+    "kya", "hai", "mein", "aur", "yaha", "wo", "ye", "yah", "yeh",
+    "kaise", "kaunsa", "kaunsi", "kar", "karo", "karta", "karti",
+    "kiya", "hoga", "hogi", "hoge", "bhai", "hain", "ho", "hum",
+    "hmara", "hmari", "mera", "meri", "mere", "apna", "apni", "apne",
+    "main", "mainn", "tum", "tera", "teri", "tere", "aap", "aapka",
+    "bhi", "toh", "to", "na", "nahi", "nahin", "haan", "ji", "sir",
+    "koi", "kuch", "sab", "sabb", "sabhi", "log", "logon", "banaya",
+    "banana", "banate", "banai", "banate", "diya", "diye", "de", "do",
+    "achha", "accha", "kaisa", "kaisi", "acha", "bura", "buri",
+    "chal", "chalo", "chalte", "hoti", "hota", "hote", "wala", "wali",
+    "wale", "abhi", "phir", "fir", "waise", "vaise",
 }
 
 
@@ -349,14 +371,27 @@ def _tokenize(text: str) -> list[str]:
              if t not in _STOPWORDS and len(t) > 2]
 
 
-async def bm25_relevant_files(query: str, top_k: int = 3) -> list[dict]:
+async def bm25_relevant_files(query: str, top_k: int = 3,
+                                min_tokens: int = 2,
+                                min_score: float = 3.5) -> list[dict]:
     """Naïve term-frequency ranking. Not a full BM25 — just enough
-    signal to pick the 3 most-relevant files when NEEDS_CODEBASE
+    signal to pick the most-relevant files when NEEDS_CODEBASE
     fires. Returns [{path, score, head_excerpt}, ...] sorted by score.
+
+    Guardrails to prevent noisy meta-queries (e.g. "what's the best
+    build in our system?") from surfacing random files:
+      - `min_tokens`: require at least 2 substantive tokens after
+        stopword strip. Meta-questions typically have 0-1 real content
+        tokens and shouldn't trigger retrieval at all.
+      - `min_score`: reject results whose top score is below the
+        threshold. Generic tokens ("system", "app", "code") get
+        stopworded away, but if the residual signal is still weak,
+        we return [] and let the model answer from its baseline
+        AUREM_CONTEXT + system-highlights block instead.
     """
     await _ensure_fresh()
     q_tokens = set(_tokenize(query))
-    if not q_tokens:
+    if len(q_tokens) < min_tokens:
         return []
     scores: list[tuple[float, dict]] = []
     for f in _CACHE["files"]:
@@ -369,12 +404,78 @@ async def bm25_relevant_files(query: str, top_k: int = 3) -> list[dict]:
             if any(t == d.lower() or t in d.lower() for d in f["defs"]):
                 score += 2.0
             score += haystack.count(t) * 0.5
-        if score > 0:
+        if score >= min_score:
             scores.append((score, f))
     scores.sort(key=lambda x: -x[0])
     return [{"path": f["path"], "score": round(s, 2),
               "head_excerpt": f["head"][:1200]}
              for s, f in scores[:top_k]]
+
+
+async def system_highlights() -> str:
+    """Curated ground-truth summary of AUREM's crown-jewel subsystems.
+
+    This block is auto-injected into every system prompt AFTER the
+    compact tree. Unlike the raw file tree, it names the actual
+    major features so ORA can answer "kya best build hai hmara
+    system mein" / "what does AUREM actually do" without depending
+    on BM25 retrieval (which is noisy for generic meta-questions).
+
+    Counts are computed live from the index so the block stays
+    honest as the codebase grows.
+    """
+    await _ensure_fresh()
+    counts = {"routers": 0, "services": 0, "pages": 0,
+               "components": 0, "tests": 0}
+    for f in _CACHE["files"]:
+        p = f["path"]
+        if p.startswith("backend/routers/") and p.endswith(".py"):     counts["routers"] += 1
+        elif p.startswith("backend/services/") and p.endswith(".py"):  counts["services"] += 1
+        elif p.startswith("frontend/src/pages/") and p.endswith((".jsx", ".tsx")): counts["pages"] += 1
+        elif p.startswith("frontend/src/components/") and p.endswith((".jsx", ".tsx")): counts["components"] += 1
+        elif p.startswith("backend/tests/") and p.endswith(".py"):     counts["tests"] += 1
+
+    lines = [
+        "AUREM system highlights (curated ground truth — cite these "
+        "when asked 'what does AUREM have' / 'best builds' / 'kya "
+        "banaya hai'; use /read for exact code):",
+        "",
+        f"  Repo scale: {counts['routers']} backend routers · "
+        f"{counts['services']} services · {counts['pages']} pages · "
+        f"{counts['components']} components · {counts['tests']} test files",
+        "",
+        "  Core subsystems (in rough order of engineering weight):",
+        "    1. Council + Loop Engine — multi-agent orchestration for code review",
+        "       backend/routers/loop.py, backend/services/loop_engine.py,",
+        "       frontend/src/pages/admin/AdminParliamentLive.jsx",
+        "    2. Personal Track (T0-T4) — non-technical user app-generation flow",
+        "       backend/routers/personal_track.py, frontend/src/pages/personal/",
+        "    3. Feature Window + Security Gate — spec-driven guarded feature builds",
+        "       backend/routers/feature_window.py, frontend/src/pages/FeatureWindow.jsx",
+        "    4. ORA Chat (founder-only) — multi-model routing + deep-research + PIN + codebase awareness",
+        "       backend/routers/ora_chat.py, backend/services/ora_chat/*",
+        "    5. Stripe Billing — subscriptions + credits + gates + reconciliation cron",
+        "       backend/services/stripe_client.py, backend/services/billing_cron.py, backend/routers/payments.py",
+        "    6. Ask Advisor — GLM/Claude explain-my-code assistant",
+        "       backend/routers/chat.py (Ask Advisor branch), frontend/src/pages/Dashboard.jsx",
+        "    7. Codebase Health / Bug Hunt / Findings pipeline — static scanners + fix jobs",
+        "       backend/routers/codebase_health.py, backend/services/full_scan_orchestrator.py,",
+        "       backend/routers/findings.py, backend/services/fix_pipeline.py",
+        "    8. GitHub + Vercel + Supabase integrations — PAT/OAuth flows + deploy pipeline",
+        "       backend/routers/github_oauth.py, backend/routers/deploy.py, backend/routers/managed_db.py",
+        "    9. Admin panel — feature flags, analytics, LLM credits, integrations, vanguard controls",
+        "       backend/routers/admin*.py, frontend/src/pages/Admin*.jsx",
+        "   10. Codebase Indexer (this layer!) — Ora's own repo awareness",
+        "       backend/services/ora_chat/codebase_index.py, backend/services/codebase_indexer.py",
+        "",
+        "  IMPORTANT for the model reading this: If the question is a "
+        "META question about the system as a WHOLE (best/worst/gaps/"
+        "overview/'kya hai overall'), answer from THIS block, not "
+        "from a BM25 codebase snippet — BM25 will pick random files "
+        "for meta-queries. If the question names a SPECIFIC subsystem "
+        "or file, THEN use /read or /find.",
+    ]
+    return "\n".join(lines)
 
 
 async def index_stats() -> dict:

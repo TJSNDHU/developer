@@ -306,8 +306,13 @@ async def send_message(body: MessageBody,
     # Iter 212m-246 — inject compact codebase tree so ORA has
     # baseline awareness of what modules exist without needing a
     # slash-command per question.
+    # Iter 212m-249 — ALSO inject the curated system-highlights block
+    # so meta-questions ("kya best build hai", "what does AUREM do")
+    # get answered from ground truth, not from noisy BM25 hits.
     try:
         cb_tree = await ora_codebase.compact_tree(max_files=120)
+        highlights = await ora_codebase.system_highlights()
+        cb_tree = f"{highlights}\n\n{cb_tree}" if cb_tree else highlights
     except Exception:
         cb_tree = None
     system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz,
@@ -528,6 +533,8 @@ async def _stream_deep_research(user: dict, sess: dict,
     hr_text = await ora_house_rules.get_effective_text(user["user_id"])
     try:
         cb_tree = await ora_codebase.compact_tree(max_files=120)
+        highlights = await ora_codebase.system_highlights()
+        cb_tree = f"{highlights}\n\n{cb_tree}" if cb_tree else highlights
     except Exception:
         cb_tree = None
 
