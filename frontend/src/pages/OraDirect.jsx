@@ -37,7 +37,10 @@ function useContainerWidth() {
   }, []);
   if (w < 768)   return { pct: "100%", maxW: "100%" };
   if (w < 1024)  return { pct: "70%",  maxW: "70%"  };
-  return             { pct: "50%",  maxW: "50%"  };
+  // Iter 212m-251 — Fullscreen ke liye 30% margin har side (was 25%)
+  // so chat inbox thoda aur tighter feel kare — text length ~68 chars
+  // per line rehta hai, jo ideal readable line-width hai.
+  return             { pct: "40%",  maxW: "40%"  };
 }
 
 // ── Palette (matches /app/frontend/src/pages/personal/BuildHome.jsx) ──
