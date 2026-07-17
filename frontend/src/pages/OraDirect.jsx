@@ -56,6 +56,23 @@ const PAL = {
   bubbleAsst: "#FFFFFF",
 };
 
+// Iter 212m-250 — warm plaster-textured background photograph for
+// both the PIN gate + the chat surface. Kept as a module-level const
+// so the image URL is co-located with the palette. Soft cream tint
+// on top (linear-gradient) preserves text readability without
+// killing the texture.
+const ORA_BG_IMG =
+  "https://customer-assets-39nsmqrw.emergentagent.net/job_launch-pad-237/artifacts/bu3orhz1_Screenshot%202026-07-17%20002657.png";
+const ORA_BG_STYLE = {
+  backgroundImage:
+    "linear-gradient(rgba(250,250,245,0.55), rgba(250,250,245,0.72)), " +
+    `url("${ORA_BG_IMG}")`,
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  backgroundAttachment: "fixed",
+};
+
 export default function OraDirect() {
   const [authorized, setAuthed] = useState(!!getToken());
 
@@ -100,6 +117,7 @@ function PinPad({ onSuccess }) {
   return (
     <div data-testid="ora-direct-pin"
          style={{ minHeight: "100dvh", background: PAL.bg, color: PAL.text,
+                    ...ORA_BG_STYLE,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     padding: "20px 20px 40px",
                     // iOS Safari cuts off content behind the bottom nav bar
@@ -348,6 +366,7 @@ function ChatShell({ onLogout }) {
   return (
     <div style={{ minHeight: "100vh", height: "100vh",
                     background: PAL.bg, color: PAL.text,
+                    ...ORA_BG_STYLE,
                     display: "flex", flexDirection: "column",
                     fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
       {/* Header */}
