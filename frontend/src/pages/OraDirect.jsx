@@ -22,6 +22,24 @@ import OraChatHouseRulesPanel from "../components/OraChatHouseRulesPanel";
 const BASE = `${process.env.REACT_APP_BACKEND_URL}/api/aurem-dev/ora-chat`;
 const PIN_LENGTH = 4;
 
+// Iter 212m-243 — Responsive width contract:
+//   mobile  <768px  → 100% (edge-to-edge)
+//   tablet  768-1023 → 70%  (15% margin each side)
+//   desktop ≥1024   → 50%  (25% margin each side)
+// Same widths applied to the messages list AND the input row.
+function useContainerWidth() {
+  const [w, setW] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 1440);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  if (w < 768)   return { pct: "100%", maxW: "100%" };
+  if (w < 1024)  return { pct: "70%",  maxW: "70%"  };
+  return             { pct: "50%",  maxW: "50%"  };
+}
+
 // ── Palette (matches /app/frontend/src/pages/personal/BuildHome.jsx) ──
 const PAL = {
   bg:         "#FAFAF5",
@@ -153,6 +171,7 @@ const SUGGESTIONS = [
 ];
 
 function ChatShell({ onLogout }) {
+  const containerW = useContainerWidth();
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages]   = useState([]);
   const [input, setInput]         = useState("");
@@ -319,7 +338,8 @@ function ChatShell({ onLogout }) {
           <div style={{ flex: 1, display: "flex", flexDirection: "column",
                           alignItems: "center", justifyContent: "center",
                           padding: "20px", overflow: "auto" }}>
-            <div style={{ maxWidth: 720, width: "100%", textAlign: "center" }}>
+            <div style={{ maxWidth: containerW.maxW, width: containerW.pct,
+                            textAlign: "center" }}>
               <div style={{ display: "inline-block", padding: "5px 12px",
                               background: PAL.accentBg, color: PAL.accent,
                               borderRadius: 999, fontSize: 12, fontWeight: 500,
@@ -364,7 +384,8 @@ function ChatShell({ onLogout }) {
             <div ref={listRef} data-testid="ora-messages"
                  style={{ flex: 1, overflow: "auto",
                             padding: "24px 20px 140px" }}>
-              <div style={{ maxWidth: 760, margin: "0 auto",
+              <div style={{ maxWidth: containerW.maxW, width: containerW.pct,
+                              margin: "0 auto",
                               display: "flex", flexDirection: "column", gap: 16 }}>
                 {messages.map((m, i) => <Bubble key={i} m={m} />)}
                 {stream.buf && (
@@ -376,7 +397,8 @@ function ChatShell({ onLogout }) {
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0,
                             padding: "16px 20px 20px",
                             background: `linear-gradient(to top, ${PAL.bg} 60%, transparent)` }}>
-              <div style={{ maxWidth: 760, margin: "0 auto" }}>
+              <div style={{ maxWidth: containerW.maxW, width: containerW.pct,
+                              margin: "0 auto" }}>
                 <InputCard input={input} setInput={setInput} onSend={send}
                             sending={sending} />
               </div>
