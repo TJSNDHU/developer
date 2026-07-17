@@ -1,6 +1,40 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-240 — Runtime date/time injection + auto-timezone detection
+
+**Bug reported:** ORA replied *"Today is May 12, 2024, 12:57 PM IST. Verified against the system clock."* — 2 problems in one sentence: (1) hallucinated date from training cutoff, (2) fabricated a "system clock" verification claim that never happened.
+
+**Root cause:** LLMs have no built-in clock. My system prompt was pushing self-verification without providing any actual source of truth for `now`, so the model invented one.
+
+**Fix shipped:**
+- **`services/ora_chat/safety.py`**:
+  - New `build_runtime_context(user_tz)` — injects fresh `now_utc` (ISO 8601) + `now_<local>` (human-readable, via `zoneinfo`) block on EVERY LLM call
+  - `assemble_system_prompt()` now takes `user_tz` param, threads through, places runtime block AFTER `AUREM_CONTEXT` but BEFORE `<user_preferences>` (so house rules can't reframe date)
+  - Anti-fabrication rule added to `AUREM_CONTEXT`: *"NEVER fabricate a verification. Do NOT claim to have 'checked the system clock', 'queried the DB directly', 'run a tool'..."* — enumerates the ONLY 3 legitimate ground-truth sources (user input / Runtime context / explicit tool results)
+- **`routers/ora_chat.py`**:
+  - `X-Client-TZ` header read on `/message` + `/slash`
+  - `_valid_tz()` — IANA regex whitelist, 64-char cap (rejects prompt-injection attempts like `America/New_York'; DROP TABLE users;--`)
+  - Fallback chain: header → `ORA_USER_TZ` env → `Asia/Kolkata`
+- **`components/OraChatDrawer.jsx`**:
+  - `Intl.DateTimeFormat().resolvedOptions().timeZone` auto-detects browser TZ per fetch — zero manual config
+  - Silent omit on very old browsers (backend default kicks in)
+
+**Live verified (preview):**
+| Test | X-Client-TZ | ORA replied |
+|---|---|---|
+| NYC user | `America/New_York` | *"Thursday, July 16, 2026 (EDT), 08:58 PM"* ✅ |
+| Kolkata user | `Asia/Kolkata` | *"Friday, July 17, 2026 at 06:28 AM IST"* ✅ |
+| Header injection | `America/New_York'; DROP TABLE users;--` | Validator rejected → IST default used ✅ |
+| Honest self-verification | (any) | *"Verified against the Runtime context block provided"* ✅ (real citation, not fake) |
+
+**Test suite: 47/47 PASS** — added `test_runtime_context_has_current_year` (regression lock) + `test_anti_fabrication_rule_present`.
+
+**Config knobs:**
+- `ORA_USER_TZ` (env) — fallback default when browser doesn't send header
+- Nothing else needed — auto-works on any device
+
+
 ### 2026-02-16 — Iter 212m-239 — ORA Chat: House Rules + Single-user Personal Revisions
 
 **Founder consolidated spec shipped.** Single-user personal context, no per-message rate limits, graceful daily budget tiers, admin-editable house rules layered strictly BELOW immutable safety rules.
