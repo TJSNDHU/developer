@@ -456,6 +456,17 @@ async def lifespan(app: FastAPI):
         except Exception as e:                            # noqa: BLE001
             logger.warning("ora_fix_learning indexes failed: %r", e)
     _asyncio.create_task(_ensure_ora_learning_indexes())
+
+    # Iter 212m-246 — warm the ORA Chat codebase index in the background
+    # so the first message doesn't pay a ~2 s walk cost.
+    async def _warm_codebase_index():
+        try:
+            from services.ora_chat import codebase_index as _cb
+            r = await _cb.build_index(force=True)
+            logger.info("📁 ORA codebase index warm: %s", r)
+        except Exception as e:                              # noqa: BLE001
+            logger.warning("ORA codebase index warm failed: %r", e)
+    _asyncio.create_task(_warm_codebase_index())
     # Iter 212m-32 — hourly onboarding nudge cron. Sends the
     # "connect a repo" email to users 24h after signup (and again at
     # 72h if still no repo). Idempotent via the `onboarding_emails`

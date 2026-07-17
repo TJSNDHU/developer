@@ -15,7 +15,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus } from "lucide-react";
+import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus, Square } from "lucide-react";
 import { api, setToken, getToken } from "../lib/api";
 import OraChatHouseRulesPanel from "../components/OraChatHouseRulesPanel";
 
@@ -200,6 +200,7 @@ function ChatShell({ onLogout }) {
   const [showPicker, setShowPicker] = useState(false);
   const [recentSessions, setRecent] = useState([]);
   const listRef = useRef(null);
+  const abortRef = useRef(null);
 
   // Bootstrap
   useEffect(() => {
@@ -253,11 +254,16 @@ function ChatShell({ onLogout }) {
     setMessages(m => [...m, { role: "user", content: text }]);
     setStream({ buf: "", route: null, model: null });
     setSending(true);
+    // Iter 212m-246 — AbortController lets the Stop button interrupt
+    // an in-flight SSE stream cleanly.
+    const controller = new AbortController();
+    abortRef.current = controller;
     let clientTz = "";
     try { clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* */ }
     try {
       const res = await fetch(`${BASE}/message`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${getToken()}`,
@@ -316,10 +322,25 @@ function ChatShell({ onLogout }) {
         }
       }
     } catch (e) {
-      setMessages(m => [...m, { role: "assistant",
-                                   content: `Network error: ${e.message}`,
-                                   isError: true }]);
-    } finally { setSending(false); refreshBudget(); }
+      if (e.name === "AbortError") {
+        // User pressed Stop — preserve partial buffer as an
+        // interrupted assistant turn instead of erroring.
+        setMessages(m => (stream.buf
+          ? [...m, { role: "assistant", content: stream.buf,
+                       interrupted: true, ...stream }]
+          : m));
+      } else {
+        setMessages(m => [...m, { role: "assistant",
+                                     content: `Network error: ${e.message}`,
+                                     isError: true }]);
+      }
+    } finally { setSending(false); abortRef.current = null; refreshBudget(); }
+  };
+
+  const stop = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
   };
 
   const hasChat = messages.length > 0 || stream.buf;
@@ -378,7 +399,7 @@ function ChatShell({ onLogout }) {
                 deterministic slash-commands.
               </p>
               <InputCard input={input} setInput={setInput} onSend={send}
-                          sending={sending} large />
+                          sending={sending} onStop={stop} large />
               <div style={{ marginTop: 32, display: "flex", flexWrap: "wrap",
                               gap: 10, justifyContent: "center" }}>
                 {SUGGESTIONS.map(s => (
@@ -408,6 +429,7 @@ function ChatShell({ onLogout }) {
                               margin: "0 auto",
                               display: "flex", flexDirection: "column", gap: 16 }}>
                 {messages.map((m, i) => <Bubble key={i} m={m} />)}
+                {sending && !stream.buf && <ThinkingDots />}
                 {stream.buf && (
                   <Bubble m={{ role: "assistant", content: stream.buf,
                                  ...stream, streaming: true }} />
@@ -420,7 +442,7 @@ function ChatShell({ onLogout }) {
               <div style={{ maxWidth: containerW.maxW, width: containerW.pct,
                               margin: "0 auto" }}>
                 <InputCard input={input} setInput={setInput} onSend={send}
-                            sending={sending} />
+                            sending={sending} onStop={stop} />
               </div>
             </div>
           </>
@@ -453,13 +475,49 @@ function IconBtn({ children, onClick, testId }) {
   );
 }
 
-function InputCard({ input, setInput, onSend, sending, large = false }) {
-  // Iter 212m-244 — Chat input is now visually a 3-line textarea in
-  // BOTH states (hero + chat). Auto-grows past 3 lines up to a cap so
-  // long paste-ins are readable but the input never dominates the
-  // screen. Same rows in mobile/tablet/desktop for a consistent feel.
+
+// Iter 212m-246 — colored 3-dot pulse shown between "user just sent"
+// and "first delta arrives" so the UI never feels frozen. Each dot
+// uses a different accent color and staggers its bounce so the row
+// reads as a purposeful "thinking" cue, not a spinner.
+function ThinkingDots() {
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSend(); }}
+    <div data-testid="ora-thinking-dots"
+         style={{ alignSelf: "flex-start",
+                    padding: "12px 16px",
+                    borderRadius: 14,
+                    background: PAL.bubbleAsst,
+                    border: `1px solid ${PAL.border}`,
+                    display: "flex", gap: 6, alignItems: "center" }}>
+      <style>{`
+        @keyframes ora-pulse {
+          0%, 80%, 100% { transform: translateY(0);   opacity: 0.35; }
+          40%           { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
+      {[
+        { c: "#D56A4F", d: "0ms"   }, // terracotta
+        { c: "#81B29A", d: "160ms" }, // moss
+        { c: "#3B82F6", d: "320ms" }, // blue
+      ].map((dot, i) => (
+        <span key={i}
+              style={{ width: 8, height: 8, borderRadius: 999,
+                         background: dot.c, display: "inline-block",
+                         animation: `ora-pulse 1.2s ease-in-out ${dot.d} infinite` }} />
+      ))}
+      <span style={{ fontSize: 11, color: PAL.faint, marginLeft: 4,
+                       fontStyle: "italic" }}>thinking…</span>
+    </div>
+  );
+}
+
+function InputCard({ input, setInput, onSend, sending, onStop, large = false }) {
+  // Iter 212m-246 — widened to 5 lines (was 3) so long prompts and
+  // multi-line context paste-ins stay comfortably readable without
+  // shrinking the message stream area. Auto-grows past 5 up to 12
+  // lines. Send button becomes a Stop button while streaming.
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); if (!sending) onSend(); }}
           style={{ background: PAL.card,
                      border: `1px solid ${PAL.border}`,
                      borderRadius: 16,
@@ -470,29 +528,44 @@ function InputCard({ input, setInput, onSend, sending, large = false }) {
         data-testid="ora-input"
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
-        placeholder={large ? "Ask ORA... (or /users-today)" : "Message ORA..."}
-        rows={3}
-        disabled={sending}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!sending) onSend(); } }}
+        placeholder={large ? "Ask ORA... (or /repo-tree, /find, /read)" : "Message ORA..."}
+        rows={5}
         style={{ flex: 1, border: "none", outline: "none",
                    fontFamily: "inherit", fontSize: 15,
                    color: PAL.text, background: "transparent",
                    resize: "none", padding: "4px 4px",
                    lineHeight: 1.55,
-                   minHeight: `calc(1.55em * 3)`,
-                   maxHeight: `calc(1.55em * 10)`,
-                   overflowY: "auto" }}
+                   minHeight: `calc(1.55em * 5)`,
+                   maxHeight: `calc(1.55em * 12)`,
+                   overflowY: "auto",
+                   opacity: sending ? 0.65 : 1 }}
+        disabled={sending}
       />
-      <button type="submit" data-testid="ora-send" disabled={sending || !input.trim()}
-              style={{ width: 38, height: 38, borderRadius: 999,
-                         background: input.trim() ? PAL.accent : PAL.chip,
-                         color: input.trim() ? "#fff" : PAL.faint,
-                         border: "none", cursor: sending ? "wait" : "pointer",
-                         display: "flex", alignItems: "center", justifyContent: "center",
-                         flexShrink: 0, transition: "background 120ms",
-                         touchAction: "manipulation" }}>
-        {sending ? <RefreshCw size={14} className="spin" /> : <ArrowUp size={16} />}
-      </button>
+      {sending ? (
+        <button type="button" onClick={onStop} data-testid="ora-stop"
+                title="Stop generating"
+                style={{ width: 38, height: 38, borderRadius: 999,
+                           background: "#E5E5DF", color: PAL.text,
+                           border: "none", cursor: "pointer",
+                           display: "flex", alignItems: "center", justifyContent: "center",
+                           flexShrink: 0, transition: "background 120ms" }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#D8D8D0"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "#E5E5DF"}>
+          <Square size={14} fill={PAL.text} />
+        </button>
+      ) : (
+        <button type="submit" data-testid="ora-send" disabled={!input.trim()}
+                style={{ width: 38, height: 38, borderRadius: 999,
+                           background: input.trim() ? PAL.accent : PAL.chip,
+                           color: input.trim() ? "#fff" : PAL.faint,
+                           border: "none", cursor: "pointer",
+                           display: "flex", alignItems: "center", justifyContent: "center",
+                           flexShrink: 0, transition: "background 120ms",
+                           touchAction: "manipulation" }}>
+          <ArrowUp size={16} />
+        </button>
+      )}
     </form>
   );
 }

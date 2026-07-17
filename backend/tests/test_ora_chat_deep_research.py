@@ -85,9 +85,18 @@ class TestClassifyLabels:
 # ══════════════════════════════════════════════════════════════════
 class TestShouldGoDeep:
     @pytest.mark.asyncio
-    async def test_single_label_does_not_go_deep(self):
+    async def test_web_alone_does_not_go_deep(self):
+        # NEEDS_WEB has a standalone Sonar route → stays cheap
         assert await dr.should_go_deep(["NEEDS_WEB"]) is False
-        assert await dr.should_go_deep(["NEEDS_GITHUB"]) is False
+
+    @pytest.mark.asyncio
+    async def test_non_web_single_label_forces_deep(self):
+        # GitHub/Social/News/Codebase have NO standalone route → must
+        # go through the orchestrator to actually fetch data.
+        assert await dr.should_go_deep(["NEEDS_GITHUB"]) is True
+        assert await dr.should_go_deep(["NEEDS_SOCIAL"]) is True
+        assert await dr.should_go_deep(["NEEDS_NEWS"]) is True
+        assert await dr.should_go_deep(["NEEDS_CODEBASE"]) is True
 
     @pytest.mark.asyncio
     async def test_two_substantive_labels_goes_deep(self):

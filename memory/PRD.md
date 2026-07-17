@@ -1,6 +1,66 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-246 — ORA Codebase Awareness + Wider Input + Thinking Dots + Stop Button
+
+**Founder ask (Hinglish):** ORA ko full codebase access do — har file ki knowledge honi chahiye. Input window ko 2 lines aur wider karo. Colored 3-dot thinking indicator + Stop button add karo.
+
+**Shipped:**
+
+*Backend — Codebase awareness (`services/ora_chat/codebase_index.py`, 340 LOC):*
+- Walks `/app/backend` + `/app/frontend/src`, skips `node_modules/.git/__pycache__/build/venv/.pytest_cache/dist/.next`. **Live index: 803 files, 8.2 MB, ~0.3 s cold build** (warmed at server startup).
+- In-memory cache with 15-min TTL, async lock coalesces concurrent rebuilds.
+- Extracts def/class names via cheap regex (Python + JS/TS) — 3,843 symbols indexed.
+- Public helpers: `build_index()`, `compact_tree(max_files=120)`, `find_files(pattern)`, `read_file(path, max_lines=200)` (path-traversal safe), `search_defs(name)`, `bm25_relevant_files(query, top_k=3)`, `index_stats()`.
+- **Path safety hardened**: `..` traversal blocked, resolved paths must live under repo root, disallowed extensions rejected.
+
+*Backend — New slash commands (5 new, all deterministic):*
+- `/repo-tree` — compact directory listing for ad-hoc exploration
+- `/repo-stats` — file count / language breakdown / def count / index age
+- `/find <pattern>` — glob or substring match on paths
+- `/read <path>` — bounded read (200 lines / 40 KB)
+- `/defs <symbol>` — locate a function/class by name
+- Registered in `KNOWN_COMMANDS` + `DISPATCH`. Founder can now ask "kya humne X banaya" without opening an editor.
+
+*Backend — Auto-injection into system prompt:*
+- `assemble_system_prompt()` gained `codebase_tree` kwarg — compact tree is now prepended to every LLM call so ORA has baseline awareness without needing a slash-command per question.
+- New `AUREM_CONTEXT` section explicitly instructs the model: "You have DIRECT read-only access to the AUREM code repo. NEVER invent a filename you didn't see in the tree."
+
+*Backend — Multi-label classifier (`deep_research.py`):*
+- New label `NEEDS_CODEBASE` — auto-fires for "kya humne", "hamare code mein", "where is X defined", "in our system".
+- Any non-web substantive label (`GITHUB/SOCIAL/NEWS/CODEBASE`) now forces the deep path (single-label deep is fine — those tools have no standalone route).
+- New `_fetch_codebase(query)` adapter runs `bm25_relevant_files(query, top_k=3)` and returns the excerpts as untrusted-wrapped context to the synthesizer.
+
+*Frontend — `OraDirect.jsx` + `OraChatDrawer.jsx`:*
+- **Wider input**: 3 rows → **5 rows** (auto-grows to 12), both hero + chat states, both /ora page + admin drawer.
+- **Stop button** (`data-testid=ora-stop` + `ora-chat-stop`): replaces send arrow while streaming. Clicking aborts the SSE fetch via AbortController; the partial buffer is preserved as an `interrupted: true` assistant message.
+- **Colored thinking dots** (`data-testid=ora-thinking-dots` + `ora-drawer-thinking-dots`): 3-dot pulse (terracotta / moss / blue) with staggered CSS animation + "thinking…" label. Shows between user-send and first delta arrival.
+- Drawer input upgraded from single-line `<input>` to multi-line `<textarea>` (5 rows, Shift+Enter for newline).
+
+**Test suite: 97/97 PASS** (25 new codebase + 24 deep_research + 47 pre-existing + 1 misc):
+- `tests/test_ora_chat_codebase.py` (25) — index build, dir-skip integrity, compact tree budget, glob find, path-traversal blocks, symbol search, BM25 relevance, slash registration + parser + handlers, `assemble_system_prompt` accepts codebase_tree kwarg + is backward compat when omitted.
+
+**Live end-to-end verified (preview):**
+| Query | Result |
+|---|---|
+| Q: "kya humne deep-research feature banaya hai apne code mein?" | ✅ `route=deep`, `labels=[NEEDS_CODEBASE]`, `sources_fired=[codebase]`. ORA replied: *"Haan, humne deep-research feature banaya hai. Yeh specifically `backend/tests/test_ora_chat_deep_research.py` mein test kiya gaya hai (source: codebase). Feature flag ke through enable/disable — `ORA_ENABLE_CLAUDE_TOOLS` aur `ANTHROPIC_API_KEY` required."* — real env vars quoted, real filenames cited. |
+| `/repo-stats` | ✅ 803 files, 8.2 MB, 584 python + 194 javascript, 3,843 defs |
+| `/find ora_chat` | ✅ 14 matching paths listed |
+| `/defs classify_labels` | ✅ pinpoints `backend/services/ora_chat/deep_research.py` |
+| Screenshot: hero state | ✅ 5-row widened input visible |
+| Screenshot: sending state | ✅ 3 colored dots + "thinking…" + Stop button rendered |
+
+**Config knobs:**
+```
+ORA_REPO_ROOT=/app  # override for other deploys
+```
+
+*Non-goals (still honored):*
+- No write access to source (ONLY read)
+- No arbitrary shell / subprocess
+- All slash-commands remain deterministic (no LLM decides the fetch)
+
+
 ### 2026-02-16 — Iter 212m-245 — Auto Deep-Research for ORA Chat
 
 **Founder ask (Hinglish):** Multi-label classifier + parallel fan-out (GitHub REST + Reddit JSON + GDELT + Perplexity Sonar) + one DeepSeek V3 synthesis pass with source citations. Feature-flagged Claude Haiku 4.5 tool_orchestration route as stub (disabled by default; enabled later when Anthropic key arrives, direct API only — NOT via OpenRouter).

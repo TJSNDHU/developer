@@ -35,6 +35,7 @@ import httpx
 from services.ora_chat.providers import one_shot
 from services.ora_chat.router    import resolve
 from services.ora_chat.safety    import wrap_untrusted, assemble_system_prompt
+from services.ora_chat           import codebase_index
 from services.ora_chat            import cost_tracker
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,8 @@ def use_claude_tools() -> bool:
 
 
 # ═══ 1. Classifier ═══════════════════════════════════════════════
-_LABELS = ("NEEDS_WEB", "NEEDS_GITHUB", "NEEDS_SOCIAL", "NEEDS_NEWS", "NEEDS_DEEP")
+_LABELS = ("NEEDS_WEB", "NEEDS_GITHUB", "NEEDS_SOCIAL", "NEEDS_NEWS",
+            "NEEDS_CODEBASE", "NEEDS_DEEP")
 
 
 async def classify_labels(query: str) -> list[str]:
@@ -76,6 +78,9 @@ async def classify_labels(query: str) -> list[str]:
         "- NEEDS_GITHUB: mentions code/repo/library/package/'on github'\n"
         "- NEEDS_SOCIAL: mentions reddit/twitter/'people are saying'/sentiment\n"
         "- NEEDS_NEWS: mentions 'news'/'announced'/'launched'/dates\n"
+        "- NEEDS_CODEBASE: asks about OUR own codebase/repo — 'do we have', "
+        "'is there', 'where is', 'have we implemented', 'kya humne banaya', "
+        "'hamare code mein', 'in our system', 'our AUREM'\n"
         "- NEEDS_DEEP: query spans 2+ distinct sub-topics OR asks to compare/research broadly\n\n"
         f"Query: {query!r}\n\n"
         "Respond with ONLY a JSON array of label strings, nothing else. "
@@ -196,9 +201,23 @@ async def _fetch_sonar(query: str) -> dict:
     }
 
 
+async def _fetch_codebase(query: str) -> dict:
+    """Local codebase search — BM25-lite retrieval + top-3 file excerpts."""
+    try:
+        hits = await codebase_index.bm25_relevant_files(query, top_k=3)
+        if not hits:
+            return {"tool": "codebase", "ok": False,
+                     "error": "no_matches"}
+        return {"tool": "codebase", "ok": True, "results": hits}
+    except Exception as e:
+        return {"tool": "codebase", "ok": False,
+                 "error": f"{type(e).__name__}"}
+
+
 # Map label → tool coroutine builder
 def _tools_for_labels(labels: set[str], query: str) -> list:
     tasks = []
+    if "NEEDS_CODEBASE" in labels: tasks.append(("codebase", _fetch_codebase(query)))
     if "NEEDS_WEB"    in labels: tasks.append(("web",    _fetch_sonar(query)))
     if "NEEDS_GITHUB" in labels: tasks.append(("github", _fetch_github(query)))
     if "NEEDS_SOCIAL" in labels: tasks.append(("social", _fetch_reddit(query)))
@@ -208,16 +227,30 @@ def _tools_for_labels(labels: set[str], query: str) -> list:
 
 # ═══ 3. Orchestrator ══════════════════════════════════════════════
 async def should_go_deep(labels: list[str]) -> bool:
-    """True iff we should fan out to multiple tools."""
+    """True iff we should fan out to the deep-research orchestrator.
+
+    Deep fires when:
+      - NEEDS_DEEP is explicit, OR
+      - >=2 substantive labels are present (multi-source query), OR
+      - Any non-web tool label is present (github/social/news/codebase
+        have no standalone route — the deep orchestrator is the only
+        path that can actually fetch them). NEEDS_WEB alone stays on
+        the cheap single-Sonar route.
+    """
     ls = set(labels)
-    if "NEEDS_DEEP" in ls: return True
+    if "NEEDS_DEEP" in ls:
+        return True
     substantive = ls - {"NEEDS_DEEP"}
-    return len(substantive) >= 2
+    if len(substantive) >= 2:
+        return True
+    non_web_tools = substantive - {"NEEDS_WEB"}
+    return bool(non_web_tools)
 
 
 async def orchestrate(query: str, labels: list[str],
                        house_rules_text: Optional[str] = None,
-                       user_tz: Optional[str] = None) -> dict:
+                       user_tz: Optional[str] = None,
+                       codebase_tree: Optional[str] = None) -> dict:
     """Fan-out + synthesize. Returns dict for the /message endpoint.
 
     Cost guard: if within DOWNGRADE_MARGIN of daily cap, silently
@@ -284,7 +317,8 @@ async def orchestrate(query: str, labels: list[str],
         "- Match the language of the user's original question\n"
         "- End with a short 'Sources checked:' line listing every tool that fired"
     )
-    system_prompt = assemble_system_prompt(house_rules_text, user_tz=user_tz)
+    system_prompt = assemble_system_prompt(house_rules_text, user_tz=user_tz,
+                                            codebase_tree=codebase_tree)
     synth_text, synth_usage, synth_err = await one_shot(
         model=synth_cfg["model"],
         messages=[{"role": "system", "content": system_prompt},

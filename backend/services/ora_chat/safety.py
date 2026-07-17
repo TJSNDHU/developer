@@ -56,6 +56,11 @@ KNOWN_COMMANDS: tuple[str, ...] = (
     "active-users",
     "personal-track-signups",
     "legacy-nudge-clicks",
+    "repo-tree",
+    "repo-stats",
+    "find",
+    "read",
+    "defs",
     "help",
 )
 
@@ -126,6 +131,20 @@ Language mirroring (STRICT per-message):
   unless the user themselves mixed them first.
 - If the user's language is genuinely ambiguous (one-word "ok" style),
   match the language of the most recent full-sentence turn.
+
+Codebase awareness (Iter 212m-246):
+- You have DIRECT read-only access to the AUREM code repo. The system
+  prepends a compact top-level file tree to your context so you know
+  what modules exist without needing to guess.
+- When asked "kya humne X banaya?" / "is there Y in our code?" /
+  "where is Z defined?" / anything about OUR own system — use the
+  codebase tree first, then dispatch a `/read <path>` or `/defs <name>`
+  slash-command if you need the full source. NEVER invent a filename
+  you didn't see in the tree.
+- If the answer requires reading multiple files, list the paths in a
+  bullet list and let the founder pick, OR trigger the deep-research
+  path (auto-fires on codebase questions — you'll see excerpts in the
+  next prompt inside <untrusted_web_content source="codebase"> tags).
 
 How you reply (defaults — the founder can override via preferences below):
 - Warm but crisp. No corporate fluff, no "As an AI language model..."
@@ -199,19 +218,28 @@ DEFAULT_HOUSE_RULES = (
 
 def assemble_system_prompt(house_rules_text: Optional[str] = None,
                             include_runtime: bool = True,
-                            user_tz: Optional[str] = None) -> str:
+                            user_tz: Optional[str] = None,
+                            codebase_tree: Optional[str] = None) -> str:
     """Compose the final system prompt in strict priority order:
-    CORE_SAFETY_RULES → AUREM_CONTEXT → Runtime context → (optional)
-    <user_preferences>.
+    CORE_SAFETY_RULES → AUREM_CONTEXT → Runtime context →
+    Codebase tree (auto-injected, optional) → (optional) <user_preferences>.
 
     `user_tz` (e.g. "Asia/Kolkata", "America/New_York") is threaded
     from the client browser via the X-Client-TZ header — falls back
     to ORA_USER_TZ env var, then to Asia/Kolkata default inside
     build_runtime_context().
+
+    `codebase_tree` is the compact repo tree from
+    codebase_index.compact_tree(). Kept optional so tests and
+    background workers can call the function without touching the
+    filesystem. When present, it's placed BEFORE house rules so the
+    rules layer can reference file paths cleanly.
     """
     parts = [CORE_SAFETY_RULES, "", AUREM_CONTEXT]
     if include_runtime:
         parts.extend(["", build_runtime_context(user_tz=user_tz)])
+    if codebase_tree and codebase_tree.strip():
+        parts.extend(["", codebase_tree.strip()])
     if house_rules_text and house_rules_text.strip():
         text = house_rules_text.strip()
         parts.extend([

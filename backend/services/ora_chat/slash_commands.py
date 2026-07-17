@@ -21,6 +21,7 @@ import time
 from typing import Callable, Awaitable
 
 from cto_services.db import get_db
+from services.ora_chat import codebase_index
 
 
 # One dispatch entry per registered slash-command. Each returns a
@@ -149,9 +150,67 @@ async def _help(ctx: dict, _args: str) -> dict:
             {"cmd": "/personal-track-signups", "desc": "User breakdown by track"},
             {"cmd": "/legacy-nudge-clicks",    "desc": "Legacy-banner activation funnel"},
             {"cmd": "/revenue-snapshot",       "desc": "Revenue snapshot"},
+            {"cmd": "/repo-tree",              "desc": "Compact AUREM code repo tree"},
+            {"cmd": "/repo-stats",             "desc": "Repo file/lang/def counts"},
+            {"cmd": "/find <pattern>",         "desc": "Find files (glob or substring)"},
+            {"cmd": "/read <path>",            "desc": "Read a repo file (first 200 lines)"},
+            {"cmd": "/defs <name>",            "desc": "Where is a function/class defined?"},
             {"cmd": "/help",                   "desc": "This list"},
         ],
     }
+
+
+# ─── Codebase-awareness commands (Iter 212m-246) ─────────────────
+async def _repo_tree(ctx: dict, _args: str) -> dict:
+    """Compact directory listing of the AUREM codebase."""
+    text = await codebase_index.compact_tree(max_files=200)
+    return {"ok": True, "command": "repo-tree",
+             "metric": "AUREM repo tree", "value": text}
+
+
+async def _repo_stats(ctx: dict, _args: str) -> dict:
+    """File counts + language breakdown + total size."""
+    stats = await codebase_index.index_stats()
+    return {"ok": True, "command": "repo-stats",
+             "metric": "Codebase index stats", "value": stats}
+
+
+async def _find(ctx: dict, args: str) -> dict:
+    """Glob-match against repo-relative paths."""
+    pattern = (args or "").strip()
+    if not pattern:
+        return {"ok": False, "error": "missing_pattern",
+                 "hint": "Usage: /find <glob-or-substring>"}
+    matches = await codebase_index.find_files(pattern, limit=30)
+    return {"ok": True, "command": "find",
+             "metric": f"Files matching '{pattern}'",
+             "value": matches}
+
+
+async def _read(ctx: dict, args: str) -> dict:
+    """Read a repo-relative file (bounded to 200 lines / 40 KB)."""
+    path = (args or "").strip()
+    if not path:
+        return {"ok": False, "error": "missing_path",
+                 "hint": "Usage: /read <repo-relative-path>"}
+    out = await codebase_index.read_file(path, max_lines=200)
+    if not out.get("ok"):
+        return out
+    return {"ok": True, "command": "read",
+             "metric": f"File: {out['path']}",
+             "value": out}
+
+
+async def _defs(ctx: dict, args: str) -> dict:
+    """Locate a function/class by name."""
+    name = (args or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_name",
+                 "hint": "Usage: /defs <symbol>"}
+    hits = await codebase_index.search_defs(name, limit=15)
+    return {"ok": True, "command": "defs",
+             "metric": f"Definitions of '{name}'",
+             "value": hits}
 
 
 # Dispatch registry — every command in `safety.KNOWN_COMMANDS` MUST
@@ -162,6 +221,11 @@ DISPATCH: dict[str, SlashHandler] = {
     "personal-track-signups": _personal_track_signups,
     "legacy-nudge-clicks":    _legacy_nudge_clicks,
     "revenue-snapshot":       _revenue_snapshot,
+    "repo-tree":              _repo_tree,
+    "repo-stats":             _repo_stats,
+    "find":                   _find,
+    "read":                   _read,
+    "defs":                   _defs,
     "help":                   _help,
 }
 

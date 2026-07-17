@@ -31,6 +31,7 @@ from services.rate_limiter import check_rate_limit, client_ip_from_request
 from services.ora_chat import cost_tracker, session as ora_session
 from services.ora_chat import house_rules as ora_house_rules
 from services.ora_chat import deep_research as ora_deep
+from services.ora_chat import codebase_index as ora_codebase
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
 )
@@ -302,7 +303,15 @@ async def send_message(body: MessageBody,
     llm_messages = await ora_session.build_llm_messages(sess or {})
     # System prompt with layered house rules — safety layer FIRST.
     hr_text = await ora_house_rules.get_effective_text(user["user_id"])
-    system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz)
+    # Iter 212m-246 — inject compact codebase tree so ORA has
+    # baseline awareness of what modules exist without needing a
+    # slash-command per question.
+    try:
+        cb_tree = await ora_codebase.compact_tree(max_files=120)
+    except Exception:
+        cb_tree = None
+    system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz,
+                                            codebase_tree=cb_tree)
     llm_messages = [{"role": "system", "content": system_prompt}] + llm_messages
 
     async def event_stream():
@@ -517,6 +526,10 @@ async def _stream_deep_research(user: dict, sess: dict,
     )
 
     hr_text = await ora_house_rules.get_effective_text(user["user_id"])
+    try:
+        cb_tree = await ora_codebase.compact_tree(max_files=120)
+    except Exception:
+        cb_tree = None
 
     async def event_stream():
         # Announce the route up front — sources list will be
@@ -532,6 +545,7 @@ async def _stream_deep_research(user: dict, sess: dict,
             out = await ora_deep.orchestrate(
                 query=raw_text, labels=labels,
                 house_rules_text=hr_text, user_tz=user_tz,
+                codebase_tree=cb_tree,
             )
         except Exception as e:
             logger.exception("deep-research orchestrator crashed")

@@ -13,7 +13,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MessageSquare, X, Send, RefreshCw, Zap, AlertTriangle,
-         Settings, Clock, Plus } from "lucide-react";
+          Settings, Clock, Plus, Square } from "lucide-react";
 import { api } from "../lib/api";
 import { getToken } from "../lib/api";
 import OraChatHouseRulesPanel from "./OraChatHouseRulesPanel";
@@ -370,6 +370,7 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
             {messages.map((m, i) => (
               <MessageBubble key={i} msg={m} />
             ))}
+            {sending && !stream.buf && !stream.err && <DrawerThinkingDots />}
             {stream.buf && (
               <MessageBubble
                 msg={{ role: "assistant", content: stream.buf,
@@ -410,43 +411,67 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
             </div>
           ) : (
             <form
-              onSubmit={(e) => { e.preventDefault(); send(); }}
+              onSubmit={(e) => { e.preventDefault(); if (!sending) send(); }}
               style={{
                 borderTop: "1px solid rgba(255,255,255,0.06)",
                 padding: "12px",
-                display: "flex", gap: 8,
+                display: "flex", gap: 8, alignItems: "flex-end",
               }}
             >
-              <input
+              <textarea
                 data-testid="ora-chat-input"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask ORA... (or /users-today)"
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault(); if (!sending) send();
+                } }}
+                placeholder="Ask ORA... (or /repo-tree, /find, /help)"
+                rows={5}
                 disabled={sending}
                 style={{
                   flex: 1, padding: "10px 12px",
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.08)",
                   borderRadius: 8, color: "#e8e3d3",
-                  fontSize: 13,
+                  fontSize: 13, lineHeight: 1.5,
                   outline: "none",
+                  fontFamily: "inherit",
+                  resize: "none",
+                  minHeight: "calc(1.5em * 5)",
+                  maxHeight: "calc(1.5em * 10)",
+                  opacity: sending ? 0.6 : 1,
                 }}
               />
-              <button
-                type="submit"
-                data-testid="ora-chat-send"
-                disabled={sending || !input.trim()}
-                style={{
-                  padding: "0 14px",
-                  background: sending ? "#3a3428" : "#E07A5F",
-                  color: "#0a0a0a",
-                  border: "none", borderRadius: 8,
-                  cursor: sending ? "wait" : "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
-                {sending ? <RefreshCw size={14} className="spin" /> : <Send size={14} />}
-              </button>
+              {sending ? (
+                <button
+                  type="button"
+                  data-testid="ora-chat-stop"
+                  onClick={() => abortRef.current?.abort()}
+                  title="Stop generating"
+                  style={{
+                    padding: "0 14px", height: 40, alignSelf: "flex-end",
+                    background: "#3a3428", color: "#e8e3d3",
+                    border: "none", borderRadius: 8, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <Square size={13} fill="#e8e3d3" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  data-testid="ora-chat-send"
+                  disabled={!input.trim()}
+                  style={{
+                    padding: "0 14px", height: 40, alignSelf: "flex-end",
+                    background: "#E07A5F", color: "#0a0a0a",
+                    border: "none", borderRadius: 8, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <Send size={14} />
+                </button>
+              )}
             </form>
           )}
         </div>
@@ -576,6 +601,41 @@ function MessageBubble({ msg }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// Iter 212m-246 — colored 3-dot pulse for the "thinking" state in the
+// dark drawer. Each dot uses a different accent color and staggers its
+// bounce so the row reads as a purposeful "thinking" cue, not a spinner.
+function DrawerThinkingDots() {
+  return (
+    <div data-testid="ora-drawer-thinking-dots"
+         style={{ alignSelf: "flex-start",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    display: "flex", gap: 6, alignItems: "center" }}>
+      <style>{`
+        @keyframes ora-drawer-pulse {
+          0%, 80%, 100% { transform: translateY(0);   opacity: 0.4; }
+          40%           { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
+      {[
+        { c: "#E07A5F", d: "0ms"   },
+        { c: "#81B29A", d: "160ms" },
+        { c: "#3B82F6", d: "320ms" },
+      ].map((dot, i) => (
+        <span key={i}
+              style={{ width: 7, height: 7, borderRadius: 999,
+                         background: dot.c, display: "inline-block",
+                         animation: `ora-drawer-pulse 1.2s ease-in-out ${dot.d} infinite` }} />
+      ))}
+      <span style={{ fontSize: 10, color: "#7a7466", marginLeft: 4,
+                       fontStyle: "italic" }}>thinking…</span>
     </div>
   );
 }
