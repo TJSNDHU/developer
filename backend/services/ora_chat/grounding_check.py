@@ -104,7 +104,9 @@ async def log_hallucination(*,
                              ungrounded: list[str],
                              route: str,
                              sources_fired: list[str],
-                             contexts_seen: dict) -> None:
+                             contexts_seen: dict,
+                             fabricated: Optional[list[str]] = None,
+                             unverified: Optional[list[str]] = None) -> None:
     """Write one row to `ora_hallucination_log` — never blocks the
     reply path. Kept idempotent-ish: same (session_id, message_hash)
     within 60s is deduped so a single burst of streaming events
@@ -130,6 +132,8 @@ async def log_hallucination(*,
             "query":          query[:2000],
             "reply":          reply[:6000],
             "ungrounded":     ungrounded[:20],
+            "fabricated":     (fabricated or [])[:20],
+            "unverified":     (unverified or [])[:20],
             "route":          route,
             "sources_fired":  sources_fired,
             "contexts_seen":  {k: (v or "")[:2000]
@@ -174,3 +178,108 @@ async def check_and_log(*,
         },
     )
     return {"claims": claims, "ungrounded": ungrounded, "logged": True}
+
+
+# ─── Iter 264 Fix A — two-level classification vs canonical index ──
+_PATH_EXTS = (".py", ".jsx", ".tsx", ".ts", ".js")
+
+
+def _normalize_path(claim: str) -> str:
+    c = claim.strip().lstrip("/")
+    if c.startswith("app/"):
+        c = c[4:]
+    return c
+
+
+def classify_claims(claims: Iterable[str], *, canonical: dict,
+                    user_query: str = "",
+                    turn_contexts: Optional[list] = None) -> dict:
+    """Two-level split (Fix A2):
+      FABRICATED  — path claim whose file does NOT exist anywhere in
+                    the canonical index and wasn't typed by the user
+                    → hard flag (user-facing warning).
+      UNVERIFIED  — path exists in the repo but wasn't retrieved this
+                    turn (no tree/BM25//read) → soft flag, log-only.
+    Symbol claims (backticked names) are NEVER hard-flagged — too
+    noisy — they go to UNVERIFIED at worst.
+    """
+    joined = "\n".join(c or "" for c in (turn_contexts or []))
+    q = user_query or ""
+    paths: set = canonical.get("paths") or set()
+    basenames: set = canonical.get("basenames") or set()
+    defs: set = canonical.get("defs") or set()
+    fabricated: list[str] = []
+    unverified: list[str] = []
+    for c in claims:
+        if not c or c in q:
+            continue  # user typed it → they may discuss it freely
+        if c.endswith(_PATH_EXTS):
+            n = _normalize_path(c)
+            base = n.rsplit("/", 1)[-1]
+            exists = (n in paths or base in basenames
+                      or any(p.endswith("/" + n) for p in paths))
+            if not exists:
+                fabricated.append(c)
+            elif c not in joined and n not in joined:
+                unverified.append(c)
+        else:
+            if c not in joined and c not in defs:
+                unverified.append(c)
+    return {"fabricated": fabricated, "unverified": unverified}
+
+
+async def run_post_response_check(*,
+                                   user_id: str,
+                                   session_id: str,
+                                   query: str,
+                                   reply: str,
+                                   route: str,
+                                   sources_fired: Optional[list[str]] = None,
+                                   retrieved_context: Optional[str] = None,
+                                   codebase_tree: Optional[str] = None,
+                                   system_highlights: Optional[str] = None) -> dict:
+    """Iter 264 Fix A3 — SHARED post-response hook, called after EVERY
+    assistant turn (general /message, fallback, slash, deep-research).
+    Never raises; returns:
+        {claims, fabricated, unverified, logged}
+    """
+    empty = {"claims": [], "fabricated": [], "unverified": [], "logged": False}
+    try:
+        claims = extract_claims(reply)
+        if not claims:
+            return empty
+        from services.ora_chat import codebase_index
+        try:
+            canonical = await codebase_index.canonical_paths()
+        except Exception as e:                               # noqa: BLE001
+            logger.warning("canonical index unavailable: %r", e)
+            canonical = {}
+        if not canonical.get("paths"):
+            # Index down — never hard-flag without ground truth.
+            return {**empty, "claims": claims}
+        cls = classify_claims(
+            claims, canonical=canonical, user_query=query,
+            turn_contexts=[retrieved_context, codebase_tree,
+                           system_highlights],
+        )
+        logged = False
+        if cls["fabricated"] or cls["unverified"]:
+            await log_hallucination(
+                user_id=user_id, session_id=session_id,
+                query=query, reply=reply,
+                ungrounded=cls["fabricated"] + cls["unverified"],
+                fabricated=cls["fabricated"],
+                unverified=cls["unverified"],
+                route=route, sources_fired=sources_fired or [],
+                contexts_seen={
+                    "retrieved":         retrieved_context or "",
+                    "codebase_tree":     codebase_tree or "",
+                    "system_highlights": system_highlights or "",
+                },
+            )
+            logged = True
+        return {"claims": claims, "fabricated": cls["fabricated"],
+                "unverified": cls["unverified"], "logged": logged}
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("post-response grounding hook failed: %r", e)
+        return empty

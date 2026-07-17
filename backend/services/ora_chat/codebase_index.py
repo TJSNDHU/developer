@@ -502,6 +502,19 @@ async def system_highlights() -> str:
     return "\n".join(lines)
 
 
+async def canonical_paths() -> dict:
+    """Iter 264 Fix A1 — fresh ground-truth sets for the grounding
+    validator. Pulled straight from the index (NOT from the prompt),
+    so validation works even on turns where no tree was injected."""
+    await _ensure_fresh()
+    paths = set(_CACHE["by_path"].keys())
+    return {
+        "paths":     paths,
+        "basenames": {p.rsplit("/", 1)[-1] for p in paths},
+        "defs":      set(_CACHE["def_to_paths"].keys()),
+    }
+
+
 async def index_stats() -> dict:
     await _ensure_fresh()
     langs: dict[str, int] = {}

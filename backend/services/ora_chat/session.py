@@ -107,7 +107,11 @@ async def append_message(session_id: str, user_id: str, *,
                          route: str = "", model: str = "",
                          temperature: Optional[float] = None,
                          input_tokens: int = 0, output_tokens: int = 0,
-                         cost_usd: float = 0.0) -> bool:
+                         cost_usd: float = 0.0,
+                         message_id: Optional[str] = None,
+                         ungrounded: Optional[list] = None,
+                         prompt_sha256: str = "",
+                         component_sizes: Optional[dict] = None) -> bool:
     """Append a message + bump counters. Returns True on success."""
     db = get_db()
     if db is None:
@@ -123,6 +127,11 @@ async def append_message(session_id: str, user_id: str, *,
     if input_tokens:       entry["input_tokens"]      = input_tokens
     if output_tokens:      entry["output_tokens"]     = output_tokens
     if cost_usd:           entry["cost_usd"]          = cost_usd
+    # Iter 264 Fix A/C — grounding + prompt-audit metadata.
+    if message_id:         entry["message_id"]        = message_id
+    if ungrounded:         entry["ungrounded"]        = ungrounded[:20]
+    if prompt_sha256:      entry["prompt_sha256"]     = prompt_sha256
+    if component_sizes:    entry["component_sizes"]   = component_sizes
     r = await db.ora_chat_sessions.update_one(
         {"session_id": session_id, "user_id": user_id},
         {"$push": {"messages": entry},

@@ -496,6 +496,20 @@ async def lifespan(app: FastAPI):
     else:
         app.state.backup_task = None
 
+    # Iter 264 Fix D — nightly ORA grounding canary (default OFF).
+    # Turn on ONLY after acceptance criteria pass — a warning system
+    # that fires wrongly teaches the founder to ignore it.
+    if os.environ.get("ORA_CANARY_ENABLED", "0").lower() in ("1", "true", "yes"):
+        try:
+            from services.ora_chat.canary import canary_cron
+            app.state.ora_canary_task = _asyncio.create_task(canary_cron())
+            logger.info("🕊️ ORA grounding canary cron enabled")
+        except Exception as e:
+            app.state.ora_canary_task = None
+            logger.warning("ora canary cron not started: %r", e)
+    else:
+        app.state.ora_canary_task = None
+
     # Iter 212m-234 — Phase 5 Supabase downgrade sweeper.  Runs daily
     # (24h interval) so paid users who dropped back to the free tier
     # eventually see their dedicated Postgres cleaned up — but only

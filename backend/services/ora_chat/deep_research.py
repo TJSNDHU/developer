@@ -309,7 +309,9 @@ async def orchestrate(query: str, labels: list[str],
     if not raw:
         return {"ok": False, "text": "", "sources_fired": [],
                  "errors": errors, "tool_cost_usd": sonar_cost,
-                 "downgraded": downgraded}
+                 "downgraded": downgraded,
+                 "retrieved_context": "", "system_prompt": "",
+                 "synth_prompt": ""}
 
     # Synthesis prompt
     parts = []
@@ -386,4 +388,10 @@ async def orchestrate(query: str, labels: list[str],
         "downgraded": downgraded,
         "synthesis_usage": synth_usage or {},
         "synthesis_model": synth_cfg["model"],
+        # Iter 264 Fix A/C — actual retrieved excerpts + assembled
+        # prompts so the router can run the grounding validator and
+        # persist an auditable prompt snapshot.
+        "retrieved_context": joined,
+        "system_prompt": system_prompt,
+        "synth_prompt": synth_prompt,
     }

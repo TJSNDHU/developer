@@ -13085,3 +13085,36 @@ NEEDS PRODUCTION REDEPLOY.
 **Regression:** 43/43 pytest green (tier3/4 billing gate + tier2.5 preview suites).
 
 **NOTE:** App is now DEPLOYED to production (auremcto.com). This smoke feature needs a redeploy to reach prod. Real token verification happens after founder sets the 3 token groups.
+
+---
+
+## Iter 264 — ORA Fabrication Structural Fixes (A+B+C+D) — 2026-06 (session date)
+
+**Fix A (P0) — Grounding validator on EVERY route, enforced:**
+- `grounding_check.py`: `classify_claims()` two-level split — FABRICATED (path not in canonical 811-file index + not user-typed → hard flag) vs UNVERIFIED (real path, no tree/BM25//read this turn → soft, log-only). Symbols never hard-flagged.
+- `run_post_response_check()` shared hook wired on ALL routes: general /message, fallback, slash-JSON, slash-stream, deep-research.
+- New SSE event `grounding_warning {ungrounded:[...]}` after final delta; frontend chip `data-testid="ora-grounding-warning"` in OraDirect.jsx + OraChatDrawer.jsx (amber, "ye paths repo mein exist nahi karte").
+- Message docs persist `ungrounded`, `message_id`. `ora_hallucination_log` now carries `fabricated`/`unverified` split.
+- A5: `ORA_REGEN_ON_FABRICATION=1` flag (default OFF) — buffers stream, one silent corrective retry on FABRICATED.
+
+**Fix B (P0) — Conditional tree injection:**
+- `_needs_tree()`: compact_tree injected ONLY when NEEDS_CODEBASE label OR /repo-tree|/find|/read|/defs in query. system_highlights ALWAYS injected. ~800 tokens/msg saved on non-codebase turns.
+- `safety.py` AUREM_CONTEXT rewritten: "FOR THAT TURN ONLY" + fallback "If no FILENAME INDEX is present in this turn, treat every specific filename claim as ungrounded until /read confirms".
+- `codebase_index.canonical_paths()` — fresh ground-truth (paths/basenames/defs) independent of prompt.
+
+**Fix C (P1) — Prompt snapshots:** `prompt_snapshot.py` → `ora_prompt_snapshots` (sha256, full_prompt, component_sizes {core,aurem_ctx,highlights,tree,house_rules,retrieved}, 30-day TTL). Message doc stores prompt_sha256 + component_sizes inline. Deep path snapshots system+synth prompt (orchestrate now returns retrieved_context/system_prompt/synth_prompt).
+
+**Fix D (P1) — Tests + canary:**
+- `tests/test_iter264_grounding_validator.py` — 20 deterministic unit tests (5 known fabricated names, real paths, user-typed exclusion, mixed, _needs_tree, wording, sha). Full ora suite: 156/156 green.
+- `services/ora_chat/canary.py` — nightly canary: 5 trap prompts through REAL /message (localhost), deterministic judge, challenge-turn retraction check, Resend alert on fail, report → `ora_canary_runs`. Cron in main.py behind `ORA_CANARY_ENABLED` (DEFAULT 0/OFF per founder). `ORA_CANARY_HOUR_UTC` default 02:30. Endpoints: POST /canary/run-now (background-fire), GET /canary/runs.
+
+**Acceptance evidence (all 5 passed live on preview):**
+1. Hook greps on all routes (L231/436/589/754 of routers/ora_chat.py).
+2. Forced fabrication → warning chip screenshot + Mongo `ungrounded:["test_iter999_billing_coverage.py"]`.
+3. Casual query → snapshot component_sizes.tree=0, no FILENAME INDEX in prompt.
+4. Real-path mention → ZERO user-facing warning (soft log only).
+5. Manual canary run: ok=True, fabricated_total=[], retraction_ok=True, 118.6s.
+
+**Fixed stale test:** test_ora_chat.py over-length house-rules test (2001 → MAX_LEN+1 after 4000 bump).
+
+**PENDING:** Founder to verify → then ONE combined prod deploy (iter 263+264). Canary ON (ORA_CANARY_ENABLED=1) only after founder verifies acceptance in prod.

@@ -265,6 +265,7 @@ function ChatShell({ onLogout }) {
       const s = r.data.session;
       setMessages((s.messages || []).map(m => ({
         role: m.role, content: m.content, route: m.route, model: m.model,
+        ungrounded: m.ungrounded,
       })));
       setSessionId(sid); setShowPicker(false);
     } catch { /* ignore */ }
@@ -336,6 +337,11 @@ function ChatShell({ onLogout }) {
           } else if (evtType === "slash_result" || obj.type === "slash_result") {
             buf += `\n${JSON.stringify(obj.result?.value, null, 2)}\n`;
             setStream(s => ({ ...s, buf }));
+          } else if (evtType === "grounding_warning" || obj.type === "grounding_warning") {
+            // Iter 264 Fix A4 — deterministic validator flagged
+            // fabricated citations in this reply.
+            routeMeta = { ...routeMeta, ungrounded: obj.ungrounded || [] };
+            setStream(s => ({ ...s, ungrounded: obj.ungrounded || [] }));
           } else if (evtType === "final" || obj.type === "final") {
             setMessages(m => [...m, { role: "assistant", content: buf,
                                          ...routeMeta,
@@ -660,6 +666,15 @@ function Bubble({ m }) {
                       color: PAL.text, fontSize: 14, lineHeight: 1.6,
                       whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {m.content}
+        {!isUser && Array.isArray(m.ungrounded) && m.ungrounded.length > 0 && (
+          <div data-testid="ora-grounding-warning"
+               style={{ marginTop: 8, padding: "6px 10px", borderRadius: 8,
+                          background: "#FBF1DC", border: "1px solid #E4C26B",
+                          color: "#8A6512", fontSize: 11.5, lineHeight: 1.5 }}>
+            ⚠️ Unverified citations: <span style={{ fontFamily: "ui-monospace, monospace" }}>
+            {m.ungrounded.join(", ")}</span> — ye paths repo mein exist nahi karte.
+          </div>
+        )}
         {(m.route || m.streaming) && (
           <div style={{ marginTop: 6, fontSize: 10, color: PAL.faint,
                           display: "flex", gap: 6, alignItems: "center" }}>

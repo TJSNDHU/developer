@@ -20,6 +20,8 @@ import asyncio
 import json
 import logging
 import os
+import re
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Header, Request
@@ -33,6 +35,7 @@ from services.ora_chat import house_rules as ora_house_rules
 from services.ora_chat import deep_research as ora_deep
 from services.ora_chat import codebase_index as ora_codebase
 from services.ora_chat import grounding_check as ora_grounding
+from services.ora_chat import prompt_snapshot as ora_snapshot
 from services.ora_chat import hallucination_classifier as ora_halluc
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
@@ -41,6 +44,7 @@ from services.ora_chat.providers import stream_call, one_shot
 from services.ora_chat.safety import (
     assemble_system_prompt, KNOWN_COMMANDS, parse_slash_command,
     DEFAULT_HOUSE_RULES, house_rules_soft_warning,
+    CORE_SAFETY_RULES, AUREM_CONTEXT,
 )
 from services.ora_chat import slash_commands as slash_dispatch
 
@@ -71,6 +75,38 @@ def _valid_tz(tz: Optional[str]) -> Optional[str]:
     if not _re.match(r"^[A-Za-z][A-Za-z0-9/_\-+]{0,63}$", tz):
         return None
     return tz
+
+
+# ── Iter 264 Fix B — conditional codebase-tree injection ────────────
+_TREE_TRIGGER_RE = re.compile(r"/(?:repo-tree|repo-stats|find|read|defs)\b")
+
+
+def _needs_tree(query: str, labels: Optional[list] = None) -> bool:
+    """Inject the compact FILENAME INDEX only when the turn actually
+    needs codebase awareness: NEEDS_CODEBASE label OR an inline
+    codebase slash-command mention. Everything else gets highlights
+    only (~800 tokens/msg saved + removes the fabrication vector)."""
+    if labels and "NEEDS_CODEBASE" in labels:
+        return True
+    return bool(_TREE_TRIGGER_RE.search(query or ""))
+
+
+async def _codebase_context(query: str,
+                             labels: Optional[list] = None) -> tuple:
+    """Returns (block_for_prompt, highlights, tree). Highlights are
+    ALWAYS injected (curated ground truth); tree is conditional."""
+    try:
+        highlights = await ora_codebase.system_highlights()
+    except Exception:
+        highlights = ""
+    tree = ""
+    if _needs_tree(query, labels):
+        try:
+            tree = await ora_codebase.compact_tree(max_files=120)
+        except Exception:
+            tree = ""
+    block = f"{highlights}\n\n{tree}".strip() if (highlights or tree) else None
+    return block, highlights, tree
 
 
 class NewSessionBody(BaseModel):
@@ -189,6 +225,18 @@ async def run_slash(body: SlashBody,
                          "temperature": cfg["temperature"],
                          "model": cfg["model"]}
 
+    # Iter 264 Fix A — grounding hook on the /slash JSON path too.
+    grounding = {"fabricated": [], "unverified": []}
+    if summary_text:
+        g = await ora_grounding.run_post_response_check(
+            user_id=user["user_id"],
+            session_id=body.session_id or "slash",
+            query=body.command, reply=summary_text, route="slash",
+            retrieved_context=json.dumps(result.get("value")),
+        )
+        grounding = {"fabricated": g["fabricated"],
+                      "unverified": g["unverified"]}
+
     # Persist to session transcript (best-effort — slash still works
     # even when session_id is unknown, so ops can eval commands
     # without opening a chat window).
@@ -207,6 +255,8 @@ async def run_slash(body: SlashBody,
             input_tokens=llm_meta.get("input_tokens", 0),
             output_tokens=llm_meta.get("output_tokens", 0),
             cost_usd=llm_meta.get("cost_usd", 0.0),
+            message_id=uuid.uuid4().hex,
+            ungrounded=grounding["fabricated"] or None,
         )
 
     return {
@@ -215,6 +265,7 @@ async def run_slash(body: SlashBody,
         "result":   result,
         "summary":  summary_text,
         "llm":      llm_meta,
+        "grounding": grounding,
         "budget_mode": b_status["mode"],
     }
 
@@ -270,6 +321,7 @@ async def send_message(body: MessageBody,
     # only) and when the Claude tool_orchestration flag is on (the
     # follow-up will route to Anthropic direct instead — stub returns
     # False today so this branch is inert).
+    labels: list = []
     if b_status["mode"] != "economy" and not ora_deep.use_claude_tools():
         try:
             labels = await ora_deep.classify_labels(body.content)
@@ -311,14 +363,13 @@ async def send_message(body: MessageBody,
     # Iter 212m-249 — ALSO inject the curated system-highlights block
     # so meta-questions ("kya best build hai", "what does AUREM do")
     # get answered from ground truth, not from noisy BM25 hits.
-    try:
-        cb_tree = await ora_codebase.compact_tree(max_files=120)
-        highlights = await ora_codebase.system_highlights()
-        cb_tree = f"{highlights}\n\n{cb_tree}" if cb_tree else highlights
-    except Exception:
-        cb_tree = None
+    # Iter 264 Fix B — conditional injection: highlights ALWAYS, the
+    # compact FILENAME INDEX only when the turn needs codebase
+    # awareness (NEEDS_CODEBASE label / inline slash mention).
+    cb_block, cb_highlights, cb_tree_only = \
+        await _codebase_context(body.content, labels)
     system_prompt = assemble_system_prompt(hr_text, user_tz=user_tz,
-                                            codebase_tree=cb_tree)
+                                            codebase_tree=cb_block)
     llm_messages = [{"role": "system", "content": system_prompt}] + llm_messages
 
     async def event_stream():
@@ -326,6 +377,10 @@ async def send_message(body: MessageBody,
         usage: dict = {}
         errored: Optional[str] = None
         fallback_used = False
+        # Iter 264 Fix A5 — feature-flagged regen-on-fabrication.
+        # When ON, deltas are buffered until the grounding check
+        # passes (one silent corrective retry on FABRICATED).
+        regen_mode = os.getenv("ORA_REGEN_ON_FABRICATION", "0") == "1"
 
         async def _try_stream(model_cfg: dict):
             nonlocal errored, usage
@@ -355,6 +410,8 @@ async def send_message(body: MessageBody,
                 "model": cfg["model"], "temperature": cfg["temperature"],
                 "budget_mode": b_status["mode"]}
         async for evt in _try_stream(cfg):
+            if regen_mode and evt["type"] == "delta":
+                continue
             yield evt
 
         # Fallback path — only if primary produced ZERO content.
@@ -365,12 +422,60 @@ async def send_message(body: MessageBody,
                     "model": fb_cfg["model"], "temperature": fb_cfg["temperature"],
                     "reason": "primary_failed"}
             async for evt in _try_stream(fb_cfg):
+                if regen_mode and evt["type"] == "delta":
+                    continue
                 yield evt
 
         # Persist assistant turn + log usage — even if empty/errored,
         # so the transcript reflects reality.
         final_text = "".join(buf)
         chosen = resolve(fallback_route()) if fallback_used else cfg
+
+        # Iter 264 Fix A — deterministic post-response grounding check
+        # (string lookups vs canonical index — milliseconds).
+        grounding = await ora_grounding.run_post_response_check(
+            user_id=user["user_id"], session_id=body.session_id,
+            query=body.content, reply=final_text, route=chosen["route"],
+            codebase_tree=cb_tree_only or None,
+            system_highlights=cb_highlights or None,
+        )
+
+        # Iter 264 Fix A5 — ORA_REGEN_ON_FABRICATION=1 (default OFF):
+        # ONE silent corrective retry before streaming the buffered text.
+        if regen_mode:
+            if grounding["fabricated"]:
+                corrective = (
+                    "Your draft cited non-existent files: "
+                    + ", ".join(grounding["fabricated"])
+                    + ". Remove them or mark them explicitly as "
+                    "unverified. Rewrite the full answer."
+                )
+                text2, usage2, err2 = await one_shot(
+                    model=chosen["model"],
+                    messages=llm_messages
+                    + [{"role": "assistant", "content": final_text},
+                       {"role": "user", "content": corrective}],
+                    temperature=chosen["temperature"],
+                    top_p=chosen["top_p"],
+                    presence_penalty=chosen["presence_penalty"],
+                    max_tokens=chosen["max_tokens"],
+                )
+                if text2 and not err2:
+                    final_text = text2
+                    for k in ("input_tokens", "output_tokens"):
+                        usage[k] = usage.get(k, 0) + (usage2 or {}).get(k, 0)
+                    grounding = await ora_grounding.run_post_response_check(
+                        user_id=user["user_id"], session_id=body.session_id,
+                        query=body.content, reply=final_text,
+                        route=chosen["route"],
+                        codebase_tree=cb_tree_only or None,
+                        system_highlights=cb_highlights or None,
+                    )
+            for i in range(0, len(final_text), _DELTA_CHUNK_LEN):
+                yield {"type": "delta",
+                        "content": final_text[i:i+_DELTA_CHUNK_LEN]}
+                await asyncio.sleep(0)
+
         cost = 0.0
         if usage:
             cost = await cost_tracker.log_call(
@@ -383,6 +488,21 @@ async def send_message(body: MessageBody,
                 output_tokens=usage.get("output_tokens", 0),
                 error=errored,
             )
+
+        # Iter 264 Fix C — persist the exact assembled system prompt.
+        msg_id = uuid.uuid4().hex
+        snap = await ora_snapshot.save_snapshot(
+            message_id=msg_id, session_id=body.session_id,
+            full_prompt=system_prompt,
+            component_sizes={
+                "core":        len(CORE_SAFETY_RULES),
+                "aurem_ctx":   len(AUREM_CONTEXT),
+                "highlights":  len(cb_highlights or ""),
+                "tree":        len(cb_tree_only or ""),
+                "house_rules": len(hr_text or ""),
+                "retrieved":   0,
+            })
+
         await ora_session.append_message(
             body.session_id, user["user_id"],
             role="assistant", content=final_text,
@@ -391,10 +511,22 @@ async def send_message(body: MessageBody,
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
             cost_usd=cost,
+            message_id=msg_id,
+            ungrounded=grounding["fabricated"] or None,
+            prompt_sha256=snap["sha256"],
+            component_sizes=snap["component_sizes"],
         )
+
+        # Iter 264 Fix A4 — user-facing warning ONLY for FABRICATED
+        # (UNVERIFIED = real path, soft log-only — no chip).
+        if grounding["fabricated"]:
+            yield {"type": "grounding_warning",
+                    "ungrounded": grounding["fabricated"]}
+
         yield {"type": "final", "cost_usd": cost,
                 "input_tokens":  usage.get("input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
+                "ungrounded":    grounding["fabricated"],
                 "errored": errored}
 
     async def sse_events():
@@ -451,6 +583,17 @@ async def _stream_slash_result(user: dict, sess: dict,
                 summary_usage = usage
                 yield {"type": "delta", "content": explain_text}
 
+        # Iter 264 Fix A — grounding hook on the slash-explain sentence.
+        grounding = {"fabricated": [], "unverified": []}
+        if explain_text:
+            g = await ora_grounding.run_post_response_check(
+                user_id=user["user_id"], session_id=sess["session_id"],
+                query=raw_text, reply=explain_text, route="slash",
+                retrieved_context=json.dumps(result.get("value")),
+            )
+            grounding = {"fabricated": g["fabricated"],
+                          "unverified": g["unverified"]}
+
         # Persist both turns.
         await ora_session.append_message(
             sess["session_id"], user["user_id"],
@@ -475,8 +618,14 @@ async def _stream_slash_result(user: dict, sess: dict,
             input_tokens=summary_usage.get("input_tokens", 0),
             output_tokens=summary_usage.get("output_tokens", 0),
             cost_usd=cost,
+            message_id=uuid.uuid4().hex,
+            ungrounded=grounding["fabricated"] or None,
         )
+        if grounding["fabricated"]:
+            yield {"type": "grounding_warning",
+                    "ungrounded": grounding["fabricated"]}
         yield {"type": "final", "cost_usd": cost,
+                "ungrounded": grounding["fabricated"],
                 **{k: summary_usage.get(k, 0) for k in
                     ("input_tokens", "output_tokens")}}
 
@@ -533,12 +682,9 @@ async def _stream_deep_research(user: dict, sess: dict,
     )
 
     hr_text = await ora_house_rules.get_effective_text(user["user_id"])
-    try:
-        cb_tree = await ora_codebase.compact_tree(max_files=120)
-        highlights = await ora_codebase.system_highlights()
-        cb_tree = f"{highlights}\n\n{cb_tree}" if cb_tree else highlights
-    except Exception:
-        cb_tree = None
+    # Iter 264 Fix B — conditional tree injection on the deep path too.
+    cb_block, cb_highlights, cb_tree_only = \
+        await _codebase_context(raw_text, labels)
 
     async def event_stream():
         # Announce the route up front — sources list will be
@@ -554,7 +700,7 @@ async def _stream_deep_research(user: dict, sess: dict,
             out = await ora_deep.orchestrate(
                 query=raw_text, labels=labels,
                 house_rules_text=hr_text, user_tz=user_tz,
-                codebase_tree=cb_tree,
+                codebase_tree=cb_block,
             )
         except Exception as e:
             logger.exception("deep-research orchestrator crashed")
@@ -603,6 +749,33 @@ async def _stream_deep_research(user: dict, sess: dict,
                 output_tokens=synth_usage.get("output_tokens", 0),
             )
 
+        # Iter 264 Fix A — deterministic grounding vs the ACTUAL
+        # retrieved excerpts (not just source names) + canonical index.
+        grounding = await ora_grounding.run_post_response_check(
+            user_id=user["user_id"], session_id=session_id,
+            query=raw_text, reply=text, route="deep",
+            sources_fired=out.get("sources_fired") or [],
+            retrieved_context=out.get("retrieved_context") or "",
+            codebase_tree=cb_tree_only or None,
+            system_highlights=cb_highlights or None,
+        )
+
+        # Iter 264 Fix C — persist the exact assembled prompt.
+        msg_id = uuid.uuid4().hex
+        full_prompt = ((out.get("system_prompt") or "") + "\n\n" +
+                        (out.get("synth_prompt") or "")).strip()
+        snap = await ora_snapshot.save_snapshot(
+            message_id=msg_id, session_id=session_id,
+            full_prompt=full_prompt,
+            component_sizes={
+                "core":        len(CORE_SAFETY_RULES),
+                "aurem_ctx":   len(AUREM_CONTEXT),
+                "highlights":  len(cb_highlights or ""),
+                "tree":        len(cb_tree_only or ""),
+                "house_rules": len(hr_text or ""),
+                "retrieved":   len(out.get("retrieved_context") or ""),
+            })
+
         await ora_session.append_message(
             session_id, user["user_id"],
             role="assistant", content=text,
@@ -612,34 +785,16 @@ async def _stream_deep_research(user: dict, sess: dict,
             input_tokens=synth_usage.get("input_tokens", 0),
             output_tokens=synth_usage.get("output_tokens", 0),
             cost_usd=cost,
+            message_id=msg_id,
+            ungrounded=grounding["fabricated"] or None,
+            prompt_sha256=snap["sha256"],
+            component_sizes=snap["component_sizes"],
         )
 
-        # Iter 212m-254 — post-response grounding check.
-        # Fire-and-forget: never blocks the SSE final event.
-        # Extracts specific claims (file paths, function names,
-        # test-file names) from the reply and logs any that aren't
-        # grounded in the retrieved context. The classifier layer
-        # (212m-255) then batch-reviews these for recurring patterns.
-        try:
-            retrieved_ctx = ""
-            if out.get("sources_fired"):
-                # Reconstruct a lightweight context blob from the
-                # sources_fired list — we don't re-run the fetches,
-                # we just check against what the model actually saw.
-                retrieved_ctx = " ".join(out.get("sources_fired", []))
-            asyncio.create_task(ora_grounding.check_and_log(
-                user_id=user["user_id"],
-                session_id=session_id,
-                query=raw_text,
-                reply=text,
-                route="deep",
-                sources_fired=out.get("sources_fired") or [],
-                retrieved_context=retrieved_ctx,
-                codebase_tree=cb_tree,
-                system_highlights=None,
-            ))
-        except Exception as e:                              # noqa: BLE001
-            logger.warning("grounding_check schedule failed: %r", e)
+        # Iter 264 Fix A4 — user-facing warning ONLY for FABRICATED.
+        if grounding["fabricated"]:
+            yield {"type": "grounding_warning",
+                    "ungrounded": grounding["fabricated"]}
 
         yield {"type": "final",
                 "cost_usd":       cost,
@@ -648,6 +803,7 @@ async def _stream_deep_research(user: dict, sess: dict,
                 "sources_fired":  sources_fired,
                 "downgraded":     bool(out.get("downgraded")),
                 "errors":         out.get("errors") or [],
+                "ungrounded":     grounding["fabricated"],
                 "input_tokens":   synth_usage.get("input_tokens", 0),
                 "output_tokens":  synth_usage.get("output_tokens", 0)}
 
@@ -904,3 +1060,30 @@ async def hallucination_patterns_reject(body: RejectPatternBody,
     if not r.get("ok"):
         raise HTTPException(404, "not_found")
     return r
+
+
+# ── Iter 264 Fix D — grounding canary (manual trigger) ─────────────
+@router.post("/canary/run-now")
+async def canary_run_now(authorization: Optional[str] = Header(None)):
+    """Fire the grounding canary in the background (same code the
+    nightly cron runs — 5 LLM round-trips, too slow for the proxy).
+    Poll GET /canary/runs for the report."""
+    await require_admin(authorization)
+    from services.ora_chat import canary as ora_canary
+    asyncio.create_task(ora_canary.run_canary(triggered_by="manual"))
+    return {"ok": True, "started": True,
+            "note": "Report will appear in GET /canary/runs (newest first)."}
+
+
+@router.get("/canary/runs")
+async def canary_runs(limit: int = 10,
+                       authorization: Optional[str] = Header(None)):
+    """Recent canary run reports (newest first)."""
+    await require_admin(authorization)
+    from cto_services.db import get_db
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database unavailable")
+    cursor = db.ora_canary_runs.find({}, {"_id": 0}) \
+        .sort("started_at", -1).limit(max(1, min(limit, 50)))
+    return {"ok": True, "runs": [row async for row in cursor]}

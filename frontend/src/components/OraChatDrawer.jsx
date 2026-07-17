@@ -187,6 +187,9 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
           } else if (evtType === "slash_result" || obj.type === "slash_result") {
             assistantBuf += `\n${JSON.stringify(obj.result?.value, null, 2)}\n`;
             setStream(s => ({ ...s, buf: assistantBuf }));
+          } else if (evtType === "grounding_warning" || obj.type === "grounding_warning") {
+            // Iter 264 Fix A4 — fabricated citations flagged.
+            routeMeta = { ...routeMeta, ungrounded: obj.ungrounded || [] };
           } else if (evtType === "final" || obj.type === "final") {
             // Persist message to state; clear streaming buffer.
             setMessages(m => [...m, {
@@ -196,6 +199,7 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
               sources: routeMeta.sources || obj.sources,
               sources_fired: routeMeta.sources_fired || obj.sources_fired,
               downgraded: routeMeta.downgraded || obj.downgraded,
+              ungrounded: routeMeta.ungrounded || obj.ungrounded,
               cost_usd: obj.cost_usd, tokens_in: obj.input_tokens,
               tokens_out: obj.output_tokens,
               interrupted: !!errored,
@@ -574,6 +578,16 @@ function MessageBubble({ msg }) {
       }}
     >
       {msg.content}
+      {!isUser && Array.isArray(msg.ungrounded) && msg.ungrounded.length > 0 && (
+        <div data-testid="ora-grounding-warning"
+             style={{ marginTop: 8, padding: "6px 10px", borderRadius: 8,
+                        background: "rgba(228,194,107,0.10)",
+                        border: "1px solid rgba(228,194,107,0.45)",
+                        color: "#E4C26B", fontSize: 11, lineHeight: 1.5 }}>
+          ⚠️ Unverified citations: <span style={{ fontFamily: "ui-monospace, monospace" }}>
+          {msg.ungrounded.join(", ")}</span> — ye paths repo mein exist nahi karte.
+        </div>
+      )}
       {(msg.route || msg.streaming || msg.interrupted) && (
         <div style={{
           marginTop: 6, fontSize: 10,

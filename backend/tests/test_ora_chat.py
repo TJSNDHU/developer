@@ -542,4 +542,4 @@ class TestHouseRulesCrud:
     async def test_update_rejects_over_length(self, monkeypatch):
         from services.ora_chat import house_rules as hr
         with pytest.raises(ValueError):
-            await hr.update("u1", "x" * 2001)
+            await hr.update("u1", "x" * (hr.MAX_LEN + 1))
