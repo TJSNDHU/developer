@@ -99,9 +99,14 @@ function PinPad({ onSuccess }) {
 
   return (
     <div data-testid="ora-direct-pin"
-         style={{ minHeight: "100vh", background: PAL.bg, color: PAL.text,
+         style={{ minHeight: "100dvh", background: PAL.bg, color: PAL.text,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    padding: 20, fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
+                    padding: "20px 20px 40px",
+                    // iOS Safari cuts off content behind the bottom nav bar
+                    // — dvh + safe-area padding keeps the pad fully tappable.
+                    paddingBottom: "max(40px, env(safe-area-inset-bottom))",
+                    WebkitTapHighlightColor: "transparent",
+                    fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
       <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
         <div style={{ width: 56, height: 56, borderRadius: 14, background: PAL.accentBg,
                         border: `1px solid ${PAL.accent}33`, margin: "0 auto 22px",
@@ -145,16 +150,29 @@ function PinPad({ onSuccess }) {
   );
 }
 function PadKey({ label, onClick, disabled, muted, testId }) {
+  // Iter 212m-244 — Mobile PIN reliability fix. Two problems seen on
+  // iOS Safari + Chrome Android:
+  //   (a) 300ms tap delay before click fires — touchAction:manipulation
+  //       eliminates it.
+  //   (b) The onMouseDown transform interfered with the click event
+  //       being registered on some touch devices — switched to :active
+  //       via inline CSS and dropped the mouse-only handlers.
   return (
     <button type="button" data-testid={testId} onClick={onClick} disabled={disabled}
-            style={{ aspectRatio: "1 / 1", fontSize: 20,
+            style={{ aspectRatio: "1 / 1", fontSize: 22,
                        fontWeight: 500, color: muted ? PAL.muted : PAL.text,
                        background: PAL.card,
                        border: `1px solid ${PAL.border}`, borderRadius: 12,
                        cursor: disabled ? "not-allowed" : "pointer",
-                       transition: "background 120ms" }}
-            onMouseEnter={(e) => e.currentTarget.style.background = PAL.chip}
-            onMouseLeave={(e) => e.currentTarget.style.background = PAL.card}>
+                       transition: "background 120ms",
+                       touchAction: "manipulation",
+                       WebkitTapHighlightColor: "transparent",
+                       userSelect: "none",
+                       minHeight: 56,   // hits Apple/Google 44px+ tap-target guidance
+                       minWidth: 56 }}
+            onPointerDown={(e) => e.currentTarget.style.background = PAL.chip}
+            onPointerUp={(e)   => e.currentTarget.style.background = PAL.card}
+            onPointerLeave={(e)=> e.currentTarget.style.background = PAL.card}>
       {label}
     </button>
   );
@@ -434,12 +452,16 @@ function IconBtn({ children, onClick, testId }) {
 }
 
 function InputCard({ input, setInput, onSend, sending, large = false }) {
+  // Iter 212m-244 — Chat input is now visually a 3-line textarea in
+  // BOTH states (hero + chat). Auto-grows past 3 lines up to a cap so
+  // long paste-ins are readable but the input never dominates the
+  // screen. Same rows in mobile/tablet/desktop for a consistent feel.
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSend(); }}
           style={{ background: PAL.card,
                      border: `1px solid ${PAL.border}`,
                      borderRadius: 16,
-                     padding: large ? "20px" : "12px",
+                     padding: "14px 16px",
                      boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
                      display: "flex", alignItems: "flex-end", gap: 10 }}>
       <textarea
@@ -448,20 +470,25 @@ function InputCard({ input, setInput, onSend, sending, large = false }) {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
         placeholder={large ? "Ask ORA... (or /users-today)" : "Message ORA..."}
-        rows={large ? 3 : 1}
+        rows={3}
         disabled={sending}
         style={{ flex: 1, border: "none", outline: "none",
                    fontFamily: "inherit", fontSize: 15,
                    color: PAL.text, background: "transparent",
-                   resize: "none", padding: "6px 4px", lineHeight: 1.5 }}
+                   resize: "none", padding: "4px 4px",
+                   lineHeight: 1.55,
+                   minHeight: `calc(1.55em * 3)`,
+                   maxHeight: `calc(1.55em * 10)`,
+                   overflowY: "auto" }}
       />
       <button type="submit" data-testid="ora-send" disabled={sending || !input.trim()}
-              style={{ width: 36, height: 36, borderRadius: 999,
+              style={{ width: 38, height: 38, borderRadius: 999,
                          background: input.trim() ? PAL.accent : PAL.chip,
                          color: input.trim() ? "#fff" : PAL.faint,
                          border: "none", cursor: sending ? "wait" : "pointer",
                          display: "flex", alignItems: "center", justifyContent: "center",
-                         flexShrink: 0, transition: "background 120ms" }}>
+                         flexShrink: 0, transition: "background 120ms",
+                         touchAction: "manipulation" }}>
         {sending ? <RefreshCw size={14} className="spin" /> : <ArrowUp size={16} />}
       </button>
     </form>
