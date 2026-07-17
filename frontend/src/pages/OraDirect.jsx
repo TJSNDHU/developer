@@ -1,208 +1,528 @@
 /**
- * pages/OraDirect.jsx — Iter 212m-241
+ * pages/OraDirect.jsx — Iter 212m-242
  *
- * Public, no-login route at /ora — bookmarkable from any device.
- * Renders a 4-digit PIN pad first; on success it fetches a real
- * admin JWT from `/api/aurem-dev/ora-chat/pin-login`, stores it in
- * localStorage under the same key the rest of the app uses, and
- * then reveals the ORA Chat as a full-screen surface.
+ * Light-cream themed public ORA Chat at /ora — matches BuildHome
+ * aesthetic (cream background, white cards, warm accent).
  *
- * Security posture:
- *  - Backend enforces 5 wrong attempts / hour / IP + constant-time compare
- *  - PIN itself is never logged; only { ok, ip, ts } is persisted
- *  - Successful login mints a normal 7-day admin JWT (same as password login)
- *  - Once a valid token is already in localStorage we skip the PIN pad
+ * Interaction model:
+ *   - Empty state → hero heading + big centered input card + suggestion pills
+ *   - After first message → input slides to bottom-center; messages
+ *     stream in the scrollable area above
  *
- * Responsive: full viewport on all sizes; the OraChatDrawer mounts
- * inside a fullscreen shell so the max-width limit of the drawer
- * doesn't apply here.
+ * Auth: PIN pad (4 digits) → mints 7-day admin JWT via
+ * /api/aurem-dev/ora-chat/pin-login. Reuses existing session /
+ * streaming / budget / house-rules backend.
  */
-import React, { useEffect, useState } from "react";
-import { Lock } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus } from "lucide-react";
 import { api, setToken, getToken } from "../lib/api";
-import OraChatDrawer from "../components/OraChatDrawer";
+import OraChatHouseRulesPanel from "../components/OraChatHouseRulesPanel";
 
+const BASE = `${process.env.REACT_APP_BACKEND_URL}/api/aurem-dev/ora-chat`;
 const PIN_LENGTH = 4;
 
+// ── Palette (matches /app/frontend/src/pages/personal/BuildHome.jsx) ──
+const PAL = {
+  bg:         "#FAFAF5",
+  card:       "#FFFFFF",
+  text:       "#1C1C19",
+  muted:      "#6B6B63",
+  faint:      "#8B8B7D",
+  chip:       "#F4F3EE",
+  chipHover:  "#EDECE5",
+  border:     "#E5E5DF",
+  accent:     "#D56A4F",
+  accentBg:   "rgba(224,122,95,0.10)",
+  bubbleUser: "#EDECE5",
+  bubbleAsst: "#FFFFFF",
+};
+
 export default function OraDirect() {
-  const [pin, setPin]           = useState("");
-  const [busy, setBusy]         = useState(false);
-  const [err, setErr]           = useState(null);
   const [authorized, setAuthed] = useState(!!getToken());
 
-  // If a token already exists (recent PIN unlock or normal admin
-  // login on this browser), skip straight to the chat.
   useEffect(() => {
     if (getToken()) {
-      // Confirm the token still works — /auth/me is cheap.
       api.get("/auth/me").then(() => setAuthed(true))
                           .catch(() => setToken(null));
     }
   }, []);
 
-  const submit = async (nextPin) => {
-    const p = (nextPin ?? pin).trim();
+  return authorized ? <ChatShell onLogout={() => { setToken(null); setAuthed(false); }} />
+                     : <PinPad onSuccess={() => setAuthed(true)} />;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// PIN pad (light theme)
+// ────────────────────────────────────────────────────────────────────
+function PinPad({ onSuccess }) {
+  const [pin, setPin]   = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+
+  const submit = async (p) => {
     if (p.length !== PIN_LENGTH || busy) return;
     setBusy(true); setErr(null);
     try {
       const r = await api.post("/ora-chat/pin-login", { pin: p });
       setToken(r.data.token);
-      setAuthed(true);
+      onSuccess();
     } catch (e) {
       const d = e?.response?.data?.detail || e?.response?.data;
-      if (d?.error === "too_many_attempts") {
-        setErr(d.message || "Too many attempts. Try again in an hour.");
-      } else if (d?.error === "invalid_pin") {
-        setErr(`Wrong PIN. ${d.attempts_remaining} attempt(s) left.`);
-      } else {
-        setErr("PIN login failed. Check your connection.");
-      }
+      if (d?.error === "too_many_attempts") setErr(d.message);
+      else if (d?.error === "invalid_pin") setErr(`Wrong PIN. ${d.attempts_remaining} left.`);
+      else setErr("Login failed. Check connection.");
       setPin("");
     } finally { setBusy(false); }
   };
-
-  const pressDigit = (d) => {
-    if (pin.length >= PIN_LENGTH || busy) return;
-    const next = pin + d;
-    setPin(next);
-    if (next.length === PIN_LENGTH) submit(next);
-  };
-  const pressBack  = () => setPin(pin.slice(0, -1));
-  const pressClear = () => setPin("");
-
-  if (authorized) {
-    // Full-screen ORA — reuse the drawer but drop it into a
-    // fullscreen shell so it fills the viewport instead of the
-    // right-side panel.
-    return (
-      <div
-        data-testid="ora-direct-fullscreen"
-        style={{
-          position: "fixed", inset: 0,
-          background: "#0a0a0a", color: "#e8e3d3",
-          display: "flex", flexDirection: "column",
-        }}
-      >
-        <OraChatDrawer forceOpen fullscreen />
-      </div>
-    );
-  }
+  const press = (d) => { if (pin.length >= PIN_LENGTH || busy) return;
+                          const n = pin + d; setPin(n);
+                          if (n.length === PIN_LENGTH) submit(n); };
 
   return (
-    <div
-      data-testid="ora-direct-pin"
-      style={{
-        minHeight: "100vh",
-        background: "radial-gradient(70% 60% at 50% 30%, #1a1410 0%, #0a0a0a 60%)",
-        color: "#e8e3d3",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 20,
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-      }}
-    >
+    <div data-testid="ora-direct-pin"
+         style={{ minHeight: "100vh", background: PAL.bg, color: PAL.text,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: 20, fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
       <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: 14,
-          background: "rgba(224,122,95,0.14)",
-          border: "1px solid rgba(224,122,95,0.28)",
-          margin: "0 auto 22px",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <Lock size={22} color="#E07A5F" strokeWidth={1.8} />
+        <div style={{ width: 56, height: 56, borderRadius: 14, background: PAL.accentBg,
+                        border: `1px solid ${PAL.accent}33`, margin: "0 auto 22px",
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Lock size={22} color={PAL.accent} strokeWidth={1.8} />
         </div>
-        <div style={{
-          fontFamily: "ui-monospace, monospace",
-          fontSize: 22, fontWeight: 700, marginBottom: 6,
-          letterSpacing: -0.5,
-        }}>
-          ORA Chat
-        </div>
-        <div style={{ fontSize: 13, color: "#7a7466", marginBottom: 32 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6,
+                        letterSpacing: -0.5 }}>ORA Chat</div>
+        <div style={{ fontSize: 13, color: PAL.muted, marginBottom: 32 }}>
           Enter your 4-digit PIN
         </div>
-
-        {/* Dots */}
-        <div style={{
-          display: "flex", justifyContent: "center", gap: 14,
-          marginBottom: 34,
-        }}>
-          {[0, 1, 2, 3].map(i => (
+        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginBottom: 30 }}>
+          {[0,1,2,3].map(i => (
             <div key={i} data-testid={`pin-dot-${i}`}
-                 style={{
-                   width: 16, height: 16, borderRadius: "50%",
-                   background: pin.length > i ? "#E07A5F" : "transparent",
-                   border: `2px solid ${pin.length > i
-                     ? "#E07A5F"
-                     : "rgba(255,255,255,0.16)"}`,
-                   transition: "background 0.1s ease",
-                 }}
-            />
+                 style={{ width: 14, height: 14, borderRadius: "50%",
+                            background: pin.length > i ? PAL.accent : "transparent",
+                            border: `2px solid ${pin.length > i ? PAL.accent : PAL.border}`,
+                            transition: "all 0.1s" }} />
           ))}
         </div>
-
         {err && (
-          <div data-testid="pin-error" style={{
-            fontSize: 12, color: "#f88",
-            marginBottom: 20, minHeight: 16,
-          }}>{err}</div>
+          <div data-testid="pin-error" style={{ fontSize: 12, color: "#c94a37",
+                                                   marginBottom: 20, minHeight: 16 }}>{err}</div>
         )}
-
-        {/* Number pad */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 12,
-          maxWidth: 300, margin: "0 auto",
-        }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10,
+                       maxWidth: 280, margin: "0 auto" }}>
           {["1","2","3","4","5","6","7","8","9"].map(d => (
-            <PinKey key={d} label={d} testId={`pin-key-${d}`}
-                    onClick={() => pressDigit(d)} disabled={busy} />
+            <PadKey key={d} label={d} testId={`pin-key-${d}`}
+                     onClick={() => press(d)} disabled={busy} />
           ))}
-          <PinKey label="C" testId="pin-key-clear"
-                  onClick={pressClear} disabled={busy} muted />
-          <PinKey label="0" testId="pin-key-0"
-                  onClick={() => pressDigit("0")} disabled={busy} />
-          <PinKey label="⌫" testId="pin-key-back"
-                  onClick={pressBack} disabled={busy} muted />
+          <PadKey label="C" testId="pin-key-clear" onClick={() => setPin("")} disabled={busy} muted />
+          <PadKey label="0" testId="pin-key-0" onClick={() => press("0")} disabled={busy} />
+          <PadKey label="⌫" testId="pin-key-back"
+                   onClick={() => setPin(pin.slice(0, -1))} disabled={busy} muted />
         </div>
-
-        <div style={{
-          marginTop: 32, fontSize: 10, color: "#4d4a41",
-          lineHeight: 1.6,
-        }}>
-          5 wrong attempts per hour · Session lasts 7 days on this device
+        <div style={{ marginTop: 26, fontSize: 10, color: PAL.faint }}>
+          5 wrong attempts per hour · Session lasts 7 days
         </div>
       </div>
     </div>
   );
 }
-
-function PinKey({ label, onClick, disabled, muted, testId }) {
+function PadKey({ label, onClick, disabled, muted, testId }) {
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        aspectRatio: "1 / 1",
-        fontSize: 22,
-        fontFamily: "ui-monospace, monospace",
-        fontWeight: 500,
-        color: muted ? "#a39d8a" : "#e8e3d3",
-        background: muted
-          ? "rgba(255,255,255,0.02)"
-          : "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 12,
-        cursor: disabled ? "not-allowed" : "pointer",
-        transition: "background 0.12s ease, transform 0.12s ease",
-      }}
-      onMouseDown={(e) => e.currentTarget.style.transform = "scale(0.96)"}
-      onMouseUp={(e)   => e.currentTarget.style.transform = "scale(1)"}
-      onMouseLeave={(e)=> e.currentTarget.style.transform = "scale(1)"}
-    >
+    <button type="button" data-testid={testId} onClick={onClick} disabled={disabled}
+            style={{ aspectRatio: "1 / 1", fontSize: 20,
+                       fontWeight: 500, color: muted ? PAL.muted : PAL.text,
+                       background: PAL.card,
+                       border: `1px solid ${PAL.border}`, borderRadius: 12,
+                       cursor: disabled ? "not-allowed" : "pointer",
+                       transition: "background 120ms" }}
+            onMouseEnter={(e) => e.currentTarget.style.background = PAL.chip}
+            onMouseLeave={(e) => e.currentTarget.style.background = PAL.card}>
       {label}
     </button>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Chat shell (post-auth) — BuildHome-inspired aesthetic
+// ────────────────────────────────────────────────────────────────────
+const SUGGESTIONS = [
+  "Aaj ka top AI news",
+  "Explain quantum computing simply",
+  "Draft a launch tweet for AUREM",
+  "/users-today",
+];
+
+function ChatShell({ onLogout }) {
+  const [sessionId, setSessionId] = useState(null);
+  const [messages, setMessages]   = useState([]);
+  const [input, setInput]         = useState("");
+  const [sending, setSending]     = useState(false);
+  const [budget, setBudget]       = useState(null);
+  const [stream, setStream]       = useState({ buf: "", route: null, model: null });
+  const [showRules, setShowRules] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [recentSessions, setRecent] = useState([]);
+  const listRef = useRef(null);
+
+  // Bootstrap
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get("/ora-chat/sessions");
+        const rows = r.data.sessions || [];
+        setRecent(rows);
+        if (rows.length === 0) {
+          const c = await api.post("/ora-chat/sessions", { title: "Quick chat" });
+          setSessionId(c.data.session.session_id);
+        } else {
+          setShowPicker(true);
+        }
+      } catch { /* token invalid — fall through */ }
+    })();
+  }, []);
+
+  const refreshBudget = async () => {
+    try { const r = await api.get("/ora-chat/usage"); setBudget(r.data.budget); }
+    catch { /* ignore */ }
+  };
+  useEffect(() => { refreshBudget(); }, []);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, stream.buf]);
+
+  const startNewSession = async () => {
+    try {
+      const c = await api.post("/ora-chat/sessions", { title: "Quick chat" });
+      setSessionId(c.data.session.session_id);
+      setMessages([]); setShowPicker(false);
+    } catch { /* ignore */ }
+  };
+  const openSession = async (sid) => {
+    try {
+      const r = await api.get(`/ora-chat/sessions/${sid}`);
+      const s = r.data.session;
+      setMessages((s.messages || []).map(m => ({
+        role: m.role, content: m.content, route: m.route, model: m.model,
+      })));
+      setSessionId(sid); setShowPicker(false);
+    } catch { /* ignore */ }
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || !sessionId || sending) return;
+    setInput("");
+    setMessages(m => [...m, { role: "user", content: text }]);
+    setStream({ buf: "", route: null, model: null });
+    setSending(true);
+    let clientTz = "";
+    try { clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* */ }
+    try {
+      const res = await fetch(`${BASE}/message`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`,
+          "Accept": "text/event-stream",
+          ...(clientTz ? { "X-Client-TZ": clientTz } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId, content: text }),
+      });
+      if (res.status === 402) {
+        const b = await res.json().catch(() => ({}));
+        setMessages(m => [...m, { role: "assistant",
+                                     content: b?.detail?.message || "Budget paused.",
+                                     isError: true }]);
+        return;
+      }
+      if (!res.ok || !res.body) {
+        setMessages(m => [...m, { role: "assistant",
+                                     content: `Error ${res.status}. Try again.`,
+                                     isError: true }]);
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buffer = "", buf = "", routeMeta = {};
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += dec.decode(value, { stream: true });
+        const parts = buffer.split(/\r?\n\r?\n/);
+        buffer = parts.pop() || "";
+        for (const chunk of parts) {
+          let evtType = "message", dataStr = "";
+          for (const ln of chunk.split(/\r?\n/)) {
+            if (ln.startsWith("event:")) evtType = ln.slice(6).trim();
+            else if (ln.startsWith("data:")) dataStr += ln.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          let obj = {}; try { obj = JSON.parse(dataStr); } catch { continue; }
+          if (evtType === "route" || obj.type === "route") {
+            routeMeta = { route: obj.route, model: obj.model, temperature: obj.temperature };
+            setStream(s => ({ ...s, ...routeMeta }));
+          } else if (evtType === "delta" || obj.type === "delta") {
+            buf += obj.content || "";
+            setStream(s => ({ ...s, buf }));
+          } else if (evtType === "slash_result" || obj.type === "slash_result") {
+            buf += `\n${JSON.stringify(obj.result?.value, null, 2)}\n`;
+            setStream(s => ({ ...s, buf }));
+          } else if (evtType === "final" || obj.type === "final") {
+            setMessages(m => [...m, { role: "assistant", content: buf,
+                                         ...routeMeta,
+                                         cost_usd: obj.cost_usd }]);
+            setStream({ buf: "", route: null, model: null });
+          }
+        }
+      }
+    } catch (e) {
+      setMessages(m => [...m, { role: "assistant",
+                                   content: `Network error: ${e.message}`,
+                                   isError: true }]);
+    } finally { setSending(false); refreshBudget(); }
+  };
+
+  const hasChat = messages.length > 0 || stream.buf;
+
+  return (
+    <div style={{ minHeight: "100vh", height: "100vh",
+                    background: PAL.bg, color: PAL.text,
+                    display: "flex", flexDirection: "column",
+                    fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
+      {/* Header */}
+      <header style={{ display: "flex", alignItems: "center",
+                          padding: "16px 32px",
+                          borderBottom: `1px solid ${PAL.border}`,
+                          background: PAL.card }}>
+        <div style={{ fontWeight: 700, letterSpacing: 2, fontSize: 15 }}>AUREM</div>
+        <div style={{ flex: 1 }} />
+        {budget && (
+          <div data-testid="ora-budget-pill"
+               title={`Today: $${budget.day_spent_usd} · Month: $${budget.month_spent_usd}`}
+               style={{ fontSize: 11, padding: "4px 10px", borderRadius: 999,
+                          background: PAL.chip, color: PAL.muted,
+                          fontFamily: "ui-monospace, monospace", marginRight: 12 }}>
+            ${(budget.day_spent_usd || 0).toFixed(4)} / ${budget.day_cap_usd}
+          </div>
+        )}
+        <IconBtn testId="ora-history" onClick={() => setShowPicker(true)}><Clock size={16} /></IconBtn>
+        <IconBtn testId="ora-settings" onClick={() => setShowRules(true)}><Settings size={16} /></IconBtn>
+        <IconBtn testId="ora-logout" onClick={onLogout}><LogOut size={16} /></IconBtn>
+      </header>
+
+      {/* Main area */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column",
+                     overflow: "hidden", position: "relative" }}>
+        {!hasChat && (
+          // ── EMPTY STATE — centered hero ─────────────────────────
+          <div style={{ flex: 1, display: "flex", flexDirection: "column",
+                          alignItems: "center", justifyContent: "center",
+                          padding: "20px", overflow: "auto" }}>
+            <div style={{ maxWidth: 720, width: "100%", textAlign: "center" }}>
+              <div style={{ display: "inline-block", padding: "5px 12px",
+                              background: PAL.accentBg, color: PAL.accent,
+                              borderRadius: 999, fontSize: 12, fontWeight: 500,
+                              marginBottom: 24 }}>
+                <Zap size={12} style={{ display: "inline", marginRight: 4, verticalAlign: -1 }} />
+                ORA Chat
+              </div>
+              <h1 style={{ fontSize: "clamp(32px, 5vw, 52px)",
+                             fontWeight: 700, lineHeight: 1.1,
+                             margin: "0 0 20px", letterSpacing: -1 }}>
+                How can I help?
+              </h1>
+              <p style={{ fontSize: 15, color: PAL.muted, marginBottom: 40,
+                            maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
+                General chat, deep research, or type a <code style={{ color: PAL.accent }}>/</code> for
+                deterministic slash-commands.
+              </p>
+              <InputCard input={input} setInput={setInput} onSend={send}
+                          sending={sending} large />
+              <div style={{ marginTop: 32, display: "flex", flexWrap: "wrap",
+                              gap: 10, justifyContent: "center" }}>
+                {SUGGESTIONS.map(s => (
+                  <button key={s} data-testid={`suggestion-${s}`}
+                          onClick={() => { setInput(s); }}
+                          style={{ padding: "8px 16px", borderRadius: 999,
+                                     background: PAL.chip, border: "none",
+                                     color: PAL.muted, fontSize: 13,
+                                     cursor: "pointer", fontFamily: "inherit" }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = PAL.chipHover}
+                          onMouseLeave={(e) => e.currentTarget.style.background = PAL.chip}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasChat && (
+          // ── CHAT STATE — messages scroll, input pinned bottom ────
+          <>
+            <div ref={listRef} data-testid="ora-messages"
+                 style={{ flex: 1, overflow: "auto",
+                            padding: "24px 20px 140px" }}>
+              <div style={{ maxWidth: 760, margin: "0 auto",
+                              display: "flex", flexDirection: "column", gap: 16 }}>
+                {messages.map((m, i) => <Bubble key={i} m={m} />)}
+                {stream.buf && (
+                  <Bubble m={{ role: "assistant", content: stream.buf,
+                                 ...stream, streaming: true }} />
+                )}
+              </div>
+            </div>
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0,
+                            padding: "16px 20px 20px",
+                            background: `linear-gradient(to top, ${PAL.bg} 60%, transparent)` }}>
+              <div style={{ maxWidth: 760, margin: "0 auto" }}>
+                <InputCard input={input} setInput={setInput} onSend={send}
+                            sending={sending} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Sessions picker overlay */}
+      {showPicker && (
+        <PickerModal recent={recentSessions} onClose={() => setShowPicker(false)}
+                     onNew={startNewSession} onOpen={openSession} />
+      )}
+      {/* House rules panel */}
+      {showRules && (
+        <OraChatHouseRulesPanel onClose={() => setShowRules(false)} />
+      )}
+    </div>
+  );
+}
+
+function IconBtn({ children, onClick, testId }) {
+  return (
+    <button type="button" onClick={onClick} data-testid={testId}
+            style={{ padding: 8, marginLeft: 4, background: "transparent",
+                       border: "none", color: PAL.muted, cursor: "pointer",
+                       borderRadius: 8, display: "flex", alignItems: "center" }}
+            onMouseEnter={(e) => e.currentTarget.style.background = PAL.chip}
+            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+      {children}
+    </button>
+  );
+}
+
+function InputCard({ input, setInput, onSend, sending, large = false }) {
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSend(); }}
+          style={{ background: PAL.card,
+                     border: `1px solid ${PAL.border}`,
+                     borderRadius: 16,
+                     padding: large ? "20px" : "12px",
+                     boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
+                     display: "flex", alignItems: "flex-end", gap: 10 }}>
+      <textarea
+        data-testid="ora-input"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
+        placeholder={large ? "Ask ORA... (or /users-today)" : "Message ORA..."}
+        rows={large ? 3 : 1}
+        disabled={sending}
+        style={{ flex: 1, border: "none", outline: "none",
+                   fontFamily: "inherit", fontSize: 15,
+                   color: PAL.text, background: "transparent",
+                   resize: "none", padding: "6px 4px", lineHeight: 1.5 }}
+      />
+      <button type="submit" data-testid="ora-send" disabled={sending || !input.trim()}
+              style={{ width: 36, height: 36, borderRadius: 999,
+                         background: input.trim() ? PAL.accent : PAL.chip,
+                         color: input.trim() ? "#fff" : PAL.faint,
+                         border: "none", cursor: sending ? "wait" : "pointer",
+                         display: "flex", alignItems: "center", justifyContent: "center",
+                         flexShrink: 0, transition: "background 120ms" }}>
+        {sending ? <RefreshCw size={14} className="spin" /> : <ArrowUp size={16} />}
+      </button>
+    </form>
+  );
+}
+
+function Bubble({ m }) {
+  const isUser = m.role === "user";
+  return (
+    <div data-testid={`ora-msg-${m.role}`}
+         style={{ alignSelf: isUser ? "flex-end" : "flex-start",
+                    maxWidth: "85%",
+                    padding: "12px 16px",
+                    borderRadius: 14,
+                    background: m.isError ? "#fdeeea"
+                                   : isUser ? PAL.bubbleUser : PAL.bubbleAsst,
+                    border: isUser ? "none" : `1px solid ${PAL.border}`,
+                    color: PAL.text, fontSize: 14, lineHeight: 1.6,
+                    whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      {m.content}
+      {(m.route || m.streaming) && (
+        <div style={{ marginTop: 6, fontSize: 10, color: PAL.faint,
+                        display: "flex", gap: 6, alignItems: "center" }}>
+          {m.route && (
+            <span style={{ padding: "1px 6px", borderRadius: 4,
+                             background: PAL.chip,
+                             fontFamily: "ui-monospace, monospace" }}>
+              {m.route}{m.temperature !== undefined && ` · t=${m.temperature}`}
+            </span>
+          )}
+          {m.streaming && <span>streaming…</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PickerModal({ recent, onClose, onNew, onOpen }) {
+  return (
+    <div data-testid="ora-picker"
+         onClick={onClose}
+         style={{ position: "fixed", inset: 0, zIndex: 200,
+                    background: "rgba(28,28,25,0.4)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()}
+           style={{ background: PAL.card, borderRadius: 16,
+                      border: `1px solid ${PAL.border}`,
+                      maxWidth: 460, width: "100%", maxHeight: "80vh",
+                      overflow: "auto", padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between",
+                        alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Recent sessions</div>
+          <button data-testid="ora-picker-new" onClick={onNew}
+                  style={{ background: PAL.accent, color: "#fff",
+                             border: "none", borderRadius: 8,
+                             padding: "8px 14px", fontSize: 12, fontWeight: 600,
+                             cursor: "pointer", display: "flex", gap: 4,
+                             alignItems: "center" }}>
+            <Plus size={12} /> New chat
+          </button>
+        </div>
+        {recent.length === 0 && (
+          <div style={{ fontSize: 13, color: PAL.muted }}>No previous sessions.</div>
+        )}
+        {recent.map(s => (
+          <button key={s.session_id} data-testid={`ora-picker-${s.session_id}`}
+                  onClick={() => onOpen(s.session_id)}
+                  style={{ display: "block", width: "100%", textAlign: "left",
+                             padding: "12px 14px", marginBottom: 8,
+                             background: PAL.chip,
+                             border: `1px solid ${PAL.border}`,
+                             borderRadius: 10, cursor: "pointer",
+                             color: PAL.text, fontFamily: "inherit" }}>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {s.title || "Untitled"}
+            </div>
+            <div style={{ fontSize: 11, color: PAL.faint, marginTop: 3 }}>
+              {s.message_count || 0} messages · {new Date(s.updated_at * 1000).toLocaleString()}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
