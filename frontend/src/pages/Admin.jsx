@@ -14,6 +14,7 @@ import {
 import { api } from "../lib/api";
 import { toast } from "../components/Toast";
 import AuremAdminPanel from "../components/AuremAdminPanel";
+import OraChatDrawer from "../components/OraChatDrawer";        // Iter 212m-238
 import AdminOverview from "./AdminOverview";
 import AdminSuggestions from "./AdminSuggestions";              // Iter 212m-193
 import AgentTokenPanel from "../components/AgentTokenPanel";
@@ -2315,6 +2316,13 @@ export default function Admin({ initialTab = "overview" }) {
                           color: "var(--text-faint)", textDecoration: "none" }}>
             <Zap size={11} /> Personal Track ops
           </Link>
+          <Link to="/admin/ora-chat"
+                data-testid="admin-nav-ora-chat"
+                style={{ display: "flex", alignItems: "center", gap: 8,
+                          padding: "6px 8px", fontSize: 11,
+                          color: "var(--text-faint)", textDecoration: "none" }}>
+            <MessageCircle size={11} /> ORA Chat
+          </Link>
           <button onClick={logout} className="btn-ghost"
                   data-testid="admin-logout"
                   style={{ display: "flex", alignItems: "center", gap: 8,
@@ -2329,6 +2337,8 @@ export default function Admin({ initialTab = "overview" }) {
       <main style={{ overflow: "auto", height: "100vh", maxHeight: "100vh", minWidth: 0 }}>
         {renderPage()}
       </main>
+      {/* Iter 212m-238 — floating ORA Chat drawer, available on every admin tab */}
+      <OraChatDrawer />
     </div>
   );
 }

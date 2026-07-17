@@ -69,6 +69,7 @@ const DashboardPreviewV2 = lazy(() => import("./pages/DashboardPreviewV2")); // 
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const AdminSystemHealth = lazy(() => import("./pages/AdminSystemHealth"));   // Iter 212m-205
 const PersonalTrackAdmin = lazy(() => import("./pages/admin/PersonalTrackAdmin")); // Iter 212m-240
+const OraChat            = lazy(() => import("./pages/admin/OraChat"));            // Iter 212m-238
 const PolicyPage        = lazy(() => import("./pages/PolicyPage"));
 const Wrapped           = lazy(() => import("./pages/Wrapped"));
 const ShipWall          = lazy(() => import("./pages/ShipWall"));
@@ -227,6 +228,7 @@ export default function App() {
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/admin/system-health" element={<AdminSystemHealth />} />
           <Route path="/admin/personal-track" element={<PersonalTrackAdmin />} />
+          <Route path="/admin/ora-chat"       element={<OraChat />} />
           {/* Iter 212m-171 — direct URLs for new admin sections */}
           <Route path="/admin/bin-tracker"    element={<Admin initialTab="bin_tracker" />} />
           <Route path="/admin/feature-flags"  element={<Admin initialTab="feature_flags" />} />

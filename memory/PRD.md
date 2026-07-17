@@ -1,6 +1,70 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+### 2026-02-16 — Iter 212m-238 — ORA Chat (admin internal, Sonnet-parity assistant)
+
+**Founder ask:** Full production build — no mocks. Cheap OpenRouter models with tuned temperatures + hard safety + hard cost boundaries. Zero prompt-injection via web content, deterministic slash-commands for DB reads.
+
+**Shipped:**
+
+*Backend* (7 new files):
+- `services/ora_chat/router.py` — 5 routes (research/general/reasoning/fallback/slash_explain), per-route temperature/top_p/presence_penalty ALL env-tunable (`ORA_TEMP_*`, `ORA_TOP_P_*`, `ORA_PP_*`, `ORA_MAX_TOKENS`). Spec-addendum temperatures exact: 0.15 / 0.4 / 0.25 / 0.4 / 0.1. Intent classifier is pure keyword regex — auditable, no ML.
+- `services/ora_chat/safety.py` — `wrap_untrusted()` neutralizes smuggled closing tags; `parse_slash_command()` regex-parses USER INPUT ONLY. System prompt: Hinglish-aware, refuses to run commands from within response, treats `<untrusted_web_content>` as data-not-instructions.
+- `services/ora_chat/slash_commands.py` — 6 deterministic DB queries (`/users-today`, `/active-users`, `/personal-track-signups`, `/legacy-nudge-clicks`, `/revenue-snapshot`, `/help`). Read-only, no free-form query generation.
+- `services/ora_chat/providers.py` — streaming OpenRouter caller (reuses existing `OPENROUTER_API_KEY`), yields structured event dicts. Never raises — errors yielded as `{type:"error"}` so mid-stream failure renders gracefully.
+- `services/ora_chat/session.py` — Mongo-backed `ora_chat_sessions` with rolling-summary sliding window (last 6 turns verbatim + one incremental GLM-5.2 summary of everything older).
+- `services/ora_chat/cost_tracker.py` — per-call token/cost log in `ora_chat_usage`, `$30/month` hard cap (env `ORA_MONTHLY_BUDGET_USD`), 70% Resend alert (env `ORA_BUDGET_ALERT_PCT`, deduped in `ora_chat_budget_alerts`).
+- `routers/ora_chat.py` — API endpoints (all `require_admin`-gated): `/sessions` (CRUD), `/message` (SSE stream), `/slash`, `/usage`, `/config`. 30 msg/hour hard limit, `HTTP 402` when budget exceeded with plain-language body.
+
+*Frontend* (2 new files + 2 wire-ups):
+- `components/OraChatDrawer.jsx` — floating drawer, right-side, mounted globally on every `/admin/*` route. SSE parser handles `\r?\n\r?\n` and `\r?\n` line endings (sse-starlette compatibility). Renders `route · t=0.4` badge per message. Budget pill live. `over_budget=true` → input replaced with plain-language locked state (not a toast).
+- `pages/admin/OraChat.jsx` — deep-link `/admin/ora-chat` route, reuses the drawer.
+- `Admin.jsx` — sidebar link "ORA Chat" + global drawer mount.
+- `App.jsx` — route registration.
+
+**Live curl verification (preview):**
+| Check | Result |
+|---|---|
+| `GET /ora-chat/config` | ✅ Returns all 5 routes with correct temperatures |
+| `GET /ora-chat/usage` | ✅ `spent_usd: 0.0007 / cap_usd: 30.0` |
+| `POST /ora-chat/sessions` | ✅ session created |
+| `POST /ora-chat/message` (streaming) | ✅ SSE deltas + route + final event, response in Hinglish |
+| `POST /ora-chat/slash` `/users-today` | ✅ `value: 0` returned |
+| `POST /ora-chat/slash` `/personal-track-signups` | ✅ `{personal: 1, developer: 1, unset: 0}` |
+| `POST /ora-chat/slash` `/help` | ✅ 6 commands listed |
+| `POST /ora-chat/slash` `/rm-rf` (unknown) | ✅ HTTP 400 with known-list |
+| Budget exceeded (injected $50) | ✅ HTTP 402 with "budget_exceeded" + plain-language message |
+| Frontend drawer opens + streams + shows route badge | ✅ Screenshot verified |
+
+**Test suite (`tests/test_ora_chat.py`) — 31/31 PASS:**
+- Intent classifier: 5 test classes covering research/reasoning/general/empty/long-input paths
+- Route resolution: all 5 routes resolve + env override + spec temperatures exact
+- Slash parser: 6 known cmds + args + unknown + non-slash + case-insensitive + whitespace
+- Untrusted wrapper: wraps with tags + neutralizes smuggled open/close tags + source URL
+- **Injection static guarantee**: greps entire codebase for `parse_slash_command()` call sites, asserts each argument is USER input (whitelisted), never model output. This is the architectural proof that injected web content CANNOT trigger slash-command dispatch.
+- Cost math: DeepSeek + unknown-model default + zero-tokens + env overrides
+- Sliding window: under/over threshold + tail selection + summary rehydration
+
+**Regression:** 39 personal-track + iter212m-237/238 tests pass. Existing admin/scaffold routes still respond 200/405 correctly. No shared collections/keys with Personal Track admin panel.
+
+**Explicit non-goals honored:**
+- No Grok integration
+- No free-form LLM-driven DB queries — slash-commands only
+- No "Claude parity" claim in UI copy — described as "AUREM's context-aware assistant"
+
+**Env config knobs (all optional, all documented in cost_tracker.py and router.py):**
+```
+ORA_MONTHLY_BUDGET_USD=30          # Hard cap
+ORA_BUDGET_ALERT_PCT=70            # Threshold alert
+ORA_TEMP_RESEARCH=0.15  ORA_TEMP_GENERAL=0.4  ORA_TEMP_REASONING=0.25
+ORA_TEMP_FALLBACK=0.4   ORA_TEMP_SLASH=0.1
+ORA_TOP_P_*, ORA_PP_*   # top_p / presence_penalty per route
+ORA_MAX_TOKENS=2048     # Server-side hard cap
+ORA_MODEL_*             # Override model slug per route
+FOUNDER_EMAIL=...       # Budget alert recipient
+```
+
+
 ### 2026-02-16 — Iter 212m-237 — Personal Track activation metric (`personal_nudge_clicked_at`)
 
 **Founder ask (Hinglish):** Legacy-user banner ke "Try it" click ko dev_users row par timestamp ke tarah save karna, taaki 2 hafte baad activation metric dekh sake — agar zero legacy users click karein to matlab discovery weak hai aur P1 dual-hero jaldi banana padega.
