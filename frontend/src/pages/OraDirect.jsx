@@ -15,7 +15,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus, Square } from "lucide-react";
+import { Lock, Settings, LogOut, ArrowUp, RefreshCw, Zap, Clock, Plus, Square, Copy, Check } from "lucide-react";
 import { api, setToken, getToken } from "../lib/api";
 import OraChatHouseRulesPanel from "../components/OraChatHouseRulesPanel";
 
@@ -601,33 +601,74 @@ function InputCard({ input, setInput, onSend, sending, onStop, large = false }) 
 
 function Bubble({ m }) {
   const isUser = m.role === "user";
+  // Iter 212m-258 — copy toggle on bottom-outer of every bubble.
+  // 2s "Copied!" flash confirms the clipboard write, then reverts.
+  const [copied, setCopied] = useState(false);
+  const doCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(m.content || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Legacy fallback for older browsers / non-secure contexts.
+      const ta = document.createElement("textarea");
+      ta.value = m.content || "";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); setCopied(true);
+             setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+  };
+  const showCopy = !m.streaming && (m.content || "").trim().length > 0;
+
   return (
-    <div data-testid={`ora-msg-${m.role}`}
-         style={{ alignSelf: isUser ? "flex-end" : "flex-start",
-                    maxWidth: "85%",
-                    padding: "12px 16px",
-                    borderRadius: 14,
-                    background: m.isError ? "#fdeeea"
-                                   : isUser ? PAL.bubbleUser : PAL.bubbleAsst,
-                    border: isUser ? "none" : `1px solid ${PAL.border}`,
-                    color: PAL.text, fontSize: 14, lineHeight: 1.6,
-                    whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-      {m.content}
-      {(m.route || m.streaming) && (
-        <div style={{ marginTop: 6, fontSize: 10, color: PAL.faint,
-                        display: "flex", gap: 6, alignItems: "center" }}>
-          {m.route && (
-            <span data-testid="ora-route-badge" style={{ padding: "1px 6px", borderRadius: 4,
-                             background: PAL.chip,
-                             fontFamily: "ui-monospace, monospace" }}>
-              {m.route}
-              {m.route === "deep" && m.sources && ` · ${m.sources}`}
-              {m.downgraded && ` · downgraded`}
-              {m.temperature !== undefined && ` · t=${m.temperature}`}
-            </span>
-          )}
-          {m.streaming && <span>streaming…</span>}
-        </div>
+    <div style={{ alignSelf: isUser ? "flex-end" : "flex-start",
+                    maxWidth: "85%", display: "flex",
+                    flexDirection: "column",
+                    alignItems: isUser ? "flex-end" : "flex-start" }}>
+      <div data-testid={`ora-msg-${m.role}`}
+           style={{ padding: "12px 16px",
+                      borderRadius: 14,
+                      background: m.isError ? "#fdeeea"
+                                     : isUser ? PAL.bubbleUser : PAL.bubbleAsst,
+                      border: isUser ? "none" : `1px solid ${PAL.border}`,
+                      color: PAL.text, fontSize: 14, lineHeight: 1.6,
+                      whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {m.content}
+        {(m.route || m.streaming) && (
+          <div style={{ marginTop: 6, fontSize: 10, color: PAL.faint,
+                          display: "flex", gap: 6, alignItems: "center" }}>
+            {m.route && (
+              <span data-testid="ora-route-badge" style={{ padding: "1px 6px", borderRadius: 4,
+                               background: PAL.chip,
+                               fontFamily: "ui-monospace, monospace" }}>
+                {m.route}
+                {m.route === "deep" && m.sources && ` · ${m.sources}`}
+                {m.downgraded && ` · downgraded`}
+                {m.temperature !== undefined && ` · t=${m.temperature}`}
+              </span>
+            )}
+            {m.streaming && <span>streaming…</span>}
+          </div>
+        )}
+      </div>
+      {showCopy && (
+        <button type="button" onClick={doCopy}
+                data-testid={`ora-copy-${m.role}`}
+                title={copied ? "Copied!" : "Copy message"}
+                style={{ marginTop: 4, padding: "3px 8px",
+                           background: "transparent",
+                           border: `1px solid ${PAL.border}`,
+                           borderRadius: 999,
+                           color: copied ? PAL.accent : PAL.faint,
+                           fontSize: 10, cursor: "pointer",
+                           display: "flex", alignItems: "center", gap: 4,
+                           transition: "color 120ms, border-color 120ms" }}
+                onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = PAL.muted; }}
+                onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = PAL.faint; }}>
+          {copied ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+        </button>
       )}
     </div>
   );
