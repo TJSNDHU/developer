@@ -28,12 +28,14 @@ from sse_starlette.sse import EventSourceResponse
 from cto_services.auth import require_admin
 from services.rate_limiter import check_rate_limit, client_ip_from_request
 from services.ora_chat import cost_tracker, session as ora_session
+from services.ora_chat import house_rules as ora_house_rules
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
 )
 from services.ora_chat.providers import stream_call, one_shot
 from services.ora_chat.safety import (
-    SYSTEM_PROMPT, KNOWN_COMMANDS, parse_slash_command,
+    assemble_system_prompt, KNOWN_COMMANDS, parse_slash_command,
+    DEFAULT_HOUSE_RULES, house_rules_soft_warning,
 )
 from services.ora_chat import slash_commands as slash_dispatch
 
@@ -42,30 +44,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ora-chat", tags=["ORA Chat (admin)"])
 
 
-# ── Rate-limit helper ───────────────────────────────────────────────
-# 30 messages/hour == 0.5/minute; the underlying limiter uses a 60s
-# sliding window so we approximate hourly by running a stricter
-# per-minute check and enforcing a coarser hourly counter via Mongo.
-_HOURLY_LIMIT = 30
-
-
-async def _hourly_ok(user_id: str) -> tuple[bool, int]:
-    """Returns (allowed, remaining_this_hour). Coarse hourly counter
-    over `ora_chat_usage` — one aggregate query."""
-    from cto_services.db import get_db
-    import time as _time
-    db = get_db()
-    if db is None:
-        return True, _HOURLY_LIMIT
-    cutoff = _time.time() - 3600
-    try:
-        n = await db.ora_chat_usage.count_documents(
-            {"user_id": user_id, "ts": {"$gte": cutoff}},
-        )
-    except Exception:
-        return True, _HOURLY_LIMIT
-    remaining = max(0, _HOURLY_LIMIT - int(n))
-    return (n < _HOURLY_LIMIT, remaining)
+# Iter 212m-239 — Single-user personal context: no hourly message
+# cap. Per-minute burst limiter kept as a defensive backstop to catch
+# runaway loops / accidental infinite loops, but cost-tier degradation
+# (see cost_tracker.budget_status) is the real spend brake.
+_BURST_PER_MIN = 20
 
 
 # ── Session endpoints ──────────────────────────────────────────────
@@ -113,11 +96,8 @@ async def run_slash(body: SlashBody,
 
     # Rate + budget gates apply to slash-commands too (they still touch DB).
     ip = client_ip_from_request(request)
-    if not check_rate_limit(f"ora_chat:min:{user['user_id']}:{ip}", 10):
-        raise HTTPException(429, "Too many requests — slow down for a minute")
-    ok, remaining = await _hourly_ok(user["user_id"])
-    if not ok:
-        raise HTTPException(429, f"Hourly limit ({_HOURLY_LIMIT}) reached — try again in an hour")
+    if not check_rate_limit(f"ora_chat:min:{user['user_id']}:{ip}", _BURST_PER_MIN):
+        raise HTTPException(429, "Burst limit — slow down for a minute")
 
     parsed = parse_slash_command(body.command.strip())
     if not parsed:
@@ -127,11 +107,20 @@ async def run_slash(body: SlashBody,
         })
     cmd, args = parsed
 
-    # Budget check — slash commands with `explain=true` still cost a
-    # tiny LLM call for the summary sentence.
-    if body.explain and await cost_tracker.is_over_budget():
-        # Slash still runs the DB query — it costs $0 — but skip the
-        # LLM summary so we don't cross the cap.
+    # Budget-mode gates — spike hard-stop is the ONLY thing that fully blocks.
+    b_status = await cost_tracker.budget_status()
+    if b_status["mode"] == "spike_hard_stop":
+        raise HTTPException(402, {
+            "error":   "spike_hard_stop",
+            "message": (f"Daily spend spike detected "
+                         f"(${b_status['day_spent_usd']} > "
+                         f"${b_status['spike_cap_usd']}). Chat is paused "
+                         "until you override or the day rolls over."),
+            "budget":  b_status,
+        })
+    # Economy mode still runs slash (DB is free) but skips the LLM
+    # explain (which would otherwise consume more tokens).
+    if body.explain and b_status["mode"] == "economy":
         body.explain = False
 
     # Run the deterministic query. NEVER let LLM decide the fetch.
@@ -141,8 +130,10 @@ async def run_slash(body: SlashBody,
     llm_meta: dict = {}
     if body.explain and result.get("ok"):
         cfg = resolve("slash_explain")
-        # Feed the JSON result as data; explicit instructions say
-        # "explain, do not invent numbers".
+        # Fetch the caller's house rules so the explain sentence
+        # honors their tone preferences too.
+        hr_text = await ora_house_rules.get_effective_text(user["user_id"])
+        system_prompt = assemble_system_prompt(hr_text)
         msg = (
             f"A slash-command just ran. Explain this result in ONE crisp "
             f"sentence (Hinglish is fine). Do NOT invent numbers. Do NOT "
@@ -153,7 +144,7 @@ async def run_slash(body: SlashBody,
         )
         text, usage, err = await one_shot(
             model=cfg["model"],
-            messages=[{"role": "system", "content": SYSTEM_PROMPT},
+            messages=[{"role": "system", "content": system_prompt},
                       {"role": "user",   "content": msg}],
             temperature=cfg["temperature"],
             top_p=cfg["top_p"],
@@ -201,7 +192,7 @@ async def run_slash(body: SlashBody,
         "result":   result,
         "summary":  summary_text,
         "llm":      llm_meta,
-        "remaining_this_hour": remaining - 1,
+        "budget_mode": b_status["mode"],
     }
 
 
@@ -219,18 +210,18 @@ async def send_message(body: MessageBody,
 
     # Rate + budget gates.
     ip = client_ip_from_request(request)
-    if not check_rate_limit(f"ora_chat:min:{user['user_id']}:{ip}", 10):
-        raise HTTPException(429, "Too many requests — slow down for a minute")
-    ok, _remaining = await _hourly_ok(user["user_id"])
-    if not ok:
-        raise HTTPException(429, f"Hourly limit ({_HOURLY_LIMIT}) reached — try again in an hour")
-    if await cost_tracker.is_over_budget():
+    if not check_rate_limit(f"ora_chat:min:{user['user_id']}:{ip}", _BURST_PER_MIN):
+        raise HTTPException(429, "Burst limit — slow down for a minute")
+    b_status = await cost_tracker.budget_status()
+    if b_status["mode"] == "spike_hard_stop":
         # HTTP 402 → frontend renders a clear inline block, not a toast.
-        status = await cost_tracker.budget_status()
         raise HTTPException(402, {
-            "error":    "budget_exceeded",
-            "message":  "This month's ORA budget is used up. Resets on the 1st.",
-            "budget":   status,
+            "error":    "spike_hard_stop",
+            "message":  (f"Daily spend spike detected "
+                          f"(${b_status['day_spent_usd']} > "
+                          f"${b_status['spike_cap_usd']}). Chat is paused "
+                          "until you override or the day rolls over."),
+            "budget":   b_status,
         })
 
     # Session ownership check.
@@ -243,10 +234,15 @@ async def send_message(body: MessageBody,
     # only needs one path.
     parsed = parse_slash_command(body.content.strip())
     if parsed:
-        return await _stream_slash_result(user, sess, body.content.strip(), parsed)
+        return await _stream_slash_result(user, sess, body.content.strip(), parsed, b_status)
 
     # Regular chat — pick route via keyword rules.
     route_name = classify_intent(body.content)
+    # Iter 212m-239 — Economy mode forces GLM-5.2 fallback for all
+    # non-slash chat so the assistant NEVER stops working. Full model
+    # routing resumes at the next daily rollover.
+    if b_status["mode"] == "economy":
+        route_name = fallback_route()
     cfg = resolve(route_name)
 
     # Persist the user turn IMMEDIATELY so the transcript stays honest
@@ -262,8 +258,10 @@ async def send_message(body: MessageBody,
     # Rebuild the LLM message list (system + summary + last 6 turns).
     sess = await ora_session.get_session(body.session_id, user["user_id"])
     llm_messages = await ora_session.build_llm_messages(sess or {})
-    # System prompt is always the last-added, first-in-array element.
-    llm_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + llm_messages
+    # System prompt with layered house rules — safety layer FIRST.
+    hr_text = await ora_house_rules.get_effective_text(user["user_id"])
+    system_prompt = assemble_system_prompt(hr_text)
+    llm_messages = [{"role": "system", "content": system_prompt}] + llm_messages
 
     async def event_stream():
         buf: list[str] = []
@@ -296,7 +294,8 @@ async def send_message(body: MessageBody,
 
         # Announce chosen model up front so the UI can badge it.
         yield {"type": "route", "route": cfg["route"],
-                "model": cfg["model"], "temperature": cfg["temperature"]}
+                "model": cfg["model"], "temperature": cfg["temperature"],
+                "budget_mode": b_status["mode"]}
         async for evt in _try_stream(cfg):
             yield evt
 
@@ -348,14 +347,15 @@ async def send_message(body: MessageBody,
 
 
 async def _stream_slash_result(user: dict, sess: dict,
-                                raw_text: str, parsed: tuple[str, str]):
+                                raw_text: str, parsed: tuple[str, str],
+                                b_status: dict):
     """Wrap the deterministic slash path in the same SSE envelope so
     the frontend has one code path for messages."""
     cmd, args = parsed
 
     async def event_stream():
         yield {"type": "route", "route": "slash", "model": "deterministic",
-                "temperature": 0.0}
+                "temperature": 0.0, "budget_mode": b_status["mode"]}
         try:
             result = await slash_dispatch.run_slash_command(cmd, args, ctx=user)
         except KeyError:
@@ -365,11 +365,13 @@ async def _stream_slash_result(user: dict, sess: dict,
         # can render structured data even if the LLM explain fails.
         yield {"type": "slash_result", "command": cmd, "result": result}
 
-        # Optional low-temp explain sentence (skipped if over budget).
+        # Optional low-temp explain sentence (skipped in economy/spike).
         explain_text = ""
         summary_usage: dict = {}
         chosen = resolve("slash_explain")
-        if not await cost_tracker.is_over_budget() and result.get("ok"):
+        if b_status["mode"] not in ("economy", "spike_hard_stop") and result.get("ok"):
+            hr_text = await ora_house_rules.get_effective_text(user["user_id"])
+            system_prompt = assemble_system_prompt(hr_text)
             msg = (
                 f"A slash-command just ran. Explain this result in ONE "
                 f"crisp sentence. Do NOT invent numbers.\n\n"
@@ -378,7 +380,7 @@ async def _stream_slash_result(user: dict, sess: dict,
             )
             text, usage, err = await one_shot(
                 model=chosen["model"],
-                messages=[{"role": "system", "content": SYSTEM_PROMPT},
+                messages=[{"role": "system", "content": system_prompt},
                           {"role": "user",   "content": msg}],
                 temperature=chosen["temperature"],
                 top_p=chosen["top_p"],
@@ -441,5 +443,58 @@ async def config(authorization: Optional[str] = Header(None)):
         "ok":            True,
         "routes":        route_config_snapshot(),
         "known_commands": list(KNOWN_COMMANDS),
-        "hourly_limit":  _HOURLY_LIMIT,
+        "burst_per_min": _BURST_PER_MIN,
     }
+
+
+# ── House Rules endpoints (Iter 212m-239) ──────────────────────────
+class HouseRulesBody(BaseModel):
+    rules_text: str = Field(..., max_length=2000)
+
+
+@router.get("/house-rules")
+async def get_house_rules(authorization: Optional[str] = Header(None)):
+    user = await require_admin(authorization)
+    current = await ora_house_rules.get_current(user["user_id"])
+    return {
+        "ok":            True,
+        "current":       current,
+        "effective_text": await ora_house_rules.get_effective_text(user["user_id"]),
+        "default_text":  DEFAULT_HOUSE_RULES,
+        "max_len":       ora_house_rules.MAX_LEN,
+    }
+
+
+@router.put("/house-rules")
+async def put_house_rules(body: HouseRulesBody,
+                           authorization: Optional[str] = Header(None)):
+    user = await require_admin(authorization)
+    try:
+        out = await ora_house_rules.update(user["user_id"], body.rules_text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return out
+
+
+@router.get("/house-rules/history")
+async def get_house_rules_history(authorization: Optional[str] = Header(None)):
+    user = await require_admin(authorization)
+    hist = await ora_house_rules.list_history(user["user_id"])
+    return {"ok": True, "history": hist}
+
+
+@router.post("/house-rules/restore/{version}")
+async def restore_house_rules(version: int,
+                                authorization: Optional[str] = Header(None)):
+    user = await require_admin(authorization)
+    try:
+        out = await ora_house_rules.restore(user["user_id"], version)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return out
+
+
+@router.post("/house-rules/reset")
+async def reset_house_rules(authorization: Optional[str] = Header(None)):
+    user = await require_admin(authorization)
+    return await ora_house_rules.reset_to_default(user["user_id"])

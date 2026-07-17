@@ -27,8 +27,25 @@ from cto_services.db import get_db
 
 
 # ── Config ──────────────────────────────────────────────────────────
-WINDOW_TURNS = 6                 # verbatim turns sent to the LLM
-SUMMARY_MAX_CHARS = 2000         # cap on rolling summary size
+# Iter 212m-239 (single-user revision) — long-context sessions.
+# Instead of a fixed 6-turn cutoff, keep the FULL transcript in the
+# LLM window until the estimated token count approaches the model's
+# context ceiling. DeepSeek V3 has ~128K; we leave ~28K headroom for
+# response + system prompt + house rules.
+CONTEXT_TOKEN_CEILING = int(__import__("os").getenv("ORA_CONTEXT_TOKEN_CEILING", "100000"))
+# When we cross the ceiling, we summarize the OLDEST chunk of the
+# transcript down and keep the newest turns verbatim. `TAIL_TOKEN_BUDGET`
+# is the target verbatim-tail size (leaving room for the summary + new
+# turn + system prompt).
+TAIL_TOKEN_BUDGET = int(__import__("os").getenv("ORA_TAIL_TOKEN_BUDGET", "70000"))
+
+# Rough char→token estimator — deliberately conservative (higher
+# multiplier = more tokens per char = triggers summarization sooner).
+# OpenAI-family averages ~3.8 chars/token for English + code; we round
+# down to be safe for Hinglish + code + JSON.
+CHARS_PER_TOKEN = 3.5
+
+SUMMARY_MAX_CHARS = 4000         # cap on rolling summary size
 SUMMARY_MODEL = "z-ai/glm-5.2"   # cheapest capable model for summarization
 
 
@@ -115,6 +132,20 @@ async def append_message(session_id: str, user_id: str, *,
     return r.matched_count > 0
 
 
+def _estimate_tokens(text: str) -> int:
+    """Conservative char→token estimate. Used to decide when to fold
+    older turns into the summary. Never exact — a small over-count is
+    fine (triggers summarize a little early); under-count is
+    dangerous (overflows the context window)."""
+    if not text:
+        return 0
+    return int(len(text) / CHARS_PER_TOKEN) + 1
+
+
+def _messages_token_estimate(msgs: list[dict]) -> int:
+    return sum(_estimate_tokens(m.get("content", "") or "") for m in msgs)
+
+
 # ── Sliding-window prompt builder ───────────────────────────────────
 def _messages_to_llm_format(msgs: list[dict]) -> list[dict]:
     """Reduce stored message docs to OpenAI-format role/content pairs."""
@@ -130,33 +161,48 @@ def _messages_to_llm_format(msgs: list[dict]) -> list[dict]:
 async def build_llm_messages(session: dict) -> list[dict]:
     """Return the messages array to send to the LLM.
 
-    Layout:
-      [
-        (optional) {"role": "system", "content": "Prior conversation summary: ..."},
-        <last 6 turns verbatim in chronological order>
-      ]
+    Personal single-user contract (Iter 212m-239):
+      - Full transcript preserved verbatim while estimated tokens stay
+        under CONTEXT_TOKEN_CEILING.
+      - Above the ceiling, older turns are collapsed into
+        `rolling_summary` (updated by `maybe_update_summary`) and only
+        the tail (≥ TAIL_TOKEN_BUDGET headroom) is sent verbatim.
 
-    A system prompt is added SEPARATELY by the caller (safety.SYSTEM_PROMPT).
+    A caller-provided system prompt is added SEPARATELY by the router
+    (safety.assemble_system_prompt).
     """
     msgs: list[dict] = session.get("messages") or []
-    if len(msgs) <= WINDOW_TURNS:
-        return _messages_to_llm_format(msgs)
+    llm_form = _messages_to_llm_format(msgs)
+    if _messages_token_estimate(llm_form) <= CONTEXT_TOKEN_CEILING:
+        return llm_form  # full history fits — send everything
 
-    tail = msgs[-WINDOW_TURNS:]
+    # Over ceiling → prepend summary + walk tail from the newest
+    # backwards until we've used TAIL_TOKEN_BUDGET.
     summary = (session.get("rolling_summary") or "").strip()
+    tail: list[dict] = []
+    tokens = 0
+    for m in reversed(llm_form):
+        t = _estimate_tokens(m["content"])
+        if tokens + t > TAIL_TOKEN_BUDGET and tail:
+            break
+        tail.insert(0, m)
+        tokens += t
     out: list[dict] = []
     if summary:
         out.append({
             "role": "system",
             "content": f"Prior conversation summary (older turns collapsed):\n{summary}",
         })
-    out.extend(_messages_to_llm_format(tail))
+    out.extend(tail)
     return out
 
 
 async def maybe_update_summary(session_id: str, user_id: str) -> None:
-    """Trigger a summary refresh iff the transcript has grown past the
-    window AND unsummarized turns exist. Idempotent + cheap on no-op.
+    """Trigger a summary refresh iff the transcript is over the
+    CONTEXT_TOKEN_CEILING AND has unsummarized older turns.
+
+    Idempotent + cheap on no-op: a single Mongo find, and only calls
+    GLM-5.2 when there's genuinely new content to fold in.
     """
     db = get_db()
     if db is None:
@@ -168,51 +214,62 @@ async def maybe_update_summary(session_id: str, user_id: str) -> None:
     if not doc:
         return
     msgs = doc.get("messages") or []
-    total = len(msgs)
-    if total <= WINDOW_TURNS:
-        return  # everything still fits in the window
+    llm_form = _messages_to_llm_format(msgs)
+    total_tokens = _messages_token_estimate(llm_form)
+    if total_tokens <= CONTEXT_TOKEN_CEILING:
+        return  # still fits, no summarization needed
+
+    # Find the "frontier" — everything OLDER than the TAIL_TOKEN_BUDGET
+    # window gets folded into the summary. Walk from the newest
+    # backwards until we've reserved TAIL_TOKEN_BUDGET of tail.
+    tail_tokens = 0
+    frontier = len(llm_form)
+    for i in range(len(llm_form) - 1, -1, -1):
+        tail_tokens += _estimate_tokens(llm_form[i]["content"])
+        if tail_tokens >= TAIL_TOKEN_BUDGET:
+            frontier = i
+            break
+
     up_to = int(doc.get("summary_up_to", 0) or 0)
-    frontier = total - WINDOW_TURNS       # index up to which we should summarize
     if frontier <= up_to:
         return  # nothing new to fold in
 
-    to_fold = msgs[up_to:frontier]
+    to_fold = llm_form[up_to:frontier]
     if not to_fold:
         return
 
     prior_summary = (doc.get("rolling_summary") or "").strip()
-    fold_text_parts: list[str] = []
+    parts: list[str] = []
     for m in to_fold:
         role = m.get("role", "")
         content = (m.get("content") or "").strip().replace("\n", " ")
         if not content:
             continue
-        fold_text_parts.append(f"{role.upper()}: {content[:600]}")
-    fold_text = "\n".join(fold_text_parts)[:4000]
+        parts.append(f"{role.upper()}: {content[:1200]}")
+    fold_text = "\n".join(parts)[:12000]
 
     prompt = (
-        "You are summarizing older turns of a conversation so a chat "
+        "You are summarizing older turns of a conversation so the chat "
         "assistant can maintain context without re-reading them. Update "
         "the running summary below with the new turns.\n\n"
         f"CURRENT SUMMARY:\n{prior_summary or '(empty)'}\n\n"
         f"NEW TURNS TO FOLD IN:\n{fold_text}\n\n"
         "Return ONLY the new combined summary. Keep it under "
         f"{SUMMARY_MAX_CHARS} characters. Preserve concrete details "
-        "(names, numbers, decisions). Drop small talk. No preamble."
+        "(names, numbers, decisions, code snippets). Drop small talk. "
+        "No preamble."
     )
 
-    # Best-effort — a summarization failure should never break the
-    # chat itself; we simply skip the update and try again next turn.
     from services.ora_chat.providers import one_shot
     from services.ora_chat.router import resolve
-    cfg = resolve("fallback")   # GLM-5.2 route
+    cfg = resolve("fallback")
     new_summary, _usage, err = await one_shot(
         model=SUMMARY_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         top_p=cfg["top_p"],
         presence_penalty=cfg["presence_penalty"],
-        max_tokens=800,
+        max_tokens=1500,
     )
     if err or not new_summary:
         return
