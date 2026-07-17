@@ -644,6 +644,22 @@ body.aurem-glass #root {
   50%      { opacity: 0.86; box-shadow: 0 0 14px -2px rgba(239,68,68,0.45); }
 }
 
+/* Iter 265 — Mobile composer declutter (founder request).
+   On phones the toolbar row got cramped: graph + GitHub toggles and
+   the centered Vanguard security caption squeezed into a vertical
+   text column. Hide all three on mobile ONLY — desktop unchanged. */
+@media (max-width: 768px) {
+  .composer-toolbar [data-testid="graph-toggle-btn"],
+  .composer-toolbar [data-testid="chat-github-status"],
+  .composer-toolbar [data-testid="composer-footer-caption"] {
+    display: none !important;
+  }
+  /* Caption was the flex-1 spacer — re-split left/right clusters. */
+  .composer-toolbar [data-testid="intent-tier-indicator"] {
+    margin-left: auto;
+  }
+}
+
 
 /* ──────────────────────────────────────────────────────────────────────
    Iter 64 — Global responsive safety net.

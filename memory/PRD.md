@@ -13118,3 +13118,6 @@ NEEDS PRODUCTION REDEPLOY.
 **Fixed stale test:** test_ora_chat.py over-length house-rules test (2001 → MAX_LEN+1 after 4000 bump).
 
 **PENDING:** Founder to verify → then ONE combined prod deploy (iter 263+264). Canary ON (ORA_CANARY_ENABLED=1) only after founder verifies acceptance in prod.
+
+## Iter 265 — Mobile composer declutter (ChatPanel)
+- Mobile-only (≤768px) CSS in index.css: hides `graph-toggle-btn`, `chat-github-status`, `composer-footer-caption` (Vanguard security line) inside `.composer-toolbar`. Desktop unchanged. Verified via 390px screenshot on preview. Needs redeploy to reach prod.
