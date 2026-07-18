@@ -332,6 +332,13 @@ async def send_message(body: MessageBody,
             return await _stream_deep_research(
                 user, sess, body.content, labels, b_status, user_tz,
             )
+        # Iter 267 GAP 1 — a pasted non-GitHub URL always routes deep
+        # (the URL-fetch tool lives in the orchestrator), even when the
+        # classifier found no other labels.
+        if ora_deep.has_fetchable_url(body.content):
+            return await _stream_deep_research(
+                user, sess, body.content, labels, b_status, user_tz,
+            )
 
     # Regular chat — pick route via keyword rules.
     route_name = classify_intent(body.content)
@@ -643,7 +650,7 @@ _DELTA_CHUNK_LEN = 48  # chars per synthetic delta so the UI streams smoothly
 
 def _labels_to_source_tag(fired: list[str]) -> str:
     """Turn `['github', 'web']` into `github+web` for the route badge."""
-    order = ["github", "social", "news", "web"]
+    order = ["url", "github", "social", "news", "web"]
     seen: list[str] = []
     for tag in order:
         if tag in fired and tag not in seen:

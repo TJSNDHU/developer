@@ -13121,3 +13121,11 @@ NEEDS PRODUCTION REDEPLOY.
 
 ## Iter 265 — Mobile composer declutter (ChatPanel)
 - Mobile-only (≤768px) CSS in index.css: hides `graph-toggle-btn`, `chat-github-status`, `composer-footer-caption` (Vanguard security line) inside `.composer-toolbar`. Desktop unchanged. Verified via 390px screenshot on preview. Needs redeploy to reach prod.
+
+## Iter 266-267 — GitHub adapter fix + ORA Research Parity addendum
+**Iter 266 (GitHub):** 3-tier fix in `deep_research.py` — (1) URL/`owner/repo` shorthand → direct `GET /repos/{o}/{r}` (immune to search tokenization, works WITHOUT token — core limit 60/hr), (2) general search uses `_clean_search_query()` (Hinglish filler-strip, reuses codebase_index._STOPWORDS + _GH_EXTRA_STOP, max 6 tokens) + `in:name,description,readme` qualifier, (3) genuine-empty (`ok=True,empty=True` → `<github_no_match>` block) vs tool-failure (`<github_tool_error>` block, github-only failure no longer early-returns silently). GITHUB_API_TOKEN abhi NOT set (user ne confirm kiya non-blocking; jab dega .env + prod env dono mein daalna hoga — search 10/min→30/min).
+**Iter 267 (GAP 1 — generic URL fetch):** `extract_fetchable_urls` (non-GitHub, max 2), `_fetch_urls` — robots.txt respect (User-agent:* Disallow, 15-min host cache, fail-open), bs4+lxml readable-text extraction (strip script/nav/footer, 6KB cap), content-type whitelist. Router: pasted URL always routes deep. Parts: `<fetched_url_content source=...>` (wrap_untrusted inside) + `<url_fetch_failed url= error=>` (never fabricate). Sources badge order mein "url" pehle.
+**Iter 267 (GAP 2 — retry-with-reformulation):** `_with_empty_retry` wraps sonar/reddit/gdelt — thin first result (`_is_thin_result`: 0 results / <40 char text / empty flag) → ONE retry with cleaned query → still thin → `empty=True reason=no_results_after_retry` → generic `<tool_no_match>` block. Tool errors kabhi retry nahi hote.
+**Tests:** test_iter266_github_adapter.py (18) + test_iter267_url_fetch_retry.py (16). Full ORA suite 192/192 green. Live E2E: URL+.git Hinglish query → direct lookup 193k⭐; PEP-8 URL paste → route=deep, sources=url, real content cited.
+**Boundary confirmed:** ORA read-only rehta hai — no create_file/bash/str_replace. Pending gap (alag spec): conversation_search (chat-history recall).
+**Deploy pending:** 263+264+265+266+267 combined prod deploy.
