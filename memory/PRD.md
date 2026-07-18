@@ -13129,3 +13129,14 @@ NEEDS PRODUCTION REDEPLOY.
 **Tests:** test_iter266_github_adapter.py (18) + test_iter267_url_fetch_retry.py (16). Full ORA suite 192/192 green. Live E2E: URL+.git Hinglish query → direct lookup 193k⭐; PEP-8 URL paste → route=deep, sources=url, real content cited.
 **Boundary confirmed:** ORA read-only rehta hai — no create_file/bash/str_replace. Pending gap (alag spec): conversation_search (chat-history recall).
 **Deploy pending:** 263+264+265+266+267 combined prod deploy.
+
+## Iter 268 — ORA Adversarial Review Pass (draft V3 → hostile reviewer GLM-5.2)
+**New module:** `services/ora_chat/adversarial_review.py` — trigger_reason (HIGH_STAKES label OR grounding-UNVERIFIED escalation), hostile reviewer prompt (flag-only, JSON), `verify_quotes` anti-hallucination guard (fake quote → dropped + `ora_reviewer_errors`), budget guard ($0.50 headroom → `review_skipped_budget`, fail-open), metrics → `ora_review_log` (flags_count/types/regen_fired/regen_cleared/reviewer_hallucination_count/latency_added_s/cost_usd).
+**Classifier:** `HIGH_STAKES` label added (money/legal/security-judgment/benchmarks/challenge turns); explicitly EXCLUDED from should_go_deep trigger.
+**Router:** HIGH_STAKES turns BUFFERED (review_status SSE event → frontend "verifying high-stakes response…" dots label). Hard flags (FABRICATED/CONTRADICTS_CONTEXT) → ONE regen with corrective → re-grounding. Soft (UNVERIFIED/OVERSTATED) → `review_caveat` SSE + caveat chip (data-testid ora-review-caveat, OraDirect + Drawer). Wired on general + deep paths (deep text pre-assembled → grounding+review moved BEFORE delta streaming). Message docs persist `review` object.
+**Canary:** 2 seeded known-bad drafts (fabricated file + unsupported number) — reviewer must flag both, else alert. reviewer_ok in report.
+**Live acceptance evidence (all passed):** (1) hs3 turn: 3 flags FABRICATED+UNVERIFIED → regen_fired=True → regen_cleared=True, full trail in ora_review_log + message doc. (2) Caveat chip screenshot on delivered response. (3) Reviewer hallucination guard fired live (count=3 dropped, 1 row in ora_reviewer_errors) + unit tests. (4) Routine turn: "review skipped: no trigger" logged, no review row. (5) Budget skip unit-tested (one_shot not called). (6) Honest latency: 3.86–28.56s added per reviewed turn. Canary seeds: both flagged FABRICATED ✓.
+**Known reliability item:** GLM reviewer returned empty text on 2/5 live calls (`reviewer_error:empty` — graceful skip, response delivered). Watch ora_review_log; if trend continues, investigate providers.one_shot GLM handling (reasoning-field?).
+**Also fixed:** OraDirect.jsx corrupted duplicate JSX tail (broke /ora page) — cleaned.
+**Tests:** test_iter268_adversarial_review.py (19) — full ORA suite 211/211 green.
+**Deploy pending:** 263→268 combined.

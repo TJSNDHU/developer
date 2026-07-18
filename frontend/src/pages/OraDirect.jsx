@@ -266,6 +266,7 @@ function ChatShell({ onLogout }) {
       setMessages((s.messages || []).map(m => ({
         role: m.role, content: m.content, route: m.route, model: m.model,
         ungrounded: m.ungrounded,
+        review_caveats: m.review?.caveats,
       })));
       setSessionId(sid); setShowPicker(false);
     } catch { /* ignore */ }
@@ -337,6 +338,11 @@ function ChatShell({ onLogout }) {
           } else if (evtType === "slash_result" || obj.type === "slash_result") {
             buf += `\n${JSON.stringify(obj.result?.value, null, 2)}\n`;
             setStream(s => ({ ...s, buf }));
+          } else if (evtType === "review_status" || obj.type === "review_status") {
+            // Iter 268 — HIGH_STAKES turn being buffered + reviewed.
+            setStream(s => ({ ...s, reviewing: true }));
+          } else if (evtType === "review_caveat" || obj.type === "review_caveat") {
+            routeMeta = { ...routeMeta, review_caveats: obj.quotes || [] };
           } else if (evtType === "grounding_warning" || obj.type === "grounding_warning") {
             // Iter 264 Fix A4 — deterministic validator flagged
             // fabricated citations in this reply.
@@ -488,7 +494,7 @@ function ChatShell({ onLogout }) {
                               margin: "0 auto",
                               display: "flex", flexDirection: "column", gap: 16 }}>
                 {messages.map((m, i) => <Bubble key={i} m={m} />)}
-                {sending && !stream.buf && <ThinkingDots />}
+                {sending && !stream.buf && <ThinkingDots label={stream.reviewing ? "verifying high-stakes response…" : undefined} />}
                 {stream.buf && (
                   <Bubble m={{ role: "assistant", content: stream.buf,
                                  ...stream, streaming: true }} />
@@ -539,7 +545,7 @@ function IconBtn({ children, onClick, testId }) {
 // and "first delta arrives" so the UI never feels frozen. Each dot
 // uses a different accent color and staggers its bounce so the row
 // reads as a purposeful "thinking" cue, not a spinner.
-function ThinkingDots() {
+function ThinkingDots({ label }) {
   return (
     <div data-testid="ora-thinking-dots"
          style={{ alignSelf: "flex-start",
@@ -565,7 +571,7 @@ function ThinkingDots() {
                          animation: `ora-pulse 1.2s ease-in-out ${dot.d} infinite` }} />
       ))}
       <span style={{ fontSize: 11, color: PAL.faint, marginLeft: 4,
-                       fontStyle: "italic" }}>thinking…</span>
+                       fontStyle: "italic" }}>{label || "thinking…"}</span>
     </div>
   );
 }
@@ -673,6 +679,14 @@ function Bubble({ m }) {
                           color: "#8A6512", fontSize: 11.5, lineHeight: 1.5 }}>
             ⚠️ Unverified citations: <span style={{ fontFamily: "ui-monospace, monospace" }}>
             {m.ungrounded.join(", ")}</span> — ye paths repo mein exist nahi karte.
+          </div>
+        )}
+        {!isUser && Array.isArray(m.review_caveats) && m.review_caveats.length > 0 && (
+          <div data-testid="ora-review-caveat"
+               style={{ marginTop: 8, padding: "6px 10px", borderRadius: 8,
+                          background: "#EEF0F6", border: "1px solid #B9C2D8",
+                          color: "#4A5878", fontSize: 11.5, lineHeight: 1.5 }}>
+            ⚠︎ Review-flagged as unverified: {m.review_caveats.join(" · ")}
           </div>
         )}
         {(m.route || m.streaming) && (

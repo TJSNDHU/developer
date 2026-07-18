@@ -66,7 +66,7 @@ def use_claude_tools() -> bool:
 
 # ═══ 1. Classifier ═══════════════════════════════════════════════
 _LABELS = ("NEEDS_WEB", "NEEDS_GITHUB", "NEEDS_SOCIAL", "NEEDS_NEWS",
-            "NEEDS_CODEBASE", "NEEDS_DEEP")
+            "NEEDS_CODEBASE", "NEEDS_DEEP", "HIGH_STAKES")
 
 
 async def classify_labels(query: str) -> list[str]:
@@ -87,7 +87,15 @@ async def classify_labels(query: str) -> list[str]:
         "  'what's the best build in our system', 'overall gaps', 'strong\n"
         "  points overall', 'kya banaya hai overall' — those are answered\n"
         "  from the system-highlights block, not from file retrieval.\n"
-        "- NEEDS_DEEP: query spans 2+ distinct sub-topics OR asks to compare/research broadly\n\n"
+        "- NEEDS_DEEP: query spans 2+ distinct sub-topics OR asks to compare/research broadly\n"
+        "- HIGH_STAKES: involves money (costs/pricing/revenue/budget\n"
+        "  claims/invoices), legal or compliance (ToS, licensing,\n"
+        "  CASL/PIPEDA, 'kya ye allowed hai'), security judgment ('kya ye\n"
+        "  safe hai', opinions on auth/payment code), asserted\n"
+        "  benchmark/performance numbers, OR the user challenging a\n"
+        "  previous claim ('sure ho?', 'real hai?', 'proof do'). This\n"
+        "  label is ADDITIVE — it can appear alongside any other label\n"
+        "  or alone.\n\n"
         f"Query: {query!r}\n\n"
         "Respond with ONLY a JSON array of label strings, nothing else. "
         "Empty array [] if none apply."
@@ -534,7 +542,9 @@ async def should_go_deep(labels: list[str]) -> bool:
     ls = set(labels)
     if "NEEDS_DEEP" in ls:
         return True
-    substantive = ls - {"NEEDS_DEEP"}
+    # HIGH_STAKES (iter 268) drives the adversarial-review pass, not
+    # tool fan-out — it must never count toward the deep trigger.
+    substantive = ls - {"NEEDS_DEEP", "HIGH_STAKES"}
     if len(substantive) >= 2:
         return True
     non_web_tools = substantive - {"NEEDS_WEB"}

@@ -52,6 +52,23 @@ _RETRACTION_MARKERS = [
     "confident code match", "havent read",
 ]
 
+# Iter 268 — seeded known-bad drafts: the regression test for the
+# REVIEWER itself. Canary asserts the hostile reviewer flags both.
+SEEDED_REVIEW_DRAFTS = [
+    ("reviewer_seed_fabricated_file",
+     "Humara caching layer poora cache_orchestrator.py handle karta hai "
+     "aur ye test_iter212m88_stripe_stress.py se fully covered hai.",
+     "AUREM system highlights: caching is handled by scan_cache.py and "
+     "admin_analytics_cache.py. No file named cache_orchestrator.py "
+     "exists. Test files are under backend/tests/."),
+    ("reviewer_seed_unsupported_number",
+     "Production Stripe billing ka exact monthly cost $4,200 hai aur "
+     "p99 latency 12ms pe locked hai 99.99% uptime ke saath.",
+     "AUREM system highlights: Stripe billing integration exists. No "
+     "cost figures, latency metrics, or uptime numbers are available "
+     "in this context."),
+]
+
 
 async def _founder_token() -> tuple[str, str]:
     """Mint a real admin JWT for the founder (same resolution logic as
@@ -186,9 +203,38 @@ async def run_canary(triggered_by: str = "cron") -> dict:
 
     report["fabricated_total"] = fabricated_total
     report["retraction_ok"] = retraction_ok
+
+    # Iter 268 — seeded reviewer regression checks (deterministic
+    # assertion on live GLM output: both seeds MUST get flagged).
+    reviewer_ok = True
+    try:
+        from services.ora_chat import adversarial_review as ora_review
+        for name, draft, ctx in SEEDED_REVIEW_DRAFTS:
+            rv = await ora_review.run_review(
+                user_id="canary", session_id="canary",
+                query="canary seeded review", draft=draft, context=ctx,
+                reason="canary_seed")
+            row = {"name": name,
+                   "flags": len(rv.get("flags") or []),
+                   "types": sorted({f["type"] for f in
+                                     rv.get("flags") or []}),
+                   "dropped": rv.get("dropped", 0),
+                   "skipped": rv.get("skipped")}
+            # budget-skip is not a reviewer failure
+            row["flagged_ok"] = bool(rv.get("flags")) or bool(rv.get("skipped"))
+            if not row["flagged_ok"]:
+                reviewer_ok = False
+            report["results"].append(row)
+    except Exception as e:                                   # noqa: BLE001
+        reviewer_ok = False
+        report["results"].append({"name": "reviewer_seeds",
+                                   "error": repr(e)})
+    report["reviewer_ok"] = reviewer_ok
+
     report["ok"] = (
         not fabricated_total
         and retraction_ok is not False
+        and reviewer_ok
         and all("error" not in r for r in report["results"])
     )
     report["elapsed_s"] = round(time.time() - started, 1)

@@ -187,6 +187,10 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
           } else if (evtType === "slash_result" || obj.type === "slash_result") {
             assistantBuf += `\n${JSON.stringify(obj.result?.value, null, 2)}\n`;
             setStream(s => ({ ...s, buf: assistantBuf }));
+          } else if (evtType === "review_status" || obj.type === "review_status") {
+            routeMeta = { ...routeMeta, reviewing: true };
+          } else if (evtType === "review_caveat" || obj.type === "review_caveat") {
+            routeMeta = { ...routeMeta, review_caveats: obj.quotes || [] };
           } else if (evtType === "grounding_warning" || obj.type === "grounding_warning") {
             // Iter 264 Fix A4 — fabricated citations flagged.
             routeMeta = { ...routeMeta, ungrounded: obj.ungrounded || [] };
@@ -200,6 +204,7 @@ export default function OraChatDrawer({ forceOpen = false, fullscreen = false } 
               sources_fired: routeMeta.sources_fired || obj.sources_fired,
               downgraded: routeMeta.downgraded || obj.downgraded,
               ungrounded: routeMeta.ungrounded || obj.ungrounded,
+              review_caveats: routeMeta.review_caveats || obj.review_caveats,
               cost_usd: obj.cost_usd, tokens_in: obj.input_tokens,
               tokens_out: obj.output_tokens,
               interrupted: !!errored,
@@ -586,6 +591,15 @@ function MessageBubble({ msg }) {
                         color: "#E4C26B", fontSize: 11, lineHeight: 1.5 }}>
           ⚠️ Unverified citations: <span style={{ fontFamily: "ui-monospace, monospace" }}>
           {msg.ungrounded.join(", ")}</span> — ye paths repo mein exist nahi karte.
+        </div>
+      )}
+      {!isUser && Array.isArray(msg.review_caveats) && msg.review_caveats.length > 0 && (
+        <div data-testid="ora-review-caveat"
+             style={{ marginTop: 8, padding: "6px 10px", borderRadius: 8,
+                        background: "rgba(148,163,216,0.10)",
+                        border: "1px solid rgba(148,163,216,0.45)",
+                        color: "#94A3D8", fontSize: 11, lineHeight: 1.5 }}>
+          ⚠︎ Review-flagged as unverified: {msg.review_caveats.join(" · ")}
         </div>
       )}
       {(msg.route || msg.streaming || msg.interrupted) && (

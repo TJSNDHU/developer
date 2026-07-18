@@ -36,6 +36,7 @@ from services.ora_chat import deep_research as ora_deep
 from services.ora_chat import codebase_index as ora_codebase
 from services.ora_chat import grounding_check as ora_grounding
 from services.ora_chat import prompt_snapshot as ora_snapshot
+from services.ora_chat import adversarial_review as ora_review
 from services.ora_chat import hallucination_classifier as ora_halluc
 from services.ora_chat.router import (
     classify_intent, resolve, fallback_route, route_config_snapshot,
@@ -388,6 +389,11 @@ async def send_message(body: MessageBody,
         # When ON, deltas are buffered until the grounding check
         # passes (one silent corrective retry on FABRICATED).
         regen_mode = os.getenv("ORA_REGEN_ON_FABRICATION", "0") == "1"
+        # Iter 268 — HIGH_STAKES turns are BUFFERED: draft → hostile
+        # review (GLM-5.2) → possible single regen → then stream.
+        # Correctness > perceived speed on these ~10-20% of turns.
+        high_stakes = "HIGH_STAKES" in (labels or [])
+        buffered = regen_mode or high_stakes
 
         async def _try_stream(model_cfg: dict):
             nonlocal errored, usage
@@ -429,7 +435,7 @@ async def send_message(body: MessageBody,
                     "model": fb_cfg["model"], "temperature": fb_cfg["temperature"],
                     "reason": "primary_failed"}
             async for evt in _try_stream(fb_cfg):
-                if regen_mode and evt["type"] == "delta":
+                if buffered and evt["type"] == "delta":
                     continue
                 yield evt
 
@@ -447,37 +453,95 @@ async def send_message(body: MessageBody,
             system_highlights=cb_highlights or None,
         )
 
+        # Iter 268 — Adversarial review pass. Draft (V3) → hostile
+        # reviewer (GLM-5.2, flag-only). Triggers: HIGH_STAKES label
+        # (buffered → can regen) OR grounding UNVERIFIED escalation
+        # (post-hoc → caveat only). ONE regen max, never chained.
+        review = None
+        review_caveats: list[str] = []
+        review_regen_fired = review_regen_cleared = False
+        review_reason = ora_review.trigger_reason(labels, grounding)
+        if review_reason:
+            review = await ora_review.run_review(
+                user_id=user["user_id"], session_id=body.session_id,
+                query=body.content, draft=final_text,
+                context="\n\n".join(
+                    x for x in (cb_highlights, cb_tree_only) if x),
+                reason=review_reason,
+            )
+            if not review.get("skipped"):
+                if review["hard"] and buffered:
+                    review_regen_fired = True
+                    text2, usage2, err2 = await one_shot(
+                        model=chosen["model"],
+                        messages=llm_messages
+                        + [{"role": "assistant", "content": final_text},
+                           {"role": "user",
+                            "content": ora_review.corrective_prompt(
+                                review["hard"])}],
+                        temperature=chosen["temperature"],
+                        top_p=chosen["top_p"],
+                        presence_penalty=chosen["presence_penalty"],
+                        max_tokens=chosen["max_tokens"],
+                    )
+                    if text2 and not err2:
+                        final_text = text2
+                        for k in ("input_tokens", "output_tokens"):
+                            usage[k] = (usage.get(k, 0)
+                                        + (usage2 or {}).get(k, 0))
+                        grounding = await ora_grounding.run_post_response_check(
+                            user_id=user["user_id"],
+                            session_id=body.session_id,
+                            query=body.content, reply=final_text,
+                            route=chosen["route"],
+                            codebase_tree=cb_tree_only or None,
+                            system_highlights=cb_highlights or None,
+                        )
+                        review_regen_cleared = not grounding["fabricated"]
+                review_caveats = [f["quote"] for f in review["soft"]]
+                if review["hard"] and not (review_regen_fired
+                                            and review_regen_cleared):
+                    review_caveats = ([f["quote"] for f in review["hard"]]
+                                      + review_caveats)
+            await ora_review.log_metrics(
+                user_id=user["user_id"], session_id=body.session_id,
+                route=chosen["route"], reason=review_reason, review=review,
+                regen_fired=review_regen_fired,
+                regen_cleared=review_regen_cleared)
+        else:
+            logger.info("ora review skipped: no trigger (routine turn)")
+
         # Iter 264 Fix A5 — ORA_REGEN_ON_FABRICATION=1 (default OFF):
         # ONE silent corrective retry before streaming the buffered text.
-        if regen_mode:
-            if grounding["fabricated"]:
-                corrective = (
-                    "Your draft cited non-existent files: "
-                    + ", ".join(grounding["fabricated"])
-                    + ". Remove them or mark them explicitly as "
-                    "unverified. Rewrite the full answer."
+        if regen_mode and grounding["fabricated"] and not review_regen_fired:
+            corrective = (
+                "Your draft cited non-existent files: "
+                + ", ".join(grounding["fabricated"])
+                + ". Remove them or mark them explicitly as "
+                "unverified. Rewrite the full answer."
+            )
+            text2, usage2, err2 = await one_shot(
+                model=chosen["model"],
+                messages=llm_messages
+                + [{"role": "assistant", "content": final_text},
+                   {"role": "user", "content": corrective}],
+                temperature=chosen["temperature"],
+                top_p=chosen["top_p"],
+                presence_penalty=chosen["presence_penalty"],
+                max_tokens=chosen["max_tokens"],
+            )
+            if text2 and not err2:
+                final_text = text2
+                for k in ("input_tokens", "output_tokens"):
+                    usage[k] = usage.get(k, 0) + (usage2 or {}).get(k, 0)
+                grounding = await ora_grounding.run_post_response_check(
+                    user_id=user["user_id"], session_id=body.session_id,
+                    query=body.content, reply=final_text,
+                    route=chosen["route"],
+                    codebase_tree=cb_tree_only or None,
+                    system_highlights=cb_highlights or None,
                 )
-                text2, usage2, err2 = await one_shot(
-                    model=chosen["model"],
-                    messages=llm_messages
-                    + [{"role": "assistant", "content": final_text},
-                       {"role": "user", "content": corrective}],
-                    temperature=chosen["temperature"],
-                    top_p=chosen["top_p"],
-                    presence_penalty=chosen["presence_penalty"],
-                    max_tokens=chosen["max_tokens"],
-                )
-                if text2 and not err2:
-                    final_text = text2
-                    for k in ("input_tokens", "output_tokens"):
-                        usage[k] = usage.get(k, 0) + (usage2 or {}).get(k, 0)
-                    grounding = await ora_grounding.run_post_response_check(
-                        user_id=user["user_id"], session_id=body.session_id,
-                        query=body.content, reply=final_text,
-                        route=chosen["route"],
-                        codebase_tree=cb_tree_only or None,
-                        system_highlights=cb_highlights or None,
-                    )
+        if buffered:
             for i in range(0, len(final_text), _DELTA_CHUNK_LEN):
                 yield {"type": "delta",
                         "content": final_text[i:i+_DELTA_CHUNK_LEN]}
@@ -522,6 +586,15 @@ async def send_message(body: MessageBody,
             ungrounded=grounding["fabricated"] or None,
             prompt_sha256=snap["sha256"],
             component_sizes=snap["component_sizes"],
+            review=({"reason": review_reason,
+                      "skipped": review.get("skipped"),
+                      "flags": len(review.get("flags") or []),
+                      "types": sorted({f["type"] for f in
+                                        review.get("flags") or []}),
+                      "regen_fired": review_regen_fired,
+                      "regen_cleared": review_regen_cleared,
+                      "caveats": review_caveats[:6]}
+                     if review is not None else None),
         )
 
         # Iter 264 Fix A4 — user-facing warning ONLY for FABRICATED
@@ -529,11 +602,15 @@ async def send_message(body: MessageBody,
         if grounding["fabricated"]:
             yield {"type": "grounding_warning",
                     "ungrounded": grounding["fabricated"]}
+        # Iter 268 — review caveats (soft flags / uncleared hard flags).
+        if review_caveats:
+            yield {"type": "review_caveat", "quotes": review_caveats[:6]}
 
         yield {"type": "final", "cost_usd": cost,
                 "input_tokens":  usage.get("input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
                 "ungrounded":    grounding["fabricated"],
+                "review_caveats": review_caveats[:6],
                 "errored": errored}
 
     async def sse_events():
@@ -702,6 +779,9 @@ async def _stream_deep_research(user: dict, sess: dict,
                 "model": cfg["model"], "temperature": cfg["temperature"],
                 "labels": labels,
                 "budget_mode": b_status["mode"]}
+        if "HIGH_STAKES" in (labels or []):
+            yield {"type": "review_status", "state": "verifying",
+                    "reason": "high_stakes"}
 
         try:
             out = await ora_deep.orchestrate(
@@ -729,19 +809,6 @@ async def _stream_deep_research(user: dict, sess: dict,
                 "downgraded": bool(out.get("downgraded")),
                 "budget_mode": b_status["mode"]}
 
-        # Chunk the response into synthetic deltas so the UI paints
-        # progressively (better perceived latency).
-        if text:
-            for i in range(0, len(text), _DELTA_CHUNK_LEN):
-                yield {"type": "delta", "content": text[i:i+_DELTA_CHUNK_LEN]}
-                await asyncio.sleep(0)
-        elif not out.get("ok"):
-            fallback_msg = ("Sources didn't respond in time. Try again "
-                             "in a moment, or narrow the question.")
-            for i in range(0, len(fallback_msg), _DELTA_CHUNK_LEN):
-                yield {"type": "delta", "content": fallback_msg[i:i+_DELTA_CHUNK_LEN]}
-            text = fallback_msg
-
         # Book the synthesis LLM call against the daily budget.
         synth_usage = out.get("synthesis_usage") or {}
         cost = 0.0
@@ -756,8 +823,14 @@ async def _stream_deep_research(user: dict, sess: dict,
                 output_tokens=synth_usage.get("output_tokens", 0),
             )
 
+        if not text and not out.get("ok"):
+            text = ("Sources didn't respond in time. Try again "
+                     "in a moment, or narrow the question.")
+
         # Iter 264 Fix A — deterministic grounding vs the ACTUAL
         # retrieved excerpts (not just source names) + canonical index.
+        # Runs BEFORE streaming (iter 268) — deep text is fully
+        # assembled here, so review/regen can happen pre-delivery.
         grounding = await ora_grounding.run_post_response_check(
             user_id=user["user_id"], session_id=session_id,
             query=raw_text, reply=text, route="deep",
@@ -766,6 +839,72 @@ async def _stream_deep_research(user: dict, sess: dict,
             codebase_tree=cb_tree_only or None,
             system_highlights=cb_highlights or None,
         )
+
+        # Iter 268 — Adversarial review on the deep path. Deep text is
+        # pre-assembled → regen is always possible here (buffered-free).
+        review = None
+        review_caveats: list[str] = []
+        review_regen_fired = review_regen_cleared = False
+        review_reason = ora_review.trigger_reason(labels, grounding)
+        if review_reason and out.get("ok"):
+            review = await ora_review.run_review(
+                user_id=user["user_id"], session_id=session_id,
+                query=raw_text, draft=text,
+                context=(out.get("retrieved_context") or "")
+                        + "\n\n" + (cb_highlights or ""),
+                reason=review_reason,
+            )
+            if not review.get("skipped"):
+                if review["hard"]:
+                    review_regen_fired = True
+                    text2, usage2, err2 = await one_shot(
+                        model=out.get("synthesis_model") or cfg["model"],
+                        messages=[
+                            {"role": "system",
+                             "content": out.get("system_prompt") or ""},
+                            {"role": "user",
+                             "content": out.get("synth_prompt") or raw_text},
+                            {"role": "assistant", "content": text},
+                            {"role": "user",
+                             "content": ora_review.corrective_prompt(
+                                 review["hard"])},
+                        ],
+                        temperature=cfg["temperature"],
+                        top_p=cfg["top_p"],
+                        presence_penalty=cfg["presence_penalty"],
+                        max_tokens=cfg["max_tokens"],
+                    )
+                    if text2 and not err2:
+                        text = text2
+                        for k in ("input_tokens", "output_tokens"):
+                            synth_usage[k] = (synth_usage.get(k, 0)
+                                              + (usage2 or {}).get(k, 0))
+                        grounding = await ora_grounding.run_post_response_check(
+                            user_id=user["user_id"], session_id=session_id,
+                            query=raw_text, reply=text, route="deep",
+                            sources_fired=out.get("sources_fired") or [],
+                            retrieved_context=out.get("retrieved_context") or "",
+                            codebase_tree=cb_tree_only or None,
+                            system_highlights=cb_highlights or None,
+                        )
+                        review_regen_cleared = not grounding["fabricated"]
+                review_caveats = [f["quote"] for f in review["soft"]]
+                if review["hard"] and not (review_regen_fired
+                                            and review_regen_cleared):
+                    review_caveats = ([f["quote"] for f in review["hard"]]
+                                      + review_caveats)
+            await ora_review.log_metrics(
+                user_id=user["user_id"], session_id=session_id,
+                route="deep", reason=review_reason, review=review,
+                regen_fired=review_regen_fired,
+                regen_cleared=review_regen_cleared)
+
+        # Chunk the (now reviewed) response into synthetic deltas so
+        # the UI paints progressively.
+        if text:
+            for i in range(0, len(text), _DELTA_CHUNK_LEN):
+                yield {"type": "delta", "content": text[i:i+_DELTA_CHUNK_LEN]}
+                await asyncio.sleep(0)
 
         # Iter 264 Fix C — persist the exact assembled prompt.
         msg_id = uuid.uuid4().hex
@@ -796,12 +935,24 @@ async def _stream_deep_research(user: dict, sess: dict,
             ungrounded=grounding["fabricated"] or None,
             prompt_sha256=snap["sha256"],
             component_sizes=snap["component_sizes"],
+            review=({"reason": review_reason,
+                      "skipped": review.get("skipped"),
+                      "flags": len(review.get("flags") or []),
+                      "types": sorted({f["type"] for f in
+                                        review.get("flags") or []}),
+                      "regen_fired": review_regen_fired,
+                      "regen_cleared": review_regen_cleared,
+                      "caveats": review_caveats[:6]}
+                     if review is not None else None),
         )
 
         # Iter 264 Fix A4 — user-facing warning ONLY for FABRICATED.
         if grounding["fabricated"]:
             yield {"type": "grounding_warning",
                     "ungrounded": grounding["fabricated"]}
+        # Iter 268 — review caveats.
+        if review_caveats:
+            yield {"type": "review_caveat", "quotes": review_caveats[:6]}
 
         yield {"type": "final",
                 "cost_usd":       cost,
@@ -811,6 +962,7 @@ async def _stream_deep_research(user: dict, sess: dict,
                 "downgraded":     bool(out.get("downgraded")),
                 "errors":         out.get("errors") or [],
                 "ungrounded":     grounding["fabricated"],
+                "review_caveats": review_caveats[:6],
                 "input_tokens":   synth_usage.get("input_tokens", 0),
                 "output_tokens":  synth_usage.get("output_tokens", 0)}
 
