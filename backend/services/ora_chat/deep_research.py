@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -111,29 +112,143 @@ async def classify_labels(query: str) -> list[str]:
 
 
 # ═══ 2. Tool adapters (all free — GDELT/Reddit no-key, GitHub opt-token) ═══
+
+# Iter 266 — GitHub adapter fix (evidence: iter-265 investigation).
+# Root causes fixed: (1) raw conversational sentence was sent as the
+# search `q` (GitHub ANDs every word → 0 hits even for a 194k-star
+# repo), (2) no URL/owner-repo extraction existed at all, (3) genuine
+# 0-results and tool errors were indistinguishable to the user.
+_GH_URL_RE = re.compile(
+    r"github\.com[:/]([A-Za-z0-9_.\-]+)/([A-Za-z0-9_.\-]+?)(?:\.git)?(?=[/?#\s]|$)")
+_GH_SLUG_RE = re.compile(
+    r"\b([A-Za-z0-9][A-Za-z0-9_.\-]*)/([A-Za-z0-9][A-Za-z0-9_.\-]*)\b")
+
+# Conversational fillers NOT already in codebase_index._STOPWORDS —
+# GitHub-search-specific verbs/nouns that poison the `q` param.
+_GH_EXTRA_STOP = frozenset({
+    "batao", "bata", "dhundo", "dhoondo", "dekho", "dekh", "search",
+    "find", "github", "repo", "repos", "repository", "repositories",
+    "analyse", "analyze", "analysis", "check", "explain", "summary",
+    "summarize", "detail", "details", "info", "information", "please",
+    "pls", "jara", "zara", "iska", "uska", "iske", "uske", "isko",
+    "usko", "star", "stars", "popular", "famous", "top",
+    # Hindi postpositions that survive the 2-char token floor.
+    "ko", "ka", "ki", "ke", "se", "par", "pe", "me", "is", "us",
+})
+
+
+def _extract_github_target(query: str) -> Optional[tuple[str, str]]:
+    """Return (owner, repo) from a pasted github.com URL (handles the
+    `.git` suffix) or an `owner/repo` shorthand. Shorthand only fires
+    when the query actually talks about github/repo — avoids false
+    positives on file paths in codebase questions."""
+    m = _GH_URL_RE.search(query or "")
+    if m:
+        return m.group(1), m.group(2)
+    low = (query or "").lower()
+    if "github" in low or "repo" in low:
+        for sm in _GH_SLUG_RE.finditer(query or ""):
+            owner, name = sm.group(1), sm.group(2)
+            if owner.lower() in ("http", "https", "www"):
+                continue
+            if name.endswith(".git"):
+                name = name[:-4]
+            return owner, name
+    return None
+
+
+def _clean_search_query(query: str) -> str:
+    """Strip Hindi/Hinglish fillers + conversational verbs + URLs from
+    the query before it hits GitHub search. Reuses the Hinglish
+    stopword list from codebase_index (DRY) + GH-specific extras.
+    Caps at 6 substantive tokens (GitHub ANDs terms — fewer = more
+    forgiving)."""
+    from services.ora_chat.codebase_index import _STOPWORDS
+    kept: list[str] = []
+    for t in re.findall(r"[A-Za-z0-9_.\-]{2,}", query or ""):
+        tl = t.lower()
+        if tl in _STOPWORDS or tl in _GH_EXTRA_STOP:
+            continue
+        if tl.startswith("http") or "github.com" in tl:
+            continue
+        kept.append(t)
+        if len(kept) >= 6:
+            break
+    return " ".join(kept)
+
+
+def _gh_repo_result(it: dict) -> dict:
+    return {"name": it.get("full_name"), "stars": it.get("stargazers_count"),
+            "desc": (it.get("description") or "")[:200],
+            "url": it.get("html_url")}
+
+
 async def _fetch_github(query: str) -> dict:
-    """Search GitHub for repos + top code snippets."""
+    """GitHub lookup — three tiers:
+      1. Pasted URL / owner-repo shorthand → direct GET /repos/{o}/{r}
+         (exact, immune to search tokenization).
+      2. Otherwise → search with the filler-stripped query + forgiving
+         `in:name,description,readme` qualifier.
+      3. DISTINCT return shapes: genuine 0-results → ok=True/empty=True;
+         tool failure (rate-limit/timeout/5xx) → ok=False/error=...
+    """
     token = os.getenv("GITHUB_API_TOKEN", "").strip()
     headers = {"Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    q = query[:180]
+    target = _extract_github_target(query)
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as c:
+            if target:
+                owner, name = target
+                r = await c.get(
+                    f"https://api.github.com/repos/{owner}/{name}",
+                    headers=headers,
+                )
+                if r.status_code == 200:
+                    it = r.json() or {}
+                    res = _gh_repo_result(it)
+                    res.update({
+                        "language":    it.get("language"),
+                        "topics":      (it.get("topics") or [])[:6],
+                        "pushed_at":   it.get("pushed_at"),
+                        "open_issues": it.get("open_issues_count"),
+                        "forks":       it.get("forks_count"),
+                    })
+                    return {"tool": "github", "ok": True, "results": [res],
+                             "lookup": "direct"}
+                if r.status_code == 404:
+                    return {"tool": "github", "ok": True, "empty": True,
+                             "results": [],
+                             "reason": f"repo_not_found:{owner}/{name}"}
+                if r.status_code in (403, 429):
+                    return {"tool": "github", "ok": False,
+                             "error": f"http_{r.status_code}_rate_limit"}
+                return {"tool": "github", "ok": False,
+                         "error": f"http_{r.status_code}"}
+
+            # General search — cleaned query, forgiving field matching.
+            q = _clean_search_query(query) or query[:80]
             r = await c.get(
                 "https://api.github.com/search/repositories",
-                params={"q": q, "sort": "stars", "per_page": 5},
+                params={"q": f"{q} in:name,description,readme"[:256],
+                         "sort": "stars", "per_page": 5},
                 headers=headers,
             )
+            if r.status_code in (403, 429):
+                return {"tool": "github", "ok": False,
+                         "error": f"http_{r.status_code}_rate_limit"}
             if r.status_code != 200:
-                return {"tool": "github", "ok": False, "error": f"http_{r.status_code}"}
+                return {"tool": "github", "ok": False,
+                         "error": f"http_{r.status_code}"}
             items = (r.json() or {}).get("items", [])[:5]
-            return {"tool": "github", "ok": True, "results": [
-                {"name": it.get("full_name"), "stars": it.get("stargazers_count"),
-                 "desc": (it.get("description") or "")[:200],
-                 "url": it.get("html_url")}
-                for it in items
-            ]}
+            if not items:
+                return {"tool": "github", "ok": True, "empty": True,
+                         "results": [], "reason": "no_search_match",
+                         "cleaned_query": q}
+            return {"tool": "github", "ok": True,
+                     "results": [_gh_repo_result(it) for it in items],
+                     "lookup": "search", "cleaned_query": q}
     except Exception as e:
         return {"tool": "github", "ok": False, "error": f"{type(e).__name__}"}
 
@@ -294,9 +409,12 @@ async def orchestrate(query: str, labels: list[str],
     errors: list[str] = []
     raw: list[dict] = []
     sonar_cost = 0.0
+    github_error: Optional[str] = None
     for (tag, _), res in zip(tasks, coro_results):
         if isinstance(res, Exception):
             errors.append(f"{tag}:{type(res).__name__}")
+            if tag == "github":
+                github_error = type(res).__name__
             continue
         if res.get("ok"):
             fired.append(tag)
@@ -305,8 +423,12 @@ async def orchestrate(query: str, labels: list[str],
                 sonar_cost += float(res["cost_usd"])
         else:
             errors.append(f"{tag}:{res.get('error','fail')}")
+            if tag == "github":
+                github_error = res.get("error", "fail")
 
-    if not raw:
+    # Iter 266 — a GitHub TOOL FAILURE must still reach the user as an
+    # explicit "tool failed" message (not silence / not "no results").
+    if not raw and not github_error:
         return {"ok": False, "text": "", "sources_fired": [],
                  "errors": errors, "tool_cost_usd": sonar_cost,
                  "downgraded": downgraded,
@@ -330,9 +452,29 @@ async def orchestrate(query: str, labels: list[str],
                 "</codebase_abstain>"
             )
             continue
+        # Iter 266 — genuine GitHub 0-results gets an EXPLICIT marker
+        # (previously a bare `[]` was dumped and read as vague "empty").
+        if tool == "github" and r.get("empty"):
+            parts.append(
+                f"[GITHUB]\n<github_no_match reason=\"{r.get('reason','no_match')}\">\n"
+                "GitHub returned ZERO matches for this query (HTTP 200 — "
+                "this is a GENUINE empty result, NOT a tool failure).\n"
+                "</github_no_match>"
+            )
+            continue
         body = json.dumps(r.get("results") if "results" in r else r.get("text"),
                           ensure_ascii=False)[:6000]
         parts.append(f"[{tool.upper()}]\n{wrap_untrusted(body, source_url=tool)}")
+
+    # Iter 266 — GitHub tool failure block (rate-limit / timeout / 5xx).
+    if github_error:
+        parts.append(
+            f"[GITHUB]\n<github_tool_error error=\"{github_error}\">\n"
+            "The GitHub tool itself FAILED — results are UNAVAILABLE. Do "
+            "NOT claim the repo/topic doesn't exist on GitHub; tell the "
+            "user the tool failed and name the error.\n"
+            "</github_tool_error>"
+        )
     joined = "\n\n".join(parts)
 
     synth_cfg = resolve("deep")
@@ -360,6 +502,13 @@ async def orchestrate(query: str, labels: list[str],
         "(source: news), (source: web), (source: social), (source: codebase)\n"
         "- Do NOT dump raw JSON — summarize + combine\n"
         "- Match the language of the user's original question\n"
+        "- If a <github_no_match> block is present: explicitly tell the user "
+        "that GitHub search found NO matches for this query (genuine empty "
+        "result, the tool worked fine)\n"
+        "- If a <github_tool_error> block is present: explicitly tell the "
+        "user the GitHub tool FAILED (name the error, e.g. rate-limit/"
+        "timeout) and that results are unavailable — NEVER present a tool "
+        "failure as 'no results exist'\n"
         "- End with a short 'Sources checked:' line listing every tool that fired"
         + abstain_rule
     )
