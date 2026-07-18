@@ -180,6 +180,39 @@ async def check_and_log(*,
     return {"claims": claims, "ungrounded": ungrounded, "logged": True}
 
 
+# ─── Iter 269 P2a — line-number + slash-command claim checks ───────
+_LINE_CLAIM_RE = re.compile(
+    r"([\w/.\-]+\.(?:py|jsx|tsx|ts|js))[^.\n]{0,40}?\bline\s+(\d+)|"
+    r"\bline\s+(\d+)[^.\n]{0,40}?(?:of|in|mein|me)\s+`?([\w/.\-]+\.(?:py|jsx|tsx|ts|js))",
+    re.IGNORECASE)
+_SLASH_CMD_RE = re.compile(r"(?<![\w/.])/([a-z][a-z0-9\-]{3,})(?![\w/\-])")
+
+
+def extract_line_claims(reply: str) -> list[tuple[str, int]]:
+    """`file.py ... line N` / `line N of file.py` pairs — a line-number
+    claim is only trustworthy with /read output from this turn."""
+    out = []
+    for m in _LINE_CLAIM_RE.finditer(reply or ""):
+        fname = m.group(1) or m.group(4)
+        line = m.group(2) or m.group(3)
+        if fname and line:
+            out.append((fname, int(line)))
+    return out[:10]
+
+
+def extract_unknown_commands(reply: str) -> list[str]:
+    """Slash-command tokens in the reply that are NOT real ORA
+    commands (e.g. an invented `/deploy-production`)."""
+    from services.ora_chat.safety import KNOWN_COMMANDS
+    known = {c.lstrip("/") for c in KNOWN_COMMANDS}
+    out = []
+    for m in _SLASH_CMD_RE.finditer(reply or ""):
+        tok = m.group(1)
+        if tok not in known and f"/{tok}" not in out:
+            out.append(f"/{tok}")
+    return out[:10]
+
+
 # ─── Iter 264 Fix A — two-level classification vs canonical index ──
 _PATH_EXTS = (".py", ".jsx", ".tsx", ".ts", ".js")
 
@@ -246,7 +279,9 @@ async def run_post_response_check(*,
     empty = {"claims": [], "fabricated": [], "unverified": [], "logged": False}
     try:
         claims = extract_claims(reply)
-        if not claims:
+        line_claims = extract_line_claims(reply)        # Iter 269 P2a
+        unknown_cmds = extract_unknown_commands(reply)  # Iter 269 P2a
+        if not claims and not line_claims and not unknown_cmds:
             return empty
         from services.ora_chat import codebase_index
         try:
@@ -254,14 +289,31 @@ async def run_post_response_check(*,
         except Exception as e:                               # noqa: BLE001
             logger.warning("canonical index unavailable: %r", e)
             canonical = {}
-        if not canonical.get("paths"):
-            # Index down — never hard-flag without ground truth.
-            return {**empty, "claims": claims}
-        cls = classify_claims(
-            claims, canonical=canonical, user_query=query,
-            turn_contexts=[retrieved_context, codebase_tree,
-                           system_highlights],
-        )
+        if claims and canonical.get("paths"):
+            cls = classify_claims(
+                claims, canonical=canonical, user_query=query,
+                turn_contexts=[retrieved_context, codebase_tree,
+                               system_highlights],
+            )
+        else:
+            cls = {"fabricated": [], "unverified": []}
+        # Iter 269 P2a — line-number claims are UNVERIFIED unless the
+        # file's content was actually retrieved this turn.
+        joined_ctx = "\n".join(x or "" for x in (retrieved_context,
+                                                  codebase_tree,
+                                                  system_highlights))
+        for fname, line in line_claims:
+            base = fname.rsplit("/", 1)[-1]
+            if base in (query or ""):
+                continue
+            tag = f"{fname}:L{line}"
+            if base not in joined_ctx and tag not in cls["unverified"]:
+                cls["unverified"].append(tag)
+        # Iter 269 P2a — invented slash-commands are HARD fabrications
+        # (deterministic: KNOWN_COMMANDS lookup, zero cost).
+        for cmd in unknown_cmds:
+            if cmd not in (query or "") and cmd not in cls["fabricated"]:
+                cls["fabricated"].append(cmd)
         logged = False
         if cls["fabricated"] or cls["unverified"]:
             await log_hallucination(

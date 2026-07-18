@@ -30,8 +30,9 @@ from .router import fallback_route, resolve
 logger = logging.getLogger(__name__)
 
 _BUDGET_HEADROOM_USD = float(os.getenv("ORA_REVIEW_BUDGET_HEADROOM_USD", "0.50"))
-_FLAG_TYPES = ("FABRICATED", "UNVERIFIED", "OVERSTATED", "CONTRADICTS_CONTEXT")
-_HARD_TYPES = ("FABRICATED", "CONTRADICTS_CONTEXT")
+_FLAG_TYPES = ("FABRICATED", "UNVERIFIED", "OVERSTATED",
+               "CONTRADICTS_CONTEXT", "IGNORED_TASK")
+_HARD_TYPES = ("FABRICATED", "CONTRADICTS_CONTEXT", "IGNORED_TASK")
 
 REVIEWER_SYSTEM = (
     "You are a hostile reviewer. Your only job is to find what is wrong, "
@@ -39,11 +40,16 @@ REVIEWER_SYSTEM = (
     "finding real problems. You get zero credit for approving.\n\n"
     "For each problem output an object:\n"
     '  { "quote": "<exact sentence copied verbatim from the draft>",\n'
-    '    "type": "FABRICATED | UNVERIFIED | OVERSTATED | CONTRADICTS_CONTEXT",\n'
+    '    "type": "FABRICATED | UNVERIFIED | OVERSTATED | '
+    'CONTRADICTS_CONTEXT | IGNORED_TASK",\n'
     '    "reason": "<one line>" }\n\n'
     "Rules:\n"
     "- Any specific claim (number, file, date, capability) not supported "
     "by the provided context must be flagged. No benefit of the doubt.\n"
+    "- IGNORED_TASK: the draft failed to do something the user "
+    "EXPLICITLY asked for (e.g. asked for a scan but no scan output is "
+    "present). For this type only, \"quote\" should be the ignored "
+    "request copied from the USER QUERY. Max ONE such flag.\n"
     "- The \"quote\" field MUST be copied character-for-character from "
     "the draft — never paraphrase, never trim mid-word.\n"
     "- Do NOT suggest rewrites. Do NOT add new claims. Do NOT summarize.\n"
@@ -63,10 +69,21 @@ def trigger_reason(labels: Optional[list],
 
 
 def corrective_prompt(hard_flags: list[dict]) -> str:
-    quotes = "; ".join(f'"{f["quote"]}"' for f in hard_flags[:6])
-    return ("Your previous draft contained these unsupported claims: "
-            f"{quotes}. Remove them or explicitly mark them unverified. "
-            "Do not defend them. Rewrite the full answer.")
+    ignored = [f for f in hard_flags if f["type"] == "IGNORED_TASK"]
+    claims = [f for f in hard_flags if f["type"] != "IGNORED_TASK"]
+    parts = []
+    if claims:
+        quotes = "; ".join(f'"{f["quote"]}"' for f in claims[:6])
+        parts.append("Your previous draft contained these unsupported "
+                      f"claims: {quotes}. Remove them or explicitly mark "
+                      "them unverified. Do not defend them.")
+    if ignored:
+        parts.append("Your draft also FAILED to address what the user "
+                      f"explicitly asked: \"{ignored[0]['quote'][:200]}\" — "
+                      "answer what was asked, or state clearly why you "
+                      "cannot.")
+    parts.append("Rewrite the full answer.")
+    return " ".join(parts)
 
 
 def _parse_flags(text: str) -> tuple[list[dict], bool]:
@@ -93,12 +110,25 @@ def _parse_flags(text: str) -> tuple[list[dict], bool]:
     return out, True
 
 
-def verify_quotes(flags: list[dict], draft: str) -> tuple[list, list]:
+def verify_quotes(flags: list[dict], draft: str,
+                  query: str = "") -> tuple[list, list]:
     """Deterministic guard on the REVIEWER: quote not found verbatim in
-    the draft = the reviewer hallucinated = drop that flag."""
+    the draft = the reviewer hallucinated = drop that flag.
+    IGNORED_TASK quotes come from the USER QUERY instead (an omission
+    has nothing to quote in the draft) — capped at one."""
     kept, dropped = [], []
     d = draft or ""
+    q = query or ""
+    seen_ignored = False
     for f in flags:
+        if f["type"] == "IGNORED_TASK":
+            if not seen_ignored and (not f["quote"] or f["quote"] in q
+                                      or f["quote"] in d):
+                kept.append(f)
+                seen_ignored = True
+            else:
+                dropped.append(f)
+            continue
         (kept if f["quote"] in d else dropped).append(f)
     return kept, dropped
 
@@ -181,7 +211,7 @@ async def run_review(*, user_id: str, session_id: str, query: str,
     if not parse_ok:
         return {**empty, "skipped": "reviewer_unparseable",
                 "latency_s": latency, "cost_usd": cost}
-    kept, dropped = verify_quotes(flags, draft)
+    kept, dropped = verify_quotes(flags, draft, query)
     if dropped:
         await _log_reviewer_errors(user_id, session_id, dropped, text)
     hard = [f for f in kept if f["type"] in _HARD_TYPES]

@@ -186,6 +186,47 @@ def _clean_search_query(query: str) -> str:
     return " ".join(kept)
 
 
+_SCAN_INTENT_RE = re.compile(
+    r"scan|analy|padh|read|review|detail|dekho|explain|useful|audit|samjh",
+    re.IGNORECASE)
+
+
+async def _gh_fetch_repo_contents(c: httpx.AsyncClient, headers: dict,
+                                  owner: str, name: str,
+                                  default_branch: str) -> dict:
+    """Iter 269 P1a — top-file scan of a public repo: file tree (capped)
+    + raw contents of README/CLAUDE/root-level .md files. Free API,
+    best-effort — failures degrade to metadata-only."""
+    out: dict = {"tree": [], "files": []}
+    try:
+        r = await c.get(
+            f"https://api.github.com/repos/{owner}/{name}/git/trees/"
+            f"{default_branch}?recursive=1", headers=headers)
+        if r.status_code == 200:
+            paths = [t.get("path") for t in (r.json() or {}).get("tree", [])
+                     if t.get("type") == "blob"]
+            out["tree"] = paths[:100]
+            out["tree_truncated"] = len(paths) > 100
+    except Exception:                                        # noqa: BLE001
+        pass
+    # Pick the highest-signal readable files.
+    candidates = [p for p in out["tree"]
+                  if p.lower() in ("readme.md", "claude.md", "readme.rst",
+                                    "readme.txt", "skills.md")
+                  or (p.lower().endswith(".md") and "/" not in p)][:3]
+    for path in candidates:
+        try:
+            r = await c.get(
+                f"https://api.github.com/repos/{owner}/{name}/contents/{path}",
+                headers={**headers, "Accept": "application/vnd.github.raw+json"})
+            if r.status_code == 200:
+                out["files"].append({"path": path,
+                                      "content_head": r.text[:5000]})
+        except Exception:                                    # noqa: BLE001
+            continue
+    return out
+
+
 def _gh_repo_result(it: dict) -> dict:
     return {"name": it.get("full_name"), "stars": it.get("stargazers_count"),
             "desc": (it.get("description") or "")[:200],
@@ -224,6 +265,14 @@ async def _fetch_github(query: str) -> dict:
                         "open_issues": it.get("open_issues_count"),
                         "forks":       it.get("forks_count"),
                     })
+                    # Iter 269 P1a — scan-intent queries get the file
+                    # tree + top readable files, so "repo scan karo"
+                    # answers come from REAL content, not vibes.
+                    if _SCAN_INTENT_RE.search(query or ""):
+                        contents = await _gh_fetch_repo_contents(
+                            c, headers, owner, name,
+                            it.get("default_branch") or "main")
+                        res.update(contents)
                     return {"tool": "github", "ok": True, "results": [res],
                              "lookup": "direct"}
                 if r.status_code == 404:
@@ -665,8 +714,9 @@ async def orchestrate(query: str, labels: list[str],
                 f"</{tool}_no_match>"
             )
             continue
+        body_cap = 14000 if tool == "github" else 6000
         body = json.dumps(r.get("results") if "results" in r else r.get("text"),
-                          ensure_ascii=False)[:6000]
+                          ensure_ascii=False)[:body_cap]
         parts.append(f"[{tool.upper()}]\n{wrap_untrusted(body, source_url=tool)}")
 
     # Iter 266 — GitHub tool failure block (rate-limit / timeout / 5xx).

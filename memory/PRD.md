@@ -13140,3 +13140,11 @@ NEEDS PRODUCTION REDEPLOY.
 **Also fixed:** OraDirect.jsx corrupted duplicate JSX tail (broke /ora page) — cleaned.
 **Tests:** test_iter268_adversarial_review.py (19) — full ORA suite 211/211 green.
 **Deploy pending:** 263→268 combined.
+
+## Iter 269 — Capability Scan + Honesty Layer (karpathy-repo incident post-mortem)
+**P1a GitHub repo content scan:** `_gh_fetch_repo_contents` in deep_research.py — scan-intent queries (`_SCAN_INTENT_RE`) pe direct lookup ke saath file tree (git/trees API, cap 100) + top README/CLAUDE/root-.md files raw fetch (3 files, 5KB each). github parts body cap 14KB. Live verified: exact original query ab real files (CLAUDE.md/CURSOR.md/EXAMPLES.md) + real metadata se grounded answer deta hai, zero warnings.
+**P1b Capability manifest:** AUREM_CONTEXT mein CAN/CANNOT block + "state the limit in your FIRST line" rule (no /deploy command exists, no file writes, no execution).
+**P2a Grounding validator upgrades:** `extract_line_claims` (file+line-number pairs → UNVERIFIED unless file content retrieved this turn) + `extract_unknown_commands` (invented slash-commands vs KNOWN_COMMANDS → FABRICATED, pure string lookup). Wired into run_post_response_check (claims-empty turns bhi ab check hote hain).
+**P2b Reviewer IGNORED_TASK flag:** naya HARD type — draft ne explicitly-asked kaam skip kiya → regen with task-specific corrective. Quote guard: IGNORED_TASK quote USER QUERY se allowed, max 1, baaki types draft-verbatim hi.
+**Tests:** test_iter269_capability_scan.py (13) — full suite 224/224 green.
+**Deploy pending:** 263→269 combined.
