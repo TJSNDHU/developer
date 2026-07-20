@@ -25,12 +25,15 @@ Returned by orchestrate():
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import time
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -318,7 +321,125 @@ _FETCH_TEXT_CAP = 6000
 _MAX_URLS_PER_TURN = 2
 _FETCH_UA = "AUREM-ORA/1.0 (+https://auremcto.com; research assistant)"
 _ROBOTS_TTL_S = 15 * 60
+_MAX_REDIRECTS = 3   # Iter 270 — bounded manual redirect chain
 _robots_cache: dict = {}   # base_url → (fetched_at, [disallow_rules])
+
+
+# ═══ Iter 270 — SSRF HARD GATE ══════════════════════════════════════
+# Blocks: non-http(s) schemes, loopback/private/link-local/multicast/
+# reserved IPs (v4 + v6), and re-validates on every redirect hop.
+# DNS is resolved BEFORE the HTTP call so a hostile domain that points
+# to 169.254.169.254 (AWS metadata) or 10.x.x.x is rejected.
+_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _ip_is_public(ip_str: str) -> tuple[bool, str]:
+    """True iff the address is a globally routable public IP.
+    Returns (is_public, reason_if_blocked)."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False, "invalid_ip"
+    if ip.is_loopback:
+        return False, "loopback"
+    if ip.is_private:
+        return False, "private"
+    if ip.is_link_local:
+        return False, "link_local"     # 169.254.0.0/16 → AWS metadata etc.
+    if ip.is_multicast:
+        return False, "multicast"
+    if ip.is_reserved:
+        return False, "reserved"
+    if ip.is_unspecified:
+        return False, "unspecified"
+    # IPv4 CGNAT 100.64.0.0/10 — is_private already covers it in py3.13+
+    # but pin explicitly for older interpreters.
+    if isinstance(ip, ipaddress.IPv4Address) and \
+       ip in ipaddress.ip_network("100.64.0.0/10"):
+        return False, "cgnat"
+    return True, ""
+
+
+def _is_safe_public_url(url: str) -> tuple[bool, str]:
+    """Gate every outbound fetch. Returns (safe, reason_if_blocked).
+
+    Rules:
+      • Scheme must be http or https.
+      • Host must be present.
+      • Every A/AAAA record resolved for the host must be publicly
+        routable (loopback / private / link-local / multicast /
+        reserved → blocked).
+      • Bare-IP hosts are validated directly (also blocks
+        `http://169.254.169.254/`).
+    """
+    try:
+        parts = urlsplit(url)
+    except Exception:
+        return False, "unparseable_url"
+    scheme = (parts.scheme or "").lower()
+    if scheme not in _ALLOWED_SCHEMES:
+        return False, f"scheme_{scheme or 'missing'}"
+    host = (parts.hostname or "").strip()
+    if not host:
+        return False, "missing_host"
+    # Explicit lowercase name blocks (belt-and-suspenders vs DNS games).
+    if host.lower() in ("localhost", "localhost.localdomain",
+                        "ip6-localhost", "ip6-loopback"):
+        return False, "loopback_name"
+    # Bare-IP host? Validate directly (strip brackets around IPv6).
+    bare = host.strip("[]")
+    try:
+        ipaddress.ip_address(bare)
+        ok, why = _ip_is_public(bare)
+        return (ok, why) if not ok else (True, "")
+    except ValueError:
+        pass
+    # DNS resolve → validate EVERY answer.
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False, "dns_resolution_failed"
+    if not infos:
+        return False, "dns_no_records"
+    for info in infos:
+        addr = info[4][0]
+        # Trim IPv6 zone-id (`fe80::1%eth0`).
+        addr = addr.split("%", 1)[0]
+        ok, why = _ip_is_public(addr)
+        if not ok:
+            return False, f"dns_resolves_to_{why}:{addr}"
+    return True, ""
+
+
+async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
+    """Minimal robots.txt respect — `User-agent: *` Disallow rules only.
+    Fail-OPEN on any error (a site that truly blocks will 403 the
+    actual fetch anyway). Cached per-host for 15 min."""
+    parts = urlsplit(url)
+    base = f"{parts.scheme}://{parts.netloc}"
+    now = time.time()
+    cached = _robots_cache.get(base)
+    if cached and now - cached[0] < _ROBOTS_TTL_S:
+        disallows = cached[1]
+    else:
+        disallows: list[str] = []
+        try:
+            r = await client.get(f"{base}/robots.txt")
+            if r.status_code == 200:
+                ua_star = False
+                for ln in r.text.splitlines()[:400]:
+                    low = ln.strip().lower()
+                    if low.startswith("user-agent:"):
+                        ua_star = low.split(":", 1)[1].strip() == "*"
+                    elif ua_star and low.startswith("disallow:"):
+                        rule = ln.strip().split(":", 1)[1].strip()
+                        if rule:
+                            disallows.append(rule)
+        except Exception:
+            disallows = []
+        _robots_cache[base] = (now, disallows)
+    path = parts.path or "/"
+    return not any(path.startswith(rule) for rule in disallows)
 
 
 def extract_fetchable_urls(query: str) -> list[str]:
@@ -356,44 +477,37 @@ def _extract_readable_text(html: str) -> str:
     return "\n".join(lines)[:_FETCH_TEXT_CAP]
 
 
-async def _robots_allows(client: httpx.AsyncClient, url: str) -> bool:
-    """Minimal robots.txt respect — `User-agent: *` Disallow rules only.
-    Fail-OPEN on any error (a site that truly blocks will 403 the
-    actual fetch anyway). Cached per-host for 15 min."""
-    from urllib.parse import urlsplit
-    parts = urlsplit(url)
-    base = f"{parts.scheme}://{parts.netloc}"
-    now = time.time()
-    cached = _robots_cache.get(base)
-    if cached and now - cached[0] < _ROBOTS_TTL_S:
-        disallows = cached[1]
-    else:
-        disallows: list[str] = []
-        try:
-            r = await client.get(f"{base}/robots.txt")
-            if r.status_code == 200:
-                ua_star = False
-                for ln in r.text.splitlines()[:400]:
-                    low = ln.strip().lower()
-                    if low.startswith("user-agent:"):
-                        ua_star = low.split(":", 1)[1].strip() == "*"
-                    elif ua_star and low.startswith("disallow:"):
-                        rule = ln.strip().split(":", 1)[1].strip()
-                        if rule:
-                            disallows.append(rule)
-        except Exception:
-            disallows = []
-        _robots_cache[base] = (now, disallows)
-    path = parts.path or "/"
-    return not any(path.startswith(rule) for rule in disallows)
-
-
 async def _fetch_one_url(client: httpx.AsyncClient, url: str) -> dict:
+    # Iter 270 — SSRF hard gate BEFORE any network call.
+    safe, reason = _is_safe_public_url(url)
+    if not safe:
+        return {"url": url, "ok": False, "error": f"blocked_ssrf:{reason}"}
     if not await _robots_allows(client, url):
         return {"url": url, "ok": False, "error": "blocked_by_robots_txt"}
     try:
-        r = await client.get(url, headers={"User-Agent": _FETCH_UA},
-                             follow_redirects=True)
+        # Manual redirect handling — re-validate host on every hop.
+        current = url
+        r = None
+        for _hop in range(_MAX_REDIRECTS + 1):
+            r = await client.get(current,
+                                 headers={"User-Agent": _FETCH_UA},
+                                 follow_redirects=False)
+            if r.status_code in (301, 302, 303, 307, 308):
+                loc = r.headers.get("location")
+                if not loc:
+                    return {"url": url, "ok": False,
+                             "error": "redirect_without_location"}
+                # Resolve relative → absolute.
+                from urllib.parse import urljoin
+                current = urljoin(current, loc)
+                ok, why = _is_safe_public_url(current)
+                if not ok:
+                    return {"url": url, "ok": False,
+                             "error": f"blocked_ssrf_redirect:{why}"}
+                continue
+            break
+        else:
+            return {"url": url, "ok": False, "error": "too_many_redirects"}
     except Exception as e:
         return {"url": url, "ok": False, "error": type(e).__name__}
     if r.status_code != 200:
