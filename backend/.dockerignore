@@ -1,0 +1,55 @@
+# backend/.dockerignore — used when Cloud Build's context is /app/backend.
+# Trims image size, drops caches, and — critically — keeps `.env` out
+# of the produced image layers.
+
+# Secrets (never bake into image)
+.env
+.env.*
+!.env.example
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+.coverage.*
+htmlcov
+
+# Virtualenvs
+.venv
+venv
+env
+
+# Test suite — not needed at runtime (12 MB)
+tests
+test_reports
+ora_training_data
+
+# Local sqlite / outbox
+*.sqlite
+*.sqlite3
+*.db
+outbox.db
+
+# Dev-only tooling
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# VCS / IDE
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# Logs
+*.log
+logs
+
+# Node (accidentally left behind)
+node_modules

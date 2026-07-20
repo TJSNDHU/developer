@@ -1,0 +1,50 @@
+# frontend/.dockerignore — used when Cloud Build's context is
+# /app/frontend. `yarn install` inside the container rebuilds
+# node_modules from lockfile; we don't need to ship the host copy
+# (421 MB) into the build context.
+
+# Node artefacts (yarn install rebuilds these fresh)
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs (Docker's `yarn build` produces its own)
+dist
+build
+.next
+out
+
+# Env — production build reads REACT_APP_BACKEND_URL from
+# runtime container env, not from a baked-in .env.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Test / coverage
+coverage
+.nyc_output
+tests
+__tests__
+*.test.js
+*.test.jsx
+*.test.ts
+*.test.tsx
+
+# Dev-only
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# VCS / IDE / OS
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+yarn-error.log
+npm-debug.log

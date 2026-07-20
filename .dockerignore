@@ -1,0 +1,74 @@
+# Root .dockerignore — applies if Cloud Build uses /app as context.
+# Keeps the build context small + prevents secrets from leaking into
+# any layer.
+
+# VCS / IDE / OS
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Local caches (huge — 264 MB in .aurem_cache alone)
+.aurem_cache
+.emergent
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Node artefacts
+node_modules
+frontend/node_modules
+frontend/dist
+frontend/build
+frontend/.next
+
+# Python venvs / builds
+.venv
+venv
+env
+*.egg-info
+build
+dist
+
+# Secrets — MUST never bake into an image layer
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Local logs / dumps
+*.log
+logs
+/var/log
+test_reports
+tests_output
+
+# Docs / memory / dev-only content
+memory
+docs
+*.md
+!README.md
+
+# Sqlite / offline outbox
+*.sqlite
+*.sqlite3
+*.db
+outbox.db
+
+# Local test data
+backend/tests
+backend/ora_training_data
+backend/.pytest_cache
+backend/.ruff_cache
