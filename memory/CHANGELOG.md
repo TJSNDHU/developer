@@ -4,6 +4,44 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02-XX — Iter 270 SSRF Hard Gate on `fetch_url`
+
+**Problem**: `services/ora_chat/deep_research.py::_fetch_one_url` was
+issuing HTTP GETs with `follow_redirects=True` and zero host/IP
+validation. Any user-typed URL (or its redirect chain) could reach
+`169.254.169.254` (AWS/GCP metadata), `127.0.0.1:8001` (own backend),
+private RFC1918 ranges, IPv6 loopback/link-local, and non-http
+schemes like `file://`, `gopher://`, `data:` were also not filtered.
+
+**Fix** (deep_research.py):
+- New `_ip_is_public(ip_str)` — rejects loopback, private, link-local
+  (blocks `169.254.169.254`), multicast, reserved, unspecified, CGNAT
+  100.64/10, and their IPv6 equivalents (`::1`, `fe80::`, `fc00::`).
+- New `_is_safe_public_url(url)` — parses URL, enforces http/https
+  scheme allowlist, blocks lowercase `localhost` name, validates bare
+  IPs directly, and does `socket.getaddrinfo` on hostnames — EVERY
+  answer must be publicly routable (mixed public+private → block).
+- `_fetch_one_url` now short-circuits BEFORE any network call with
+  `blocked_ssrf:<reason>`.
+- `follow_redirects=False` + manual bounded chain (`_MAX_REDIRECTS=3`)
+  with per-hop re-validation → `blocked_ssrf_redirect:<reason>` if a
+  redirect points at a private target.
+
+**Tests**: `backend/tests/test_iter270_ssrf_guard.py` — 37 cases pass:
+- 14 IP-classifier parametrised cases (v4 + v6, public/loopback/
+  private/link-local/multicast/CGNAT/unspecified/reserved).
+- 14 URL-gate cases (bare-IP metadata, localhost, `file://`, `gopher://`,
+  `data:`, `javascript:`, malformed).
+- DNS-mock cases: hostname→private, hostname→link-local, hostname→
+  public (allowed), hostname→mixed (blocked).
+- Integration: metadata URL rejected without network call, `file://`
+  scheme rejected, redirect-to-private blocked mid-chain, bounded
+  redirect chain returns `too_many_redirects`, happy path still works.
+
+**Status**: Preview only. PROD deploy (auremcto.com) pending user
+redeploy — this is a P0 vulnerability closer, ship ASAP.
+
+
 ## 2026-02-Session-5 — ChatPanel Cutover + P0 audit cleanup + Ask Advisor real-fix + Council A swap
 
 Session goal: land the chat-native scan features (slash commands +
