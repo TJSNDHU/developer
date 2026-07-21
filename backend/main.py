@@ -457,6 +457,29 @@ async def lifespan(app: FastAPI):
             logger.warning("ora_fix_learning indexes failed: %r", e)
     _asyncio.create_task(_ensure_ora_learning_indexes())
 
+    # Iter 272 — held-out verification + outcomes indexes.
+    async def _ensure_iter272_indexes():
+        try:
+            if app.state.db is None:
+                return
+            from services import (
+                loop_task_specs as _lts,
+                loop_independent_verifier as _liv,
+                loop_outcomes as _lo,
+                loop_audit_log as _lal,
+            )
+            await _lts.ensure_indexes(app.state.db)
+            await _liv.ensure_indexes(app.state.db)
+            await _lo.ensure_indexes(app.state.db)
+            await _lal.ensure_indexes(app.state.db)
+            logger.info(
+                "🔒 Iter 272 indexes ensured — loop_task_specs, "
+                "loop_verification_log, loop_outcomes, loop_run_log"
+            )
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("iter272 indexes failed: %r", e)
+    _asyncio.create_task(_ensure_iter272_indexes())
+
     # Iter 212m-246 — warm the ORA Chat codebase index in the background
     # so the first message doesn't pay a ~2 s walk cost.
     async def _warm_codebase_index():
