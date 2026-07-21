@@ -1649,6 +1649,10 @@ app.include_router(qa_probe_router,        prefix="/api/aurem-dev")  # Iter 212m
 # Iter 212m-158 — /tools page "Notify me" capture endpoint.
 from routers.notify_interest import router as notify_interest_router
 app.include_router(notify_interest_router, prefix="/api/aurem-dev")
+
+# Iter 273 — public integrity log for /both landing page
+from routers.integrity_log import router as integrity_log_router
+app.include_router(integrity_log_router, prefix="/api/aurem-dev")
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
 # Iter 212m-117 — User trust-level (L1/L2/L3) for Loop Mode + Fix.
 from routers.trust_level import router as trust_level_router
