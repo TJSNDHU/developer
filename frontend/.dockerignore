@@ -14,11 +14,12 @@ build
 .next
 out
 
-# Env — production build reads REACT_APP_BACKEND_URL from
-# runtime container env, not from a baked-in .env.
-.env
+# Env — Vite reads REACT_APP_BACKEND_URL from frontend/.env at build
+# time. It contains no secrets, only the public backend URL. Keep it.
+# Only local overrides are excluded so per-dev overrides don't leak.
 .env.local
 .env.*.local
+!.env
 !.env.example
 
 # Test / coverage

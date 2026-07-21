@@ -44,7 +44,11 @@ dist
 backend/.env
 backend/.env.*
 !backend/.env.example
-frontend/.env
+# frontend/.env is REQUIRED at build-time (Vite reads REACT_APP_BACKEND_URL
+# from it during `yarn build`). It contains no secrets — only the public
+# backend URL, which is public anyway. Emergent overrides its value at
+# build-time to point to the production backend.
+!frontend/.env
 frontend/.env.local
 frontend/.env.*.local
 

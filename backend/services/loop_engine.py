@@ -454,6 +454,39 @@ class LoopEngine:
         )
         self.context["plan"] = plan
         await _save_plan(self.db, self.loop_id, plan)
+
+        # ── Iter 272 Feature 1.1 — freeze the task spec BEFORE the
+        # user's confirmation. The frozen snapshot is what the
+        # independent verifier (Iter 272 Feature 1.3) will judge the
+        # final diff against. Fixing agents must not see or mutate
+        # this row for the rest of the run.
+        try:
+            from services import loop_task_specs as _lts
+            await _lts.freeze(
+                self.db,
+                loop_id=self.loop_id,
+                task_id=getattr(self, "task_id", None),
+                user_id=self.user_id,
+                project_id=self.project_id,
+                user_message=self.user_message,
+                plan=plan,
+            )
+        except Exception as e:                                # noqa: BLE001
+            # Never block the pipeline on a spec-freeze failure — but
+            # DO surface it in the audit log so it's visible.
+            logger.warning("[loop %s] task spec freeze failed: %r",
+                           self.loop_id, e)
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id, phase="plan",
+                    kind="task_spec_freeze",
+                    verdict=_lal.VERDICT_WARN,
+                    detail={"error": repr(e)},
+                )
+            except Exception:
+                pass
+
         self.state = LoopState.AWAITING_CONFIRMATION
         self.phase = "plan"
         await _persist_session(self.db, self._doc())
@@ -567,6 +600,21 @@ class LoopEngine:
             logger.info("[loop %s] pipeline task cancelled cleanly", self.loop_id)
             raise
         except Exception as e:                           # noqa: BLE001
+            # Iter 272 Feature 1.5 — no silent check skipping. Every
+            # pipeline-level exception, even one that was fully caught
+            # here and translated into a graceful _fail() event, MUST
+            # leave a row in loop_run_log so drift jobs can see it.
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id,
+                    phase=self.phase or "?",
+                    kind=_lal.KIND_SILENT_CATCH,
+                    verdict=_lal.VERDICT_FAIL,
+                    detail={"exception": repr(e)[:400]},
+                )
+            except Exception:
+                pass
             await self._fail(self.phase or "?", repr(e))
 
     def _should_stop(self) -> bool:
@@ -949,6 +997,20 @@ class LoopEngine:
         report = await verify_files(file_objs)
         self.context["verification_results"] = report
         if report["ok"]:
+            # Iter 272 Feature 1.5 — every Vanguard verdict is
+            # audit-logged. A pass is just as important to record
+            # as a fail (a drift job may notice the pass-rate
+            # trending upward suspiciously).
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id, phase="verify",
+                    kind=_lal.KIND_VANGUARD, verdict=_lal.VERDICT_PASS,
+                    detail={"files": len(file_objs),
+                             "self_heal_attempts": 0},
+                )
+            except Exception:
+                pass
             return  # Everything passed first try.
 
         # Up to MAX_SELF_HEALS healing rounds.  Each round only
@@ -1545,6 +1607,168 @@ class LoopEngine:
 
         commit_message = _commit_message(self.user_message)
 
+        # ═══════════════════════════════════════════════════════════
+        # Iter 272 — HELD-OUT VERIFICATION GATE
+        # Runs AFTER Vanguard has already passed but BEFORE the manual
+        # ship confirmation / L3 auto-ship. Two independent gates:
+        #   (a) Feature 1.2 — diff classifier: any test/fixture file
+        #       touched → force human review, EVEN for L3.
+        #   (b) Feature 1.3 — independent verifier: fresh-context LLM
+        #       judges the diff against the FROZEN task spec.
+        # A "no" from either gate blocks the ship. Both write to
+        # loop_run_log so nothing can be silently swallowed.
+        # ═══════════════════════════════════════════════════════════
+        gate_files = [{"path": p, "content": c}
+                       for p, c in files_dict.items()]
+        try:
+            from services import loop_diff_classifier as _ldc
+            classified = _ldc.classify(gate_files)
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("[loop %s] diff classify failed: %r",
+                           self.loop_id, e)
+            classified = {"source": [], "tests": [],
+                           "test_touched": False, "test_lines": []}
+        try:
+            from services import loop_audit_log as _lal
+            await _lal.log(
+                self.db, loop_id=self.loop_id, phase="ship",
+                kind=_lal.KIND_TEST_TOUCH,
+                verdict=(_lal.VERDICT_FAIL if classified["test_touched"]
+                          else _lal.VERDICT_PASS),
+                detail={
+                    "tests_touched": classified["tests"],
+                    "test_lines":    classified["test_lines"],
+                    "source_files":  classified["source"][:20],
+                },
+            )
+        except Exception:
+            pass
+
+        # Independent verifier (Feature 1.3). Fail-CLOSED on
+        # verdict="no"; skips (no_llm / no_spec) do NOT block but
+        # are logged as WARN.
+        try:
+            from services import loop_independent_verifier as _liv
+            verifier_result = await _liv.verify(
+                self.db, loop_id=self.loop_id, files=gate_files,
+            )
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("[loop %s] independent verifier crash: %r",
+                           self.loop_id, e)
+            verifier_result = {"verdict": "skipped_no_llm",
+                                "reason": f"crash:{type(e).__name__}",
+                                "verifier_model": ""}
+
+        try:
+            from services import loop_audit_log as _lal
+            verdict = verifier_result.get("verdict", "no")
+            await _lal.log(
+                self.db, loop_id=self.loop_id, phase="ship",
+                kind=_lal.KIND_INDEPENDENT,
+                verdict=(_lal.VERDICT_PASS if verdict == "yes"
+                          else (_lal.VERDICT_FAIL if verdict == "no"
+                                else _lal.VERDICT_WARN)),
+                detail={
+                    "verifier_model": verifier_result.get("verifier_model"),
+                    "reason":         verifier_result.get("reason"),
+                    "latency_s":      verifier_result.get("latency_s"),
+                },
+            )
+        except Exception:
+            pass
+
+        # Decide the gate outcome.
+        requires_human_review = classified["test_touched"]
+        verifier_rejected     = verifier_result.get("verdict") == "no"
+
+        if verifier_rejected:
+            # Hard-fail path: verifier said no. Do NOT ship.
+            self.state = LoopState.PAUSED_FOR_USER
+            self.context["independent_verifier"] = {
+                "verdict": "no",
+                "reason":  verifier_result.get("reason", ""),
+                "model":   verifier_result.get("verifier_model", ""),
+            }
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id, phase="ship",
+                    kind=_lal.KIND_SHIP_GATE, verdict=_lal.VERDICT_FAIL,
+                    detail={"blocker": "independent_verifier_rejected",
+                             "reason":   verifier_result.get("reason", "")},
+                )
+            except Exception:
+                pass
+            await _persist_session(self.db, self._doc())
+            await self._emit(
+                LoopState.PAUSED_FOR_USER, "ship",
+                step=5, total_steps=5,
+                message=("Independent verifier rejected the diff: "
+                         f"{verifier_result.get('reason','')}. "
+                         "Ship blocked — review the diff or re-run."),
+                data={
+                    "kind":              "verifier_rejected",
+                    "requires_review":   True,
+                    "verifier_verdict":  "no",
+                    "verifier_reason":   verifier_result.get("reason", ""),
+                    "verifier_model":    verifier_result.get(
+                                             "verifier_model", ""),
+                },
+                requires_user_action=True,
+            )
+            return
+
+        if requires_human_review:
+            # Force manual review even for L3 — the fixing agent
+            # touched a test file, which is exactly what this gate
+            # exists to prevent from silent-shipping.
+            self.state = LoopState.PAUSED_FOR_USER
+            self.context["requires_human_review"] = True
+            self.context["ship_pending"] = {
+                "owner": owner, "repo": repo, "branch": branch,
+                "token": token, "files": files_dict,
+                "commit_message": commit_message,
+            }
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id, phase="ship",
+                    kind=_lal.KIND_HUMAN_REVIEW_HOLD,
+                    verdict=_lal.VERDICT_FAIL,
+                    detail={"reason":         "test_files_modified",
+                             "tests_touched":  classified["tests"],
+                             "trust_level":    self.context.get(
+                                                   "trust_level")},
+                )
+            except Exception:
+                pass
+            await _persist_session(self.db, self._doc())
+            await self._emit(
+                LoopState.PAUSED_FOR_USER, "ship",
+                step=5, total_steps=5,
+                message=("Test/fixture files were modified — "
+                         "human review required regardless of trust level. "
+                         "Approve manually to ship."),
+                data={
+                    "kind":            "human_review_required",
+                    "reason":          "test_files_modified",
+                    "tests_touched":   classified["tests"],
+                    "test_lines":      classified["test_lines"],
+                    "owner":           owner,
+                    "repo":            repo,
+                    "branch":          branch,
+                    "file_count":      len(files_dict),
+                    "commit_message":  commit_message,
+                    "requires_human_review": True,
+                },
+                requires_user_action=True,
+            )
+            return
+        # ═══════════════════════════════════════════════════════════
+        # END Iter 272 gate. Verifier said yes and no test files
+        # were touched — normal ship path continues below.
+        # ═══════════════════════════════════════════════════════════
+
         # Iter 212m-111 — PAUSE for manual ship confirmation. The actual
         # `commit_files()` call now lives in `confirm_ship()` which is
         # triggered by POST /loop/{loop_id}/confirm-ship.
@@ -1699,6 +1923,35 @@ class LoopEngine:
         html_url  = res.get("html_url") or (
             f"https://github.com/{owner}/{repo}/commit/{full_sha}" if full_sha else None
         )
+
+        # ── Iter 272 Feature 2.1 — record the shipped commit so
+        # future runs can detect repeat_touch on the same file paths.
+        try:
+            from services import loop_outcomes as _lo
+            await _lo.record_shipped_commit(
+                self.db,
+                loop_id=self.loop_id,
+                task_id=getattr(self, "task_id", None),
+                user_id=self.user_id,
+                project_id=self.project_id,
+                commit_sha=full_sha or short_sha,
+                file_paths=list(files_dict.keys()),
+                owner=owner, repo=repo, branch=branch,
+            )
+        except Exception as e:                                # noqa: BLE001
+            logger.warning("[loop %s] outcome record failed: %r",
+                           self.loop_id, e)
+            try:
+                from services import loop_audit_log as _lal
+                await _lal.log(
+                    self.db, loop_id=self.loop_id, phase="ship",
+                    kind="outcome_record",
+                    verdict=_lal.VERDICT_WARN,
+                    detail={"error": repr(e)},
+                )
+            except Exception:
+                pass
+
         self.context["commit"] = {
             "message":   commit_message,
             "sha":       short_sha,
