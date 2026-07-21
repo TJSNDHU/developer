@@ -22,7 +22,12 @@ __pycache__
 *.pyo
 *.pyd
 
-# Node artefacts
+# Node artefacts — use **/ prefix so Docker excludes them recursively.
+# Without **/, a bare `node_modules` only matches the repo root, and
+# nested caches like /app/qa/simulated-user/node_modules (1.7 GB) and
+# /app/vscode-extension/node_modules (126 MB) leak into the Cloud Build
+# context, exceeding size/time limits and causing TerminalCloudBuildFailure.
+**/node_modules
 node_modules
 frontend/node_modules
 frontend/dist
@@ -58,6 +63,22 @@ logs
 /var/log
 test_reports
 tests_output
+
+# Non-production sidecars that don't belong in the production image.
+# qa/simulated-user is a Playwright-based QA harness (1.7 GB with its
+# own node_modules). vscode-extension is the local Emergent IDE plugin
+# (126 MB). _extract holds the ora_grounding open-source zip contents
+# used for distribution, not runtime.
+qa
+qa_run
+vscode-extension
+_extract
+tests-aurem
+
+# Stray zip artefacts served from frontend/public are still shipped by
+# the frontend build; only exclude the top-level scratch copy.
+/ora-grounding-clean.zip
+/ora-grounding-updates.zip
 
 # Docs / memory / dev-only content
 memory
