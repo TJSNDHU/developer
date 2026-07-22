@@ -31,6 +31,7 @@ import CookieConsentBanner from "./components/CookieConsentBanner";
 // avoids a Suspense flash on the highest-traffic paths.
 import Landing from "./pages/Landing";
 import Both from "./pages/Both";
+import LoopLiveFeedDemo from "./pages/LoopLiveFeedDemo";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 // Iter 212m-219 — Marketing "Why ORA" deep-dive. Lightweight page
@@ -184,6 +185,7 @@ export default function App() {
         <Routes>
           <Route path="/"                element={<Landing />} />
           <Route path="/both"            element={<Both />} />
+          <Route path="/dev/loop-live-feed" element={<LoopLiveFeedDemo />} />
           <Route path="/why-ora"         element={<WhyOra />} />
           <Route path="/demo"            element={<Demo />} />
           <Route path="/login"           element={<Login />} />
