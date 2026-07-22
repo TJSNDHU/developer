@@ -72,7 +72,7 @@ function pillStyle(active, kind) {
   };
   if (!active) return base;
   if (kind === "biz") return {...base, background:"#C9962C", color:"#16232E"};
-  return {...base, background:"#D56A4F", color:"#0B0D10"};
+  return {...base, background:"#FF6608", color:"#0B0D10"};
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -564,14 +564,14 @@ function DevView() {
                       borderBottom:"1px solid #ffffff12"}}>
           <div style={{fontFamily:"'JetBrains Mono', monospace",
                         fontWeight:800, fontSize:19}}>
-            ORA<span style={{color:"#D56A4F"}}>.</span>
+            ORA<span style={{color:"#FF6608"}}>.</span>
             <span style={{fontSize:11.5, color:"#5f6570",
                             marginLeft:9, fontWeight:400}}>by AUREM</span>
           </div>
           <button
             data-testid="dev-github-cta"
             onClick={() => navigate("/login?connect=github")}
-            style={{background:"#D56A4F", color:"#06110c",
+            style={{background:"#FF6608", color:"#06110c",
                      padding:"9px 18px", borderRadius:6,
                      fontWeight:700, fontSize:13.5,
                      fontFamily:"'JetBrains Mono',monospace",
@@ -589,20 +589,20 @@ function DevView() {
           <div>
             <div style={{display:"inline-flex", alignItems:"center",
                           gap:8, fontFamily:"'JetBrains Mono', monospace",
-                          fontSize:12, color:"#D56A4F",
-                          background:"#D56A4F14",
-                          border:"1px solid #D56A4F40",
+                          fontSize:12, color:"#FF6608",
+                          background:"#FF660814",
+                          border:"1px solid #FF660840",
                           padding:"6px 12px", borderRadius:20,
                           marginBottom:20}}>
               <span style={{width:6, height:6, borderRadius:"50%",
-                              background:"#D56A4F"}}></span>
+                              background:"#FF6608"}}></span>
               Live on Ship-Wall right now
             </div>
             <h1 style={{fontSize:"clamp(30px,4vw,44px)", fontWeight:700,
                          lineHeight:1.12, letterSpacing:"-.018em",
                          marginBottom:18}}>
               The AI engineer that{" "}
-              <span style={{color:"#D56A4F"}}>actually commits</span>{" "}
+              <span style={{color:"#FF6608"}}>actually commits</span>{" "}
               to your GitHub branch.
             </h1>
             <p style={{fontSize:16, lineHeight:1.65, color:"#9AA0A8",
@@ -614,7 +614,7 @@ function DevView() {
             <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
               <button
                 onClick={() => navigate("/login?connect=github")}
-                style={{background:"#D56A4F", color:"#06110c",
+                style={{background:"#FF6608", color:"#06110c",
                          padding:"13px 24px", borderRadius:7,
                          fontWeight:700, fontSize:14.5,
                          fontFamily:"'JetBrains Mono',monospace",
@@ -669,7 +669,7 @@ function DevView() {
           <div style={{maxWidth:1080, margin:"0 auto"}}>
             <div style={{fontFamily:"'JetBrains Mono',monospace",
                           fontSize:12, textTransform:"uppercase",
-                          letterSpacing:".09em", color:"#D56A4F",
+                          letterSpacing:".09em", color:"#FF6608",
                           marginBottom:14}}>
               — layer 2 — verification &amp; shipping
             </div>
@@ -711,7 +711,7 @@ function DevView() {
                   <div style={{fontFamily:"'JetBrains Mono',monospace",
                                 fontSize:11.5, marginBottom:9,
                                 fontWeight:700, letterSpacing:".02em",
-                                color:"#D56A4F"}}>
+                                color:"#FF6608"}}>
                     {k}
                   </div>
                   <h4 style={{fontSize:15, fontWeight:700,
@@ -770,7 +770,7 @@ function DevView() {
                 <div style={{display:"flex", alignItems:"center",
                               gap:10, color:"#c7cbd1"}}>
                   <span style={{width:22, height:22, borderRadius:"50%",
-                                  background:"linear-gradient(135deg,#D56A4F,#5B8DEF)",
+                                  background:"linear-gradient(135deg,#FF6608,#5B8DEF)",
                                   flexShrink:0}}></span>
                   {row.summary}
                 </div>
@@ -799,9 +799,9 @@ function DevView() {
                                    fontWeight:400}}>/mo</span>
               </div>
               <span style={{fontFamily:"'JetBrains Mono', monospace",
-                              fontSize:11, color:"#D56A4F",
-                              background:"#D56A4F14",
-                              border:"1px solid #D56A4F40",
+                              fontSize:11, color:"#FF6608",
+                              background:"#FF660814",
+                              border:"1px solid #FF660840",
                               padding:"4px 9px", borderRadius:5}}>
                 no ACU billing
               </span>
@@ -822,7 +822,7 @@ function DevView() {
                                        borderBottom:"1px dashed #ffffff14",
                                        display:"flex", gap:10,
                                        color:"#c7cbd1"}}>
-                  <span style={{color:"#D56A4F", fontWeight:700,
+                  <span style={{color:"#FF6608", fontWeight:700,
                                   fontFamily:"'JetBrains Mono',monospace"}}
                         >›</span>{li}
                 </li>
@@ -831,7 +831,7 @@ function DevView() {
             <button
               data-testid="dev-price-cta"
               onClick={() => navigate("/signup")}
-              style={{width:"100%", background:"#D56A4F",
+              style={{width:"100%", background:"#FF6608",
                        color:"#06110c", padding:14, borderRadius:7,
                        fontWeight:700, fontSize:14.5,
                        fontFamily:"'JetBrains Mono',monospace",
@@ -860,7 +860,7 @@ function IntegrityLog({ integrity }) {
     ["hallucinations_caught", "hallucinations caught",
      "before reaching you", "#5B8DEF"],
     ["adversarial_reviews",   "adversarial reviews run",
-     "by the sibling model",  "#D56A4F"],
+     "by the sibling model",  "#FF6608"],
     ["reviewer_errors",       "reviewer’s own errors",
      "caught and logged too", "#f2c34e"],
     ["canary_prompts",        "fixed prompts checked",
@@ -959,7 +959,7 @@ function Terminal() {
       body.appendChild(div);
       let i = 0;
       const colorClass = {
-        ok:   "color:#D56A4F;",
+        ok:   "color:#FF6608;",
         warn: "color:#f2c34e;",
         blue: "color:#5B8DEF;",
         cmd:  "color:#E8EAED;",
@@ -1013,7 +1013,7 @@ function Terminal() {
                      fontSize:12, lineHeight:1.85, minHeight:250}}></div>
       <style>{`
         .ora-cursor{display:inline-block; width:7px; height:14px;
-                     background:#D56A4F; vertical-align:middle;
+                     background:#FF6608; vertical-align:middle;
                      animation: oraBlink 1s step-end infinite;}
         @keyframes oraBlink { 50% { opacity:0; } }
       `}</style>
