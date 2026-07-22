@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /app status --short frontend/src/lib/)",
+      "Bash(git -C /app log --all --oneline -- \"*cloudbuild*\" \"*build-frontend*\")"
+    ]
+  }
+}
