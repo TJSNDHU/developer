@@ -472,6 +472,15 @@ async def lifespan(app: FastAPI):
             await _liv.ensure_indexes(app.state.db)
             await _lo.ensure_indexes(app.state.db)
             await _lal.ensure_indexes(app.state.db)
+            # Iter 274 — origin backfill. Idempotent, cheap, safe on
+            # every boot. Any pre-Iter-274 row missing `origin` is
+            # stamped `loop_mode` (the only mode that existed then).
+            stats = await _liv.backfill_origin(app.state.db)
+            if stats["before"] > 0:
+                logger.info(
+                    "🔧 Iter 274 origin backfill on loop_verification_log: "
+                    "before=%d updated=%d after=%d",
+                    stats["before"], stats["updated"], stats["after"])
             logger.info(
                 "🔒 Iter 272 indexes ensured — loop_task_specs, "
                 "loop_verification_log, loop_outcomes, loop_run_log"

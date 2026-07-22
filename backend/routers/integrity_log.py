@@ -61,6 +61,15 @@ async def integrity_log() -> dict:
     try:
         # All four are unfiltered totals — estimated_document_count
         # uses collection metadata (O(1)), safe under any traffic.
+        #
+        # Iter 274 note: `loop_verification_log` is INTENTIONALLY not
+        # counted here. That collection is dual-mode — it holds both
+        # dev-side loop-mode verifier rows (origin="loop_mode") AND
+        # Personal Track scaffold-design-review rows
+        # (origin="personal_track"). Public /both is a dev-trust
+        # widget; scaffold reviews must never inflate its numbers.
+        # If a future widget wants loop-mode verifier stats, query
+        # `loop_verification_log` with `{"origin": "loop_mode"}`.
         hallucinations = await db.ora_hallucination_log.estimated_document_count()
         reviews        = await db.ora_review_log.estimated_document_count()
         reviewer_errs  = await db.ora_reviewer_errors.estimated_document_count()

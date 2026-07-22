@@ -27,6 +27,9 @@ Draft schema:
 # arch: allow-http — Draft creation triggers Parliament LLM calls (iter 212m-231)
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -42,6 +45,32 @@ from services.bin_context import build_virtual_bin_context
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scaffold", tags=["Scaffold — Personal Track"])
+
+# ── Iter 274 — GC-safe background task registry ─────────────────
+# Python's asyncio only holds WEAK references to tasks created via
+# create_task(). Without a strong ref, a low-priority background
+# task can be garbage-collected mid-run. Stdlib docs explicitly
+# call this out. Every T1.5 design-review task is registered here
+# and self-removes on completion.
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
+
+def _compute_files_hash(files: list[dict]) -> str:
+    """Content-address of a file tree. Used by the T1.5 background
+    review to guard against stale-verdict overwrites if the user
+    hits /regenerate before the review completes."""
+    payload = [{"p": (f or {}).get("path") or "",
+                "c": (f or {}).get("content") or ""} for f in (files or [])]
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
 
 # Iter 212m-231 — Component-count cap so a single scaffold pass doesn't
 # spiral into a 40-file mega-project the LLM handles poorly. If the
@@ -103,6 +132,55 @@ async def _read_draft(db, draft_id: str, user_id: str) -> Optional[dict]:
         {"draft_id": draft_id, "user_id": user_id},
         {"_id": 0},
     )
+
+
+# ── Iter 274 — T1.5 design-review background runner ────────────
+async def _run_design_review_bg(draft_id: str, user_id: str,
+                                  brief: str, files: list[dict],
+                                  files_hash_at_start: str) -> None:
+    """Runs on the event loop, NOT the request worker. Writes the
+    review verdict back to the draft ONLY IF the draft still holds
+    the same `files_hash` — otherwise the user has already hit
+    /regenerate and a fresher review is on its way; this stale
+    verdict is discarded (matched_count=0 no-op)."""
+    try:
+        db = get_db()
+        if db is None:
+            logger.warning("[design_review] db unavailable for draft=%s",
+                            draft_id)
+            return
+        from services.scaffold_design_review import verify_scaffold
+        review = await verify_scaffold(
+            db, draft_id=draft_id, brief=brief, files=files,
+        )
+        # Predicate-guarded write — protects against T3 race where
+        # /regenerate has swapped `files` (and thus `files_hash`)
+        # while this review was in flight.
+        payload = {
+            "verdict":         review["verdict"],
+            "reason":          review.get("reason") or "",
+            "user_message":    review.get("user_message") or "",
+            "verifier_model":  review["verifier_model"],
+            "latency_s":       review.get("latency_s"),
+            "checked_at":      review["created_at"],
+        }
+        result = await db.scaffold_drafts.update_one(
+            {"draft_id": draft_id, "user_id": user_id,
+             "files_hash": files_hash_at_start},
+            {"$set": {"design_review": payload}},
+        )
+        if result.matched_count == 0:
+            logger.info(
+                "[design_review] STALE — draft=%s hash changed during "
+                "review; verdict=%r discarded (regenerate raced)",
+                draft_id, review["verdict"])
+        else:
+            logger.info(
+                "[design_review] draft=%s verdict=%r reason=%r",
+                draft_id, review["verdict"], review.get("reason"))
+    except Exception as e:                                # noqa: BLE001
+        logger.warning("[design_review] bg task crashed for draft=%s: %r",
+                        draft_id, e)
 
 
 # ── Scaffold generation (Parliament wrapper) ─────────────────────
@@ -385,6 +463,7 @@ async def create_new_project(
     files = await _generate_file_tree(
         body.brief, stack, user["user_id"], draft_id,
     )
+    files_hash = _compute_files_hash(files)
 
     draft = {
         "draft_id":         draft_id,
@@ -393,12 +472,22 @@ async def create_new_project(
         "stack_preference": body.stack_preference,
         "stack_detected":   stack,
         "files":            files,
+        "files_hash":       files_hash,
         "status":           "draft",
         "created_at":       now,
         "updated_at":       now,
         "materialized_repo": None,
+        "design_review":    None,     # populated by T1.5 bg task
     }
     await _write_draft(db, draft)
+
+    # ── Iter 274 T1.5 — design review runs in background so the
+    # T1→T2 preview promise (~60-90s in E2B) is not lengthened.
+    # Client re-fetches the draft when opening the preview panel;
+    # by then this ~3-8s review has usually landed.
+    _spawn_bg(_run_design_review_bg(
+        draft_id, user["user_id"], body.brief, files, files_hash,
+    ))
 
     logger.info("[scaffold] new draft created: %s user=%s stack=%s files=%d",
                 draft_id, user["user_id"], stack, len(files))
@@ -458,6 +547,7 @@ async def regenerate_draft(
     new_files = await _generate_file_tree(
         new_brief, new_stack, user["user_id"], draft_id,
     )
+    new_hash = _compute_files_hash(new_files)
     now = time.time()
 
     await db.scaffold_drafts.update_one(
@@ -466,9 +556,18 @@ async def regenerate_draft(
             "brief":          new_brief,
             "stack_detected": new_stack,
             "files":          new_files,
+            "files_hash":     new_hash,
+            "design_review":  None,     # invalidate previous verdict
             "updated_at":     now,
         }},
     )
+    # Iter 274 — spawn a fresh T1.5 review on the new files. Any
+    # earlier in-flight review from before /regenerate will attempt
+    # to write with its OLD files_hash predicate → matched_count=0
+    # → dropped as stale.
+    _spawn_bg(_run_design_review_bg(
+        draft_id, user["user_id"], new_brief, new_files, new_hash,
+    ))
     return {
         "draft_id":       draft_id,
         "stack_detected": new_stack,
@@ -527,6 +626,71 @@ async def materialize_draft(
     if not files:
         raise HTTPException(400, "Draft has no files to materialize")
 
+    # ── Iter 274 T4 QA GATE — held-out design review ─────────────
+    # Runs a FRESH scaffold_design_review.verify_scaffold() call on
+    # the (possibly-iterated) final files. Runs BEFORE the security
+    # gate + BEFORE any AUREM-owned resource is created.
+    # Failure modes:
+    #   verdict="no"        → 422 hard-block with plain-English
+    #                          user_message (founder override still works
+    #                          via the existing override_active field —
+    #                          same override mechanism as security gate,
+    #                          nothing new to configure).
+    #   verdict="skipped_no_llm" → 503 fail-CLOSED, retryable=True.
+    #                          Personal Track is destructive (real repo,
+    #                          real Vercel deploy), so we do NOT ship
+    #                          scaffolds on unverified network hiccups.
+    #                          User just clicks materialize again.
+    override_active = bool(draft.get("override_active"))
+    if not override_active:
+        from services.scaffold_design_review import verify_scaffold as _verify
+        qa = await _verify(
+            db, draft_id=draft_id, brief=draft.get("brief") or "",
+            files=files,
+        )
+        if qa["verdict"] == "skipped_no_llm":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "reason":       "qa_reviewer_unavailable",
+                    "user_message": qa.get("user_message") or (
+                        "Our quality reviewer is temporarily "
+                        "unavailable. Please try again in a minute."),
+                    "retryable":    True,
+                    "raw_error":    qa.get("reason"),
+                },
+            )
+        if qa["verdict"] == "no":
+            await db.scaffold_drafts.update_one(
+                {"draft_id": draft_id, "user_id": user["user_id"]},
+                {"$set": {
+                    "status":          "blocked_by_qa",
+                    "qa_block_reason": qa.get("reason"),
+                    "qa_user_message": qa.get("user_message"),
+                    "qa_blocked_at":   time.time(),
+                }},
+            )
+            logger.warning(
+                "[materialize] BLOCKED by QA gate: draft=%s user=%s "
+                "reason=%r", draft_id, user["user_id"], qa.get("reason"))
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason":         "qa_review_failed",
+                    "user_message":   qa.get("user_message") or (
+                        "Your app doesn't fully match your "
+                        "description yet. Try clicking regenerate."),
+                    "technical_reason": qa.get("reason"),
+                    "override_hint":  ("Founders can bypass via POST "
+                                       "/scaffold/{draft_id}/founder-override "
+                                       "(audit-logged)."),
+                },
+            )
+        # verdict == "yes" → fall through to security gate.
+    else:
+        logger.info("[materialize] QA gate skipped — override_active for "
+                    "draft=%s user=%s", draft_id, user["user_id"])
+
     # ── Step 2.5 — SECURITY GATE (Iter 212m-237, Lovable-hardened) ──
     # Runs BEFORE any AUREM-owned resource is created (repo, project,
     # deploy) AND before the org-config 503 check — so a scan block
@@ -538,7 +702,6 @@ async def materialize_draft(
         scan_files as _scan_files,
         friendly_user_message as _friendly_scan_msg,
     )
-    override_active = bool(draft.get("override_active"))
     scan = await _scan_files(files)
     if not scan["ok"] and not override_active:
         # Mark the draft as blocked so the frontend can surface the

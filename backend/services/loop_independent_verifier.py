@@ -121,9 +121,17 @@ async def _log_row(db, row: dict) -> None:
 
 async def verify(db, *, loop_id: str,
                  files: list[dict],
-                 verifier_model: Optional[str] = None) -> dict:
+                 verifier_model: Optional[str] = None,
+                 origin: str = "loop_mode") -> dict:
     """Non-raising. Always returns a dict; always writes one row to
-    `loop_verification_log`."""
+    `loop_verification_log`.
+
+    `origin` is stamped onto every audit row so the same collection
+    can host multiple review modes (loop-mode diff review vs Personal
+    Track scaffold design review) without cross-mode pollution when
+    querying counts/rates. Any consumer of `loop_verification_log`
+    MUST filter by `origin`.
+    """
     started = time.time()
     model = verifier_model or _DEFAULT_MODEL
 
@@ -137,6 +145,7 @@ async def verify(db, *, loop_id: str,
             "latency_s":      round(time.time() - started, 2),
             "created_at":     datetime.now(timezone.utc).isoformat(),
             "raw":            "",
+            "origin":         origin,
         }
         await _log_row(db, row)
         return row
@@ -173,6 +182,7 @@ async def verify(db, *, loop_id: str,
             "latency_s":      round(time.time() - started, 2),
             "created_at":     datetime.now(timezone.utc).isoformat(),
             "raw":            str(e)[:400],
+            "origin":         origin,
         }
         await _log_row(db, row)
         return row
@@ -187,6 +197,7 @@ async def verify(db, *, loop_id: str,
             "usage":          usage or {},
             "created_at":     datetime.now(timezone.utc).isoformat(),
             "raw":            (text or "")[:400],
+            "origin":         origin,
         }
         await _log_row(db, row)
         return row
@@ -201,6 +212,7 @@ async def verify(db, *, loop_id: str,
         "usage":          usage or {},
         "created_at":     datetime.now(timezone.utc).isoformat(),
         "raw":            (text or "")[:2000],
+        "origin":         origin,
     }
     await _log_row(db, row)
     return row
@@ -210,3 +222,19 @@ async def ensure_indexes(db) -> None:
     await db[_COLL].create_index("loop_id")
     await db[_COLL].create_index("created_at")
     await db[_COLL].create_index("verdict")
+    await db[_COLL].create_index("origin")
+
+
+async def backfill_origin(db) -> dict:
+    """One-shot: any legacy row missing `origin` is stamped
+    `loop_mode` (the only mode that existed before Iter 274).
+    Idempotent — reruns are cheap no-ops. Returns before/after counts."""
+    before = await db[_COLL].count_documents({"origin": {"$exists": False}})
+    if before == 0:
+        return {"before": 0, "updated": 0, "after": 0}
+    res = await db[_COLL].update_many(
+        {"origin": {"$exists": False}},
+        {"$set": {"origin": "loop_mode"}},
+    )
+    after = await db[_COLL].count_documents({"origin": {"$exists": False}})
+    return {"before": before, "updated": res.modified_count, "after": after}
