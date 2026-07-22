@@ -155,6 +155,7 @@ async def _help(ctx: dict, _args: str) -> dict:
             {"cmd": "/find <pattern>",         "desc": "Find files (glob or substring)"},
             {"cmd": "/read <path>",            "desc": "Read a repo file (first 200 lines)"},
             {"cmd": "/defs <name>",            "desc": "Where is a function/class defined?"},
+            {"cmd": "/loop-stats [id]",        "desc": "Real per-phase durations for a loop run (defaults to your latest)"},
             {"cmd": "/help",                   "desc": "This list"},
         ],
     }
@@ -213,6 +214,125 @@ async def _defs(ctx: dict, args: str) -> dict:
              "value": hits}
 
 
+# ─── Loop execution stats (Iter 275) ─────────────────────────────
+# Deterministic aggregation over `loop_run_log` + `loop_sessions` so
+# any question about "how long did the fix take / plan phase / verify"
+# is answered from real audit rows, not a guess.
+async def _loop_stats(ctx: dict, args: str) -> dict:
+    """/loop-stats [loop_id] — real per-phase durations for a loop run.
+
+    If `loop_id` is omitted, uses the caller's most-recent loop run.
+    Returns start/end timestamps, per-phase elapsed seconds, and total
+    duration. All values are computed from the `created_at` field of
+    `loop_run_log` audit rows written by `loop_engine.py` at every
+    phase boundary."""
+    db = get_db()
+    if db is None:
+        return {"ok": False, "error": "database_unavailable"}
+    loop_id = (args or "").strip() or None
+
+    # Resolve loop_id if not passed.
+    if not loop_id:
+        user_id = (ctx or {}).get("user_id")
+        query = {"user_id": user_id} if user_id else {}
+        sess = await db.loop_sessions.find_one(
+            query, {"_id": 0, "loop_id": 1, "created_at": 1},
+            sort=[("created_at", -1)],
+        )
+        if not sess:
+            return {"ok": False, "error": "no_loop_runs_found",
+                     "hint": "No loop runs for this user yet. Kick "
+                              "one off via LOOP mode in the chat, then "
+                              "try /loop-stats again."}
+        loop_id = sess["loop_id"]
+
+    # Pull audit rows in time order.
+    rows: list[dict] = []
+    cursor = db.loop_run_log.find(
+        {"loop_id": loop_id},
+        {"_id": 0, "phase": 1, "kind": 1, "verdict": 1, "created_at": 1},
+    ).sort("created_at", 1)
+    async for r in cursor:
+        rows.append(r)
+    if not rows:
+        # Fall back to loop_sessions.last_event / state if no audit rows.
+        sess = await db.loop_sessions.find_one(
+            {"loop_id": loop_id},
+            {"_id": 0, "created_at": 1, "updated_at": 1, "state": 1,
+             "phase": 1, "user_id": 1},
+        )
+        if not sess:
+            return {"ok": False, "error": "loop_not_found",
+                     "hint": f"No loop with id '{loop_id}' — check the id."}
+        return {
+            "ok": True,
+            "command": "loop-stats",
+            "metric":  f"Loop {loop_id} (audit rows unavailable)",
+            "value": {
+                "loop_id":            loop_id,
+                "phase_durations_s":  {},
+                "start_ts":           sess.get("created_at"),
+                "end_ts":             sess.get("updated_at"),
+                "current_state":      sess.get("state"),
+                "current_phase":      sess.get("phase"),
+                "total_duration_s":   round(
+                    float((sess.get("updated_at") or 0) -
+                          (sess.get("created_at") or 0)), 2),
+                "audit_rows":         0,
+                "note":               "loop_run_log had no rows for this loop "
+                                       "— aggregation done from loop_sessions "
+                                       "timestamps only. Per-phase breakdown "
+                                       "not available.",
+            },
+        }
+
+    # Timestamps → ISO parseable → epoch seconds.
+    from datetime import datetime
+    def _parse_iso(s: str) -> float:
+        # Backend writes datetime.now(UTC).isoformat() so `s` is ISO-8601.
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+        except Exception:                                     # noqa: BLE001
+            return 0.0
+
+    ts = [_parse_iso(r["created_at"]) for r in rows]
+    start_epoch = ts[0]
+    end_epoch   = ts[-1]
+
+    # Phase durations: elapsed between rows within the same phase +
+    # the transition into it. Approach: bucket each interval to the
+    # phase of its OPENING row (the one that emitted the event).
+    phase_totals: dict[str, float] = {}
+    for i in range(len(rows) - 1):
+        ph = (rows[i].get("phase") or "unknown").lower()
+        dt = max(0.0, ts[i + 1] - ts[i])
+        phase_totals[ph] = phase_totals.get(ph, 0.0) + dt
+    # Round for display.
+    phase_totals = {k: round(v, 2) for k, v in phase_totals.items()}
+
+    # Also report the final phase reached + its verdict for context.
+    final_row = rows[-1]
+
+    return {
+        "ok": True,
+        "command": "loop-stats",
+        "metric":  f"Loop {loop_id} execution breakdown",
+        "value": {
+            "loop_id":           loop_id,
+            "audit_rows":        len(rows),
+            "start_ts":          rows[0]["created_at"],
+            "end_ts":            rows[-1]["created_at"],
+            "total_duration_s":  round(end_epoch - start_epoch, 2),
+            "phase_durations_s": phase_totals,
+            "final_phase":       final_row.get("phase"),
+            "final_verdict":     final_row.get("verdict"),
+            "note":              "Per-phase durations are gaps between "
+                                  "sequential loop_run_log entries — real "
+                                  "audit-row timing, not synthetic.",
+        },
+    }
+
+
 # Dispatch registry — every command in `safety.KNOWN_COMMANDS` MUST
 # have an entry here. The API layer enforces the pairing.
 DISPATCH: dict[str, SlashHandler] = {
@@ -226,6 +346,7 @@ DISPATCH: dict[str, SlashHandler] = {
     "find":                   _find,
     "read":                   _read,
     "defs":                   _defs,
+    "loop-stats":             _loop_stats,
     "help":                   _help,
 }
 

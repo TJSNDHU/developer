@@ -41,6 +41,7 @@ import LoopModeToggle, {
 } from "./LoopModeToggle";
 import IntentTierIndicator from "./IntentTierIndicator";
 import LoopStepBar from "./LoopStepBar";
+import LoopLiveFeed from "./LoopLiveFeed";
 import PlanApprovalCard from "./PlanApprovalCard";
 // Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
 // User Action card (powered by the real /loop/* SSE stream).
@@ -427,6 +428,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [selfHeal, setSelfHeal] = useState({ visible: false, attempt: 1, max: 3, errorPreview: "" });
   const [userAction, setUserAction] = useState(null);
   const [userActionBusy, setUserActionBusy] = useState(false);
+  // Iter 275 — dedicated live-feed panel state. `loopFeedEvent` is
+  // the LAST raw SSE event; `LoopLiveFeed` maintains its own ring
+  // buffer downstream. `loopTerminal` flips true on completed/
+  // failed/aborted so the pulsing indicator turns steady.
+  const [loopFeedEvent, setLoopFeedEvent] = useState(null);
+  const [loopTerminal, setLoopTerminal] = useState(false);
   // Iter 212m-111 — Manual Ship gate. Populated when the engine emits
   // a paused_for_user event with data.kind === "awaiting_ship".
   // `{owner, repo, branch, files, file_count, commit_message}`.
@@ -2115,6 +2122,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Map a single SSE event from the engine into UI state updates.
   function handleLoopEvent(ev) {
     if (!ev) return;
+    // Iter 275 — mirror the raw event into the LoopLiveFeed panel.
+    // This is the same event object the rest of this handler
+    // consumes; the panel just needs the trailing sequence.
+    setLoopFeedEvent(ev);
     const state = ev.state || "";
     const phase = ev.phase || "";
     const requiresAction = !!ev.requires_user_action;
@@ -2270,9 +2281,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (loopAbortRef.current) {
       try { loopAbortRef.current.abort(); } catch { /* swallow */ }
     }
+    // Iter 275 — reset the live-feed on every fresh open so a
+    // reconnect / new run doesn't inherit the previous run's ring.
+    setLoopFeedEvent(null);
+    setLoopTerminal(false);
     loopAbortRef.current = streamLoopEvents(lid, {
       onEvent: handleLoopEvent,
       onTerminal: () => {
+        setLoopTerminal(true);
         loopAbortRef.current = null;
         setBusy(false);
         setSelfHeal((s) => ({ ...s, visible: false }));
@@ -3003,6 +3019,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
       {/* Iter 212m-65 — Phase D wiring: live self-heal strip + paused
           user-action card driven by the /loop/{id}/stream SSE feed. */}
+      {/* Iter 275 — compact live-feed panel: last 4-5 real SSE events
+          from loop_engine.py phase transitions. Fallback line during
+          real silences is contextual (uses last known phase), not
+          canned. Hidden until the first event lands. */}
+      {loopId && (
+        <LoopLiveFeed
+          loopId={loopId}
+          event={loopFeedEvent}
+          terminal={loopTerminal}
+        />
+      )}
       <SelfHealIndicator
         visible={selfHeal.visible}
         attempt={selfHeal.attempt}

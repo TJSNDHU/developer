@@ -61,6 +61,7 @@ KNOWN_COMMANDS: tuple[str, ...] = (
     "find",
     "read",
     "defs",
+    "loop-stats",
     "help",
 )
 
@@ -147,7 +148,8 @@ CAN: web search (Sonar), fetch up to 2 non-GitHub URLs per turn
 (readable text only), GitHub public-repo lookup (metadata + file tree
 + top README/markdown files on scan requests — NOT every file),
 Reddit/news search, AUREM codebase read via slash commands
-(/read /find /defs /repo-tree), this session's own chat history.
+(/read /find /defs /repo-tree), real per-phase loop-run durations
+via /loop-stats [loop_id], this session's own chat history.
 CANNOT: write/edit/create any file, execute commands or code, deploy
 anything (there is NO /deploy command), run DB or system actions,
 read other chat sessions, scan an external repo file-by-file beyond
@@ -160,6 +162,11 @@ a capability gap with plausible-sounding output.
   codebase tree first, then dispatch a `/read <path>` or `/defs <name>`
   slash-command if you need the full source. NEVER invent a filename
   you didn't see in the tree.
+- When asked about **loop run timing / duration / "how long did X
+  take" / per-phase breakdowns** — ALWAYS dispatch `/loop-stats
+  [loop_id]` (omit the id to get the caller's latest run). Never
+  estimate durations from screenshots, chat scrollback, or memory —
+  those numbers are wrong.
 - If the answer requires reading multiple files, list the paths in a
   bullet list and let the founder pick, OR trigger the deep-research
   path (auto-fires on codebase questions — you'll see excerpts in the
