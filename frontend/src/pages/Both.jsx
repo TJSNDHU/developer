@@ -884,8 +884,13 @@ function IntegrityLog({ integrity }) {
           Live Integrity Log
         </h4>
         <span style={{fontSize:11.5, color:"#5f6570",
-                        fontFamily:"'JetBrains Mono',monospace"}}>
+                        fontFamily:"'JetBrains Mono',monospace",
+                        textAlign:"right", lineHeight:1.5}}>
           {ready ? "real counts, this environment" : "loading counts…"}
+          <br/>
+          <span style={{color:"#4a5058"}}>
+            Includes nightly self-tests + live usage
+          </span>
         </span>
       </div>
       <div style={{display:"grid",

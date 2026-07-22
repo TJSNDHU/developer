@@ -1,6 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
+> **Latest closed iteration:** 2026-07-22 — Iter 273 (Real-LLM verifier
+> test + Canary armed for `/both` integrity freshness). Full details in
+> `CHANGELOG.md`.
+
+
+
 ### 2026-02-16 — Iter 212m-253/254/255/256 — Hallucination Prevention Stack
 
 **Founder ask (Hinglish):** Step 1 — abstain threshold strict karo. Step 2 — 3-step self-improving loop banao: (a) auto-detect ungrounded claims + log, (b) weekly batch-classify recurring patterns via DeepSeek, (c) HUMAN-approved promotion into house rules (no auto-inject).

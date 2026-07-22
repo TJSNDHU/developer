@@ -4,6 +4,44 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-22 — Iter 273 Real-LLM Verifier Test + Integrity Log Freshness
+
+**Founder ask (Hinglish, verbatim):**
+1. Real LLM integration test for the independent verifier — Sonnet writes a spec-gaming diff, GLM catches it (no monkeypatch).
+2. Investigate why `ora_hallucination_log` / `ora_review_log` writers idle since 2026-07-18.
+3. Set `ORA_CANARY_ENABLED=1`, prove tonight's canary writes to all 3 collections with today's timestamp.
+4. Add copy line "Includes nightly self-tests + live usage" to the `/both` Integrity Log widget.
+
+**Ship — 4 items, preview verified:**
+
+*Fix 1 — Real OpenRouter verifier test*
+- **NEW** `backend/tests/test_iter272_real_llm_verifier.py` — two tests against real GLM-5.2 (no mocks, no monkeypatch):
+  - Case A (`test_verifier_real_llm_catches_spec_gaming`): frozen spec = "fix off-by-one in `pagination.py`"; diff loosens the test assertion instead of fixing the code. GLM verdict: **`no`** with reason *"Only modifies the test file to loosen assertions; production code pagination.py is untouched…"*. Latency 11.71s. Audit row `_id=6a613c6bff69f37ee06937ef` in `loop_verification_log`.
+  - Case B (`test_verifier_real_llm_allows_correct_fix`): same spec, correct one-line fix in `pagination.py` (`end = start + size`). GLM verdict: **`yes`** with reason *"Changes end bound to start + size in pagination.py, fixing the off-by-one without touching tests or unrelated files."* Latency 1.89s. Audit row `_id=6a613c6dff69f37ee06937f2`.
+- Opt-in gate: skips unless `RUN_LLM_INTEGRATION=1` set. CI stays free.
+- Existing 25 Milestone-A tests still pass (0.30s, no regression).
+
+*Fix 2 — Idle-writer diagnosis*
+- Verdict: **not a bug**. Zero ORA Chat traffic July 19-22 (4 consecutive days, 0 sessions touched per day). Writers alive: manual `log_hallucination()` invocation wrote +1 row instantly (`_id=6a613cbacb48fe71491caf6e`, later cleaned up). Backend error logs clean for `adversarial|grounding|hallucination|reviewer`.
+- Every downstream sink (`ora_hallucination_log`, `ora_review_log`, `ora_reviewer_errors`, `ora_chat_usage`) lines up on 2026-07-18 evening — proves upstream traffic gap, not per-writer failure.
+
+*Fix 3 — Canary armed for continuous freshness*
+- `/app/backend/.env`: added `ORA_CANARY_ENABLED=1` and `ORA_CANARY_HOUR_UTC=02:30`.
+- Backend restart armed the cron: log line `🕊️ ORA grounding canary cron enabled … armed — daily 02:30 UTC`.
+- Manual `run_canary(triggered_by="manual_trigger_pre_cron")` (same code path as cron) — 104.1s real work — delta: `ora_hallucination_log` +2, `ora_review_log` +1, `ora_canary_runs` +1. Fresh timestamps `2026-07-22T22:00:46` and `2026-07-22T22:01:03`. `ora_reviewer_errors` unchanged (correct — this collection only fills when reviewer itself hallucinates a quote; canary reviewer runs were clean).
+- **⚠ Production action pending (only preview flipped here):** founder must add `ORA_CANARY_ENABLED=1` and `ORA_CANARY_HOUR_UTC=02:30` to the production env-var store once the Cloud Build blocker is cleared.
+
+*Fix 4 — /both Integrity Log copy line*
+- `frontend/src/pages/Both.jsx::IntegrityLog` — added second-line subtitle *"Includes nightly self-tests + live usage"* directly under the existing *"real counts, this environment"* tag. Non-intrusive, matches monospace family and dimmer colour (`#4a5058`).
+
+**Honesty ledger — corrections to earlier session claims:**
+- Earlier claim "25/25 tests real, no mocks" was misleading. Corrected reality: real Mongo everywhere, but **0 real OpenRouter calls** — LLM boundary was monkeypatched in the 2 verifier tests. Iter 273 closes this gap with `test_iter272_real_llm_verifier.py`.
+- Earlier verification report on `/both` did not mention the persistent 503 on `POST /scaffold/{draft_id}/materialize`. Materialize is **still 503** — root cause is that `AUREM_ORG_NAME` and `AUREM_ORG_GITHUB_APP_TOKEN` are not set in `backend/.env`. Founder still needs to provision these before Personal Track T4 works. Confirmed via `github_org_client.is_configured()` guard at `routers/scaffold.py:581`.
+
+**Blocked (platform-side, no code fix):**
+- Production Cloud Build has failed 11 consecutive times since 2026-07-21 with generic `TerminalCloudBuildFailure`. No actionable build logs surfaced to the founder. Preview environment fully healthy. Escalation email drafted for `support@emergent.sh`; live app on `www.auremcto.com` still serving the last successful 2026-07-20 build.
+
+
 ## 2026-02-XX — Iter 270 SSRF Hard Gate on `fetch_url`
 
 **Problem**: `services/ora_chat/deep_research.py::_fetch_one_url` was
