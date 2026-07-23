@@ -71,14 +71,21 @@ export default function IntentTierIndicator({ liveText, lastTier }) {
     return () => { if (debTimer.current) clearTimeout(debTimer.current); };
   }, [liveText]);
 
-  if (!tier) return null;
-  const theme = tierTheme(tier);
+  // Iter 281 follow-up — never return null. Same graceful-degradation
+  // rule that fixed LoopLiveFeed: an empty tier used to make the entire
+  // dot+label disappear from the composer toolbar, which broke the
+  // CSS sibling selectors in index.css:666-667 that anchor the
+  // LoopModeToggle position. Default to `casual` when nothing has
+  // been classified yet — tierTheme() already falls back there too.
+  const activeTier = tier || "casual";
+  const theme = tierTheme(activeTier);
   const confLabel = typeof conf === "number" ? ` · ${(conf * 100).toFixed(0)}%` : "";
 
   return (
     <div
       data-testid="intent-tier-indicator"
-      data-tier={tier}
+      data-tier={activeTier}
+      data-pending={tier ? undefined : "true"}
       title={`Intent: ${theme.label}${confLabel} (read-only — Gateway picks the path)`}
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,

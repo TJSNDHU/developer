@@ -4,6 +4,19 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 282 (Release It! patterns audit)
+
+**Bulkhead / Steady State / Governor audit.**
+- **Bulkhead** — already correct (loop_locks unique on `{project_id, user_id}`). Regression test added so a future refactor widening this to `{project_id}` alone trips CI.
+- **Steady State** — FIXED: 6 loop-machinery collections had NO TTL indexes and grew unboundedly. Added TTL to `init_prod_collections.py` (7d / 30d / 90d tiers by data class) + applied to running DB via idempotent `create_index(..., expireAfterSeconds=...)` script. Collections: `loop_events` (7d), `loop_locks` (7d), `loop_failures` (7d), `loop_sessions` (30d), `loop_verification_log` (90d), `loop_run_log` (90d).
+- **Governor** — FIXED: `routers/loop.py::stream_loop` SSE generator's `while True` had no wall-clock ceiling. Added `_STREAM_MAX_S = 20 * 60` — emits a synthetic terminal `aborted` frame + breaks out if the loop stays non-terminal past 20 min. Prevents a stuck loop from tying up an app worker indefinitely.
+
+**Tests + docs added:**
+- `test_release_it_patterns_iter282.py` — 6 tests (2 regression, 4 invariants), all PASS.
+- Postmortem: `postmortems/iter282_release_it_patterns_audit.md`.
+- New AGENTS.md section: `## Release It! patterns checklist`.
+- MTTR log updated (0.58 h — proactive audit, not a user report).
+
 ## 2026-02 — Iter 281 + Continuous Quality System
 
 **Iter 281 — LoopLiveFeed graceful placeholder + runLoopPlan busy-gate fix.**

@@ -240,6 +240,47 @@ _BOOTSTRAP_SPEC: list[tuple[str, list[tuple[list, dict]]]] = [
         # the past" — the doc supplies the actual timestamp.
         ([("expires_at", 1)], {"expireAfterSeconds": 0}),
     ]),
+    # ── Release It! Steady State pattern — loop-machinery collections ──
+    #
+    # Every one of these grows monotonically with production traffic
+    # and had NO TTL prior to this iter. Retention tiers:
+    #   • runtime-only    (7 d):  loop_events, loop_locks, loop_failures
+    #   • audit trail     (30 d): loop_sessions
+    #   • analytics feed  (90 d): loop_verification_log, loop_run_log
+    #
+    # Uses `created_at` (or `updated_at` where the collection tracks
+    # the last event more meaningfully) with `expireAfterSeconds` >0,
+    # NOT the expires_at pattern above — these rows don't carry an
+    # explicit expiry field, so we use age-since-creation.
+    ("loop_events", [
+        ([("loop_id", 1), ("created_at", 1)], {}),
+        ([("created_at", 1)], {"expireAfterSeconds": 7 * 24 * 3600}),
+    ]),
+    ("loop_locks", [
+        ([("project_id", 1), ("user_id", 1)],
+         {"unique": True, "sparse": True}),
+        ([("acquired_at", 1)], {"expireAfterSeconds": 7 * 24 * 3600}),
+    ]),
+    ("loop_failures", [
+        ([("project_id", 1), ("user_id", 1), ("occurred_at", -1)], {}),
+        ([("occurred_at", 1)], {"expireAfterSeconds": 7 * 24 * 3600}),
+    ]),
+    ("loop_sessions", [
+        ([("loop_id", 1)], {"unique": True, "sparse": True}),
+        ([("user_id", 1), ("updated_at", -1)], {}),
+        ([("project_id", 1), ("state", 1)], {}),
+        ([("updated_at", 1)], {"expireAfterSeconds": 30 * 24 * 3600}),
+    ]),
+    ("loop_verification_log", [
+        ([("loop_id", 1), ("created_at", -1)], {}),
+        ([("origin", 1), ("verdict", 1)], {}),
+        ([("created_at", 1)], {"expireAfterSeconds": 90 * 24 * 3600}),
+    ]),
+    ("loop_run_log", [
+        ([("loop_id", 1)], {"unique": True, "sparse": True}),
+        ([("user_id", 1), ("created_at", -1)], {}),
+        ([("created_at", 1)], {"expireAfterSeconds": 90 * 24 * 3600}),
+    ]),
 ]
 
 # Bootstrap sentinel — written then removed so collection materialises.

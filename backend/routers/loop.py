@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import logging
 from typing import Optional
 
@@ -357,12 +358,36 @@ async def loop_stream(loop_id: str,
             raise HTTPException(403, "Not your loop")
 
     _TERMINAL = {"completed", "failed", "aborted"}
+    # Release It! Governor pattern — hard wall-clock ceiling on the
+    # SSE stream. Without this, a loop that gets stuck in a
+    # non-terminal state (executing/verifying/scanning) can keep this
+    # generator alive indefinitely and tie up an app worker. 20 min
+    # is well above any observed real end-to-end run (self-heals
+    # included). At the ceiling we emit a synthetic terminal frame
+    # so the frontend disconnects cleanly rather than seeing a
+    # silent EOF.
+    _STREAM_MAX_S = 20 * 60
 
     async def gen():
         db = get_db()
         sent_sig = None
+        _stream_started = time.monotonic()
         try:
             while True:
+                if time.monotonic() - _stream_started > _STREAM_MAX_S:
+                    _cap_min = _STREAM_MAX_S // 60
+                    terminal_ev = {
+                        "state":   "aborted",
+                        "phase":   "?",
+                        "message": (
+                            f"SSE stream capped at {_cap_min} min — "
+                            "no terminal state received. Reconnect "
+                            "if the loop is still running."
+                        ),
+                        "ts": time.time(),
+                    }
+                    yield f"data: {json.dumps(terminal_ev)}\n\n"
+                    break
                 ev = None
                 if engine is not None:
                     try:

@@ -170,14 +170,8 @@ def test_invariant_loop_live_feed_never_returns_null():
     Once a loop_id exists in ChatPanel state, the [data-testid=
     loop-live-feed] node MUST be present in the DOM — either with
     real events or with the pending-approval placeholder.
-
-    Returning null (as the pre-Iter 281 code did) hides the panel
-    entirely during the plan-approval window, which was reported by
-    users as "the live feed just doesn't show up".
     """
     src = open("/app/frontend/src/components/LoopLiveFeed.jsx").read()
-
-    # No `return null` guarded on `events.length === 0`.
     forbidden = [
         "!loopId || events.length === 0",
         "events.length === 0 && !terminal",
@@ -188,16 +182,45 @@ def test_invariant_loop_live_feed_never_returns_null():
             f"LoopLiveFeed must not return null on empty events "
             f"(pattern `{pat}` re-introduces the Iter 281 bug)."
         )
-
-    # The placeholder testid must render.
-    assert 'data-testid="loop-live-feed-placeholder"' in src, (
-        "LoopLiveFeed must render a placeholder while awaiting "
-        "the first SSE event."
-    )
-    # The panel testid must live outside the empty-events guard.
-    # Simple check: at least TWO occurrences of the panel testid
-    # (one for placeholder, one for real feed).
+    assert 'data-testid="loop-live-feed-placeholder"' in src
     assert src.count('data-testid="loop-live-feed"') >= 2, (
         "LoopLiveFeed should have TWO render paths using the same "
         "data-testid — the pending placeholder AND the live feed."
     )
+
+
+# ───────────────────────────────────────────────────────────────────
+# INVARIANT 5 — IntentTierIndicator never returns null
+# ───────────────────────────────────────────────────────────────────
+def test_invariant_intent_tier_indicator_never_returns_null():
+    """
+    Same graceful-degradation rule as invariant 4 (LoopLiveFeed).
+
+    IntentTierIndicator previously returned null when `tier` was
+    falsy, which made the composer-toolbar dot disappear entirely
+    and broke the CSS sibling selectors in `index.css:666-667`
+    (`[data-testid="intent-tier-indicator"] ~ [data-testid="loop-
+    mode-toggle"]`) that anchor the LoopModeToggle position.
+
+    Fix: default to a neutral `casual` tier when nothing has been
+    classified yet, marked with `data-pending="true"`.
+    """
+    src = open("/app/frontend/src/components/IntentTierIndicator.jsx").read()
+
+    # The bad early-return must be gone.
+    assert "if (!tier) return null" not in src, (
+        "IntentTierIndicator must not return null on empty tier "
+        "— re-introduces the Iter 281-followup CSS-sibling bug."
+    )
+    # The pending marker must exist so consumers can style the
+    # placeholder differently from a real classification.
+    assert 'data-pending' in src, (
+        "IntentTierIndicator must set data-pending on the placeholder "
+        "state so it's distinguishable from a real classification."
+    )
+    # And the fallback tier variable must be used.
+    assert "activeTier" in src, (
+        "IntentTierIndicator must funnel through an activeTier "
+        "fallback (default 'casual') — see the Iter 281 follow-up."
+    )
+

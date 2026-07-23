@@ -136,7 +136,15 @@ jobs:
             tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter280_chat_input_enabled_during_loop \
             tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_plan_approval_reachable_from_any_prior_state \
             tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_loop_live_feed_pending_placeholder \
+            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_intent_tier_indicator_no_null_return \
             tests/test_invariants_continuous_quality.py::test_invariant_chat_input_never_disabled_during_active_loop \
             tests/test_invariants_continuous_quality.py::test_invariant_every_sse_event_reaches_frontend_playwright \
             tests/test_invariants_continuous_quality.py::test_invariant_loop_live_feed_never_returns_null \
+            tests/test_invariants_continuous_quality.py::test_invariant_intent_tier_indicator_never_returns_null \
+            tests/test_release_it_patterns_iter282.py::test_invariant_bulkhead_unique_index_declared \
+            tests/test_release_it_patterns_iter282.py::test_invariant_steady_state_declared_in_bootstrap_spec \
+            tests/test_release_it_patterns_iter282.py::test_regression_iter282_sse_stream_has_wallclock_ceiling \
+            tests/test_release_it_patterns_iter282.py::test_invariant_governor_retry_ceilings_exist \
+            tests/test_sre_discipline_integrity.py \
+            tests/test_quality_gate_enforcement.py \
             -v --tb=short

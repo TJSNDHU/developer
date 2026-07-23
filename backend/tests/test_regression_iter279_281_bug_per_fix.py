@@ -346,3 +346,32 @@ def test_regression_iter281_loop_live_feed_pending_placeholder():
     # And the placeholder testid must exist.
     assert 'data-testid="loop-live-feed-placeholder"' in src, \
         "LoopLiveFeed must render a placeholder while awaiting SSE"
+
+
+# ───────────────────────────────────────────────────────────────────
+# Iter 281 follow-up — IntentTierIndicator same pattern
+# ───────────────────────────────────────────────────────────────────
+def test_regression_iter281_intent_tier_indicator_no_null_return():
+    """
+    Bug (audit follow-up to Iter 281): IntentTierIndicator returned
+    null when `tier` was falsy. That made the composer-toolbar dot
+    disappear before any classification landed, breaking the sibling
+    CSS selectors in `index.css:666-667` that anchor the
+    LoopModeToggle position.
+
+    Fix: default to a neutral `casual` tier and mark the placeholder
+    render with `data-pending="true"` so consumers can distinguish.
+    """
+    with open("/app/frontend/src/components/IntentTierIndicator.jsx") as f:
+        src = f.read()
+
+    assert "if (!tier) return null" not in src, (
+        "IntentTierIndicator must not return null on empty tier "
+        "— re-introduces the CSS-sibling regression."
+    )
+    assert "activeTier" in src, (
+        "must funnel tier through an activeTier fallback (default 'casual')"
+    )
+    assert "data-pending" in src, (
+        "placeholder render must set data-pending='true'"
+    )

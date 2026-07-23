@@ -106,6 +106,155 @@ must never fail on `main`:
 
 ---
 
+## Error Budget Policy (Google SRE) + DORA Four Keys
+
+Reliability is a feature. We measure and gate on the four keys
+published by Google's [DORA](https://dora.dev/) research program,
+using their exact terminology so we can benchmark against the
+public Elite/High/Medium/Low tiers instead of inventing our own
+labels.
+
+| DORA metric               | Where it lives                         | Threshold (this repo)     |
+|---------------------------|----------------------------------------|---------------------------|
+| Deployment Frequency      | `loop_outcomes` `ship_at` timestamps   | informational (no gate)   |
+| Lead Time for Changes     | commit → `ship_at` delta               | informational (no gate)   |
+| **Change Failure Rate**   | `loop_outcomes.revert_within_24h`      | **≤ 10%** (14-day window) |
+| **MTTR** (Mean Time To Restore) | `/app/memory/mttr_log.json`      | **≤ 24 h**                |
+
+**Naming rule**: anywhere the code or dashboard currently says
+"revert-rate", we now spell it **Change Failure Rate** in labels,
+comments, and docs. The underlying computation is unchanged — this
+is purely a naming alignment with DORA so the number is
+benchmarkable. Grep for `revert-rate` / `revert_rate` on next touch
+of that surface and rename in place (opportunistic — not a sprint).
+
+### Error Budget Policy — what happens when Change Failure Rate > 10%
+
+1. New feature work FREEZES on `main` immediately.
+2. Only reliability fixes may merge — labelled `[reliability-fix]`.
+   The CI quality-gate accepts these WITHOUT the normal test-file
+   requirement (they may just be revert-shaped) but each MUST link
+   a postmortem doc (see next section) in the PR description.
+3. Feature-work freeze lifts automatically once the trailing
+   14-day rate returns below 10%. No committee vote.
+
+**Where the number lives**: `services/loop_outcomes.py::rolling_
+change_failure_rate()` (build in a future iter — placeholder
+constant `CHANGE_FAILURE_BUDGET = 0.10` in that module suffices for
+now). Founder dashboard surfaces it as a single green/red indicator
+next to the daily brief.
+
+### MTTR tracking (starts now)
+
+Every bug that reaches production and gets fixed writes ONE row to
+`/app/memory/mttr_log.json`:
+
+```json
+{
+  "iter": 279,
+  "slug": "cancel-race-condition",
+  "reported_at":  "2026-02-05T18:12:00Z",
+  "deployed_at":  "2026-02-05T20:47:00Z",
+  "mttr_hours":   2.58,
+  "postmortem":   "postmortems/iter279_cancel_race.md"
+}
+```
+
+**Retroactive backfill**: only for iters where both timestamps are
+trivially recoverable from `CHANGELOG.md` (the "date-stamped
+chunk" header) + the actual deploy history. Skip anything that
+would need archaeology — going forward is what matters.
+
+---
+
+## Blameless Postmortem template
+
+For major bugs — anything in the "ghost-task / cancel-race /
+SSE-wiring / silent-swallow" class — the regression test alone
+is not enough. Write a short human-readable doc alongside it.
+
+Location: `/app/postmortems/iter<N>_<slug>.md`.
+
+Template (keep it short — one page max):
+
+```
+# Iter <N> — <one-line title>
+Date: YYYY-MM-DD
+Regression test: test_regression_iter<N>_<slug>
+
+## What happened
+2-4 sentences. What did the user experience? What did the system
+actually do?
+
+## Root cause
+The ONE technical reason. If there are two, pick the deeper one —
+the other is a symptom.
+
+## Fix
+One paragraph. What we changed and why THAT change is the correct
+lever. Reference the code location(s).
+
+## Why our tests missed it
+Honest answer. Usually one of:
+   - No integration-level test covered this seam
+   - The mock in the unit test hid the real failure mode
+   - The bug is a race — our test suite has no time dimension yet
+
+## Prevention (what's now permanent)
+- Regression test: <path>
+- Fitness invariant (if any): <path>
+- Rule added to AGENTS.md (if any): <section anchor>
+
+## MTTR
+- Reported:  YYYY-MM-DDTHH:MM:SSZ
+- Deployed:  YYYY-MM-DDTHH:MM:SSZ
+- Total:     <hours>
+
+## Not-follow-ups
+Explicitly list what we're NOT doing, so future readers don't ask.
+E.g. "not refactoring loop_engine.py in this pass — deferred to
+iter N+K per user instruction."
+```
+
+Blameless means: no names, no "should have caught this earlier",
+no finger-pointing at agents or humans. The system failed; that
+is the object of study.
+
+---
+
+## Release It! patterns checklist
+
+Michael Nygard's [Release It!](https://pragprog.com/titles/mnee2/release-it-second-edition/)
+lists the failure modes distributed systems keep re-inventing.
+Three that apply directly to this codebase — audited in iter 282,
+locked with permanent tests. Any new subsystem must be checked
+against these three before shipping:
+
+1. **Bulkhead** — resources are partitioned so one bad tenant can't
+   starve the others. Concretely for us: the `loop_locks` unique
+   index MUST be composite `{project_id, user_id}`, never just
+   `{project_id}`. User A's stuck loop must not block user B on
+   the same project.  See `test_invariant_bulkhead_unique_index_declared`.
+2. **Steady State** — every collection that grows with traffic
+   MUST declare a TTL. If you add a new collection to
+   `init_prod_collections.py`, it needs an `expireAfterSeconds`
+   line UNLESS the collection is user-owned data (accounts,
+   projects, chat sessions) — those are size-of-user-base, not
+   size-of-time. See `test_invariant_loop_collections_have_ttl_indexes`.
+3. **Governor** — every user-facing / request-scoped `while True`
+   loop MUST have a wall-clock ceiling. Background daemons
+   (db_backup, canary, digest) are intentionally perpetual and
+   exempt; SSE generators, retry loops, and long-poll handlers
+   are NOT. See `test_regression_iter282_sse_stream_has_wallclock_ceiling`.
+
+Circuit Breaker and Timeout patterns are already present via
+`services/loop_safety.py::is_loop_circuit_open` and
+`shared/resilience/circuit_breaker_service.py` — not audited in
+this iter because they were already in place, but same discipline
+applies: any new external call goes through them.
+
+---
+
 ## Regression-test naming index (grow this list)
 
 - `test_regression_iter277_ghost_task_terminal_frame`
@@ -115,3 +264,6 @@ must never fail on `main`:
 - `test_regression_iter280_chat_history_persists_on_reload`
 - `test_regression_iter281_plan_approval_reachable_from_any_prior_state`
 - `test_regression_iter281_loop_live_feed_pending_placeholder`
+- `test_regression_iter281_intent_tier_indicator_no_null_return`
+- `test_regression_iter282_bulkhead_project_isolation`
+- `test_regression_iter282_sse_stream_has_wallclock_ceiling`

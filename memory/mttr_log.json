@@ -1,0 +1,46 @@
+{
+  "_note": "Append-only. See /app/AGENTS.md § 'MTTR tracking' for schema. Timestamps are UTC ISO-8601. mttr_hours computed at write time; recompute if you edit either timestamp.",
+  "_budget": {
+    "target_mttr_hours": 24,
+    "target_change_failure_rate": 0.10,
+    "window_days": 14
+  },
+  "entries": [
+    {
+      "iter": 277,
+      "slug": "ghost-task-terminal-frame",
+      "reported_at": "2026-07-23T00:26:42Z",
+      "deployed_at": "2026-07-23T02:11:00Z",
+      "mttr_hours": 1.74,
+      "postmortem": "postmortems/iter277_ghost_task_terminal_frame.md",
+      "class": "SSE-wiring"
+    },
+    {
+      "iter": 279,
+      "slug": "cancel-race-condition",
+      "reported_at": "2026-02-04T14:20:00Z",
+      "deployed_at": "2026-02-04T17:35:00Z",
+      "mttr_hours": 3.25,
+      "postmortem": "postmortems/iter279_cancel_race_condition.md",
+      "class": "concurrency"
+    },
+    {
+      "iter": 281,
+      "slug": "loop-live-feed-and-runloopplan",
+      "reported_at": "2026-02-05T18:12:00Z",
+      "deployed_at": "2026-02-05T20:47:00Z",
+      "mttr_hours": 2.58,
+      "postmortem": "postmortems/iter281_loop_live_feed_and_runloopplan.md",
+      "class": "graceful-degradation"
+    },
+    {
+      "iter": 282,
+      "slug": "release-it-patterns-audit",
+      "reported_at": "2026-02-05T21:00:00Z",
+      "deployed_at": "2026-02-05T21:35:00Z",
+      "mttr_hours": 0.5833333333333334,
+      "postmortem": "postmortems/iter282_release_it_patterns_audit.md",
+      "class": "proactive-audit"
+    }
+  ]
+}
