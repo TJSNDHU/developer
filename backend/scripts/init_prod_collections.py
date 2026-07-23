@@ -308,10 +308,40 @@ async def _ensure_indexes(db, name: str,
                           specs: Iterable[tuple[list, dict]]) -> int:
     n = 0
     for keys, opts in specs:
+        opts = opts or {}
         try:
-            await db[name].create_index(keys, **(opts or {}))
+            await db[name].create_index(keys, **opts)
             n += 1
-        except Exception as e:
+        except Exception as e:                                # noqa: BLE001
+            # Iter 282 follow-up — when we're trying to add a TTL
+            # (expireAfterSeconds) and a plain index on the same
+            # single key already exists under the default name,
+            # MongoDB raises IndexOptionsConflict. Drop the conflicting
+            # index and retry ONCE so TTL bootstrap is idempotent
+            # across environments that were provisioned before TTL
+            # was declared.
+            if (
+                "expireAfterSeconds" in opts
+                and len(keys) == 1
+                and "IndexOptionsConflict" in repr(e)
+            ):
+                field, _direction = keys[0]
+                default_name = f"{field}_1"
+                try:
+                    await db[name].drop_index(default_name)
+                    await db[name].create_index(keys, **opts)
+                    logger.info(
+                        "index_conflict_resolved: %s dropped %s, "
+                        "recreated with expireAfterSeconds=%s",
+                        name, default_name, opts["expireAfterSeconds"],
+                    )
+                    n += 1
+                    continue
+                except Exception as inner:                    # noqa: BLE001
+                    logger.warning(
+                        "TTL retry after drop failed for %s.%s: %r",
+                        name, default_name, inner,
+                    )
             logger.warning("create_index %s %r failed: %r", name, keys, e)
     return n
 

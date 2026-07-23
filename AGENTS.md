@@ -272,3 +272,4 @@ applies: any new external call goes through them.
 - `test_regression_iter281_intent_tier_indicator_no_null_return`
 - `test_regression_iter282_bulkhead_project_isolation`
 - `test_regression_iter282_sse_stream_has_wallclock_ceiling`
+- `test_regression_iter282_ttl_bootstrap_resolves_index_conflict`
