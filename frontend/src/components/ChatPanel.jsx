@@ -970,6 +970,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       try { loopAbortRef.current.abort(); } catch { /* swallow */ }
       loopAbortRef.current = null;
     }
+    // Iter 283 — also send an explicit /loop/{id}/cancel to the
+    // backend. Aborting the SSE controller alone was enough for
+    // an actively-streaming loop (server detects the disconnect
+    // and cleans up), but for a `paused_for_user` loop at a gate
+    // (e.g. SHIP-approval), the engine is idle — there's no
+    // stream to abort, so the loop stayed alive server-side after
+    // Stop.  Fire cancelLoop() unconditionally when we have a
+    // loopId; the endpoint is idempotent and returns 404-tolerant.
+    if (loopId) {
+      cancelLoop(loopId).catch((err) => {
+        console.debug("[loop-stop] cancelLoop failed:", err);
+      });
+    }
     // Iter 212m-43 — also kill any pending idle watchdog so it can't
     // fire an auto-retry after the user explicitly clicked Stop.
     if (idleTimerRef.current) {
@@ -999,7 +1012,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         };
       })
     );
-  }, []);
+  }, [loopId]);
 
   async function handleFiles(fileList) {
     const files = Array.from(fileList || []);

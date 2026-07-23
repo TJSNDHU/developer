@@ -43,6 +43,15 @@
       "mttr_hours": 0.5833333333333334,
       "postmortem": "postmortems/iter282_release_it_patterns_audit.md",
       "class": "proactive-audit"
+    },
+    {
+      "iter": 283,
+      "slug": "chat-stop-paused-for-user",
+      "reported_at": "2026-02-05T22:20:00Z",
+      "deployed_at": "2026-02-05T23:00:00Z",
+      "mttr_hours": 0.6666666666666666,
+      "postmortem": "postmortems/iter283_chat_stop_paused_for_user.md",
+      "class": "state-machine-gap"
     }
   ]
 }

@@ -4,6 +4,20 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 283 (chat-stop paused_for_user cancel gap)
+
+**Bug**: full QA E2E on prod surfaced that clicking Stop on a loop sitting at the SHIP-approval gate (`state="paused_for_user"`) did NOT cancel the backend engine — `/loop/active` still showed the loop 4s+ after click.
+
+**Root cause**: `ChatPanel.jsx::stop()` aborted the local SSE `AbortController` but never called `cancelLoop(loopId)`. Actively-streaming loops happened to work by accident (server detects client disconnect via SSE-gen finally block); idle paused loops had no stream to disconnect.
+
+**Fix**: `stop()` now unconditionally calls `cancelLoop(loopId)` when a loopId is set. Backend `cancel_loop` already handled all states correctly — zero server changes needed.
+
+**Tests + docs**:
+- `test_regression_iter283_chatpanel_stop_calls_cancel_loop` (source-level: stop() MUST call cancelLoop with loopId in deps).
+- `test_regression_iter283_backend_cancels_paused_for_user_loop` (integration: paused_for_user → aborted transition writes state + terminal event + releases lock).
+- Postmortem: `postmortems/iter283_chat_stop_paused_for_user.md`.
+- MTTR: 0.67h (surfaced by own E2E).
+
 ## 2026-02 — Iter 282 (Release It! patterns audit)
 
 **Bulkhead / Steady State / Governor audit.**

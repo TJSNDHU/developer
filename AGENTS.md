@@ -273,3 +273,5 @@ applies: any new external call goes through them.
 - `test_regression_iter282_bulkhead_project_isolation`
 - `test_regression_iter282_sse_stream_has_wallclock_ceiling`
 - `test_regression_iter282_ttl_bootstrap_resolves_index_conflict`
+- `test_regression_iter283_chatpanel_stop_calls_cancel_loop`
+- `test_regression_iter283_backend_cancels_paused_for_user_loop`
