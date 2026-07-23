@@ -832,6 +832,83 @@ class LoopEngine:
             _parliament = Parliament(db=self.db)
 
             paths: list[str] = list((plan or {}).get("files_to_change") or [])
+
+            # ── Iter 288 (j007) — Scope-drift block ─────────────────
+            # Compare the paths Execute is about to touch against the
+            # WORM-frozen file list captured at plan-approval time. If
+            # anything new has appeared (file_selector expansion, a
+            # mutated context.plan, a rehydrated engine that re-planned
+            # implicitly), we pause the loop with a scope_drift event
+            # instead of silently generating extra files. The user
+            # then either re-approves or aborts. Previously the
+            # verifier only caught this at ship time — after a full
+            # generation had already burned tokens (see loop_1f8
+            # postmortem, this iter's PRD notes).
+            try:
+                from services import loop_task_specs as _lts
+                spec = await _lts.get(self.db, self.loop_id)
+                frozen = (spec or {}).get("frozen_files_to_change") or []
+                frozen_set = {str(p).strip() for p in frozen if str(p).strip()}
+                if frozen_set:
+                    current_set = {str(p).strip() for p in paths if str(p).strip()}
+                    extras = sorted(current_set - frozen_set)
+                    if extras:
+                        logger.warning(
+                            "[loop %s] SCOPE DRIFT — plan froze %d files, "
+                            "Execute wants %d (extras: %s)",
+                            self.loop_id, len(frozen_set),
+                            len(current_set), extras[:10],
+                        )
+                        # Persist to loop_events for audit (j007
+                        # traceability row references this collection).
+                        try:
+                            await self.db.loop_events.insert_one({
+                                "loop_id":    self.loop_id,
+                                "user_id":    self.user_id,
+                                "project_id": self.project_id,
+                                "kind":       "scope_drift",
+                                "frozen":     sorted(frozen_set),
+                                "extras":     extras,
+                                "ts":         _iso(),
+                            })
+                        except Exception as e:                # noqa: BLE001
+                            logger.debug(
+                                "[loop %s] scope_drift audit write "
+                                "failed (non-fatal): %r",
+                                self.loop_id, e,
+                            )
+                        # Pause the loop and hand control back to the
+                        # user via a paused_for_user frame — same
+                        # pattern the test-file-lock gate uses.
+                        self.state = LoopState.PAUSED_FOR_USER
+                        await _persist_session(self.db, self._doc())
+                        await self._emit(
+                            LoopState.PAUSED_FOR_USER, "execute",
+                            step=2, total_steps=5,
+                            message=(
+                                f"Scope drift — plan approved {len(frozen_set)} "
+                                f"file(s); agent now wants to touch "
+                                f"{len(current_set)}. Approve the expanded "
+                                f"scope or abort."
+                            ),
+                            data={
+                                "kind":        "scope_drift",
+                                "frozen":      sorted(frozen_set),
+                                "extras":      extras,
+                                "planned_now": sorted(current_set),
+                            },
+                            requires_user_action=True,
+                        )
+                        return
+            except Exception as e:                            # noqa: BLE001
+                # Never block Execute on a spec-lookup hiccup; log and
+                # continue with the existing (weaker) behaviour so the
+                # feature is strictly additive.
+                logger.warning(
+                    "[loop %s] scope-drift check skipped: %r",
+                    self.loop_id, e,
+                )
+
             if not paths:
                 logger.warning(
                     "[loop %s] EXECUTE — plan has no files_to_change",
@@ -1017,7 +1094,48 @@ class LoopEngine:
             return
 
         if not generated:
-            logger.warning("[loop %s] EXECUTE — generate_files returned 0 files", self.loop_id)
+            # Iter 288 (j007 diagnostic) — the previous message
+            # ("LLM produced no usable file content") gave the user
+            # zero signal about why every per-file attempt returned
+            # None. We now capture the per-file result tuples (status
+            # + reasoning tail + output-length + finish_reason when
+            # the provider surfaces one) and log them to loop_run_log
+            # so the NEXT occurrence is diagnosable from the DB
+            # instead of the ephemeral console. This is exactly what
+            # loop_1f8 / loop_bff needed — the raw evidence didn't
+            # persist because we never wrote it.
+            per_file_diag: list[dict] = []
+            for p, res in zip(paths, _results):
+                if res is None:
+                    per_file_diag.append({
+                        "path":     p,
+                        "outcome":  "skipped_or_error",
+                    })
+                else:
+                    per_file_diag.append({
+                        "path":     res.get("path"),
+                        "outcome":  "success",
+                        "bytes":    len((res.get("content") or "")),
+                    })
+            logger.warning(
+                "[loop %s] EXECUTE — generate_files returned 0 files. "
+                "Per-file diag: %s", self.loop_id, per_file_diag,
+            )
+            try:
+                await self.db.loop_run_log.insert_one({
+                    "loop_id":     self.loop_id,
+                    "user_id":     self.user_id,
+                    "project_id": self.project_id,
+                    "kind":        "execute_empty_output",
+                    "planned_paths": paths,
+                    "per_file":     per_file_diag,
+                    "ts":           _iso(),
+                })
+            except Exception as e:                            # noqa: BLE001
+                logger.debug(
+                    "[loop %s] execute_empty_output audit write "
+                    "failed (non-fatal): %r", self.loop_id, e,
+                )
             await self._fail("execute",
                              "LLM produced no usable file content. Try refining the plan.")
             return

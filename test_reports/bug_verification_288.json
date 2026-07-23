@@ -1,0 +1,66 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Second occurrence of the SAME failure class \u2014 loop_bff, same 'LLM produced no usable file content' error, similar broad multi-file task on archived sentinel/evolver/clawchief routers. Additionally, 3 NEW UI-state bugs visible in this screenshot: 1. After the loop reaches FAIL (terminal state), the top progress-stepper still shows EXECUTE as active/orange, not failed/red. 2. The 'Agent is running\u2026' banner (Iter 284 queue-status bar) still displays AFTER the terminal FAIL state \u2014 this needs to clear the instant a terminal event (completed/failed/aborted) arrives. 3. The heartbeat fallback line ('~ Execute in progress...') is still rendering SIMULTANEOUSLY with the FAIL message above it \u2014 these should be mutually exclusive. Once a terminal event exists, the heartbeat/fallback line must not render at all.",
+  "summary": "No relevant testing skill found. Focused verification covered the terminal FAIL loop UI state. Browser test with real preview login plus a deterministic MOCKED SSE stream for execute\u2192heartbeat\u2192failed\u2192late-executing proved: loop-step-execute stays data-step-state='error', agent-status-bar is removed, loop-live-gap/heartbeat rows are purged, and the late executing frame does not flip the stepper back. A live preview loop terminal failure was also observed with the same three alive-looking UI symptoms absent, though that live data failed in plan preflight due missing PAT rather than the exact execute empty-output path.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/aurem-dev/loop/{loop_id}/confirm",
+        "issue": "During live preview probing, a loop that had already failed in plan preflight could still show an approval card and confirm returned 499/ValueError cannot confirm in state failed. This is adjacent/not the reported execute-terminal UI bug, but should be hardened."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Live browser loop failure",
+        "issue": "Exact loop_bff execute empty-output condition was verified with a MOCKED SSE stream because preview project credentials/PAT caused real loop to fail at plan preflight before execute.",
+        "affected_selectors": [
+          "loop-step-bar",
+          "loop-step-execute",
+          "agent-status-bar",
+          "loop-live-feed",
+          "loop-live-gap"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iter288_api_probe.py",
+    "/app/test_reports/iter288_live_probe_followup.py",
+    "/app/test_reports/pytest/iter288_regressions_pythonpath.log",
+    "/root/.emergent/automation_output/20260723_224145/console_20260723_224145.log",
+    "/root/.emergent/automation_output/20260723_224402/console_20260723_224402.log"
+  ],
+  "action_items": [
+    "Optional hardening: if /loop/start returns state=failed, ChatPanel should not render PlanApprovalCard and should map the failed phase instead of defaulting errorStep to EXECUTE.",
+    "Keep loopTerminalRef guard and LoopLiveFeed terminal purge covered by browser-level regression if future refactor touches ChatPanel/LoopLiveFeed."
+  ],
+  "critical_code_review_comments": [
+    "ChatPanel.handleLoopEvent now drops non-terminal frames after terminal via loopTerminalRef before phase mutation, which the MOCKED late executing frame validated in-browser.",
+    "LoopLiveFeed terminal useEffect purges heartbeat/keepalive entries; browser feed after fail retained only Execute + FAIL, not the heartbeat text.",
+    "Backend regression tests only pass with PYTHONPATH=/app/backend in this environment; running without PYTHONPATH failed importing services.loop_task_specs."
+  ],
+  "updated_files": [
+    "/app/test_reports/iter288_api_probe.py",
+    "/app/test_reports/iter288_live_probe_followup.py",
+    "/app/test_reports/iter288_component_check.mjs",
+    "/app/test_reports/pytest/iter288_regressions.log",
+    "/app/test_reports/pytest/iter288_regressions_backend_cwd.log",
+    "/app/test_reports/pytest/iter288_regressions_pythonpath.log",
+    "/app/test_reports/bug_verification_288.json",
+    "/app/test_reports/iteration_288.json"
+  ],
+  "success_rate": {
+    "backend": "100% focused regressions with PYTHONPATH (11/11 passed)",
+    "frontend": "100% focused terminal UI assertions with MOCKED execute-fail SSE; live preview terminal failure also did not show the 3 alive-state symptoms"
+  },
+  "seed_data_creation": "No persistent seed data intentionally created. Browser/localStorage auth/session state was seeded for QA; a live preview loop_id loop_539b5eddae2145 was created and failed in plan preflight due invalid/missing PAT.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use test@aurem.dev / AuremTest2026! for preview. If needing exact execute empty-output without burning real LLM/repo state, reuse the browser route/fetch MOCKED SSE pattern from the console run at 20260723_224402. Watch for adjacent /loop/start failed-state PlanApprovalCard issue.",
+  "rca_of_the_issue": "Verified fix addresses the suspected root cause: terminal frames synchronously set loopTerminalRef/setBusy(false)/setLoopTerminal(true), so later non-terminal SSE frames are ignored and heartbeat/gap UI is suppressed after terminal. MOCKED SSE sequence included execute heartbeat, failed, then late executing frame; DOM stayed failed and not busy."
+}

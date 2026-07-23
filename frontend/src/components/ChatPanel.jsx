@@ -388,6 +388,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // for future verify-loop auto-retry UX (max 3).
   const [loopPhase, setLoopPhase] = useState("idle");
   const [loopRetryCount, setLoopRetryCount] = useState(0);
+  // Iter 288 — the actual phase that failed. Was previously hardcoded
+  // to EXECUTE (step 2) inside the LoopStepBar props, which meant a
+  // ship-time or verify-time failure would incorrectly paint EXECUTE
+  // red. Now we remember the phase from the failed SSE frame.
+  const [loopErrorPhase, setLoopErrorPhase] = useState(null);
   // The pending plan message id — once the user approves, we continue
   // the same session with a `LOOP_PHASE:execute` follow-up.
   const pendingPlanRef = useRef(null);
@@ -434,6 +439,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // failed/aborted so the pulsing indicator turns steady.
   const [loopFeedEvent, setLoopFeedEvent] = useState(null);
   const [loopTerminal, setLoopTerminal] = useState(false);
+  // Iter 288 — synchronous guard against late/out-of-order SSE frames
+  // (heartbeats or per-file "executing" events from parallel tasks
+  // whose queue.put() awaited across `_fail`'s _emit). State updates
+  // are async, so once we've decided the loop is terminal we ALSO
+  // flip this ref immediately — every subsequent handleLoopEvent
+  // consults it synchronously before mutating loopPhase / feed.
+  const loopTerminalRef = useRef(false);
   // Iter 212m-111 — Manual Ship gate. Populated when the engine emits
   // a paused_for_user event with data.kind === "awaiting_ship".
   // `{owner, repo, branch, files, file_count, commit_message}`.
@@ -2226,6 +2238,30 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Map a single SSE event from the engine into UI state updates.
   function handleLoopEvent(ev) {
     if (!ev) return;
+    const state = ev.state || "";
+    const phase = ev.phase || "";
+    const requiresAction = !!ev.requires_user_action;
+    const data = ev.data || {};
+
+    // Iter 288 — terminal guard. Once we've seen ANY terminal event
+    // (completed/failed/aborted), later SSE frames are dropped for
+    // state-driving purposes so a late "executing" heartbeat cannot
+    // flip loopPhase back off "error"/"done"/"idle" and re-arm the
+    // "Agent is running…" bar or the heartbeat gap fallback. We still
+    // let the terminal frame ITSELF pass through this function.
+    const isTerminalFrame = (state === "completed"
+                          || state === "failed"
+                          || state === "aborted");
+    if (loopTerminalRef.current && !isTerminalFrame) {
+      // eslint-disable-next-line no-console
+      console.debug("[loop-sse] DROP non-terminal frame after terminal:",
+        "state=", state, "phase=", phase);
+      return;
+    }
+    if (isTerminalFrame) {
+      loopTerminalRef.current = true;
+    }
+
     // Iter 275 — mirror the raw event into the LoopLiveFeed panel.
     // This is the same event object the rest of this handler
     // consumes; the panel just needs the trailing sequence.
@@ -2235,10 +2271,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     console.debug("[loop-sse] → setLoopFeedEvent",
       "phase=", ev.phase, "sub=", ev.data?.sub_step);
     setLoopFeedEvent(ev);
-    const state = ev.state || "";
-    const phase = ev.phase || "";
-    const requiresAction = !!ev.requires_user_action;
-    const data = ev.data || {};
 
     // Drive the existing LoopStepBar phase enum.
     if (state === "executing")     setLoopPhase("executing");
@@ -2248,6 +2280,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     else if (state === "completed") setLoopPhase("done");
     else if (state === "failed")    setLoopPhase("error");
     else if (state === "aborted")   setLoopPhase("idle");
+
+    // Iter 288 — the terminal-frame's own `phase` field tells us WHERE
+    // the loop died. Remember it so LoopStepBar can paint the right
+    // step red instead of hard-coding EXECUTE.
+    if (state === "failed" && phase) {
+      setLoopErrorPhase(phase);
+      setBusy(false);           // stop the "Agent is running…" bar immediately
+      setLoopTerminal(true);    // stop the heartbeat / gap-fallback line
+    }
 
     // Iter 212m-106 — Ship modal wiring. The engine emits the final
     // ship event with state="completed", phase="ship", and `data`
@@ -2400,6 +2441,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // reconnect / new run doesn't inherit the previous run's ring.
     setLoopFeedEvent(null);
     setLoopTerminal(false);
+    // Iter 288 — clear the terminal guard on every new stream so a
+    // second run in the same session actually accepts events again.
+    loopTerminalRef.current = false;
+    setLoopErrorPhase(null);
     // Iter 280 P0 — SSE event-chain tracing. Explicit console.debug
     // at every stage so a real (human-driven) browser session can
     // confirm whether events actually reach the frontend, and if so
@@ -3140,7 +3185,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         <LoopStepBar
           phase={loopPhase}
           retryCount={loopRetryCount}
-          errorStep={loopPhase === "error" ? 2 : 0}
+          // Iter 288 — paint the ACTUAL failed step red, not always
+          // step 2 (EXECUTE). loopErrorPhase is set from the failed
+          // SSE frame's `phase` field inside handleLoopEvent. When
+          // absent (loop still running or aborted with no phase), we
+          // pass 0 so LoopStepBar renders nothing as errored.
+          errorStep={loopPhase === "error"
+            ? ({plan:1, execute:2, verify:3, security:4, scan:4, ship:5}[
+                (loopErrorPhase || "").toLowerCase()] || 2)
+            : 0}
         />
       )}
 

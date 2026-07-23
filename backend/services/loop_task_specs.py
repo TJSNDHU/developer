@@ -74,6 +74,17 @@ async def freeze(db,
     plan_text = plan if isinstance(plan, str) else str(plan or "")
     criteria = _extract_criteria(plan_text, user_message)
 
+    # Iter 288 (j007 fix) — pull the plan's files_to_change out of the
+    # structured plan dict so Execute can pre-check every write against
+    # the FROZEN file set. Without this, scope-drift is only detected
+    # by the ship-time verifier (too late — a full run has already
+    # burned).
+    files_to_change: list[str] = []
+    if isinstance(plan, dict):
+        raw = plan.get("files_to_change") or []
+        if isinstance(raw, list):
+            files_to_change = [str(p).strip() for p in raw if str(p).strip()]
+
     row = {
         "loop_id":              loop_id,
         "task_id":              task_id or loop_id,
@@ -83,6 +94,7 @@ async def freeze(db,
         "original_task":        (user_message or "")[:8000],
         "plan_snapshot":        plan_text[:16000],
         "acceptance_criteria":  criteria,
+        "frozen_files_to_change": files_to_change,   # iter 288 (j007)
         "created_by":           user_id,
         "worm":                 True,          # explicit marker, docs-only
     }

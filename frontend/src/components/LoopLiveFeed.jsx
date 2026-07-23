@@ -90,6 +90,20 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
     });
   }, [event]);
 
+  // Iter 288 — the instant a terminal event arrives, purge every
+  // heartbeat/keepalive line from the ring buffer. They were valid
+  // while executing; once the loop is dead they read as "still
+  // waiting on LLM response for file X" alongside a FAIL message,
+  // which is a lie. Retains any real terminal frames.
+  useEffect(() => {
+    if (!terminal) return;
+    setEvents((prev) => prev.filter((ev) => {
+      const sub = (ev?.data && ev.data.sub_step) || "";
+      const keepalive = ev?.data?.keepalive === true;
+      return !(sub === "heartbeat" || keepalive);
+    }));
+  }, [terminal]);
+
   // Tick every 2 s so the gap fallback shows up after real silence.
   useEffect(() => {
     if (terminal) return;
