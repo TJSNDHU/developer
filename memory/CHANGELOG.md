@@ -4,6 +4,46 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-23 — Iters 275, 276, 277, 278 (chat + loop hardening session)
+
+**Iter 275 — Loop live-feed panel + `/loop-stats` slash-tool.**
+- NEW `frontend/src/components/LoopLiveFeed.jsx` (170 lines): compact ring-buffer of last 5 SSE events during an active loop run. Displayed above the composer. Terminal-state dot flips pulsing-orange → steady-green. Silence >10s produces ONE italic gap fallback labelled with the last real phase (not a canned rotator).
+- Wired in `ChatPanel.jsx` via new `loopFeedEvent` / `loopTerminal` state, reset on every fresh stream open.
+- NEW `services/ora_chat/slash_commands.py::_loop_stats`: aggregates per-phase durations from `loop_run_log` (falls back to `loop_sessions` timestamps if audit rows missing). Registered as `/loop-stats [loop_id]` and in `KNOWN_COMMANDS`.
+- Verified on real seeded data (`iter275_demo_5phase`): `plan 14s · execute 34s · verify 31s · scan 16s · ship 13s · total 108s`.
+
+**Iter 276 — Per-file granular events during Execute.**
+- `services/loop_engine.py::_gen_via_parliament` now emits real events on 3 code boundaries: `"Generating <path>…"` before each Parliament call, `"Timed out waiting on <path>…"` on `PER_FILE_TIMEOUT_S`, `"Error generating <path>: <ExcClass>"` on exception.
+- Fixes the pre-fix state where Execute phase emitted ONE event ("Executing — N file(s) planned") then went silent for the entire 30-300s per-file window.
+- Both frontend surfaces (growing bubble + LoopLiveFeed) render these automatically — no frontend change.
+
+**Iter 277 — Cancel-fix for ghost pipelines + broadened R6.**
+- **Ghost-task bug** identified with real prod curl on `loop_c03195e76ca04e`: pipeline task killed by worker restart, DB row stuck at `state=executing` with `updated_at` frozen at 00:26:42 UTC for 20+ minutes. Cancel worked at DB layer via fallback path but never wrote a terminal SSE frame → SSE stream never delivered `onTerminal` to the frontend → UI kept rendering stale executing state → after long elapsed the warning styling made it look failed.
+- Cascade side-effect: `/loop/active?project_id=X` kept returning the ghost, so ANY new chat opened in the same project auto-rehydrated it (per Iter 212m-115 resume design). Symptom: "loop output appearing in unrelated chat".
+- Fix in `routers/loop.py::cancel_loop` fallback branch: now writes `state=aborted`, `phase`, `updated_at`, and `last_event={state, phase, message, ts}` to `loop_sessions`, PLUS inserts a defensive row into `loop_events`. Response body includes new field `terminal_event_written: true` so the client can optimistically flip UI without waiting the SSE ~2s poll cycle. Verified live on prod with real curl — response now returns `{state:aborted, lock_released:true, terminal_event_written:true}` and `last_event` field present with fresh timestamp.
+- **R6 broadened** in `routers/chat.py::ORA_PANEL_TONE`: was "no speculation on active-loop duration", now "no speculation on ANY loop state question" (cancelled, failed, stuck, running, why-slow, is-normal, did-cancel-work). Explicit forbidden-wording list added. Correct response shape: instruct user to run `/loop-stats <loop_id>` and quote actual fields.
+- Design tradeoff explicitly logged: loops are scoped per `(user, project)`, not per chat conversation — genuine active loop resumes into ANY open chat in the same project (intentional per Iter 212m-115). Not a bug.
+
+**Iter 278 — Heartbeat mechanism for long single-file LLM calls.**
+- Token-level streaming from OpenRouter was evaluated and RULED OUT — Parliament runs 3 council members + CEO judge that all need complete responses to score/vote, so streaming would break the voting contract. Heartbeat is the honest substitute.
+- `services/loop_engine.py::_gen_via_parliament`: spawns background heartbeat task alongside `wait_for(_parliament.run(...))`. Emits every 6s: `{phase:"execute", message:"Still waiting on LLM response for <path> — <N>s elapsed", data:{file, sub_step:"heartbeat", elapsed_s, keepalive:true}}`. `asyncio.Event` cleanly stops it. Heartbeat failures swallowed — never affects primary LLM path.
+- `LoopLiveFeed.jsx`: heartbeat rows styled at 55% opacity, italic, gray "waiting" tag — visually distinct from real progress rows.
+- `ChatPanel.jsx::renderEventLine`: heartbeats return `null` — skipped from the growing bubble so permanent scroll history stays uncluttered. Only visible in the transient LoopLiveFeed panel.
+- Rendering proof captured via real Playwright screenshot on `/dev/loop-live-feed` demo route showing both surfaces with mixed real + heartbeat events. Backend emission during actual Parliament calls still awaiting a real founder-triggered loop for definitive proof (OAuth-repo not available to the agent).
+
+**Also this session:**
+- Iter 274 already shipped separately (Personal Track QA gates — T1.5 design review + T4 verifier).
+- `.dockerignore` optimised (2.6 GB → 19 MB build context) — Cloud Build previously failing 11 attempts, now deploys reliably.
+- `/both` orange refresh: `#3DDC97` (green) → `#FF6608` (system `--ds2-primary`) to match main app's Swift / New run / Chat tab accent. Added copy line "Includes nightly self-tests + live usage" under integrity-log widget.
+- `ORA_CANARY_ENABLED=1` flipped on preview `.env`; canary cron armed; still pending on prod env-var store.
+
+**Still open / next actions:**
+- Founder to provision `AUREM_ORG_NAME` + `AUREM_ORG_GITHUB_APP_TOKEN` in prod env store (unblocks `/scaffold/{id}/materialize` from 503).
+- Founder to set `ORA_CANARY_ENABLED=1` + `ORA_CANARY_HOUR_UTC=02:30` in prod env store (keeps `/both` integrity tile fresh via nightly canary).
+- Real founder-triggered loop needed on prod to definitively verify (a) backend heartbeat emission and (b) sub-2s cancel UI-flip timing.
+- `/dev/loop-live-feed` demo route still accessible on prod — founder decision pending on keep / preview-only guard / remove.
+
+
 ## 2026-07-22 — Iter 273 Real-LLM Verifier Test + Integrity Log Freshness
 
 **Founder ask (Hinglish, verbatim):**
