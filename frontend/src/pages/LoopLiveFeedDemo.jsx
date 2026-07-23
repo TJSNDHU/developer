@@ -18,8 +18,24 @@ import LoopLiveFeed from "../components/LoopLiveFeed";
 const DEMO_EVENTS = [
   { phase: "plan",    state: "planning",  message: "Reading brief, drafting the fix plan" },
   { phase: "plan",    state: "planning",  message: "Plan approved — 3 files to change" },
-  { phase: "execute", state: "executing", message: "Editing components/BookingCTA.tsx" },
-  { phase: "execute", state: "executing", message: "Editing lib/hooks/useBooking.ts" },
+  { phase: "execute", state: "executing", message: "Generating components/BookingCTA.tsx…",
+    data: { file: "components/BookingCTA.tsx", sub_step: "generating" } },
+  // Iter 278 heartbeat frames — same shape emitted by loop_engine.py
+  // during long single-file Parliament calls.
+  { phase: "execute", state: "executing",
+    message: "Still waiting on LLM response for components/BookingCTA.tsx — 6s elapsed",
+    data: { file: "components/BookingCTA.tsx", sub_step: "heartbeat",
+             elapsed_s: 6, keepalive: true } },
+  { phase: "execute", state: "executing",
+    message: "Still waiting on LLM response for components/BookingCTA.tsx — 12s elapsed",
+    data: { file: "components/BookingCTA.tsx", sub_step: "heartbeat",
+             elapsed_s: 12, keepalive: true } },
+  { phase: "execute", state: "executing",
+    message: "Still waiting on LLM response for components/BookingCTA.tsx — 18s elapsed",
+    data: { file: "components/BookingCTA.tsx", sub_step: "heartbeat",
+             elapsed_s: 18, keepalive: true } },
+  { phase: "execute", state: "executing", message: "Generating lib/hooks/useBooking.ts…",
+    data: { file: "lib/hooks/useBooking.ts", sub_step: "generating" } },
   { phase: "verify",  state: "verifying", message: "Independent verifier: verdict yes" },
   { phase: "scan",    state: "scanning",  message: "Vanguard: 0 critical, 1 low finding" },
   { phase: "ship",    state: "shipping",  message: "Pushing commit to main" },
@@ -29,10 +45,14 @@ const DEMO_EVENTS = [
 
 // Exact clone of ChatPanel::renderEventLine — proving the growing
 // bubble uses the same event-shape → line transform in production.
+// Iter 278 — heartbeat frames are skipped from the bubble (return
+// null) so permanent scroll history isn't polluted with keepalives.
 function renderEventLine(ev) {
   const ph = (ev.phase || "").toUpperCase();
   const st = ev.state || "";
   const ms = ev.message || "";
+  const sub = (ev.data && ev.data.sub_step) || "";
+  if (sub === "heartbeat" || ev.data?.keepalive === true) return null;
   if (st === "completed") return `**Step 5 / 5 — Ship**  ${ms}`;
   if (st === "failed")    return `**Failed**  ${ms}`;
   if (st === "aborted")   return `**Aborted**  ${ms}`;
@@ -62,7 +82,9 @@ export default function LoopLiveFeedDemo() {
       const ev = { ...DEMO_EVENTS[i], ts: Date.now() / 1000 };
       setEvent(ev);
       const line = renderEventLine(ev);
-      if (line) setBubbleLines((prev) => [...prev, line]);
+      if (line !== null) {
+        if (line) setBubbleLines((prev) => [...prev, line]);
+      }
       setI(i + 1);
     }, i === 0 ? 250 : 850);
     return () => clearTimeout(t);
