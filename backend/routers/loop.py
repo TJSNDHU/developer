@@ -38,6 +38,22 @@ from services import loop_engine as eng
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/loop", tags=["Loop Mode"])
 
+# Release It! Governor pattern — hard wall-clock ceiling on the SSE
+# generator (Iter 282). Module-scoped so the /_diagnostics endpoint
+# can inspect the ACTUAL runtime value, not a hardcoded echo.
+STREAM_MAX_S = 20 * 60
+
+# All 6 loop-machinery collections that Iter 282 gave TTL indexes.
+# Module-scoped for the same "real runtime inspection" reason.
+_TTL_MANAGED_COLLECTIONS = (
+    "loop_events",
+    "loop_locks",
+    "loop_failures",
+    "loop_sessions",
+    "loop_verification_log",
+    "loop_run_log",
+)
+
 
 # ─── Request models ───────────────────────────────────────────────────
 
@@ -358,15 +374,8 @@ async def loop_stream(loop_id: str,
             raise HTTPException(403, "Not your loop")
 
     _TERMINAL = {"completed", "failed", "aborted"}
-    # Release It! Governor pattern — hard wall-clock ceiling on the
-    # SSE stream. Without this, a loop that gets stuck in a
-    # non-terminal state (executing/verifying/scanning) can keep this
-    # generator alive indefinitely and tie up an app worker. 20 min
-    # is well above any observed real end-to-end run (self-heals
-    # included). At the ceiling we emit a synthetic terminal frame
-    # so the frontend disconnects cleanly rather than seeing a
-    # silent EOF.
-    _STREAM_MAX_S = 20 * 60
+    # See module-level STREAM_MAX_S (Iter 282, Release It! Governor).
+    _STREAM_MAX_S = STREAM_MAX_S
 
     async def gen():
         db = get_db()
@@ -623,3 +632,61 @@ async def force_release_lock(
         user.get("user_id"), body.project_id, deleted_loop_id,
     )
     return {"ok": True, "released_loop_id": deleted_loop_id}
+
+
+# ── Iter 282 — deploy-verification diagnostics endpoint ─────────────
+#
+# Founder-only introspection of the ACTUAL runtime values so we can
+# prove-by-inspection (not by "should be on the same ref") that
+# Iter 282's Governor + Steady State patches are live in production.
+# Reads:
+#   • the running process's actual STREAM_MAX_S constant
+#   • the actual index_information() from prod Mongo for every
+#     loop-machinery collection, filtered to only those carrying
+#     `expireAfterSeconds`
+# No hardcoded expected values — this is real proof.
+@router.get("/_diagnostics")
+async def loop_diagnostics(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    user = await current_dev(authorization)
+    if not (user.get("is_admin")
+            or user.get("is_unlimited")
+            or (user.get("tier") or "").lower() == "founder"):
+        raise HTTPException(403, "founder access required")
+
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB unavailable")
+
+    ttl_report: dict = {}
+    for coll in _TTL_MANAGED_COLLECTIONS:
+        try:
+            idxs = await db[coll].index_information()
+        except Exception as e:                                # noqa: BLE001
+            ttl_report[coll] = {"error": repr(e)[:200]}
+            continue
+        ttl_entries = []
+        for name, info in idxs.items():
+            if "expireAfterSeconds" not in info:
+                continue
+            ttl_entries.append({
+                "name":                 name,
+                "key":                  [list(kv) for kv in info.get("key", [])],
+                "expireAfterSeconds":   info["expireAfterSeconds"],
+            })
+        ttl_report[coll] = ttl_entries
+
+    ttl_present = sorted(
+        c for c, entries in ttl_report.items()
+        if isinstance(entries, list) and entries
+    )
+
+    return {
+        "ok":                       True,
+        "iter":                     282,
+        "stream_max_s":             STREAM_MAX_S,
+        "ttl_indexes_present":      ttl_present,
+        "ttl_indexes_detail":       ttl_report,
+        "db_name":                  db.name,
+    }
