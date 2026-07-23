@@ -448,6 +448,101 @@ TOOLS: list[dict[str, Any]] = [
             "destructiveHint": False,
         },
     },
+    # ── Iter 287 (Master QA Track 1 Step 5) — Founder-only QA tools ──
+    # These four surfaces expose the /app/docs/traceability_matrix.json
+    # single-source-of-truth + regression-test index + coverage.json
+    # summary via MCP so the founder can query QA state directly from
+    # Claude Desktop / Cursor without an ad-hoc script.
+    #
+    # All four are strictly read-only and gated on tier == "founder"
+    # (or is_admin) via `_require_founder`.
+    {
+        "name": "qa_traceability_matrix",
+        "description": (
+            "Read the QA traceability matrix — every tracked user journey with "
+            "its entry-points, source paths, regression tests, and status. "
+            "Use when auditing test coverage of a specific journey or planning "
+            "new regression tests. Returns matrix + live status counts."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "journey_id": {
+                    "type":       "string",
+                    "description": "Optional — return only this journey_id.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "QA Traceability Matrix",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
+    {
+        "name": "qa_open_gaps",
+        "description": (
+            "List QA journeys with status = OPEN_GAP, sorted p0 → p2. "
+            "Use to see what regression coverage is missing right now. "
+            "Returns journey_id, title, severity, gap_description, and a "
+            "proposed_fix_family when the row carries one."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "severity": {
+                    "type":       "string",
+                    "description": "Optional filter — 'p0', 'p1', or 'p2'.",
+                    "enum":       ["p0", "p1", "p2"],
+                },
+            },
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "QA Open Gaps",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
+    {
+        "name": "qa_regression_index",
+        "description": (
+            "List every test_regression_iter*.py file in /app/backend/tests, "
+            "each paired with its postmortem doc when one exists. "
+            "Use to correlate a bug fix with its permanent test + writeup. "
+            "Returns test_file + iter + postmortem path."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "QA Regression Index",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
+    {
+        "name": "qa_coverage_summary",
+        "description": (
+            "Read the latest pytest-cov aggregate from "
+            "/app/backend/coverage.json. Use to see overall coverage % and "
+            "the 10 worst-covered files. Returns {ok:false, reason:'no_run'} "
+            "when no coverage run has been captured — never fakes numbers."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "QA Coverage Summary",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
 ]
 
 
@@ -1052,6 +1147,82 @@ async def _tool_get_project_info(user_id: str, args: dict) -> dict:
     }
 
 
+# ── Iter 287 (Master QA Track 1 Step 5) — Founder-gated QA tools ─────
+# Every tool below MUST short-circuit for non-founder callers. The
+# founder check is a live DB lookup on dev_users, mirroring the pattern
+# used in cto_services/auth.py::require_admin — same source of truth,
+# no divergent copies. External MCP callers using an sk-aurem- API key
+# owned by a founder work identically to a JWT-authenticated founder
+# session (the key inherits the user's tier).
+async def _require_founder(user_id: str) -> None:
+    """Raise RuntimeError (mapped to _RPC_TOOL_FAILED) when the caller
+    is not the founder / admin. QA tools are read-only, but the matrix
+    can reveal test gaps that are internal-only intel."""
+    db = get_db()
+    if db is None:
+        raise RuntimeError("Database unavailable")
+    row = await db.dev_users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "tier": 1, "is_admin": 1, "is_founder": 1},
+    )
+    if not row:
+        raise RuntimeError("QA tools require founder access")
+    if row.get("is_admin") or row.get("is_founder") \
+       or (str(row.get("tier") or "").lower() == "founder"):
+        return
+    raise RuntimeError("QA tools require founder access")
+
+
+async def _tool_qa_traceability_matrix(user_id: str, args: dict) -> dict:
+    await _require_founder(user_id)
+    from services.qa_matrix import load_matrix, matrix_summary
+    matrix = load_matrix()
+    summary = matrix_summary()
+    journey_id = (args.get("journey_id") or "").strip()
+    if journey_id:
+        journeys = matrix.get("journeys") or []
+        one = next((j for j in journeys if j.get("journey_id") == journey_id), None)
+        if not one:
+            raise RuntimeError(f"journey_id not found: {journey_id}")
+        return {"journey": one, "summary": summary}
+    return {
+        "matrix":  matrix,
+        "summary": summary,
+    }
+
+
+async def _tool_qa_open_gaps(user_id: str, args: dict) -> dict:
+    await _require_founder(user_id)
+    from services.qa_matrix import open_gaps, matrix_summary
+    severity = (args.get("severity") or "").strip() or None
+    if severity and severity not in ("p0", "p1", "p2"):
+        raise ValueError("`severity` must be one of p0 | p1 | p2")
+    rows = open_gaps(severity)
+    return {
+        "gaps":    rows,
+        "count":   len(rows),
+        "summary": matrix_summary(),
+    }
+
+
+async def _tool_qa_regression_index(user_id: str, args: dict) -> dict:
+    await _require_founder(user_id)
+    from services.qa_matrix import regression_index
+    rows = regression_index()
+    with_pm = [r for r in rows if r.get("postmortem")]
+    return {
+        "regression_tests":       rows,
+        "count":                  len(rows),
+        "with_postmortem_count":  len(with_pm),
+    }
+
+
+async def _tool_qa_coverage_summary(user_id: str, args: dict) -> dict:
+    await _require_founder(user_id)
+    from services.qa_matrix import coverage_summary
+    return coverage_summary()
+
+
 _TOOL_DISPATCH = {
     "list_projects":       _tool_list_projects,
     "ship_code":           _tool_ship_code,
@@ -1067,6 +1238,11 @@ _TOOL_DISPATCH = {
     "get_repo_health":     _tool_get_repo_health,
     "get_repo_structure":  _tool_get_repo_structure,
     "get_project_info":    _tool_get_project_info,
+    # Iter 287 — QA read-only tools (founder-only)
+    "qa_traceability_matrix": _tool_qa_traceability_matrix,
+    "qa_open_gaps":           _tool_qa_open_gaps,
+    "qa_regression_index":    _tool_qa_regression_index,
+    "qa_coverage_summary":    _tool_qa_coverage_summary,
 }
 
 

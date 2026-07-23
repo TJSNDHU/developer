@@ -1,8 +1,10 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-07-22 — Iter 273 (Real-LLM verifier
-> test + Canary armed for `/both` integrity freshness). Full details in
+> **Latest closed iteration:** 2026-02 — Iter 287 (Master QA Track 1
+> Steps 2 + 5: traceability matrix + 4 founder-gated MCP QA tools;
+> loop_1f8 "frozen-plan scope-enforcement during Execute" captured
+> as permanent p0 OPEN_GAP row `j007`). Full details in
 > `CHANGELOG.md`.
 
 

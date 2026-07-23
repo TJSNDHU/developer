@@ -1,0 +1,325 @@
+{
+  "$schema_version": "1.0",
+  "generated_by": "iter287-track1-step2",
+  "purpose": "Deterministic map of user journeys → HTTP routes → source files → regression tests. This is the single source of truth for QA scope. New journeys MUST be appended here BEFORE their regression tests are written. Every OPEN_GAP row is a permanent QA backlog item — do not delete without a paired closing regression test.",
+  "conventions": {
+    "journey_id":      "j<NNN>_<snake>",
+    "severity":        "p0 | p1 | p2",
+    "test_kind":       "regression | invariant | integration | e2e | smoke",
+    "status":          "COVERED | PARTIAL | OPEN_GAP | DEFERRED",
+    "coverage_target": "≥1 regression + (fitness invariant when applicable)"
+  },
+  "journeys": [
+    {
+      "journey_id": "j001_auth_login_founder",
+      "title": "Founder logs in with password + MFA",
+      "user_role": "founder",
+      "entry_points": ["POST /api/aurem-dev/auth/login", "POST /api/aurem-dev/mfa/verify"],
+      "system_paths": ["backend/routers/auth.py", "backend/routers/mfa.py"],
+      "regression_tests": ["test_founder_and_admin_resilience.py"],
+      "status": "COVERED",
+      "severity": "p0",
+      "notes": "Founder ID: teji.ss1986@gmail.com"
+    },
+    {
+      "journey_id": "j002_auth_signup_dev",
+      "title": "New dev signup → email verify → first project",
+      "user_role": "dev",
+      "entry_points": ["POST /api/aurem-dev/auth/signup", "POST /api/aurem-dev/auth/verify"],
+      "system_paths": ["backend/routers/auth.py", "backend/routers/onboarding.py"],
+      "regression_tests": ["test_aurem_backend.py"],
+      "status": "PARTIAL",
+      "severity": "p1",
+      "notes": "Rate-limit + email uniqueness paths not explicitly covered."
+    },
+    {
+      "journey_id": "j003_project_connect_github_pat",
+      "title": "Connect existing GitHub repo via PAT",
+      "user_role": "dev",
+      "entry_points": ["POST /api/aurem-dev/cto/projects"],
+      "system_paths": ["backend/routers/cto_projects.py", "backend/services/pat_crypto.py"],
+      "regression_tests": ["test_iter124f_project_scoping_isolation.py"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j004_project_connect_github_oauth",
+      "title": "Connect existing GitHub repo via OAuth app flow",
+      "user_role": "dev",
+      "entry_points": ["GET /api/aurem-dev/github/oauth/authorize", "GET /api/aurem-dev/github/oauth/callback"],
+      "system_paths": ["backend/routers/github_oauth.py"],
+      "regression_tests": ["test_iter109_oauth_cancel.py", "test_iter113_oauth_login_cancel.py"],
+      "status": "PARTIAL",
+      "severity": "p1",
+      "notes": "Happy-path callback state validation covered; token-scope drift is not."
+    },
+    {
+      "journey_id": "j005_loop_start_plan",
+      "title": "Dev submits a task → Loop generates plan → awaits confirmation",
+      "user_role": "dev",
+      "entry_points": ["POST /api/aurem-dev/loop/start"],
+      "system_paths": ["backend/routers/loop.py::start_loop", "backend/services/loop_engine.py::LoopEngine._plan"],
+      "regression_tests": ["test_regression_iter281_plan_approval_reachable_from_any_prior_state"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j006_loop_plan_frozen_worm",
+      "title": "Plan approval freezes task_spec as WORM row for verifier",
+      "user_role": "dev",
+      "entry_points": ["POST /api/aurem-dev/loop/{loop_id}/confirm"],
+      "system_paths": ["backend/services/loop_task_specs.py::freeze"],
+      "regression_tests": ["test_iter272_task_spec_freeze.py"],
+      "status": "COVERED",
+      "severity": "p0",
+      "notes": "Freeze is idempotent; unique index on loop_id enforces WORM at DB layer."
+    },
+    {
+      "journey_id": "j007_loop_1f8_frozen_plan_scope_enforcement_during_execute",
+      "title": "Frozen-plan scope-enforcement DURING Execute (not just at final verifier gate)",
+      "user_role": "dev",
+      "entry_points": [
+        "backend/services/loop_engine.py::LoopEngine._execute",
+        "backend/services/local_tools.py::write_repo_file (inside Loop context)"
+      ],
+      "system_paths": [
+        "backend/services/loop_task_specs.py",
+        "backend/services/loop_independent_verifier.py",
+        "backend/services/loop_engine.py"
+      ],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p0",
+      "gap_description": "The frozen task_spec (loop_task_specs) is currently only consulted by the INDEPENDENT VERIFIER at ship-time. Between AWAITING_CONFIRMATION → EXECUTING → SHIP-READY, the executor agent can write files that fall outside the frozen acceptance_criteria (scope creep). Vanguard catches security/test-file drift, but NOT plan-scope drift. Result: the verifier may block a ship at the end, wasting a full loop run, when an earlier scope-check would have short-circuited the drift.",
+      "proposed_fix_family": [
+        "Add pre-write scope-check inside loop_engine._execute: for each staged file, ask cheap LLM 'does this change belong to the frozen criteria?' — reject with reason before commit.",
+        "Emit a `scope_drift` SSE event so the UI can render a warning + let the user re-approve mid-execute.",
+        "Persist scope_drift events into loop_events for postmortem."
+      ],
+      "reference": "session iter286 (loop_1f8 investigation) — item raised by founder for permanent QA capture, not a one-off audit.",
+      "must_ship_regression_when_fixed": true
+    },
+    {
+      "journey_id": "j008_loop_cancel_lock_release",
+      "title": "cancel_loop releases the per-project+user lock atomically within 2s",
+      "user_role": "dev",
+      "entry_points": ["POST /api/aurem-dev/loop/{loop_id}/cancel"],
+      "system_paths": ["backend/routers/loop.py::cancel_loop", "backend/services/loop_engine.py"],
+      "regression_tests": ["test_regression_iter279_cancel_race_condition", "test_regression_iter283_backend_cancels_paused_for_user_loop"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j009_loop_sse_stream_governor",
+      "title": "SSE stream honours 20-min wall-clock ceiling (Governor pattern)",
+      "user_role": "dev",
+      "entry_points": ["GET /api/aurem-dev/loop/{loop_id}/stream"],
+      "system_paths": ["backend/routers/loop.py::loop_stream"],
+      "regression_tests": ["test_regression_iter282_sse_stream_has_wallclock_ceiling"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j010_loop_ttl_bootstrap",
+      "title": "Loop collections declare TTL indexes at boot (Steady State pattern)",
+      "user_role": "system",
+      "entry_points": ["backend/scripts/init_prod_collections.py"],
+      "system_paths": ["backend/scripts/init_prod_collections.py"],
+      "regression_tests": ["test_invariant_loop_collections_have_ttl_indexes", "test_regression_iter282_ttl_bootstrap_resolves_index_conflict"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j011_mcp_ship_code_test_file_lock",
+      "title": "MCP ship_code / write_repo_file block test-file overwrites unless override",
+      "user_role": "external (Claude Desktop / Cursor / Cline)",
+      "entry_points": ["POST /api/aurem-dev/mcp (tools/call ship_code | write_repo_file)"],
+      "system_paths": ["backend/routers/mcp.py::_tool_write_repo_file", "backend/routers/cto_projects.py::_run_task", "backend/services/loop_diff_classifier.py"],
+      "regression_tests": [
+        "test_regression_iter286_write_repo_file_blocks_test_files",
+        "test_regression_iter286_write_repo_file_allows_test_files_with_override",
+        "test_regression_iter286_write_repo_file_allows_normal_paths",
+        "test_regression_iter286_ship_code_has_test_file_gate_in_source",
+        "test_regression_iter286_ship_code_override_not_llm_grantable"
+      ],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j012_mcp_api_key_lifecycle",
+      "title": "External MCP client mints, uses, and revokes an sk-aurem- API key",
+      "user_role": "dev",
+      "entry_points": [
+        "POST /api/aurem-dev/mcp/keys",
+        "GET  /api/aurem-dev/mcp/keys",
+        "DELETE /api/aurem-dev/mcp/keys/{key_tail}"
+      ],
+      "system_paths": ["backend/routers/mcp.py"],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p1",
+      "gap_description": "No dedicated regression covers 'API key cannot mint another API key' + tail-based revoke idempotency."
+    },
+    {
+      "journey_id": "j013_mcp_scoped_tools_default_seven",
+      "title": "tools/list without a context hint returns the smart-default 7-tool subset",
+      "user_role": "external",
+      "entry_points": ["POST /api/aurem-dev/mcp (tools/list)"],
+      "system_paths": ["backend/services/mcp_scoped_tools.py"],
+      "regression_tests": ["test_iter212m175_mcp_scoped_tools.py"],
+      "status": "COVERED",
+      "severity": "p1"
+    },
+    {
+      "journey_id": "j014_ora_chat_abstain_threshold",
+      "title": "ORA chat abstains + refuses to fabricate file paths when BM25 score < threshold",
+      "user_role": "dev/founder",
+      "entry_points": ["POST /api/aurem-dev/ora-chat/message"],
+      "system_paths": ["backend/services/ora_chat/deep_research.py", "backend/services/codebase_index.py"],
+      "regression_tests": ["test_ora_chat_abstain.py"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j015_ora_chat_hallucination_loop",
+      "title": "Ungrounded claims → flagged, batch-classified, human-approved promotion to house rules",
+      "user_role": "founder",
+      "entry_points": [
+        "POST /api/aurem-dev/ora-chat/hallucination-patterns/classify-now",
+        "POST /api/aurem-dev/ora-chat/hallucination-patterns/approve",
+        "POST /api/aurem-dev/ora-chat/hallucination-patterns/reject"
+      ],
+      "system_paths": ["backend/services/ora_chat/grounding_check.py", "backend/services/ora_chat/hallucination_classifier.py"],
+      "regression_tests": ["test_ora_chat_hallucination_loop.py"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j016_personal_track_materialize",
+      "title": "Non-dev clicks 'Ship' on a Personal Track draft → repo materialized",
+      "user_role": "non-dev",
+      "entry_points": ["POST /api/aurem-dev/personal-track/materialize"],
+      "system_paths": ["backend/routers/personal_track.py", "backend/routers/scaffold.py"],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p1",
+      "gap_description": "BLOCKED on infra: AUREM_ORG_NAME + AUREM_ORG_GITHUB_APP_TOKEN not configured in prod; endpoint returns 503. Regression stub exists but the real happy-path is not yet reachable."
+    },
+    {
+      "journey_id": "j017_personal_track_design_review_gate",
+      "title": "Personal Track drafts pass through held-out design review before materialize",
+      "user_role": "non-dev",
+      "entry_points": ["backend/routers/scaffold.py::T4-materialize"],
+      "system_paths": ["backend/services/scaffold_design_review.py"],
+      "regression_tests": ["test_iter274_scaffold_design_review.py"],
+      "status": "COVERED",
+      "severity": "p1"
+    },
+    {
+      "journey_id": "j018_chatpanel_stop_cancels_backend",
+      "title": "Frontend Stop button cancels backend loop even during paused_for_user",
+      "user_role": "dev",
+      "entry_points": ["ChatPanel.jsx stop handler → POST /loop/{id}/cancel"],
+      "system_paths": ["frontend/src/components/ChatPanel.jsx", "backend/routers/loop.py::cancel_loop"],
+      "regression_tests": ["test_regression_iter283_chatpanel_stop_calls_cancel_loop", "test_regression_iter283_backend_cancels_paused_for_user_loop"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j019_chatpanel_queue_next_ux",
+      "title": "Queue-next chip + input-remain-enabled while a loop is running",
+      "user_role": "dev",
+      "entry_points": ["frontend/src/components/ChatPanel.jsx"],
+      "system_paths": ["frontend/src/components/ChatPanel.jsx", "frontend/src/index.css"],
+      "regression_tests": [
+        "test_regression_iter280_chat_input_enabled_during_loop",
+        "test_regression_iter284_chat_queue_send_button_renders_during_busy",
+        "test_regression_iter284_window_confirm_removed",
+        "test_regression_iter284_queued_chip_and_agent_running_present",
+        "test_regression_iter285_chat_inline_card_class_declared_in_css"
+      ],
+      "status": "COVERED",
+      "severity": "p1"
+    },
+    {
+      "journey_id": "j020_loop_live_feed_placeholder",
+      "title": "LoopLiveFeed never returns null when a loopId is set",
+      "user_role": "dev",
+      "entry_points": ["frontend/src/components/LoopLiveFeed.jsx"],
+      "system_paths": ["frontend/src/components/LoopLiveFeed.jsx"],
+      "regression_tests": ["test_regression_iter281_loop_live_feed_pending_placeholder"],
+      "status": "COVERED",
+      "severity": "p1"
+    },
+    {
+      "journey_id": "j021_bulkhead_project_user_isolation",
+      "title": "loop_locks unique index is composite (project_id + user_id) — User A cannot block User B on the same project",
+      "user_role": "system",
+      "entry_points": ["backend/scripts/init_prod_collections.py"],
+      "system_paths": ["backend/scripts/init_prod_collections.py"],
+      "regression_tests": ["test_invariant_bulkhead_unique_index_declared", "test_regression_iter282_bulkhead_project_isolation"],
+      "status": "COVERED",
+      "severity": "p0"
+    },
+    {
+      "journey_id": "j022_vanguard_scan_async",
+      "title": "run_vanguard_scan returns in <1s and provides a scan_id poll handle",
+      "user_role": "external",
+      "entry_points": ["POST /api/aurem-dev/mcp (tools/call run_vanguard_scan)"],
+      "system_paths": ["backend/routers/mcp.py::_tool_run_vanguard_scan", "backend/services/vanguard_scanner.py"],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p1",
+      "gap_description": "Anti-pattern C (blocking tool) audit exists in code comments but no explicit latency assertion in the test suite."
+    },
+    {
+      "journey_id": "j023_change_failure_rate_dora",
+      "title": "DORA Change Failure Rate ≤10% (14-day rolling) — feature freeze when breached",
+      "user_role": "system",
+      "entry_points": ["backend/services/loop_outcomes.py (NOT YET IMPLEMENTED)"],
+      "system_paths": ["backend/services/loop_outcomes.py"],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p1",
+      "gap_description": "Budget declared in AGENTS.md, no implementation. Placeholder constant CHANGE_FAILURE_BUDGET = 0.10 still absent."
+    },
+    {
+      "journey_id": "j024_mttr_log_row_per_incident",
+      "title": "Every prod bug fix appends one row to /app/memory/mttr_log.json",
+      "user_role": "system",
+      "entry_points": ["/app/memory/mttr_log.json"],
+      "system_paths": ["/app/memory/mttr_log.json", "/app/postmortems/"],
+      "regression_tests": [],
+      "status": "PARTIAL",
+      "severity": "p2",
+      "gap_description": "Log exists and is manually appended; no automated invariant enforces one MTTR row per postmortem file."
+    },
+    {
+      "journey_id": "j025_diagnostics_founder_endpoint",
+      "title": "GET /loop/_diagnostics returns TTL + stream_max_s to founder only",
+      "user_role": "founder",
+      "entry_points": ["GET /api/aurem-dev/loop/_diagnostics"],
+      "system_paths": ["backend/routers/loop.py::loop_diagnostics"],
+      "regression_tests": [],
+      "status": "OPEN_GAP",
+      "severity": "p2",
+      "gap_description": "Route exists but no test locks the founder-only 403 guard."
+    }
+  ],
+  "summary": {
+    "total_journeys": 25,
+    "by_status": {
+      "COVERED": 16,
+      "PARTIAL": 3,
+      "OPEN_GAP": 6
+    },
+    "by_severity": {
+      "p0": 13,
+      "p1": 10,
+      "p2": 2
+    },
+    "open_p0_gaps": [
+      "j007_loop_1f8_frozen_plan_scope_enforcement_during_execute"
+    ]
+  }
+}

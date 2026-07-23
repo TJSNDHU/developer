@@ -4,6 +4,32 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 287 / Track 1 Steps 2 + 5 (Traceability matrix + MCP QA tools)
+
+**Feature (Master QA Test Strategy)**: build the deterministic QA
+substrate that Tracks 2-5 will consume, and expose it via the
+existing MCP server so the founder can query QA state from Claude
+Desktop / Cursor without ad-hoc scripts.
+
+**Ship**:
+- `/app/docs/traceability_matrix.json` — 25 tracked user journeys mapped to entry-points, source paths, and regression tests. Explicitly captures the **loop_1f8 finding — "frozen-plan scope-enforcement during Execute"** as journey `j007` (status `OPEN_GAP`, severity `p0`) with `proposed_fix_family` + `must_ship_regression_when_fixed: true`, so the one-off audit item becomes a permanent line in the QA backlog.
+- `backend/services/qa_matrix.py` — deterministic loader (no LLM, no external I/O): `load_matrix`, `matrix_summary` (live counts), `open_gaps`, `regression_index`, `coverage_summary`. Live summary is authoritative; the persisted `summary` block in the JSON is a hint and its drift is asserted-against.
+- Four new founder-gated tools on the existing MCP router (Option A confirmed — no second server): `qa_traceability_matrix`, `qa_open_gaps`, `qa_regression_index`, `qa_coverage_summary`. All read-only, all gated on `is_admin | is_founder | tier=="founder"` via a live `dev_users` lookup that mirrors `cto_services/auth.py::require_admin`. MCP tool count grew 13 → 17.
+
+**Tests**: 9/9 new regression tests in `tests/test_regression_iter287_qa_matrix_and_mcp_tools.py`:
+- matrix JSON is well-formed + loop_1f8 row exists + persisted summary matches live counts
+- `open_gaps` returns p0 first + surfaces loop_1f8
+- `regression_index` lists iter286 tests
+- `coverage_summary` returns honest `{ok:false, reason:"no_run"}` when coverage.json is absent
+- MCP dispatch + schema both register all 4 tools
+- Non-founder callers rejected (either "founder access required" or "database unavailable" — both are fail-closed refusals)
+- `severity` arg validated against `p0|p1|p2` enum
+
+**Live verify**: `GET /api/aurem-dev/mcp` on preview returns all 4 QA tools in the manifest. `POST tools/call qa_open_gaps` without a bearer returns `{"code": -32001, "message": "Missing Authorization header"}` — auth gate confirmed live.
+
+**Track 1 Step 3 (Canary Repo)** — instructions delivered to founder for parallel setup; unblocks Step 4 (coverage-instrumented canary E2E).
+
+
 ## 2026-02 — Iter 286 / Track 0 (MCP write-path test-file lock)
 
 **Bug (audit-found, not user-reported)**: `services/local_tools.py::write_repo_file` (direct MCP tool) and `routers/cto_projects.py::_run_task` (Mode-C `ship_code` pipeline) both committed LLM-produced changes gated only by Vanguard's regex secrets scan. The Loop-pipeline test-file lock (`loop_diff_classifier.is_test_or_fixture`) was NOT enforced on either path. An MCP client could ask "fix the failing test" and the model could silently rewrite `test_*.py` to make it pass.
