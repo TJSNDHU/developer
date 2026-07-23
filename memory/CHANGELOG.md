@@ -4,6 +4,14 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 285 (Chat-inline cards width match composer)
+
+**Bug** (user screenshot): PlanApprovalCard + LoopLiveFeed rendered edge-to-edge on wide viewports while the composer sat centered inside a `clamp(16px, 17.25%, 240px)` horizontal inset. Visual misalignment made the cards look like they belonged to a different container.
+
+**Fix**: added a new `.chat-inline-card` class in `index.css` with the same horizontal padding clamp as the composer (also extended the two `@container` responsive blocks). Wrapped `PlanApprovalCard`, `LoopLiveFeed`, and the Iter 284 `agent-status-bar` in `<div className="chat-inline-card">`. Zero behavior change — pure CSS alignment.
+
+**Tests + docs**: 3 regression tests, postmortem, MTTR 0.42h, AGENTS.md + CHANGELOG updated.
+
 ## 2026-02 — Iter 284 (Queue-next UX: visible affordance + auto-queue)
 
 **Bug** (user screenshot): while a loop was running (`thinking · 51.2s`), the user typed a follow-up prompt but had no send button — only `chat-stop`. Iter 279's queue-next feature was reachable ONLY by Enter key. Also, the queue-confirm was `window.confirm()` — narrow OS-native dialog, visually detached from the composer.

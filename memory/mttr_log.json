@@ -61,6 +61,15 @@
       "mttr_hours": 0.6666666666666666,
       "postmortem": "postmortems/iter284_queue_next_ui.md",
       "class": "affordance-visibility"
+    },
+    {
+      "iter": 285,
+      "slug": "chat-inline-card-width",
+      "reported_at": "2026-02-06T00:05:00Z",
+      "deployed_at": "2026-02-06T00:30:00Z",
+      "mttr_hours": 0.4166666666666667,
+      "postmortem": "postmortems/iter285_chat_inline_card_width.md",
+      "class": "visual-alignment"
     }
   ]
 }

@@ -3148,10 +3148,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           plan-turn ends; user must click Approve before any code
           execution starts.  Cancel resets the loop. */}
       {showPlanCard && (
-        <PlanApprovalCard
-          onApprove={handleApprovePlan}
-          onCancel={handleCancelPlan}
-        />
+        <div className="chat-inline-card">
+          <PlanApprovalCard
+            onApprove={handleApprovePlan}
+            onCancel={handleCancelPlan}
+          />
+        </div>
       )}
 
       {/* Iter 212m-65 — Phase D wiring: live self-heal strip + paused
@@ -3161,11 +3163,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           real silences is contextual (uses last known phase), not
           canned. Hidden until the first event lands. */}
       {loopId && (
-        <LoopLiveFeed
-          loopId={loopId}
-          event={loopFeedEvent}
-          terminal={loopTerminal}
-        />
+        <div className="chat-inline-card">
+          <LoopLiveFeed
+            loopId={loopId}
+            event={loopFeedEvent}
+            terminal={loopTerminal}
+          />
+        </div>
       )}
       <SelfHealIndicator
         visible={selfHeal.visible}
@@ -3226,6 +3230,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           on both.  Layout mirrors the reference: chip on the left,
           animated pulse on the right. */}
       {busy && (
+        <div className="chat-inline-card" data-testid="agent-status-shell">
         <div
           data-testid="agent-status-bar"
           style={{
@@ -3279,6 +3284,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               border-top-right-radius: 0 !important;
             }
           `}</style>
+        </div>
         </div>
       )}
 

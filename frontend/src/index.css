@@ -1025,9 +1025,20 @@ table { max-width: 100%; }
   padding: 14px clamp(16px, 17.25%, 240px);
 }
 
+/* Iter 285 — Plan approval, LoopLiveFeed, agent-status-bar etc.
+   are sibling cards to the composer, but their default styling
+   spanned full container width — leaving them visibly wider than
+   the composer inset.  Match the SAME horizontal clamp so all
+   cards sit on the same left/right edges as the messages + form. */
+.chat-inline-card {
+  padding-left: clamp(16px, 17.25%, 240px);
+  padding-right: clamp(16px, 17.25%, 240px);
+}
+
 @container chat-panel (max-width: 900px) {
   [data-testid="chat-messages"],
-  [data-testid="chat-form"].glass-composer {
+  [data-testid="chat-form"].glass-composer,
+  .chat-inline-card {
     padding-left: 24px;
     padding-right: 24px;
   }
@@ -1035,7 +1046,8 @@ table { max-width: 100%; }
 
 @container chat-panel (max-width: 600px) {
   [data-testid="chat-messages"],
-  [data-testid="chat-form"].glass-composer {
+  [data-testid="chat-form"].glass-composer,
+  .chat-inline-card {
     padding-left: 12px;
     padding-right: 12px;
   }

@@ -278,3 +278,6 @@ applies: any new external call goes through them.
 - `test_regression_iter284_chat_queue_send_button_renders_during_busy`
 - `test_regression_iter284_window_confirm_removed`
 - `test_regression_iter284_queued_chip_and_agent_running_present`
+- `test_regression_iter285_chat_inline_card_class_declared_in_css`
+- `test_regression_iter285_container_queries_include_chat_inline_card`
+- `test_regression_iter285_plan_approval_and_live_feed_use_wrapper`
