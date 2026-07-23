@@ -1,0 +1,304 @@
+{
+  "checkpoints": [
+    {
+      "step": "login",
+      "ok": true,
+      "detail": "https://auremcto.com/dashboard",
+      "ts": "18:28:29"
+    },
+    {
+      "step": "diag:stream_max_s",
+      "ok": true,
+      "detail": "got 1200",
+      "ts": "18:28:30"
+    },
+    {
+      "step": "diag:6of6_ttls",
+      "ok": true,
+      "detail": "count=6",
+      "ts": "18:28:30"
+    },
+    {
+      "step": "diag:db_name",
+      "ok": true,
+      "detail": "db=launch-pad-237-aurem_dev",
+      "ts": "18:28:30"
+    },
+    {
+      "step": "chat:baseline-history",
+      "ok": true,
+      "detail": "session=d4bbcbd4-3e57-4c69-8ba1-394dfaa06962 baseline_turns=40",
+      "ts": "18:28:30"
+    },
+    {
+      "step": "loop-mode:toggled-on",
+      "ok": true,
+      "detail": "",
+      "ts": "18:28:31"
+    },
+    {
+      "step": "loop:prompt-submitted",
+      "ok": true,
+      "detail": "add a single HTML comment '<!-- iter282 e2e qa -->' at the v",
+      "ts": "18:28:32"
+    },
+    {
+      "step": "Iter281:live-feed-placeholder-appeared",
+      "ok": true,
+      "detail": "visible=True",
+      "ts": "18:29:03"
+    },
+    {
+      "step": "Iter281:plan-approval-card-appeared",
+      "ok": true,
+      "detail": "visible=True",
+      "ts": "18:29:03"
+    },
+    {
+      "step": "loop:plan-approved",
+      "ok": true,
+      "detail": "",
+      "ts": "18:29:03"
+    },
+    {
+      "step": "SSE:events-observed",
+      "ok": true,
+      "detail": "count=1",
+      "ts": "18:32:03"
+    },
+    {
+      "step": "SSE:stream-opened-in-network",
+      "ok": true,
+      "detail": "count=1",
+      "ts": "18:32:03"
+    },
+    {
+      "step": "Iter281:live-feed-real-events-rendered",
+      "ok": false,
+      "detail": "visible=False",
+      "ts": "18:32:03"
+    },
+    {
+      "step": "Iter280:chat-input-enabled-during-loop",
+      "ok": true,
+      "detail": "disabled=False",
+      "ts": "18:32:03"
+    },
+    {
+      "step": "loop:stop-button-clicked",
+      "ok": true,
+      "detail": "",
+      "ts": "18:32:03"
+    },
+    {
+      "step": "Iter279:backend-cancelled-within-2s",
+      "ok": false,
+      "detail": "active={\"ok\": true, \"active\": {\"loop_id\": \"loop_66266ef556c347\", \"state\": \"paused_for_user\", \"phase\": \"ship\", \"project_id\": \"p_c2b5b8a916\", \"plan\": {\"title\":",
+      "ts": "18:32:07"
+    },
+    {
+      "step": "Iter280:chat-input-enabled-after-stop",
+      "ok": true,
+      "detail": "disabled=False",
+      "ts": "18:32:08"
+    },
+    {
+      "step": "Iter280:history-persists-across-reload",
+      "ok": true,
+      "detail": "before=40 after=40",
+      "ts": "18:32:15"
+    },
+    {
+      "step": "diag:still-6of6-ttls-after-cancel",
+      "ok": true,
+      "detail": "count=6",
+      "ts": "18:32:16"
+    }
+  ],
+  "loop_sse": [
+    "[loop-sse] openLoopStream() called for loop_id= loop_66266ef556c347"
+  ],
+  "console_errors": [],
+  "network_err": [],
+  "sse_streams_opened": 1,
+  "diag_before": {
+    "ok": true,
+    "iter": 282,
+    "stream_max_s": 1200,
+    "ttl_indexes_present": [
+      "loop_events",
+      "loop_failures",
+      "loop_locks",
+      "loop_run_log",
+      "loop_sessions",
+      "loop_verification_log"
+    ],
+    "ttl_indexes_detail": {
+      "loop_events": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_locks": [
+        {
+          "name": "acquired_at_1",
+          "key": [
+            [
+              "acquired_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_failures": [
+        {
+          "name": "occurred_at_1",
+          "key": [
+            [
+              "occurred_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_sessions": [
+        {
+          "name": "updated_at_1",
+          "key": [
+            [
+              "updated_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 2592000
+        }
+      ],
+      "loop_verification_log": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 7776000
+        }
+      ],
+      "loop_run_log": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 7776000
+        }
+      ]
+    },
+    "db_name": "launch-pad-237-aurem_dev"
+  },
+  "diag_after": {
+    "ok": true,
+    "iter": 282,
+    "stream_max_s": 1200,
+    "ttl_indexes_present": [
+      "loop_events",
+      "loop_failures",
+      "loop_locks",
+      "loop_run_log",
+      "loop_sessions",
+      "loop_verification_log"
+    ],
+    "ttl_indexes_detail": {
+      "loop_events": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_locks": [
+        {
+          "name": "acquired_at_1",
+          "key": [
+            [
+              "acquired_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_failures": [
+        {
+          "name": "occurred_at_1",
+          "key": [
+            [
+              "occurred_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 604800
+        }
+      ],
+      "loop_sessions": [
+        {
+          "name": "updated_at_1",
+          "key": [
+            [
+              "updated_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 2592000
+        }
+      ],
+      "loop_verification_log": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 7776000
+        }
+      ],
+      "loop_run_log": [
+        {
+          "name": "created_at_1",
+          "key": [
+            [
+              "created_at",
+              1
+            ]
+          ],
+          "expireAfterSeconds": 7776000
+        }
+      ]
+    },
+    "db_name": "launch-pad-237-aurem_dev"
+  },
+  "placeholder_seen_at_offset": null,
+  "loop_sse_sample": [
+    "[loop-sse] openLoopStream() called for loop_id= loop_66266ef556c347"
+  ]
+}
