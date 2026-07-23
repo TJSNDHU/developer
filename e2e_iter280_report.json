@@ -1,0 +1,214 @@
+{
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "detail": "landed on https://auremcto.com/dashboard",
+      "ts": "05:06:07"
+    },
+    {
+      "step": "chat-panel visible",
+      "ok": true,
+      "detail": "",
+      "ts": "05:06:08"
+    },
+    {
+      "step": "history:initial-message-count",
+      "ok": true,
+      "detail": "count=39",
+      "ts": "05:06:11"
+    },
+    {
+      "step": "chat-input:enabled-before-loop",
+      "ok": true,
+      "detail": "disabled=False",
+      "ts": "05:06:11"
+    },
+    {
+      "step": "chat:send-probe",
+      "ok": true,
+      "detail": "E2E probe iter280 1784783171",
+      "ts": "05:06:20"
+    },
+    {
+      "step": "history:after-probe-count",
+      "ok": true,
+      "detail": "before=39 after=41",
+      "ts": "05:06:29"
+    },
+    {
+      "step": "history:persists-after-reload",
+      "ok": false,
+      "detail": "before-reload=41 after-reload=39",
+      "ts": "05:06:34"
+    },
+    {
+      "step": "loop:send-prompt",
+      "ok": false,
+      "detail": "Locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"[data-testid=\\\"chat-input\\\"]\")\n    - locator resolved to <textarea rows=\"3\" data-testid=\"chat-input\" class=\"composer-input-b",
+      "ts": "05:07:04"
+    },
+    {
+      "step": "loop:started-and-live-feed-visible",
+      "ok": false,
+      "detail": "sse_traces=0 feed_visible=False",
+      "ts": "05:08:35"
+    },
+    {
+      "step": "Iter280-FIX1:chat-input-enabled-during-loop",
+      "ok": true,
+      "detail": "disabled_during_loop=False",
+      "ts": "05:08:35"
+    },
+    {
+      "step": "loop:sse-phase-events-count",
+      "ok": false,
+      "detail": "count=0",
+      "ts": "05:10:05"
+    },
+    {
+      "step": "loop:heartbeat-visible",
+      "ok": false,
+      "detail": "heartbeat_found=False",
+      "ts": "05:10:05"
+    },
+    {
+      "step": "loop:stop-click",
+      "ok": false,
+      "detail": "chat-stop not visible",
+      "ts": "05:10:05"
+    },
+    {
+      "step": "Iter280-FIX1:chat-input-enabled-after-stop",
+      "ok": true,
+      "detail": "disabled_after_stop=False",
+      "ts": "05:10:13"
+    },
+    {
+      "step": "loop:live-feed-after-stop",
+      "ok": true,
+      "detail": "still_mounted=False",
+      "ts": "05:10:13"
+    },
+    {
+      "step": "Iter279:backend-loop-cancelled",
+      "ok": true,
+      "detail": "api_resp={\"status\": 401, \"body\": {\"detail\": \"Authorization header missing\"}}",
+      "ts": "05:10:13"
+    },
+    {
+      "step": "history:persists-final-reload",
+      "ok": true,
+      "detail": "final_count=39",
+      "ts": "05:10:19"
+    }
+  ],
+  "console_logs": [
+    {
+      "type": "info",
+      "text": "[AUREM F12] Error capture active. Errors will be sent to ORA when you chat."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "info",
+      "text": "[AUREM F12] Error capture active. Errors will be sent to ORA when you chat."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 ()"
+    },
+    {
+      "type": "info",
+      "text": "[AUREM F12] Error capture active. Errors will be sent to ORA when you chat."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    }
+  ],
+  "loop_sse_traces": [],
+  "network_errors": [
+    {
+      "url": "https://auremcto.com/api/aurem-dev/loop/active",
+      "status": 401
+    }
+  ],
+  "loop_sse_traces_sample": [],
+  "console_error_sample": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 ()"
+    }
+  ]
+}

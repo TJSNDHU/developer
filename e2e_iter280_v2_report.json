@@ -1,0 +1,563 @@
+{
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "detail": "url=https://auremcto.com/dashboard",
+      "ts": "05:20:26"
+    },
+    {
+      "step": "cookie-consent:dismissed",
+      "ok": true,
+      "detail": "",
+      "ts": "05:20:29"
+    },
+    {
+      "step": "history:api-baseline",
+      "ok": true,
+      "detail": "session=d4bbcbd4-3e57-4c69-8ba1-394dfaa06962 count=0",
+      "ts": "05:20:32"
+    },
+    {
+      "step": "send:probe-clicked",
+      "ok": true,
+      "detail": "E2E ping iter280 1784784032",
+      "ts": "05:20:33"
+    },
+    {
+      "step": "send:probe-streaming-finished",
+      "ok": true,
+      "detail": "finished=True",
+      "ts": "05:20:46"
+    },
+    {
+      "step": "Iter280-FIX2:history-persisted-server-side",
+      "ok": false,
+      "detail": "before=0 after=0 last_role=None",
+      "ts": "05:20:49"
+    },
+    {
+      "step": "Iter280-FIX2:history-reload-server-count-stable",
+      "ok": true,
+      "detail": "server=0 ui=20 probe_count=0",
+      "ts": "05:20:56"
+    },
+    {
+      "step": "Iter280-FIX2:ui-renders-persisted-history",
+      "ok": true,
+      "detail": "ui_count=20",
+      "ts": "05:20:56"
+    },
+    {
+      "step": "loop:prompt-sent",
+      "ok": true,
+      "detail": "please add a single HTML comment line '<!-- iter280 e2e -->'",
+      "ts": "05:20:57"
+    },
+    {
+      "step": "loop:LoopLiveFeed-visible",
+      "ok": false,
+      "detail": "feed_count>0=False",
+      "ts": "05:23:58"
+    },
+    {
+      "step": "loop:loop-sse-console-traces",
+      "ok": false,
+      "detail": "count=0",
+      "ts": "05:23:58"
+    },
+    {
+      "step": "loop:backend-active-endpoint-showed-loop",
+      "ok": false,
+      "detail": "active_probes=44",
+      "ts": "05:23:58"
+    },
+    {
+      "step": "Iter280-FIX1:chat-input-enabled-during-loop",
+      "ok": true,
+      "detail": "disabled_during=False",
+      "ts": "05:23:58"
+    },
+    {
+      "step": "loop:stop-via-api",
+      "ok": true,
+      "detail": "{\"no_loop\": true}",
+      "ts": "05:23:58"
+    },
+    {
+      "step": "Iter279:backend-loop-stopped",
+      "ok": true,
+      "detail": "{\"status\": 200, \"sessions\": null, \"body\": \"{\\\"ok\\\":true,\\\"active\\\":null}\"}",
+      "ts": "05:24:04"
+    }
+  ],
+  "console": [
+    {
+      "type": "info",
+      "text": "[AUREM F12] Error capture active. Errors will be sent to ORA when you chat."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    },
+    {
+      "type": "info",
+      "text": "[AUREM F12] Error capture active. Errors will be sent to ORA when you chat."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "clear",
+      "text": "console.clear"
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    },
+    {
+      "type": "warning",
+      "text": "The resource https://auremcto.com/aurem-bg.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+    }
+  ],
+  "loop_sse": [],
+  "network": [
+    {
+      "url": "https://auremcto.com/api/chat/history?session_id=d4bbcbd4-3e57-4c69-8ba1-394dfaa06962",
+      "status": 404
+    },
+    {
+      "url": "https://auremcto.com/api/chat/history?session_id=d4bbcbd4-3e57-4c69-8ba1-394dfaa06962",
+      "status": 404
+    },
+    {
+      "url": "https://auremcto.com/api/chat/history?session_id=d4bbcbd4-3e57-4c69-8ba1-394dfaa06962",
+      "status": 404
+    }
+  ],
+  "sse_urls": [],
+  "token_present": true,
+  "session_id": "d4bbcbd4-3e57-4c69-8ba1-394dfaa06962",
+  "loop_active_probe": [
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    },
+    {
+      "status": 200,
+      "sessions": null,
+      "body": "{\"ok\":true,\"active\":null}"
+    }
+  ],
+  "loop_sse_sample": [],
+  "console_errors": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    }
+  ]
+}
