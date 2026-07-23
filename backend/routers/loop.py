@@ -432,10 +432,48 @@ async def cancel_loop(loop_id: str,
         if db is not None:
             doc = await eng.load_session(db, loop_id)
             if doc and doc.get("user_id") == user["user_id"]:
+                # Iter 277 — write the aborted state AND write a terminal
+                # audit row that the frontend's SSE fallback path picks
+                # up. Previously this fallback branch only set state in
+                # `loop_sessions`, leaving the SSE stream with no
+                # terminal frame — the UI kept rendering the stale
+                # "executing" state for minutes until the user refreshed.
+                from datetime import datetime, timezone
+                terminal_ts = datetime.now(timezone.utc).isoformat()
                 await db.loop_sessions.update_one(
                     {"loop_id": loop_id},
-                    {"$set": {"state": "aborted"}},
+                    {"$set": {"state": "aborted",
+                              "phase": doc.get("phase") or "?",
+                              "updated_at": terminal_ts,
+                              "last_event": {
+                                  "state":   "aborted",
+                                  "phase":   doc.get("phase") or "?",
+                                  "message": "Loop cancelled by user "
+                                             "(no live engine — "
+                                             "cleaned up via fallback).",
+                                  "ts":      terminal_ts,
+                              }}},
                 )
+                # Also drop an event row into `loop_events` so any
+                # /stream consumer polling the log picks up the terminal
+                # marker on its next tick.
+                try:
+                    await db.loop_events.insert_one({
+                        "loop_id":  loop_id,
+                        "state":    "aborted",
+                        "phase":    doc.get("phase") or "?",
+                        "message":  "Loop cancelled by user "
+                                    "(no live engine — cleaned up via "
+                                    "fallback).",
+                        "step":     None,
+                        "data":     {"origin": "cancel_fallback"},
+                        "created_at": terminal_ts,
+                    })
+                except Exception as e:                        # noqa: BLE001
+                    logger.debug(
+                        "loop %s — fallback loop_events insert failed: %r",
+                        loop_id, e,
+                    )
                 # Free the concurrent-loop lock so the project isn't
                 # held captive by a ghost loop. Pulls owner out of the
                 # persisted doc — _no_project for legacy / no-project
@@ -453,7 +491,8 @@ async def cancel_loop(loop_id: str,
                         loop_id, e,
                     )
                 return {"loop_id": loop_id, "state": "aborted",
-                        "lock_released": True}
+                        "lock_released": True,
+                        "terminal_event_written": True}
         raise HTTPException(404, "Loop not found")
     if engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
