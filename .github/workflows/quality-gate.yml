@@ -148,3 +148,30 @@ jobs:
             tests/test_sre_discipline_integrity.py \
             tests/test_quality_gate_enforcement.py \
             -v --tb=short
+
+  test-style-guard:
+    # Iter 291 — block PRs that add new test files whose STATIC_GREP
+    # ratio > 60%. The founder-agreed rule (iter290 real-measurement
+    # finding: 50.7% of existing suite is grep-only) is: no NEW test
+    # file may compound that debt. Files can opt out via a
+    # `# static-grep-ok: <reason>` magic comment (e.g. mutation
+    # suites, which are grep-style by design).
+    name: Static-grep threshold on new tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run test-style guard on PR diff
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "Diffing $BASE_SHA..$HEAD_SHA for test-style violations"
+          python scripts/ci_check_test_style.py "$BASE_SHA" "$HEAD_SHA"

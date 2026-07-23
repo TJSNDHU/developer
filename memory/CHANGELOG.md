@@ -4,6 +4,38 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 291 (STATIC_GREP CI-guard — stop new grep-debt at PR gate)
+
+**Founder call (verbatim)**: "Add the STATIC_GREP>60% CI-guard NOW, before starting the weak-P0 fixes — prevents new grep-debt while old debt is being paid down." Adopted immediately.
+
+**Ship**:
+- **`backend/scripts/ci_check_test_style.py`** — CLI. Takes `base_sha head_sha`, runs `git diff --diff-filter=AM` to find added/modified test files that live under a `tests/` directory, invokes `services.test_style_analyzer.analyze_file` on each, and exits 1 when any file has >60% `STATIC_GREP` (over ≥3 tests). File-level opt-out via `# static-grep-ok: <reason>` magic comment in the first 40 lines — mandatory reason, echoed to CI log for reviewer sign-off.
+- **`.github/workflows/quality-gate.yml`** — new `test-style-guard` job (3rd job in the workflow). Runs on every PR, calls the script. Fetches full git history (`fetch-depth: 0`) so the diff resolves.
+- **`test_mutation_iter289_critical_assertions.py`** — added the `# static-grep-ok: mutation suite — these tests DELIBERATELY read source files and mutate string patterns; STATIC_GREP is the correct classification` marker inside the docstring. First recorded opt-out.
+
+**Guarantees**:
+- Threshold: **60% STATIC_GREP** (founder-agreed).
+- Minimum file size: **3 tests** (below that, sample too small; skipped, not blocked).
+- Exempt marker: **`# static-grep-ok: <reason>`** on any of the first 40 lines (typically inside the docstring).
+- False-positive class fixed: `services/test_helper.py` (basename starts with `test_` but not in `/tests/`) is correctly ignored. Regression locked.
+
+**Real end-to-end proof (subprocess + ephemeral git fixture)**:
+- 5-test file, 4 grep + 1 behavioural (80%) → **BLOCKED**, exit 1, `::error file=... static-grep 80.0% > 60% threshold` in stdout.
+- Same file with `# static-grep-ok: mutation suite` → **EXEMPT**, exit 0, reason echoed.
+- 4-test file, 1 grep + 3 behavioural (25%) → **PASS**.
+- 1-test file, 100% grep but below `_MIN_TESTS_FOR_GUARD=3` → **SKIPPED**.
+- Non-tests dir file with test_ basename → correctly ignored.
+
+**Tests**: 7 new in `test_regression_iter291_ci_static_grep_guard.py`, **all BEHAVIOURAL** (real subprocess invocations against tempfile git repos — no source-grep on the CLI itself, only functional exit-code + stdout assertions). Full curated suite: **95/95** passing.
+
+**Priority stack (updated after founder approval)**:
+1. ✅ CI-guard live (this iter).
+2. 🔴 6 weak-P0 behavioural upgrades — same order as iter290 listed.
+3. 🔴 6 P0 untouched journey tests.
+4. 🟠 Track 2 (parallel, unblocked).
+5. 🟢 Lane B (waiting on 5 env vars).
+
+
 ## 2026-02 — Iter 290 (Track 1 Lane A follow-up: static-vs-behavioural analyzer)
 
 **Founder finding (direct quote)**: "many 'existing' iter277-288 regression tests are static source-grep — they validate patterns but never execute the code." This iter builds the tool that answers "how many, exactly?" before writing any new tests.

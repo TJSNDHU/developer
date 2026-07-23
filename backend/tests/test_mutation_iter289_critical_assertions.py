@@ -2,6 +2,10 @@
 tests/test_mutation_iter289_critical_assertions.py — Iter 289
 (Track 1 Lane A, Task 3)
 
+# static-grep-ok: mutation suite — these tests DELIBERATELY read
+# source files and mutate string patterns; STATIC_GREP is the
+# correct classification and iter291's CI guard should skip them.
+
 Mutation smoke: for the 3 most critical regression tests, we
 DELIBERATELY WEAKEN one core assertion at runtime (via a mocked
 version of the file / function under test) and confirm the paired

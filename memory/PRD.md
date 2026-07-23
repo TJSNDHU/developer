@@ -1,12 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 290 (Track 1 Lane A
-> follow-up: `services/test_style_analyzer.py` + `qa_static_vs_behavioural_ratio`
-> MCP tool. Real numbers on 75-test suite: **50.7% STATIC_GREP, 42.7%
-> BEHAVIOURAL, 9 weak-P0 tests flagged for behavioural upgrade**.
-> Lane A still NOT closed — needs behavioural upgrade + new P0
-> journey tests). Full details in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 291 (STATIC_GREP CI-guard
+> live: `scripts/ci_check_test_style.py` + `test-style-guard` workflow
+> job. New PRs blocked when a changed test file has >60% grep-only
+> tests, opt-out via `# static-grep-ok:` marker. Prevents new
+> grep-debt while iter290's backlog is being drained.) Full details
+> in `CHANGELOG.md`.
 
 
 
