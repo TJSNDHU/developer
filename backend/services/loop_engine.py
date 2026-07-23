@@ -846,6 +846,18 @@ class LoopEngine:
 
                 async def _gen_via_parliament(client, path):
                     async with sem:
+                        # Iter 276 — emit a REAL per-file event before
+                        # entering the Parliament call so the frontend
+                        # shows granular sub-step activity instead of a
+                        # static "Executing — N file(s) planned" line
+                        # for the entire per-file window (which can be
+                        # 30-300s per file at PER_FILE_TIMEOUT_S).
+                        await self._emit(
+                            LoopState.EXECUTING, "execute",
+                            step=2, total_steps=5,
+                            message=f"Generating {path}…",
+                            data={"file": path, "sub_step": "generating"},
+                        )
                         try:
                             current = await fetch_file(
                                 client, owner, repo, path, branch, token,
@@ -892,10 +904,27 @@ class LoopEngine:
                                 "[parliament] file %s timed out (>%ds) — skipping",
                                 path, PER_FILE_TIMEOUT_S,
                             )
+                            # Iter 276 — surface the timeout so the user
+                            # sees WHY nothing is landing, not just a
+                            # silent gap.
+                            await self._emit(
+                                LoopState.EXECUTING, "execute",
+                                step=2, total_steps=5,
+                                message=(f"Timed out waiting on {path} "
+                                          f"(>{PER_FILE_TIMEOUT_S}s) — skipping"),
+                                data={"file": path, "sub_step": "timeout"},
+                            )
                             return None
                         except Exception as e:                # noqa: BLE001
                             logger.exception(
                                 "[parliament] file %s raised: %r", path, e,
+                            )
+                            await self._emit(
+                                LoopState.EXECUTING, "execute",
+                                step=2, total_steps=5,
+                                message=f"Error generating {path}: "
+                                         f"{type(e).__name__}",
+                                data={"file": path, "sub_step": "error"},
                             )
                             return None
                         if result.get("status") == "success" and result.get("output"):
