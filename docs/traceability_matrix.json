@@ -87,15 +87,18 @@
         "backend/services/loop_independent_verifier.py",
         "backend/services/loop_engine.py"
       ],
-      "regression_tests": [],
-      "status": "OPEN_GAP",
-      "severity": "p0",
-      "gap_description": "The frozen task_spec (loop_task_specs) is currently only consulted by the INDEPENDENT VERIFIER at ship-time. Between AWAITING_CONFIRMATION → EXECUTING → SHIP-READY, the executor agent can write files that fall outside the frozen acceptance_criteria (scope creep). Vanguard catches security/test-file drift, but NOT plan-scope drift. Result: the verifier may block a ship at the end, wasting a full loop run, when an earlier scope-check would have short-circuited the drift.",
-      "proposed_fix_family": [
-        "Add pre-write scope-check inside loop_engine._execute: for each staged file, ask cheap LLM 'does this change belong to the frozen criteria?' — reject with reason before commit.",
-        "Emit a `scope_drift` SSE event so the UI can render a warning + let the user re-approve mid-execute.",
-        "Persist scope_drift events into loop_events for postmortem."
+      "regression_tests": [
+        "test_regression_iter288_freeze_persists_files_to_change",
+        "test_regression_iter288_freeze_empty_files_when_plan_is_string",
+        "test_regression_iter288_execute_has_scope_drift_gate_before_parliament",
+        "test_regression_iter288_scope_drift_emits_requires_user_action",
+        "test_regression_iter288_empty_output_writes_diag_row"
       ],
+      "status": "COVERED",
+      "severity": "p0",
+      "resolved_iter": 288,
+      "gap_description_historical": "The frozen task_spec (loop_task_specs) was only consulted by the INDEPENDENT VERIFIER at ship-time. Between AWAITING_CONFIRMATION → EXECUTING → SHIP-READY, the executor agent could write files that fell outside the frozen acceptance_criteria (scope creep). Vanguard caught security/test-file drift, but NOT plan-scope drift. Result: the verifier blocked ship at the end, wasting a full loop run.",
+      "fix_summary": "Iter 288 — loop_task_specs.freeze() now persists frozen_files_to_change (structured); loop_engine._do_execute() pre-checks paths against the frozen set BEFORE Parliament dispatch, and on any extras: writes a scope_drift row to loop_events, flips state to PAUSED_FOR_USER, emits an SSE frame with data.kind='scope_drift' + requires_user_action=True, and returns. Plus: empty-output failure now writes execute_empty_output diag row to loop_run_log with per-file outcomes.",
       "reference": "session iter286 (loop_1f8 investigation) — item raised by founder for permanent QA capture, not a one-off audit.",
       "must_ship_regression_when_fixed": true
     },
@@ -309,17 +312,15 @@
   "summary": {
     "total_journeys": 25,
     "by_status": {
-      "COVERED": 16,
+      "COVERED": 17,
       "PARTIAL": 3,
-      "OPEN_GAP": 6
+      "OPEN_GAP": 5
     },
     "by_severity": {
       "p0": 13,
       "p1": 10,
       "p2": 2
     },
-    "open_p0_gaps": [
-      "j007_loop_1f8_frozen_plan_scope_enforcement_during_execute"
-    ]
+    "open_p0_gaps": []
   }
 }

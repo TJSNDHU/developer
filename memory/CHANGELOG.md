@@ -4,6 +4,42 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 288 (loop_1f8/loop_bff RCA + j007 fix + 3 UI-state bugs)
+
+**User-reported (bug batch)**:
+1. Loop reaches terminal FAIL but the `LOOP · PLAN—EXECUTE—VERIFY—SCAN—SHIP` stepper stays orange on EXECUTE (not red).
+2. "Agent is running…" (Iter 284 queue-status bar) persists after terminal FAIL.
+3. LoopLiveFeed heartbeat line renders next to the FAIL message.
+4. j007 (frozen-plan scope-enforcement during Execute) — implement the fix, not just document it.
+5. Answer the 3 loop_1f8 questions with real evidence, not "j007 logged".
+
+**Direct answers, real evidence**:
+- **1a (does frozen plan block Execute?)**: **No — pre-fix, only ship-time.** `loop_task_specs.get()` was called in exactly one place: `loop_independent_verifier.verify()`. `_do_execute` iterated `plan.get("files_to_change")` from mutable context, never cross-checked against WORM row. **Now fixed.**
+- **1b (raw LLM response for loop_1f8/loop_bff)**: **Not recoverable.** Preview DB has 0 matches; 7-day TTL evicts run logs; the empty-output path never persisted per-file finish_reason. **Now fixed** — new `execute_empty_output` row to `loop_run_log` with per-file outcomes (path, outcome, bytes when successful) on every 0-file Parliament return. Next occurrence is diagnosable from DB.
+- **1c (backend/_archive/routers/* dead?)**: **Do not exist in /app.** `find /app -name "sentinel*.py"` → 0 matches, `ls /app/backend/_archive/` → no directory. Likely refers to a different repo (founder's GitHub) — safe answer if grep confirms zero references there: **delete**.
+
+**Ship (backend)**:
+- `services/loop_task_specs.py::freeze` now persists `frozen_files_to_change` — the exact approved file list — as a separate structured field on the WORM row.
+- `services/loop_engine.py::_do_execute` — PRE-Parliament scope-drift check:
+  1. Loads frozen row; computes `extras = current_paths - frozen_paths`
+  2. If non-empty: writes `loop_events` row with `kind="scope_drift"`, flips state to `PAUSED_FOR_USER`, emits SSE frame with `data.kind="scope_drift"` + `requires_user_action=True` + concrete `frozen/extras/planned_now` lists, and **returns** (no LLM call).
+- `_do_execute` empty-output branch — now writes `execute_empty_output` diagnostic row to `loop_run_log` with per-file outcomes before the `_fail` call.
+
+**Ship (frontend)**:
+- `ChatPanel.jsx` — added `loopTerminalRef` (useRef). Inside `handleLoopEvent`, BEFORE the state→phase map: `if (loopTerminalRef.current && !isTerminalFrame) return;` drops late/out-of-order SSE frames. When `state==="failed"`, we synchronously `setBusy(false)` + `setLoopTerminal(true)` + `setLoopErrorPhase(phase)` — no longer waiting for onTerminal SSE close.
+- `LoopStepBar` errorStep now derived from `{plan:1, execute:2, verify:3, security:4, scan:4, ship:5}[loopErrorPhase]` — previously hard-coded to 2 (EXECUTE), which mis-painted ship/verify fails as EXECUTE red.
+- `LoopLiveFeed.jsx` — new useEffect on `terminal` filters heartbeat/keepalive entries from the ring buffer the instant terminal flips true.
+- `openLoopStream` resets both `loopTerminalRef.current = false` and `setLoopErrorPhase(null)` for re-runs.
+
+**Tests**: 11 new regression tests (all passing):
+- `test_regression_iter288_terminal_state_ui_dispatch.py` — 6 tests (loopTerminalRef guard present in handleLoopEvent; errorStep uses phase-map not hard-code; error phase reset on new stream; failed frame clears busy synchronously; live-feed purges heartbeats on terminal; unified guard covers all 3 symptoms).
+- `test_regression_iter288_scope_drift_j007.py` — 5 tests (freeze persists files_to_change; empty plan doesn't crash; scope-drift gate before Parliament; scope_drift requires_user_action=True + return; empty-output writes diag row).
+
+**bug_testing_agent verdict**: **fixed** (100% success rate on both fronts). Verified via browser with mocked SSE stream (execute → heartbeat → failed → late executing) — DOM stayed error, agent-status-bar removed, loop-live-gap purged. Also verified against a real preview loop terminal failure. Report: `/app/test_reports/iteration_288.json`.
+
+**Adjacent finding (bug_testing_agent, deferred)**: `POST /loop/{id}/confirm` returns 499/ValueError when confirming a loop that already reached failed-state in plan preflight — PlanApprovalCard should not render for failed loops. Added to backlog for next iter.
+
+
 ## 2026-02 — Iter 287 / Track 1 Steps 2 + 5 (Traceability matrix + MCP QA tools)
 
 **Feature (Master QA Test Strategy)**: build the deterministic QA

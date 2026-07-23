@@ -44,9 +44,18 @@ def test_traceability_matrix_has_loop_1f8_frozen_plan_scope_row():
     hits = [i for i in ids if isinstance(i, str) and "1f8" in i]
     assert hits, "loop_1f8 (frozen-plan scope-enforcement during Execute) row missing from matrix"
     row = next(j for j in data["journeys"] if j["journey_id"] == hits[0])
-    assert row["status"] == "OPEN_GAP", "loop_1f8 row must stay OPEN_GAP until a regression ships"
+    # Iter 288 shipped the fix — the row MUST now be COVERED and carry
+    # the iter288 regression tests. If it silently reverts to OPEN_GAP
+    # or drops the fix_summary, this test screams.
+    assert row["status"] == "COVERED", (
+        f"loop_1f8 row must be COVERED after iter288 fix, got: {row.get('status')}"
+    )
     assert row["severity"] == "p0"
-    assert row.get("must_ship_regression_when_fixed") is True
+    assert row.get("resolved_iter") == 288
+    tests = row.get("regression_tests") or []
+    assert any("iter288" in t for t in tests), (
+        "loop_1f8 row must list at least one iter288 regression test"
+    )
 
 
 def test_traceability_matrix_summary_matches_live_counts():
@@ -62,14 +71,20 @@ def test_traceability_matrix_summary_matches_live_counts():
 
 # ── QA matrix helpers (deterministic, no LLM) ────────────────────────
 
-def test_open_gaps_returns_p0_first_and_includes_loop_1f8():
+def test_open_gaps_returns_p0_first_when_present():
+    """After iter288 shipped the j007 fix there may be zero p0 gaps left,
+    which is fine. If any OPEN_GAP row exists at all, the sort order
+    (p0 → p1 → p2) must still hold."""
     from services.qa_matrix import open_gaps
     gaps = open_gaps()
-    assert gaps, "no OPEN_GAP rows returned"
-    # First entry must be a p0.
-    assert gaps[0]["severity"] == "p0"
-    ids = [g["journey_id"] for g in gaps]
-    assert any("1f8" in i for i in ids), "loop_1f8 not surfaced by open_gaps()"
+    if not gaps:
+        return   # empty is a valid state — no gaps left.
+    order = {"p0": 0, "p1": 1, "p2": 2}
+    prev = -1
+    for g in gaps:
+        rank = order.get(g.get("severity", ""), 99)
+        assert rank >= prev, f"open_gaps not sorted by severity: {gaps}"
+        prev = rank
 
 
 def test_regression_index_lists_iter286_tests():

@@ -1,11 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 287 (Master QA Track 1
-> Steps 2 + 5: traceability matrix + 4 founder-gated MCP QA tools;
-> loop_1f8 "frozen-plan scope-enforcement during Execute" captured
-> as permanent p0 OPEN_GAP row `j007`). Full details in
-> `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 288 (j007 scope-drift
+> block during Execute + 3 UI-state bugs — stepper red on fail,
+> agent-status-bar clears on terminal, LoopLiveFeed purges heartbeats,
+> plus real diagnostic writes to `loop_run_log` for future
+> "empty-output" failures. Verified by bug_testing_agent). Full
+> details in `CHANGELOG.md`.
 
 
 
