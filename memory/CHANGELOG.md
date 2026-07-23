@@ -4,6 +4,17 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 284 (Queue-next UX: visible affordance + auto-queue)
+
+**Bug** (user screenshot): while a loop was running (`thinking · 51.2s`), the user typed a follow-up prompt but had no send button — only `chat-stop`. Iter 279's queue-next feature was reachable ONLY by Enter key. Also, the queue-confirm was `window.confirm()` — narrow OS-native dialog, visually detached from the composer.
+
+**Fix**:
+- `chat-queue-send` button now renders alongside `chat-stop` when execMode=LOOP + text present + session ready. Clicking it fires `send()` which routes through the same 409-queue path.
+- `window.confirm()` REMOVED. Auto-queues silently on 409 and surfaces via a new caption row above the composer: `[data-testid="queued-chip"]` ("▸ N queued") + `[data-testid="agent-status-bar"]` ("Agent is running…" with pulsing orange dot). Amber outline visually pairs with the composer below.
+- `queuedCount` state increments on 409, decrements when the queued run fires.
+
+**Tests + docs**: 3 regression tests (source-level), postmortem, MTTR 0.67h, AGENTS.md index updated.
+
 ## 2026-02 — Iter 283 (chat-stop paused_for_user cancel gap)
 
 **Bug**: full QA E2E on prod surfaced that clicking Stop on a loop sitting at the SHIP-approval gate (`state="paused_for_user"`) did NOT cancel the backend engine — `/loop/active` still showed the loop 4s+ after click.

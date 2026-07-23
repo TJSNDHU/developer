@@ -275,3 +275,6 @@ applies: any new external call goes through them.
 - `test_regression_iter282_ttl_bootstrap_resolves_index_conflict`
 - `test_regression_iter283_chatpanel_stop_calls_cancel_loop`
 - `test_regression_iter283_backend_cancels_paused_for_user_loop`
+- `test_regression_iter284_chat_queue_send_button_renders_during_busy`
+- `test_regression_iter284_window_confirm_removed`
+- `test_regression_iter284_queued_chip_and_agent_running_present`

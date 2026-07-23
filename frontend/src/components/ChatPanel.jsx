@@ -441,6 +441,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [shipBusy, setShipBusy] = useState(false);
   const loopAbortRef = useRef(null);
 
+  // Iter 284 — visible queue indicator.  When a user submits during
+  // busy state, the message auto-queues via the 409 flow.  This
+  // counter surfaces above the composer as "N queued" so the queue
+  // is discoverable + auditable.
+  const [queuedCount, setQueuedCount] = useState(0);
+
   // Iter 212m-117 — Rehydrate paused-Ship state on mount. If the user
   // had a Loop paused at the manual Ship gate and refreshed the
   // browser, this re-populates the ShipPendingCard so they can resume
@@ -2106,22 +2112,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // (422 validation, structured 409 lock info). Template-string on
       // an object renders "[object Object]" — normalise to text.
       const detail = e?.response?.data?.detail;
-      // ── Iter 279 — queue-next handling ─────────────────────────
-      // If the 409 says another loop is running, offer the user two
-      // choices instead of a hard failure: (a) cancel the current
-      // one and start now, or (b) queue this message to auto-fire
-      // when the current one hits a terminal state.
+      // ── Iter 279 + 284 — queue-next handling ─────────────────
+      // If the 409 says another loop is running, silently QUEUE the
+      // new prompt (no OS-native window.confirm, no in-app modal —
+      // matches the pattern users expect from other agentic apps).
+      // A "N queued" chip renders above the composer so the queue
+      // is visible + dismissible.
       if (e?.response?.status === 409
           && detail?.error === "loop_already_running"
           && detail?.existing_loop_id) {
         const existingId = detail.existing_loop_id;
-        const choice = window.confirm(
-          `Another loop is already running for this project ` +
-          `(${existingId.slice(0, 12)}…).\n\n` +
-          `Press OK to QUEUE this message — it will auto-run when ` +
-          `the current loop finishes.\n\n` +
-          `Press Cancel to cancel the current loop and run this now.`
-        );
+        const choice = true;   // Iter 284 — always queue by default.
         setMessages((m) => {
           const out = m.slice();
           for (let i = out.length - 1; i >= 0; i--) {
@@ -2139,6 +2140,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         });
         setBusy(false);
         if (choice) {
+          setQueuedCount((n) => n + 1);   // Iter 284 — visible chip.
           // Queue path — poll the existing loop until terminal, then
           // recursively call this function with the same composed
           // message. Cheap 3s polling; auto-stops once terminal.
@@ -2148,6 +2150,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
               const s  = st?.data?.state || "";
               if (["completed","failed","aborted","done"].includes(s)) {
                 clearInterval(iv);
+                setQueuedCount((n) => Math.max(0, n - 1));
                 // Fire the queued message with a small delay so the
                 // acquire_loop_lock ghost-sweep sees the new terminal
                 // state before we retry.
@@ -3217,10 +3220,77 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         onReviewFindings={() => window.location.assign("/codebase-health")}
       />
 
+      {/* Iter 284 — "N queued · Agent is running" caption row.
+          Only renders while the agent is actively working; visually
+          pairs with the composer below via a matching amber outline
+          on both.  Layout mirrors the reference: chip on the left,
+          animated pulse on the right. */}
+      {busy && (
+        <div
+          data-testid="agent-status-bar"
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "8px 14px",
+            margin: "0 0 -1px 0",   // sits flush against the composer
+            border: "1px solid rgba(255,102,8,0.35)",
+            borderBottom: "none",
+            borderRadius: "12px 12px 0 0",
+            background: "rgba(255,102,8,0.06)",
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 11.5,
+            color: "#d8dade",
+          }}
+        >
+          {queuedCount > 0 && (
+            <span
+              data-testid="queued-chip"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "3px 10px", borderRadius: 999,
+                background: "rgba(255,102,8,0.14)",
+                border: "1px solid rgba(255,102,8,0.35)",
+                color: "#FF8A3D", fontWeight: 600,
+                fontSize: 10.5, letterSpacing: ".04em",
+              }}
+            >
+              ▸ {queuedCount} queued
+            </span>
+          )}
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            color: "#FF8A3D", fontWeight: 600,
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: "#FF6608",
+              boxShadow: "0 0 8px #FF660888",
+              animation: "agent-pulse 1.4s ease-in-out infinite",
+            }} />
+            Agent is running…
+          </span>
+          <style>{`
+            @keyframes agent-pulse {
+              0%,100% { opacity: 1;   transform: scale(1);   }
+              50%     { opacity: 0.5; transform: scale(1.25); }
+            }
+            form.glass-composer[data-agent-running="true"] {
+              border-color: rgba(255,102,8,0.35) !important;
+              border-top-left-radius: 0 !important;
+              border-top-right-radius: 0 !important;
+            }
+          `}</style>
+        </div>
+      )}
+
       <form
         data-testid="chat-form"
         onSubmit={send}
         className="glass-composer"
+        // Iter 284 — outline turns amber when the agent is running so
+        // the composer visually pairs with the running-agent caption
+        // above.  Matches the reference UI pattern where the whole
+        // composer shell tints during work.
+        data-agent-running={busy ? "true" : undefined}
         // Iter 59 — drag-and-drop attachment support directly on the
         // composer. dragOver state drives the visual cue.
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -3616,22 +3686,51 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           />
 
           {busy ? (
-            <button
-              type="button" data-testid="chat-stop"
-              onClick={stop}
-              title="Stop streaming"
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 38, height: 38, borderRadius: "50%",
-                background: "rgba(255,102,8,0.18)",
-                border: "1px solid rgba(255,102,8,0.45)",
-                color: "#FF6608",
-                cursor: "pointer",
-                transition: "background 140ms, transform 100ms",
-              }}
-            >
-              <Square size={14} strokeWidth={2.5} />
-            </button>
+            <>
+              {/* Iter 284 — queue-next affordance.
+                  When the loop is running AND the user has typed a new
+                  prompt in LOOP mode, show a visible send button that
+                  fires the exact same send() handler.  Previously only
+                  the stop button rendered here, so the queue-next
+                  feature (Iter 279) was only reachable via keyboard
+                  Enter — undiscoverable. */}
+              {execMode === EXEC_MODES.LOOP && input.trim() && sessionId && !exhausted && (
+                <button
+                  type="button" data-testid="chat-queue-send"
+                  onClick={() => send()}
+                  title="Queue this message — runs when the current loop finishes"
+                  style={{
+                    display: "inline-flex", alignItems: "center",
+                    justifyContent: "center",
+                    width: 38, height: 38, borderRadius: "50%",
+                    background: "rgba(255,102,8,0.9)",
+                    border: "1px solid rgba(255,102,8,0.9)",
+                    color: "#0A0A0A", cursor: "pointer",
+                    boxShadow: "0 0 20px -6px rgba(255,102,8,0.7)",
+                    transition: "background 140ms, transform 100ms",
+                    marginRight: 6,
+                  }}
+                >
+                  <Send size={15} strokeWidth={2.5} style={{ pointerEvents: "none" }} />
+                </button>
+              )}
+              <button
+                type="button" data-testid="chat-stop"
+                onClick={stop}
+                title="Stop streaming"
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  width: 38, height: 38, borderRadius: "50%",
+                  background: "rgba(255,102,8,0.18)",
+                  border: "1px solid rgba(255,102,8,0.45)",
+                  color: "#FF6608",
+                  cursor: "pointer",
+                  transition: "background 140ms, transform 100ms",
+                }}
+              >
+                <Square size={14} strokeWidth={2.5} />
+              </button>
+            </>
           ) : (
             <button
               type="button" data-testid="chat-send"

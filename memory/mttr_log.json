@@ -52,6 +52,15 @@
       "mttr_hours": 0.6666666666666666,
       "postmortem": "postmortems/iter283_chat_stop_paused_for_user.md",
       "class": "state-machine-gap"
+    },
+    {
+      "iter": 284,
+      "slug": "queue-next-ui",
+      "reported_at": "2026-02-05T23:15:00Z",
+      "deployed_at": "2026-02-05T23:55:00Z",
+      "mttr_hours": 0.6666666666666666,
+      "postmortem": "postmortems/iter284_queue_next_ui.md",
+      "class": "affordance-visibility"
     }
   ]
 }
