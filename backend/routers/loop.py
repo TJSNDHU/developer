@@ -497,7 +497,40 @@ async def cancel_loop(loop_id: str,
     if engine.user_id != user["user_id"]:
         raise HTTPException(403, "Not your loop")
     await engine.cancel()
-    return {"loop_id": loop_id, "state": engine.state.value}
+    # Iter 279 — belt-and-suspenders lock + state force-release.
+    # `engine.cancel()` above ALREADY does `_persist_session(ABORTED)`
+    # + `release_loop_lock()`, but the pipeline task's own finally
+    # block (Parliament call unwinding via CancelledError) can race
+    # and re-persist an interim state or re-acquire the lock. Doing
+    # a second write here — AFTER cancel() returns — guarantees a
+    # clean terminal DB state before the HTTP response returns to the
+    # user, so an immediately-following /loop/start acquire_loop_lock
+    # succeeds.
+    try:
+        db2 = get_db()
+        if db2 is not None:
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).isoformat()
+            await db2.loop_sessions.update_one(
+                {"loop_id": loop_id},
+                {"$set": {"state": "aborted",
+                          "updated_at": ts,
+                          "last_event": {
+                              "state":   "aborted",
+                              "phase":   engine.phase or "?",
+                              "message": "Loop cancelled by user.",
+                              "ts":      ts,
+                          }}},
+            )
+            await db2.loop_locks.delete_many({
+                "project_id": engine.project_id or "_no_project",
+                "user_id":    user["user_id"],
+                "loop_id":    loop_id,
+            })
+    except Exception as e:                                # noqa: BLE001
+        logger.debug("iter279 force-clean after cancel failed: %r", e)
+    return {"loop_id": loop_id, "state": engine.state.value,
+            "lock_force_released": True}
 
 
 # ── Iter 212m-146 — Force-release loop lock (safety hatch) ───────────

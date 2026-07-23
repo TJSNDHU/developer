@@ -2074,7 +2074,77 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // Iter 212m-176 — FastAPI can return `detail` as an object/array
       // (422 validation, structured 409 lock info). Template-string on
       // an object renders "[object Object]" — normalise to text.
-      let msg = e?.response?.data?.detail ?? e?.message ?? "Loop start failed";
+      const detail = e?.response?.data?.detail;
+      // ── Iter 279 — queue-next handling ─────────────────────────
+      // If the 409 says another loop is running, offer the user two
+      // choices instead of a hard failure: (a) cancel the current
+      // one and start now, or (b) queue this message to auto-fire
+      // when the current one hits a terminal state.
+      if (e?.response?.status === 409
+          && detail?.error === "loop_already_running"
+          && detail?.existing_loop_id) {
+        const existingId = detail.existing_loop_id;
+        const choice = window.confirm(
+          `Another loop is already running for this project ` +
+          `(${existingId.slice(0, 12)}…).\n\n` +
+          `Press OK to QUEUE this message — it will auto-run when ` +
+          `the current loop finishes.\n\n` +
+          `Press Cancel to cancel the current loop and run this now.`
+        );
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].loopPending) {
+              out[i] = {
+                role: "assistant", streaming: false,
+                content: choice
+                  ? `⏳ **Queued.** Will start when loop \`${existingId.slice(0,12)}…\` finishes.`
+                  : `⏹ **Cancelling current loop, then starting yours…**`,
+              };
+              break;
+            }
+          }
+          return out;
+        });
+        setBusy(false);
+        if (choice) {
+          // Queue path — poll the existing loop until terminal, then
+          // recursively call this function with the same composed
+          // message. Cheap 3s polling; auto-stops once terminal.
+          const iv = setInterval(async () => {
+            try {
+              const st = await api.get(`/loop/${existingId}/status`);
+              const s  = st?.data?.state || "";
+              if (["completed","failed","aborted","done"].includes(s)) {
+                clearInterval(iv);
+                // Fire the queued message with a small delay so the
+                // acquire_loop_lock ghost-sweep sees the new terminal
+                // state before we retry.
+                setTimeout(() => runLoopPlan(composed), 1500);
+              }
+            } catch {
+              /* keep polling — transient errors are fine */
+            }
+          }, 3000);
+        } else {
+          // Cancel-and-restart path.
+          try {
+            await cancelLoop(existingId);
+            // Small wait so cancel's DB writes land + ghost sweep is
+            // guaranteed to see state=aborted on the next acquire.
+            await new Promise((r) => setTimeout(r, 800));
+            runLoopPlan(composed);
+          } catch (err) {
+            setMessages((m) => m.concat([{
+              role: "assistant", streaming: false,
+              content: `**Cancel-and-restart failed:** ${err?.message || err}`,
+              error: true,
+            }]));
+          }
+        }
+        return;
+      }
+      let msg = detail ?? e?.message ?? "Loop start failed";
       if (typeof msg !== "string") {
         msg = msg?.message
           || (() => { try { return JSON.stringify(msg); } catch { return String(msg); } })();
