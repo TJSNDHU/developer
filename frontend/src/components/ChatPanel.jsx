@@ -1122,7 +1122,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     );
     // Allow send when EITHER text OR attachments exist — previous gate
     // demanded text, which is why an image-only chat silently refused.
-    if ((!text && !readyAttachments.length) || busy || !sessionId) return;
+    // Iter 280 P0 — additionally allow send DURING an active loop when
+    // execMode=LOOP + text is present, so the Iter 279 queue-next flow
+    // (409 → confirm dialog offering Queue vs Cancel-restart) actually
+    // becomes reachable. Previously the `busy` gate here made the whole
+    // feature unreachable — the send call never fired while a loop ran.
+    const isLoopQueueAttempt = (
+      busy && execMode === EXEC_MODES.LOOP && !!text
+    );
+    if (
+      (!text && !readyAttachments.length)
+      || (busy && !isLoopQueueAttempt)
+      || !sessionId
+    ) return;
     if (promptOverride == null) setInput("");
 
     // ──────────────────────────────────────────────────────────────
@@ -2195,6 +2207,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // Iter 275 — mirror the raw event into the LoopLiveFeed panel.
     // This is the same event object the rest of this handler
     // consumes; the panel just needs the trailing sequence.
+    // Iter 280 P0 — trace the mirror so we can prove the panel's
+    // input prop is actually being updated (or not).
+    // eslint-disable-next-line no-console
+    console.debug("[loop-sse] → setLoopFeedEvent",
+      "phase=", ev.phase, "sub=", ev.data?.sub_step);
     setLoopFeedEvent(ev);
     const state = ev.state || "";
     const phase = ev.phase || "";
@@ -2361,15 +2378,37 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // reconnect / new run doesn't inherit the previous run's ring.
     setLoopFeedEvent(null);
     setLoopTerminal(false);
+    // Iter 280 P0 — SSE event-chain tracing. Explicit console.debug
+    // at every stage so a real (human-driven) browser session can
+    // confirm whether events actually reach the frontend, and if so
+    // whether they carry the phase/state/message fields the panels
+    // expect. Turned on unconditionally — logs are cheap, silence
+    // was expensive when the LoopLiveFeed silently stayed empty.
+    // eslint-disable-next-line no-console
+    console.debug("[loop-sse] openLoopStream() called for loop_id=", lid);
     loopAbortRef.current = streamLoopEvents(lid, {
-      onEvent: handleLoopEvent,
+      onEvent: (ev) => {
+        // eslint-disable-next-line no-console
+        console.debug("[loop-sse] onEvent →",
+          "phase=", ev?.phase,
+          "state=", ev?.state,
+          "sub=", ev?.data?.sub_step,
+          "keepalive=", !!ev?.data?.keepalive,
+          "msg=", (ev?.message || "").slice(0, 120),
+          "full=", ev);
+        handleLoopEvent(ev);
+      },
       onTerminal: () => {
+        // eslint-disable-next-line no-console
+        console.debug("[loop-sse] onTerminal (stream closed)");
         setLoopTerminal(true);
         loopAbortRef.current = null;
         setBusy(false);
         setSelfHeal((s) => ({ ...s, visible: false }));
       },
       onError: (err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[loop-sse] onError →", err);
         // Surface a soft notice; engine state still persisted in Mongo.
         const msg = err?.message || "Loop stream interrupted";
         setMessages((m) => {
@@ -3361,7 +3400,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             )
           )}
           autoFocus
-          disabled={busy || exhausted}
+          // Iter 280 P0 fix — allow typing during an active loop so
+          // the queue-next feature (Iter 279) is actually reachable.
+          // The submit handler still gates network I/O via `busy`;
+          // this only unlocks typing + the 409 → queue confirm path.
+          // `exhausted` (token depletion) still hard-locks the input.
+          disabled={exhausted}
         />
 
         {/* Toolbar — inside the same card as the textarea */}
