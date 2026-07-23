@@ -1,12 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 291 (STATIC_GREP CI-guard
-> live: `scripts/ci_check_test_style.py` + `test-style-guard` workflow
-> job. New PRs blocked when a changed test file has >60% grep-only
-> tests, opt-out via `# static-grep-ok:` marker. Prevents new
-> grep-debt while iter290's backlog is being drained.) Full details
-> in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 292 (QA Meta-Layer
+> adopted: `docs/environments.md` verified ledger, per-env deploy
+> report rule in AGENTS.md, `pytest.ini` flaky marker + `-m "not
+> flaky"` default, quarantine ownership + Loop/SSE exception,
+> frontend RTL rule ahead of Layer 1). Runs in parallel with all
+> track work. Full details in `CHANGELOG.md`.
 
 
 

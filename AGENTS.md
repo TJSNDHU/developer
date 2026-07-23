@@ -286,3 +286,81 @@ applies: any new external call goes through them.
 - `test_regression_iter286_write_repo_file_allows_normal_paths`
 - `test_regression_iter286_ship_code_has_test_file_gate_in_source`
 - `test_regression_iter286_ship_code_override_not_llm_grantable`
+
+
+---
+
+## QA META-LAYER (Iter 292 — permanent rules, adopted in parallel with all tracks)
+
+### 1. Environment parity — every deploy report MUST specify per-env status
+
+`docs/environments.md` is the single verified ledger of what differs
+between preview and production. Read it before making any
+deploy-completion claim. **Never** report a blanket "deployed" — every
+change must state:
+
+> live on preview: **yes/no** — live on production: **yes/no**
+
+Per file/feature. This is a direct process fix for the iter275/iter282
+class of "green on preview treated as green on prod" mistakes.
+
+Env-var checklist item on every deploy that adds/changes a var:
+"var `X` exists in `/app/backend/.env` on preview: yes/no — and in
+production env panel: yes/no." No "should be there" assumptions.
+
+Promotion gate: same diagnostic check run against BOTH envs,
+both outputs pasted side-by-side. Green on preview is necessary
+but never sufficient.
+
+### 2. Flaky-test quarantine — get ahead of it, don't wait
+
+`pytest.ini` declares the `flaky` marker. Rule (permanent):
+
+- Any test that fails then passes on an identical re-run with no code
+  change gets `@pytest.mark.flaky(reason="...", owner="<name>",
+  fix_by=<iter>)`.
+- Default CI runs use `-m "not flaky"` so a flaky test is
+  **non-blocking but visible**.
+- Every quarantined test carries an owner AND a fix-by iter number.
+  A `@flaky` with no owner is a process bug — fix the process, don't
+  tolerate the state.
+- Quarantine ceiling: **>5% of the suite in @flaky signals a systemic
+  design problem** (usually async/timing). Treat as a priority item,
+  not routine.
+
+**Critical exception for this project**: Loop-mode / SSE tests that
+flake are prime suspects for **exposing a real intermittent bug**,
+not test-design issues. Don't reflexively delete or downgrade —
+investigate whether the flake is the test or the code. Per Google's
+own finding, tests around genuinely async/timing-sensitive behaviour
+are often flaky BECAUSE they cover the exact conditions that produce
+real bugs. This project's bug history (iter1f8, iter_bff, iter283,
+iter288) is entirely in that class.
+
+### 3. Frontend behavioural-test rule (mirror of the backend
+STATIC_GREP finding)
+
+Iter290 measured the backend suite at 50.7% STATIC_GREP — tests that
+read a source file and grep for a substring, without ever executing
+the code. When frontend testing starts (Frontend Layer 1), the same
+mistake MUST NOT be repeated:
+
+- Every new frontend test MUST use React Testing Library or Playwright
+  to actually **render the component + trigger interactions + assert
+  on the resulting DOM state**.
+- `assert "className" in file.read()` on a `.jsx` file is a
+  STATIC_GREP-equivalent for frontend and is **not** a valid test.
+- The `test-style-guard` CI job (iter291) already blocks grep-only
+  Python tests at >60%. When frontend test infra is added, the same
+  guard must be extended to `.test.jsx` / `.test.ts` — see the
+  iter291 CLI as the template.
+
+### 4. Standing priority for the QA Meta-Layer
+
+Whenever a new session begins:
+- Check `docs/environments.md` for staleness (any env change since
+  the ledger's last `_verified_at`?)
+- Run `qa_static_vs_behavioural_ratio` MCP tool; if grep % rose since
+  the last snapshot, that's the top priority to reverse before new
+  features.
+- Run `qa_mock_reality_check` if the last run was >7 days ago.

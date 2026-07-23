@@ -4,6 +4,46 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 292 (QA Meta-Layer adopted — parity ledger + flaky quarantine + frontend rule)
+
+**Founder brief**: "adopt NOW in parallel with whichever track is currently active — cheap early, expensive to retrofit once suite/deploy history has grown." Adopted verbatim.
+
+### Part A — Environment Parity + Promotion Pipeline
+
+**Ship**:
+- **`docs/environments.md`** — verified-by-inspection ledger (not aspirational). Covers 4 surfaces: Mongo (preview db = `aurem_dev` @ `mongodb://localhost:27017`, prod db likely `launch-pad-237-aurem_dev` — NOT verified from this pod), env-var inventory (56 keys audited on preview + 5 known-missing tokens surfaced), GitHub App installation scope (not verified on prod — flagged), supervisor services running (backend + frontend + mongodb + nginx-proxy + webhook-crond).
+- **Deploy-report rule** in AGENTS.md: every changed file/feature MUST state `live on preview: yes/no` AND `live on production: yes/no` — no blanket "deployed" claim.
+- **Promotion gate**: same diagnostic run against BOTH envs, both outputs pasted side-by-side. Green on preview is necessary but never sufficient.
+
+### Part B — Flaky Test Quarantine (get ahead of it)
+
+**Ship**:
+- **`backend/pytest.ini`** — declares `flaky` marker + `slow` + `integration`. Default `addopts = -m "not flaky"` so quarantined tests are non-blocking but still visible on explicit runs.
+- **AGENTS.md rule**: every `@pytest.mark.flaky` MUST carry `owner="<agent>"` and `fix_by=<iter>`. Quarantine ceiling **>5% signals systemic design problem** (industry data — Google/Slack/Atlassian). Loop/SSE flakes are prime suspects for exposing REAL intermittent bugs (Google's own finding on async tests) — don't reflexively delete.
+
+### Part C — Frontend behavioural-test mirror (before Layer 1 starts)
+
+**AGENTS.md rule**: when frontend testing begins, RTL/Playwright render+interact+assert-DOM is mandatory. `assert "className" in file.read()` on a `.jsx` file is the frontend-equivalent of STATIC_GREP and NOT a valid test. Iter291's CI guard template must be extended to `.test.jsx` / `.test.ts` when frontend infra lands.
+
+### Standing-priority hook (permanent):
+
+At every new session start:
+- Check `docs/environments.md` for staleness.
+- Run `qa_static_vs_behavioural_ratio`; grep % rising vs last snapshot → top priority to reverse.
+- Run `qa_mock_reality_check` if last run >7 days ago.
+
+**Tests**: 11 new in `test_regression_iter292_qa_meta_layer.py` (exempt-marked — this file locks doc shapes, inherently STATIC_GREP by design). Full curated suite: **106/106** passing.
+
+**Live CI-guard proof** (real diff on current HEAD):
+```
+Changed test files (3):
+  [PASS   ] test_regression_iter290_test_style_analyzer.py    (0/13 grep)
+  [PASS   ] test_regression_iter291_ci_static_grep_guard.py   (1/7 grep)
+  [EXEMPT ] test_mutation_iter289_critical_assertions.py      (3/4 grep) — mutation suite
+```
+Zero violations. The guard is behaving exactly as designed on the real diff of the last 3 commits.
+
+
 ## 2026-02 — Iter 291 (STATIC_GREP CI-guard — stop new grep-debt at PR gate)
 
 **Founder call (verbatim)**: "Add the STATIC_GREP>60% CI-guard NOW, before starting the weak-P0 fixes — prevents new grep-debt while old debt is being paid down." Adopted immediately.
