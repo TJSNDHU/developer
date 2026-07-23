@@ -42,9 +42,12 @@ The paired real regressions genuinely guard the code — they are not tests-that
 
 **Tests**: 19 new (15 in `test_regression_iter289_track1_lane_a.py`, 4 in `test_mutation_iter289_critical_assertions.py`). Full curated suite 75/75 passing.
 
-**Track 1 status**:
-- Lane A: **CLOSED** — coverage infra live, gap-list produced, MCP tools exposed, mock-reality + mutation guarantees in place.
-- Lane B: **BLOCKED** on founder — needs 5 env vars (`AUREM_CANARY_REPO_OWNER`, `AUREM_CANARY_REPO_NAME`, `AUREM_CANARY_BRANCH`, `AUREM_ORG_NAME`, `AUREM_ORG_GITHUB_APP_TOKEN`). Not a blocker per corrected charter.
+**Track 1 status** (corrected — not closed):
+- Lane A: **INFRA + GAP-REPORT COMPLETE**; test-writing for the 10 fully-untouched journeys still pending. Lane A is NOT closed until behaviour-driven tests raise coverage on at least the 6 P0 gaps below. Static-source-grep tests (iter286/288 pattern) validate patterns but don't execute the code they guard — they show 0% coverage.
+- **P0 untouched (write these first — 6 journeys)**: `j005_loop_start_plan`, `j006_loop_plan_frozen_worm`, `j009_loop_sse_stream_governor`, `j010_loop_ttl_bootstrap`, `j018_chatpanel_stop_cancels_backend`, `j021_bulkhead_project_user_isolation`.
+- P1 untouched (2): `j019_chatpanel_queue_next_ux`, `j020_loop_live_feed_placeholder`.
+- P2 untouched (2): `j024_mttr_log_row_per_incident`, `j025_diagnostics_founder_endpoint`.
+- Lane B: **BLOCKED** on founder — 5 env vars. Not a blocker for other tracks.
 
 
 ## 2026-02 — Iter 288 (loop_1f8/loop_bff RCA + j007 fix + 3 UI-state bugs)
