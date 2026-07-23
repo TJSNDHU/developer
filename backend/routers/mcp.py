@@ -543,6 +543,64 @@ TOOLS: list[dict[str, Any]] = [
             "destructiveHint": False,
         },
     },
+    {
+        "name": "run_canary_e2e",
+        "description": (
+            "Track-1 canary entry point. Two lanes: (1) 'lane_a' — fast, "
+            "no external deps: returns backend + frontend coverage "
+            "summaries and the per-journey traceability-matrix gap "
+            "report. (2) 'lane_b' — real GitHub round-trip integration "
+            "test; returns {ok:false, reason:'lane_b_not_configured'} "
+            "when Canary env vars are missing. Never stubs a passing "
+            "result. Founder-gated, read-only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type":        "string",
+                    "description": "'lane_a' (fast, mocked-tests) or "
+                                    "'lane_b' (real GitHub). Default lane_a.",
+                    "enum":        ["lane_a", "lane_b"],
+                },
+            },
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "Canary E2E (Lane A / Lane B)",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
+    {
+        "name": "qa_mock_reality_check",
+        "description": (
+            "Lightweight 'did the shape change?' check against the real "
+            "GitHub REST API and OpenRouter model-list API. Compares the "
+            "top-level JSON key set of each response to the shape our "
+            "mocks assume. Not full contract testing — just a sanity "
+            "probe to run every 1-2 weeks or after a new deploy. "
+            "Returns {ok:false, drift_summary:[...]} on any missing "
+            "or unexpected field."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "timeout": {
+                    "type":        "number",
+                    "description": "Per-upstream timeout in seconds (default 8).",
+                    "minimum":     1,
+                    "maximum":     30,
+                },
+            },
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "Mock-Reality Shape Check",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
 ]
 
 
@@ -1223,6 +1281,31 @@ async def _tool_qa_coverage_summary(user_id: str, args: dict) -> dict:
     return coverage_summary()
 
 
+async def _tool_run_canary_e2e(user_id: str, args: dict) -> dict:
+    """Iter 289 (Track 1 Lane A) — the canary entrypoint. Lane A is
+    a fast, no-external-dep run: computes backend + frontend coverage
+    and the traceability-matrix gap-list. Lane B requires the founder
+    to have completed the GitHub-side setup (env vars) — returns a
+    clear 'not_configured' payload when they're absent, never a
+    stubbed pass."""
+    await _require_founder(user_id)
+    from services.qa_matrix import canary_e2e
+    mode = (args.get("mode") or "lane_a").strip()
+    if mode not in ("lane_a", "lane_b"):
+        raise ValueError("`mode` must be 'lane_a' or 'lane_b'")
+    return canary_e2e(mode)
+
+
+async def _tool_qa_mock_reality_check(user_id: str, args: dict) -> dict:
+    """Iter 289 (Track 1 Lane A, Task 2) — real-API shape probe."""
+    await _require_founder(user_id)
+    from services.mock_reality_check import run_all
+    timeout = float(args.get("timeout") or 8.0)
+    if timeout < 1 or timeout > 30:
+        raise ValueError("`timeout` must be between 1 and 30 seconds")
+    return await run_all(timeout=timeout)
+
+
 _TOOL_DISPATCH = {
     "list_projects":       _tool_list_projects,
     "ship_code":           _tool_ship_code,
@@ -1243,6 +1326,8 @@ _TOOL_DISPATCH = {
     "qa_open_gaps":           _tool_qa_open_gaps,
     "qa_regression_index":    _tool_qa_regression_index,
     "qa_coverage_summary":    _tool_qa_coverage_summary,
+    "run_canary_e2e":         _tool_run_canary_e2e,
+    "qa_mock_reality_check":  _tool_qa_mock_reality_check,
 }
 
 

@@ -4,6 +4,49 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 289 (Track 1 Lane A closed + Task 2 mock-reality + Task 3 mutation-smoke)
+
+**Charter alignment**: Track 1's Canary Repo requirement (Lane B) does NOT block logic-testing (Lane A). Every regression test built in iters 277-288 validated backend logic against mocked LLM/GitHub responses — that's correct and continues. Real Canary Repo is reserved for ONE integration proof: real GitHub push works. Lane A finalised this iter; Lane B waits on founder env-var setup.
+
+**Ship (Lane A infra)**:
+- **`pytest-cov==7.1.0` + `coverage==7.15.2`** installed and pinned in `backend/requirements.txt`. Coverage produced against curated iter277-288 regression suite (56 tests): 28,272 statements, 3.27% covered — real numbers, honest.
+- **`vitest@2.1.9` + `@vitest/coverage-v8@2.1.9` + `jsdom@25`** installed for frontend. `/app/frontend/vitest.config.js` scoped to 3 target files (`loopApi.js`, `LoopStepBar.jsx`, `LoopLiveFeed.jsx`) — narrow so numbers stay honest (0% covered; no target-file tests yet, real signal).
+- **`services/qa_matrix.py`** extended with `matrix_coverage_gap()` — per-journey coverage report against `docs/traceability_matrix.json`; and `canary_e2e(mode)` with two lanes: `lane_a` (fast, mocked) + `lane_b` (real GitHub, refuses cleanly when env vars absent — never stubs a passing result).
+- **`services/mock_reality_check.py`** — new. Lightweight "did the shape change?" probe against real GitHub REST + OpenRouter model-list. `_diff_shape` splits drift into `breaking_drift` (missing key = mocks would break) vs `info_drift_only` (upstream added new field — harmless). `ok` keyed on breaking-only.
+- Two new MCP tools wired on the existing router (Option A, no second server):
+  - **`run_canary_e2e`** — mode=`lane_a` returns coverage + gap-list; mode=`lane_b` returns `lane_b_not_configured` + `missing_env` list until founder sets the 5 vars.
+  - **`qa_mock_reality_check`** — real HTTP probe, returns `drift_summary` with `kind: breaking | info_only`.
+- MCP tool count: **17 → 19**. Live-verified on preview manifest.
+
+**Real Lane A run — honest numbers**:
+```
+BACKEND  cov: 3.27% (28,272 stmts, 201 files scanned)
+FRONTEND cov: 0.00% (419 stmts, 3 files scanned)
+MATRIX:  25 journeys | with_gap=24 | fully_untouched=21 | p0_with_gap=13
+```
+Partial coverage on: `j007_scope_drift` (33%), `j008_cancel_lock` (50%), `j011_mcp_test_file_lock` (67%). Full coverage on: `j012_mcp_api_key_lifecycle`. Everything else honest OPEN_GAP. Founder-visible via `qa_open_gaps` + `run_canary_e2e`.
+
+**Real mock-reality run — honest result**:
+```
+GitHub    status=200  present=9/9  missing=[]  info_only_extras=75  → ok
+OpenRouter status=200 present=5/5  missing=[]  info_only_extras=13  → ok
+Overall ok: True (no breaking drift)
+```
+GH added 75 fields since our expected set was defined; OpenRouter added 13. All info-only — mocks continue to work. Locked as the current-shape baseline.
+
+**Mutation smoke — 3 critical tests proven non-tautological**:
+- iter286 test-file-lock (`services/local_tools.py::is_test_or_fixture` + `allow_test_file_change` guard) — mutant `if False:` proven detectable.
+- iter272 held-out verifier verdict (`services/loop_independent_verifier.py`) — mutant renaming `"verdict":` → `"verdict_MUTATED":` proven detectable.
+- iter288 scope-drift return (`services/loop_engine.py::_do_execute`) — mutant replacing early `return` with `pass` proven detectable.
+The paired real regressions genuinely guard the code — they are not tests-that-always-pass.
+
+**Tests**: 19 new (15 in `test_regression_iter289_track1_lane_a.py`, 4 in `test_mutation_iter289_critical_assertions.py`). Full curated suite 75/75 passing.
+
+**Track 1 status**:
+- Lane A: **CLOSED** — coverage infra live, gap-list produced, MCP tools exposed, mock-reality + mutation guarantees in place.
+- Lane B: **BLOCKED** on founder — needs 5 env vars (`AUREM_CANARY_REPO_OWNER`, `AUREM_CANARY_REPO_NAME`, `AUREM_CANARY_BRANCH`, `AUREM_ORG_NAME`, `AUREM_ORG_GITHUB_APP_TOKEN`). Not a blocker per corrected charter.
+
+
 ## 2026-02 — Iter 288 (loop_1f8/loop_bff RCA + j007 fix + 3 UI-state bugs)
 
 **User-reported (bug batch)**:

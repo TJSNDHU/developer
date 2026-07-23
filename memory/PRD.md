@@ -1,12 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 288 (j007 scope-drift
-> block during Execute + 3 UI-state bugs — stepper red on fail,
-> agent-status-bar clears on terminal, LoopLiveFeed purges heartbeats,
-> plus real diagnostic writes to `loop_run_log` for future
-> "empty-output" failures. Verified by bug_testing_agent). Full
-> details in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 289 (Track 1 Lane A
+> closed: pytest-cov + vitest live, honest coverage numbers,
+> per-journey gap-list, `run_canary_e2e` + `qa_mock_reality_check`
+> MCP tools shipped; mutation smoke proves iter272/286/288 critical
+> tests are non-tautological). Lane B awaits founder env-var setup.
+> Full details in `CHANGELOG.md`.
 
 
 
