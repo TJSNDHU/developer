@@ -139,10 +139,15 @@ of that surface and rename in place (opportunistic — not a sprint).
    14-day rate returns below 10%. No committee vote.
 
 **Where the number lives**: `services/loop_outcomes.py::rolling_
-change_failure_rate()` (build in a future iter — placeholder
-constant `CHANGE_FAILURE_BUDGET = 0.10` in that module suffices for
-now). Founder dashboard surfaces it as a single green/red indicator
-next to the daily brief.
+change_failure_rate()` — **NOT YET IMPLEMENTED as of iter 282.**
+The 10% budget is declared here, but no code computes it, no
+dashboard reads it, and no gate enforces it. Do not present CFR
+numbers to users, in dashboards, or in status reports until this
+function exists and has been validated against real revert data.
+Placeholder constant `CHANGE_FAILURE_BUDGET = 0.10` will live in
+that module when it is built. Founder dashboard will surface it as
+a single green/red indicator next to the daily brief AT THAT POINT
+— not before.
 
 ### MTTR tracking (starts now)
 

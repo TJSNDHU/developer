@@ -376,13 +376,21 @@ async def loop_stream(loop_id: str,
             while True:
                 if time.monotonic() - _stream_started > _STREAM_MAX_S:
                     _cap_min = _STREAM_MAX_S // 60
+                    # Use a distinct state — NOT "aborted" — so the
+                    # frontend's onTerminal handler (which triggers on
+                    # completed/failed/aborted) does NOT fire and lie
+                    # to the user that the loop finished. The loop's
+                    # actual engine task keeps running in the background;
+                    # this cap only disconnects THIS SSE client. User
+                    # can reconnect via GET /loop/{id}/stream.
                     terminal_ev = {
-                        "state":   "aborted",
+                        "state":   "stream_capped",
                         "phase":   "?",
                         "message": (
-                            f"SSE stream capped at {_cap_min} min — "
-                            "no terminal state received. Reconnect "
-                            "if the loop is still running."
+                            f"SSE stream capped at {_cap_min} min — the "
+                            "loop is still running on the backend. "
+                            "Reconnect to /loop/{id}/stream to keep "
+                            "watching."
                         ),
                         "ts": time.time(),
                     }

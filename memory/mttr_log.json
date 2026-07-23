@@ -3,7 +3,9 @@
   "_budget": {
     "target_mttr_hours": 24,
     "target_change_failure_rate": 0.10,
-    "window_days": 14
+    "window_days": 14,
+    "cfr_measurement_status": "not_yet_implemented",
+    "cfr_measurement_note": "The 10% Change Failure Rate budget is DECLARED but NOT YET MEASURED. services/loop_outcomes.py::rolling_change_failure_rate() does not exist yet. No dashboard reads this number. Do not surface it to users or claim compliance until the measurement function is built and validated against real revert data."
   },
   "entries": [
     {
