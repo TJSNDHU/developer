@@ -2625,12 +2625,23 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Phase D (Iter 212m-65): plan card renders the structured plan the
   // backend LoopEngine returned. We no longer rely on the model's
   // [PLAN_READY] marker — the engine itself owns the plan phase.
+  // Iter 289 — the PlanApprovalCard MUST NOT render for a loop that
+  // has already reached a terminal state (failed / done / idle from
+  // abort). Same class of bug as iter288's stepper/heartbeat: dead
+  // loops must LOOK dead, and an approve-button on a failed loop
+  // used to POST /confirm and return 499 (bug flagged by
+  // bug_testing_agent in iter288). loopTerminalRef is the shared
+  // synchronous guard; loopPhase covers the React-render pass.
   const showPlanCard =
     execMode === EXEC_MODES.LOOP &&
     loopPhase === "plan_pending" &&
     !!loopPlan &&
     !!loopId &&
-    !busy;
+    !busy &&
+    !loopTerminal &&
+    !loopTerminalRef.current &&
+    loopPhase !== "error" &&
+    loopPhase !== "done";
 
   return (
     <div

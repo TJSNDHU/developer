@@ -458,6 +458,72 @@ class LoopEngine:
         plan = await _generate_plan(
             self.user_id, self.project_id, self.user_message,
         )
+
+        # ── Iter 289 — Plan-phase path grounding diagnostic ─────────
+        # The plan prompt says "Do NOT invent paths" but nothing
+        # ENFORCES it. If loop_1f8/loop_bff class of failures had the
+        # planner emitting paths that do not exist in the connected
+        # repo, we currently discover it only when Parliament produces
+        # 0 files (or worse, silently creates orphan files). Compute
+        # the intersection of the plan's files_to_change against the
+        # repo map and attach `ungrounded_paths` + `known_paths` to
+        # the plan so the approval UI + audit log carry the evidence.
+        # This is diagnostic-only in this iter — it does NOT block —
+        # so a legitimate "create new file" plan still works. But it
+        # ends the "did the LLM invent paths?" ambiguity for good.
+        try:
+            if self.project_id and isinstance(plan, dict):
+                plan_paths = [str(p).strip() for p in
+                              (plan.get("files_to_change") or [])
+                              if str(p).strip()]
+                if plan_paths:
+                    from services.repo_map import build_repo_map as _brm
+                    _rm = await _brm(self.db, self.project_id, self.user_id)
+                    map_text = (_rm or {}).get("map_text") or ""
+                    known: set[str] = set()
+                    for line in map_text.splitlines():
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        # Each map line begins with "<path> [<layer>] · ..."
+                        head = line.split(" ", 1)[0]
+                        if head:
+                            known.add(head)
+                    ungrounded = [p for p in plan_paths if p not in known]
+                    plan["ungrounded_paths"] = ungrounded
+                    plan["known_paths_count"] = len(known)
+                    if ungrounded:
+                        logger.warning(
+                            "[loop %s] PLAN grounding — %d/%d paths not in "
+                            "repo map (may be new files or hallucinations): %s",
+                            self.loop_id, len(ungrounded), len(plan_paths),
+                            ungrounded[:8],
+                        )
+                        try:
+                            await self.db.loop_run_log.insert_one({
+                                "loop_id":    self.loop_id,
+                                "user_id":    self.user_id,
+                                "project_id": self.project_id,
+                                "kind":       "plan_ungrounded_paths",
+                                "plan_paths":       plan_paths,
+                                "ungrounded_paths": ungrounded,
+                                "known_paths_count": len(known),
+                                "ts":         _iso(),
+                            })
+                        except Exception as e:                # noqa: BLE001
+                            logger.debug(
+                                "[loop %s] plan-grounding audit write "
+                                "failed (non-fatal): %r",
+                                self.loop_id, e,
+                            )
+        except Exception as e:                                # noqa: BLE001
+            # Never block Plan on a grounding hiccup — this is
+            # strictly additive. Log and continue.
+            logger.debug(
+                "[loop %s] plan-grounding check skipped: %r",
+                self.loop_id, e,
+            )
+
         self.context["plan"] = plan
         await _save_plan(self.db, self.loop_id, plan)
 
