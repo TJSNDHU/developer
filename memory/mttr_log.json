@@ -70,6 +70,15 @@
       "mttr_hours": 0.4166666666666667,
       "postmortem": "postmortems/iter285_chat_inline_card_width.md",
       "class": "visual-alignment"
+    },
+    {
+      "iter": 286,
+      "slug": "mcp-test-file-lock",
+      "reported_at": "2026-02-06T01:30:00Z",
+      "deployed_at": "2026-02-06T02:00:00Z",
+      "mttr_hours": 0.5,
+      "postmortem": "postmortems/iter286_mcp_test_file_lock.md",
+      "class": "security-authorization"
     }
   ]
 }

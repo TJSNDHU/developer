@@ -4,6 +4,18 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 286 / Track 0 (MCP write-path test-file lock)
+
+**Bug (audit-found, not user-reported)**: `services/local_tools.py::write_repo_file` (direct MCP tool) and `routers/cto_projects.py::_run_task` (Mode-C `ship_code` pipeline) both committed LLM-produced changes gated only by Vanguard's regex secrets scan. The Loop-pipeline test-file lock (`loop_diff_classifier.is_test_or_fixture`) was NOT enforced on either path. An MCP client could ask "fix the failing test" and the model could silently rewrite `test_*.py` to make it pass.
+
+**Fix**:
+- `write_repo_file` now blocks paths that match `is_test_or_fixture`, returns `{ok: false, gate: "test_file_lock"}`. `allow_test_file_change=True` in `args` bypasses (Loop-mode post-approval path only).
+- `_run_task` classifies every entry in `edits` before `gh_api_commit`. Any test file → task marked `status: blocked, blocked_reason: test_file_lock`. Override flag is READ from the task record via `cto_tasks.find_one` — never from LLM `edits` output. Enforced by a dedicated SECURITY regression test.
+
+**Tests + docs**: 5 regression tests (3 runtime + 2 source-level, including one negative "override MUST NOT come from LLM output" test), postmortem, MTTR log entry (0.5h), CHANGELOG + AGENTS.md updated.
+
+**Latency note**: full held-out verifier NOT added to the MCP hot path per charter's explicit guidance — LLM verifier per-write would break interactive UX. Test-file lock is the cheap, correct-for-purpose gate.
+
 ## 2026-02 — Iter 285 (Chat-inline cards width match composer)
 
 **Bug** (user screenshot): PlanApprovalCard + LoopLiveFeed rendered edge-to-edge on wide viewports while the composer sat centered inside a `clamp(16px, 17.25%, 240px)` horizontal inset. Visual misalignment made the cards look like they belonged to a different container.

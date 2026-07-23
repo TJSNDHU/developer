@@ -281,3 +281,8 @@ applies: any new external call goes through them.
 - `test_regression_iter285_chat_inline_card_class_declared_in_css`
 - `test_regression_iter285_container_queries_include_chat_inline_card`
 - `test_regression_iter285_plan_approval_and_live_feed_use_wrapper`
+- `test_regression_iter286_write_repo_file_blocks_test_files`
+- `test_regression_iter286_write_repo_file_allows_test_files_with_override`
+- `test_regression_iter286_write_repo_file_allows_normal_paths`
+- `test_regression_iter286_ship_code_has_test_file_gate_in_source`
+- `test_regression_iter286_ship_code_override_not_llm_grantable`

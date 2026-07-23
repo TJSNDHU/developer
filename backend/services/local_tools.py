@@ -704,6 +704,32 @@ async def write_repo_file(ctx: dict, args: dict) -> dict:
         return {"ok": False,
                 "error": "File body exceeds 200KB cap — split into smaller files."}
 
+    # ── Iter 286 (Track 0) — test-file lock ──────────────────────────
+    # Loop-mode already enforces this via loop_diff_classifier +
+    # held-out verifier + human approval before shipping. MCP
+    # write_repo_file bypassed that entirely, letting an external
+    # client (Claude Desktop, Cursor) silently overwrite the test
+    # files that are meant to catch regressions. Block by default;
+    # only Loop-mode's post-approval commit path passes
+    # allow_test_file_change=True in `args`.
+    try:
+        from .loop_diff_classifier import is_test_or_fixture
+    except Exception:
+        is_test_or_fixture = lambda _p: False   # noqa: E731 — degrade safe
+    if is_test_or_fixture(path) and not (args or {}).get("allow_test_file_change"):
+        return {
+            "ok": False,
+            "error": (
+                "test-file write blocked — test files are protected "
+                "by the loop-pipeline test-file lock. Route this "
+                "change through Loop mode so the held-out verifier "
+                "reviews it, or ask a human maintainer to set "
+                "allow_test_file_change=true in an approved patch."
+            ),
+            "gate":  "test_file_lock",
+            "path":  path,
+        }
+
     # Iter 212m-169 — BINContext gate.
     rc = _repo_ctx_from(ctx)
     if rc is None:

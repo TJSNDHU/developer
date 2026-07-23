@@ -3225,6 +3225,52 @@ async def _run_task_via_api(task_id, proj, task, files, context, user_token, max
                         pass
         await _emit(task_id, "Committing to GitHub…", kind="phase_commit", pct=90)
 
+        # ── Iter 286 (Track 0) — test-file lock ──────────────────────
+        # ship_code / Mode-C task path previously committed whatever
+        # the LLM generated, gated only by Vanguard secrets scan. The
+        # loop-pipeline test-file lock (services/loop_diff_classifier)
+        # was NOT applied — an MCP client could ship task=`fix the
+        # failing test` and the agent would rewrite test_*.py to
+        # satisfy the failing case. Same protection Loop mode has:
+        # block by default, allow only when the caller sets
+        # allow_test_file_change=true (that flag is human-approved
+        # in the Loop path; here it must never be self-grantable by
+        # the LLM — enforce by only reading it from the top-level
+        # task_meta, never from LLM-generated content).
+        try:
+            from services.loop_diff_classifier import is_test_or_fixture
+        except Exception:                        # noqa: BLE001
+            is_test_or_fixture = lambda _p: False   # noqa: E731
+        _test_touched = [e for e in edits
+                         if is_test_or_fixture((e or {}).get("path") or "")]
+        # `allow_test_file_change` is read from the task record itself
+        # — never from LLM output — so the model cannot self-grant.
+        _task_row = await _db_plan.cto_tasks.find_one(
+            {"task_id": task_id},
+            {"allow_test_file_change": 1, "_id": 0},
+        ) or {}
+        _allow_tests = bool(_task_row.get("allow_test_file_change"))
+        if _test_touched and not _allow_tests:
+            _paths = [e.get("path") for e in _test_touched]
+            await _log(task_id,
+                       "⛔ ship_code blocked — task tried to modify "
+                       f"test file(s) {_paths}. Loop-pipeline "
+                       "test-file lock is enforced on this path "
+                       "(Iter 286). Route through Loop mode with "
+                       "human approval instead.",
+                       "error")
+            await _db_plan.cto_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {
+                    "status":          "blocked",
+                    "blocked_reason":  "test_file_lock",
+                    "blocked_paths":   _paths,
+                    "updated_at":      time.time(),
+                }},
+            )
+            return {"ok": False, "error": "test_file_lock",
+                    "blocked_paths": _paths}
+
         async def _prog(step: str, status: str = "info"):
             await _log(task_id, step, status)
 
