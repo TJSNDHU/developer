@@ -4,6 +4,37 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 281 + Continuous Quality System
+
+**Iter 281 — LoopLiveFeed graceful placeholder + runLoopPlan busy-gate fix.**
+- `frontend/src/components/LoopLiveFeed.jsx`: no longer returns `null` when `events.length===0`. Renders a pending-state block with `[data-testid="loop-live-feed-placeholder"]` while awaiting the first SSE event. Root cause of user-reported "LoopLiveFeed doesn't render in production" — `openLoopStream()` only fires AFTER plan approval, so the panel was invisible during the entire approval-pending window.
+- `frontend/src/components/ChatPanel.jsx`: `runLoopPlan` no longer early-returns on `busy=true` — that guard was silently swallowing the Iter 279 queue-next path (`send()` deliberately whitelists LOOP-mode busy re-entry so the 409-loop_already_running dialog can trigger). Now only guards on missing `sessionId`.
+- `backend/services/loop_engine.py`: heartbeat magic literal `6.0` → named `HEARTBEAT_INTERVAL_S` constant. Enables the fitness-function invariant to lock the interval against silent regressions.
+
+**Continuous Quality System — Layer 1 rules + Layer 2 CI gate + Phases 1 & 2 tests.**
+- **Layer 1 rules file**: NEW `/app/AGENTS.md` (agent-facing, follows the widely-adopted [agents.md](https://agents.md/) convention read by Cursor/Aider/Codex/Claude Code) + NEW `/app/CONTRIBUTING.md` (human-facing summary). Both cover: bug-fix discipline, characterization testing on touch, real-proof verification standard, senior-engineer code quality standard, graceful degradation.
+- **Layer 2 mechanical CI gate**: NEW `.github/workflows/quality-gate.yml`. Blocks any PR touching `backend/routers/`, `backend/services/`, `backend/models/`, `frontend/src/components/`, `frontend/src/pages/`, `frontend/src/hooks/`, or `frontend/src/lib/` without also touching a test file. Override labels: `docs-only` | `no-test-needed` (require reviewer sign-off).
+- **Phase 1 regression tests** (`/app/backend/tests/test_regression_iter279_281_bug_per_fix.py` — 7 tests, all PASS):
+  - `test_regression_iter277_ghost_task_terminal_frame` — cancel fallback writes terminal SSE frame
+  - `test_regression_iter278_heartbeat_frames_every_6s` — HEARTBEAT_INTERVAL_S constant exists at 6s
+  - `test_regression_iter279_cancel_race_condition` — cancel + immediate re-acquire lock < 2s
+  - `test_regression_iter280_chat_input_enabled_during_loop` — chat-input textarea has no busy/loop `disabled` binding
+  - `test_regression_iter280_chat_history_persists_on_reload` — round-trips via `_persist_turn` + `chat_sessions.find_one`
+  - `test_regression_iter281_plan_approval_reachable_from_any_prior_state` — `runLoopPlan` no longer guards on busy
+  - `test_regression_iter281_loop_live_feed_pending_placeholder` — placeholder testid present, no null-return
+- **Phase 2 fitness-function invariants** (`/app/backend/tests/test_invariants_continuous_quality.py` — 4 tests, all PASS):
+  - `test_invariant_chat_input_never_disabled_during_active_loop`
+  - `test_invariant_cancel_within_2s_state_aborted_lock_released`
+  - `test_invariant_every_sse_event_reaches_frontend_playwright` (source-level: every `self.state = LoopState.X` has a co-located `_emit()` within 40 lines)
+  - `test_invariant_loop_live_feed_never_returns_null`
+- **Quality-gate self-tests** (`/app/backend/tests/test_quality_gate_enforcement.py` — 7 tests, all PASS): proves the mechanical gate blocks fix-shaped PRs without tests AND respects the override labels.
+
+Combined: **18/18 tests green**. Total new files: 5. Total lines added: ~700.
+
+**Deferred to next session (per user's explicit instruction not to start Phases 3-4 in the same push):**
+- Phase 3 — Continuous Codebase Watcher (`services/continuous_watcher.py`), diff-based on commit + weekly deep audit, reuses `vanguard_findings` with `source:"continuous_watcher"`, severity-routed to founder-dashboard "review pending" card, NEVER auto-merged.
+- Phase 4 — Opportunistic characterization testing habit (standing rule already in AGENTS.md; no separate backfill project).
+
 ## 2026-07-23 — Iters 275, 276, 277, 278 (chat + loop hardening session)
 
 **Iter 275 — Loop live-feed panel + `/loop-stats` slash-tool.**

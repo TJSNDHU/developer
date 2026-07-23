@@ -113,7 +113,59 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
     return `~ ${label} in progress — ${hint}`;
   }, [showGap, events]);
 
-  if (!loopId || events.length === 0) return null;
+  // Iter 281 — Step 0 fix: never return null when a loopId is set.
+  // Prior behavior hid the panel entirely until the FIRST SSE event
+  // landed. Because openLoopStream() only fires AFTER the user clicks
+  // Plan Approval, a real production loop showed no feed at all
+  // during the plan-pending gap — the user reported this as
+  // "LoopLiveFeed never renders". Now we render a neutral
+  // "waiting for approval / opening stream" placeholder so the panel
+  // is always visible once a loop_id exists.
+  if (!loopId) return null;
+  const hasEvents = events.length > 0;
+
+  if (!hasEvents) {
+    return (
+      <div
+        data-testid="loop-live-feed"
+        data-state="pending"
+        style={{
+          background: "#0F0F10",
+          border:     "1px solid #ffffff14",
+          borderRadius: 8,
+          padding: "10px 12px",
+          margin: "8px 0",
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 11.5,
+          color: "#c9cbcf",
+        }}>
+        <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            fontSize: 10, letterSpacing: ".08em",
+            color: "#6b7280", textTransform: "uppercase",
+          }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: "#FF6608",
+            boxShadow: "0 0 8px #FF660888",
+            animation: "loop-pulse 1.4s ease-in-out infinite",
+          }} />
+          Loop {String(loopId).slice(0, 8)}  ·  live feed
+        </div>
+        <div data-testid="loop-live-feed-placeholder"
+             style={{ marginTop: 8, color: "#9aa0a8",
+                      fontStyle: "italic", fontSize: 11 }}>
+          ~ Waiting for plan approval / opening event stream…
+        </div>
+        <style>{`
+          @keyframes loop-pulse {
+            0%,100% { opacity: 1;   transform: scale(1);   }
+            50%     { opacity: 0.5; transform: scale(1.2); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div

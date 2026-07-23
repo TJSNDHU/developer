@@ -105,6 +105,12 @@ SELF_HEAL_LLM_TIMEOUT_S = 60
 ENGINE_SILENT_WARN_S = 45
 # 24 h TTL on the loop_plans collection (founder's spec).
 PLAN_TTL_S = 24 * 60 * 60
+# Iter 278 — heartbeat cadence during slow single-file LLM generation.
+# Named constant (not a magic literal) so future tuning is greppable
+# and CI-invariants can lock the value against silent regressions.
+# 6s pairs with the frontend LoopLiveFeed's 10s gap threshold — at
+# most one keepalive shows before real progress or the gap fallback.
+HEARTBEAT_INTERVAL_S = 6.0
 
 
 class LoopState(str, Enum):
@@ -898,7 +904,8 @@ class LoopEngine:
                                 while not _hb_stop.is_set():
                                     try:
                                         await asyncio.wait_for(
-                                            _hb_stop.wait(), timeout=6.0,
+                                            _hb_stop.wait(),
+                                            timeout=HEARTBEAT_INTERVAL_S,
                                         )
                                         return                # stop signalled
                                     except asyncio.TimeoutError:

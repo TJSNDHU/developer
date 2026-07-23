@@ -2021,7 +2021,13 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // assistant bubble. The user must then approve via PlanApprovalCard
   // before any code execution begins.
   async function runLoopPlan(userText, readyAttachments, opts) {
-    if (busy || !sessionId) return;
+    // Iter 281 — Step 0 fix: removed the `busy` early-return.
+    // Rationale: send() at line 1130 deliberately allows a LOOP-mode
+    // busy re-entry so the Iter 279 queue-next flow (409
+    // loop_already_running → Queue/Cancel-restart dialog) can trigger.
+    // If we early-returned here, that dialog was unreachable and the
+    // prompt vanished silently. The 409 path itself is idempotent.
+    if (!sessionId) return;
     // Cancel any prior loop session (defensive — should be a no-op).
     if (loopAbortRef.current) {
       try { loopAbortRef.current.abort(); } catch { /* swallow */ }

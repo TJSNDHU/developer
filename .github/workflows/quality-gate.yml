@@ -1,0 +1,142 @@
+name: Quality Gate — Bug-fix Discipline
+
+# Enforces AGENTS.md's bug-fix discipline mechanically:
+# any PR that touches backend/routers/, backend/services/, or
+# frontend/src/components/ MUST also touch at least one test file,
+# OR carry an explicit override label. No exceptions, no silent
+# opt-outs.
+#
+# This is the Layer 2 enforcement — the AGENTS.md rules alone
+# cannot survive across sessions of agents that don't auto-load
+# the file, so we add a mechanical gate the merge tooling
+# actually respects.
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bug-fix-discipline:
+    name: PR must include a test change (or explicit override)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check labels for explicit override
+        id: labels
+        run: |
+          labels='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          echo "labels=$labels"
+          if echo "$labels" | grep -qE '"(docs-only|no-test-needed)"'; then
+            echo "override=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "override=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Diff-based gate
+        if: steps.labels.outputs.override != 'true'
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "Diffing $BASE_SHA..$HEAD_SHA"
+
+          # All files changed in this PR.
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Changed files:"
+          echo "$CHANGED"
+          echo "----"
+
+          # A PR is "fix-shaped" if it touches production code paths.
+          FIX_SHAPED=$(echo "$CHANGED" | grep -E \
+            '^(backend/(routers|services|models)/|frontend/src/(components|pages|hooks|lib)/)' \
+            || true)
+
+          if [ -z "$FIX_SHAPED" ]; then
+            echo "OK — PR does not touch production code paths, no test required."
+            exit 0
+          fi
+
+          echo "PR touches production code paths:"
+          echo "$FIX_SHAPED"
+          echo "----"
+
+          # It must also touch at least one test file.
+          TEST_TOUCHED=$(echo "$CHANGED" | grep -E \
+            '(^|/)test_[^/]+\.py$|(^|/)[^/]+\.test\.(js|jsx|ts|tsx)$|(^|/)tests/' \
+            || true)
+
+          if [ -n "$TEST_TOUCHED" ]; then
+            echo "OK — PR includes test changes:"
+            echo "$TEST_TOUCHED"
+            exit 0
+          fi
+
+          echo "::error::PR touches production code but includes no test change."
+          echo ""
+          echo "AGENTS.md bug-fix discipline requires either:"
+          echo "  1. Add a regression test named test_regression_iter<N>_<desc>"
+          echo "     in /app/backend/tests/  (or the appropriate frontend"
+          echo "     test dir).  See /app/AGENTS.md for details."
+          echo "  2. Or add one of these labels to the PR to override:"
+          echo "        [docs-only]  |  [no-test-needed]"
+          echo "     Overrides require explicit reviewer sign-off."
+          echo ""
+          echo "Files that changed production code without an accompanying test:"
+          echo "$FIX_SHAPED"
+          exit 1
+
+      - name: Override acknowledgement
+        if: steps.labels.outputs.override == 'true'
+        run: |
+          echo "Override label present — skipping test-file requirement."
+          echo "Reviewer must sign off on this explicitly."
+
+  invariants:
+    name: Fitness-function invariants (always green on main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run regression + invariant tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME:   aurem_ci_smoke
+        run: |
+          # Only source-level regression + invariant tests. The DB-
+          # backed ones are covered by the main ci.yml job that spins
+          # up MongoDB; here we run just the static-guarantee subset
+          # so this gate stays under 30 seconds.
+          python -m pytest \
+            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter278_heartbeat_frames_every_6s \
+            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter280_chat_input_enabled_during_loop \
+            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_plan_approval_reachable_from_any_prior_state \
+            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_loop_live_feed_pending_placeholder \
+            tests/test_invariants_continuous_quality.py::test_invariant_chat_input_never_disabled_during_active_loop \
+            tests/test_invariants_continuous_quality.py::test_invariant_every_sse_event_reaches_frontend_playwright \
+            tests/test_invariants_continuous_quality.py::test_invariant_loop_live_feed_never_returns_null \
+            -v --tb=short
