@@ -601,6 +601,35 @@ TOOLS: list[dict[str, Any]] = [
             "destructiveHint": False,
         },
     },
+    {
+        "name": "qa_static_vs_behavioural_ratio",
+        "description": (
+            "Classify every test in /app/backend/tests as STATIC_GREP "
+            "(reads a source file + asserts on substrings — validates "
+            "patterns, does NOT execute code), BEHAVIOURAL (awaits or "
+            "calls imported production functions), HYBRID, or UNKNOWN. "
+            "Use to expose which 'green' tests are grep-only — their "
+            "pass signal is weaker than a behavioural test's. Returns "
+            "counts, per-file breakdown, and a 'weak_p0' list of "
+            "security-critical tests that are grep-only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_pattern": {
+                    "type":       "string",
+                    "description": "Optional regex on the test basename "
+                                    "(default: all test_*.py files).",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title":           "QA Static-vs-Behavioural Ratio",
+            "readOnlyHint":    True,
+            "destructiveHint": False,
+        },
+    },
 ]
 
 
@@ -1306,6 +1335,20 @@ async def _tool_qa_mock_reality_check(user_id: str, args: dict) -> dict:
     return await run_all(timeout=timeout)
 
 
+async def _tool_qa_static_vs_behavioural_ratio(user_id: str,
+                                                args: dict) -> dict:
+    """Iter 290 (Track 1 Lane A follow-up) — classify every backend
+    test as static-grep vs behavioural. Surfaces exactly how much of
+    a 'green' suite is genuine execution evidence vs source-string
+    pattern matching."""
+    await _require_founder(user_id)
+    from services.test_style_analyzer import analyze_suite
+    pat = args.get("file_pattern")
+    if pat is not None and not isinstance(pat, str):
+        raise ValueError("`file_pattern` must be a string")
+    return analyze_suite(file_pattern=pat)
+
+
 _TOOL_DISPATCH = {
     "list_projects":       _tool_list_projects,
     "ship_code":           _tool_ship_code,
@@ -1327,7 +1370,8 @@ _TOOL_DISPATCH = {
     "qa_regression_index":    _tool_qa_regression_index,
     "qa_coverage_summary":    _tool_qa_coverage_summary,
     "run_canary_e2e":         _tool_run_canary_e2e,
-    "qa_mock_reality_check":  _tool_qa_mock_reality_check,
+    "qa_mock_reality_check":              _tool_qa_mock_reality_check,
+    "qa_static_vs_behavioural_ratio":     _tool_qa_static_vs_behavioural_ratio,
 }
 
 

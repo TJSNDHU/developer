@@ -1,11 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 289 (Track 1 Lane A
-> **infra + gap-report complete**; test-writing for 10 untouched
-> journeys still pending). Lane A NOT closed until behaviour-driven
-> tests exist for at least the 6 P0 untouched journeys. Lane B awaits
-> founder env-var setup. Full details in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 290 (Track 1 Lane A
+> follow-up: `services/test_style_analyzer.py` + `qa_static_vs_behavioural_ratio`
+> MCP tool. Real numbers on 75-test suite: **50.7% STATIC_GREP, 42.7%
+> BEHAVIOURAL, 9 weak-P0 tests flagged for behavioural upgrade**.
+> Lane A still NOT closed — needs behavioural upgrade + new P0
+> journey tests). Full details in `CHANGELOG.md`.
 
 
 

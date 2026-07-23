@@ -4,6 +4,48 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 290 (Track 1 Lane A follow-up: static-vs-behavioural analyzer)
+
+**Founder finding (direct quote)**: "many 'existing' iter277-288 regression tests are static source-grep — they validate patterns but never execute the code." This iter builds the tool that answers "how many, exactly?" before writing any new tests.
+
+**Ship**:
+- **`services/test_style_analyzer.py`** — AST-based classifier. For every `test_*` function under `/app/backend/tests`, walks its AST and tags it as one of:
+  - `STATIC_GREP` — reads a source file (`open`, `_read`, `pathlib.read_text`) and its assertions target the read string. No `await`, no imported-symbol call.
+  - `BEHAVIOURAL` — has `await`, `asyncio.run`, OR directly calls a symbol imported from `services/routers/cto_services/core/scripts.*`.
+  - `HYBRID` — both markers present. Not weak; surface so a maintainer decides.
+  - `UNKNOWN` — no signal. Rare, inconclusive, not weak.
+- **`qa_static_vs_behavioural_ratio`** — MCP tool #20. Founder-gated, read-only. Optional `file_pattern` regex.
+- **21 → 10 discrepancy explained**: coverage.json regenerated after adding iter289 tests that IMPORT `qa_matrix`/`mcp.py`/`mock_reality_check`. Coverage.py counts module-level statements as "covered" on import — inflating backend % from 3.27 → 47.78 with zero new behavioural assertion. Same false-confidence class as grep-only tests, in coverage form. Both are surfaced by this iter's analyzer + the mock-reality tool.
+
+**Real numbers on the 75-test curated suite**:
+```
+STATIC_GREP : 38 (50.7%)   ← half the "green" suite is grep-only
+BEHAVIOURAL : 32 (42.7%)
+HYBRID      :  0 (0.0%)
+UNKNOWN     :  5 (6.7%)
+Weak P0     :  9 tests (STATIC_GREP + p0-security-critical name)
+```
+
+**Weak-P0 list — behavioural upgrades needed (priority order)**:
+1. `test_regression_iter286_mcp_test_file_lock.py::test_regression_iter286_ship_code_override_not_llm_grantable` — override-not-LLM-grantable
+2. `test_regression_iter288_scope_drift_j007.py::test_regression_iter288_execute_has_scope_drift_gate_before_parliament` — scope-drift gate before Parliament
+3. `test_regression_iter288_scope_drift_j007.py::test_regression_iter288_scope_drift_emits_requires_user_action` — scope-drift SSE frame
+4. `test_regression_iter283_paused_for_user_cancel.py::test_regression_iter283_chatpanel_stop_calls_cancel_loop` — Stop → cancel_loop
+5. `test_release_it_patterns_iter282.py::test_invariant_bulkhead_unique_index_declared` — bulkhead composite unique index
+6. `test_release_it_patterns_iter282.py::test_regression_iter282_sse_stream_has_wallclock_ceiling` — SSE 20-min ceiling
+7. `test_mutation_iter289_critical_assertions.py::test_mutation_iter286_test_file_lock_fails_when_guard_weakened` (self-referentially STATIC_GREP by design — accept)
+8. `test_mutation_iter289_critical_assertions.py::test_mutation_iter272_verifier_verdict_omission_would_fail` (same — accept)
+9. `test_mutation_iter289_critical_assertions.py::test_mutation_iter288_scope_drift_return_dropped_would_fail` (same — accept)
+
+Items 7-9 are STATIC_GREP BY DESIGN — mutation tests deliberately mutate source strings; classifier is doing its job flagging them. Items 1-6 are the genuine upgrade backlog.
+
+**Tests**: 13 new in `test_regression_iter290_test_style_analyzer.py`, including a self-referential check that the analyzer classifies its own regression file as mostly BEHAVIOURAL. Full curated suite: **88/88** passing.
+
+**Track 1 status (updated)**:
+- Lane A: **INFRA + GAP-REPORT + STYLE-ANALYZER COMPLETE**. Test-writing for 6 P0 untouched journeys + 6 weak-P0 upgrades still pending. NOT closed.
+- Lane B: BLOCKED on founder env vars. Not a blocker.
+
+
 ## 2026-02 — Iter 289 (Track 1 Lane A closed + Task 2 mock-reality + Task 3 mutation-smoke)
 
 **Charter alignment**: Track 1's Canary Repo requirement (Lane B) does NOT block logic-testing (Lane A). Every regression test built in iters 277-288 validated backend logic against mocked LLM/GitHub responses — that's correct and continues. Real Canary Repo is reserved for ONE integration proof: real GitHub push works. Lane A finalised this iter; Lane B waits on founder env-var setup.
