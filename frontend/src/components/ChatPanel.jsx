@@ -2266,6 +2266,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     const ph = (ev.phase || "").toUpperCase();
     const st = ev.state || "";
     const ms = ev.message || "";
+    // Iter 278 — heartbeat frames belong ONLY in the composer-adjacent
+    // LoopLiveFeed panel (transient "still-alive" indicator). Keeping
+    // them out of the growing chat bubble prevents 10-20 "still waiting…"
+    // lines from cluttering permanent scroll history.
+    const sub = (ev.data && ev.data.sub_step) || "";
+    if (sub === "heartbeat" || ev.data?.keepalive === true) return null;
     if (st === "completed") return `**Step 5 / 5 — Ship**  ${ms}`;
     if (st === "failed")    return `**Failed**  ${ms}`;
     if (st === "aborted")   return `**Aborted**  ${ms}`;

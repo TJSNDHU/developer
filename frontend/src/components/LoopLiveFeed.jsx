@@ -61,6 +61,13 @@ function formatEventLine(ev) {
   const ph = (ev?.phase || "").toUpperCase();
   const st = ev?.state || "";
   const msg = ev?.message || "";
+  const sub = (ev?.data && ev.data.sub_step) || "";
+  // Iter 278 — heartbeat frames are keepalives, not new steps.
+  // Label them distinctly so the ring buffer visually distinguishes
+  // "we're still waiting" from "something new happened".
+  if (sub === "heartbeat" || ev?.data?.keepalive === true) {
+    return { tag: "waiting", text: msg, keepalive: true };
+  }
   if (st === "completed") return { tag: "SHIP",  text: `completed — ${msg}` };
   if (st === "failed")    return { tag: "FAIL",  text: msg || "failed" };
   if (st === "aborted")   return { tag: "ABRT",  text: msg || "aborted" };
@@ -142,14 +149,20 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
       </div>
 
       {events.map((ev, i) => {
-        const { tag, text } = formatEventLine(ev);
+        const { tag, text, keepalive } = formatEventLine(ev);
         return (
           <div key={i}
                 data-testid={`loop-live-event-${i}`}
+                data-keepalive={keepalive ? "true" : undefined}
                 style={{ display: "flex", gap: 8, alignItems: "baseline",
-                          marginBottom: 3, lineHeight: 1.45 }}>
+                          marginBottom: 3, lineHeight: 1.45,
+                          // Iter 278 — heartbeats visually recede so
+                          // they don't compete with real progress.
+                          opacity: keepalive ? 0.55 : 1,
+                          fontStyle: keepalive ? "italic" : "normal" }}>
             <span style={{
-                color: phaseColor(ev.phase), fontWeight: 600,
+                color: keepalive ? "#6b7280" : phaseColor(ev.phase),
+                fontWeight: keepalive ? 400 : 600,
                 minWidth: 84, textAlign: "right",
               }}>
               {tag}
