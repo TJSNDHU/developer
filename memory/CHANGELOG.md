@@ -4,6 +4,19 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 306 (CI trigger reality-check: hybrid push + PR on quality-gate.yml)
+
+**Problem**: `.github/workflows/quality-gate.yml` was configured with `on: pull_request: branches: [main, master]` only. Support agent confirmed Emergent's Save-to-GitHub lets the user choose ANY branch (no fixed pattern) and does NOT auto-merge into main. Result: every Emergent save to a feature branch silently skipped the entire quality gate unless the user manually opened a PR.
+
+**Fix**: Hybrid trigger.
+- `push` on `**` (every branch) → test suites (`invariants`, `frontend-vitest`, `visual-regression`, `lighthouse-ci`) run immediately on every Emergent save.
+- `pull_request` into `main`/`master` → the two diff-based jobs (`bug-fix-discipline`, `test-style-guard`) still run at merge time; guarded with `if: github.event_name == 'pull_request'` because they read `pull_request.base.sha` / `head.sha`.
+
+**Files**: `.github/workflows/quality-gate.yml` (trigger block + two `if:` guards).
+
+**Verification**: YAML re-parsed clean via `python -c "import yaml; yaml.safe_load(...)"`. Actual GitHub Actions run can only be verified by the user (pod has no `origin` remote / no access to the user's GitHub repo). User will push via Save-to-GitHub and confirm from the Actions tab.
+
+
 ## 2026-02 — Iter 305 (Frontend QA Charter Layer 4 shipped: Lighthouse CI + interaction-latency benchmarks)
 
 Founder-approved budget: Google's "Good" Core Web Vitals as the initial gate (LCP ≤ 2500 ms, TBT ≤ 200 ms, CLS ≤ 0.1) on routes `/`, `/login`, `/dev/loop-live-feed`. Interaction-latency benchmarks observed-only until 3-5 runs of variance data exist.

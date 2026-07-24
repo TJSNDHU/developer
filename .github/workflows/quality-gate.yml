@@ -12,6 +12,19 @@ name: Quality Gate — Bug-fix Discipline
 # actually respects.
 
 on:
+  # Iter 306 — trigger reality-check. Support agent confirmed that
+  # Emergent's "Save to GitHub" lets the user pick ANY branch (no
+  # fixed pattern) and does NOT auto-merge into main. So a pure
+  # `pull_request`-only trigger silently skipped every push where
+  # the user hadn't opened a PR yet. Hybrid trigger below:
+  #   - push on ANY branch → the actual test suites (vitest, visual,
+  #     lighthouse, invariants) run immediately on every Emergent save.
+  #   - pull_request into main/master → the two diff-based gates
+  #     (bug-fix-discipline, test-style-guard) run at merge time,
+  #     because they need pull_request.base.sha / head.sha to diff.
+  push:
+    branches:
+      - '**'
   pull_request:
     branches: [main, master]
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -27,6 +40,8 @@ concurrency:
 jobs:
   bug-fix-discipline:
     name: PR must include a test change (or explicit override)
+    # Diff-based gate; needs pull_request.base.sha and head.sha.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -157,6 +172,8 @@ jobs:
     # `# static-grep-ok: <reason>` magic comment (e.g. mutation
     # suites, which are grep-style by design).
     name: Static-grep threshold on new tests
+    # Diff-based; needs pull_request.base.sha and head.sha.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
