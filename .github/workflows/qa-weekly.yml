@@ -94,13 +94,13 @@ jobs:
         id: summary
         run: |
           if [[ -f /tmp/aurem_qa_report.json ]]; then
-            PY_SCRIPT='import json,sys
-d=json.load(open("/tmp/aurem_qa_report.json"))
-r=d.get("results",{}).get("results") or []
-p=sum(1 for x in r if x.get("success"))
-f=sum(1 for x in r if not x.get("success"))
-print(f"{p}/{p+f}")'
-            SUMMARY=$(python3 -c "$PY_SCRIPT")
+            # Iter 306 — was a single-quoted multi-line bash string
+            # with lines starting at column 0, which YAML rejected
+            # (`could not find expected ':'`). Rewritten as a single
+            # `python3 -c` invocation with semicolon-separated
+            # statements so every line stays inside the `run: |`
+            # block at the correct indent.
+            SUMMARY=$(python3 -c "import json; d=json.load(open('/tmp/aurem_qa_report.json')); r=d.get('results',{}).get('results') or []; p=sum(1 for x in r if x.get('success')); f=sum(1 for x in r if not x.get('success')); print(f'{p}/{p+f}')")
             echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
           else
             echo "summary=report-missing" >> "$GITHUB_OUTPUT"

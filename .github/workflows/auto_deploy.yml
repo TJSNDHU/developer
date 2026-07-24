@@ -41,9 +41,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Verify PR opened by AUREM
+        env:
+          PR_USER:  ${{ github.event.pull_request.user.login }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [ "${{ github.event.pull_request.user.login }}" != "aurem-bot" ] && \
-             [[ "${{ github.event.pull_request.title }}" != "[AUREM]"* ]]; then
+          if [ "$PR_USER" != "aurem-bot" ] && [[ "$PR_TITLE" != "[AUREM]"* ]]; then
             echo "::error::PR is labeled aurem-autofix but not opened by AUREM"
             exit 1
           fi
@@ -105,12 +107,16 @@ jobs:
     if: github.event_name == 'push'
     needs: [gate-on-ci]
     runs-on: ubuntu-latest
+    env:
+      # Iter 306 — `secrets` context is not allowed inside step-level
+      # `if:`. Hoist secrets into job-level env so the individual
+      # steps can gate themselves via `env.X != ''`, which IS allowed.
+      HOOK:    ${{ secrets.AUREM_DEPLOY_HOOK_URL }}
+      API_KEY: ${{ secrets.AUREM_API_KEY }}
     steps:
       - name: Trigger customer deploy webhook
         id: trigger
-        if: ${{ secrets.AUREM_DEPLOY_HOOK_URL != '' }}
-        env:
-          HOOK: ${{ secrets.AUREM_DEPLOY_HOOK_URL }}
+        if: env.HOOK != ''
         run: |
           set +e
           HTTP=$(curl -s -o /tmp/deploy_resp.txt -w "%{http_code}" \
@@ -125,9 +131,8 @@ jobs:
             cat /tmp/deploy_resp.txt
           fi
       - name: Report to AUREM
-        if: ${{ secrets.AUREM_API_KEY != '' }}
+        if: env.API_KEY != ''
         env:
-          API_KEY:    ${{ secrets.AUREM_API_KEY }}
           REPORT_URL: ${{ vars.AUREM_REPORT_URL }}
           RESULT:     ${{ steps.trigger.outputs.result || 'success' }}
           REPO:       ${{ github.repository }}

@@ -258,6 +258,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      # Iter 306 — hoist secret to job-level env so the step below can
+      # gate itself via `env.CI_TOKEN != ''` (secrets context is
+      # disallowed inside step-level `if:`).
+      CI_TOKEN: ${{ secrets.AUREM_CI_INGEST_TOKEN }}
     steps:
       - name: Checkout (full history for diff scan)
         uses: actions/checkout@v4
@@ -330,9 +335,8 @@ jobs:
           retention-days: 7
 
       - name: Post findings to AUREM dashboard
-        if: ${{ secrets.AUREM_CI_INGEST_TOKEN != '' }}
+        if: env.CI_TOKEN != ''
         env:
-          CI_TOKEN:   ${{ secrets.AUREM_CI_INGEST_TOKEN }}
           API_URL:    ${{ vars.AUREM_API_URL }}
         run: |
           export BASE_URL="${API_URL:-https://auremcto.com}"
@@ -382,6 +386,11 @@ jobs:
     needs: [frontend-build, backend-tests, simulated-user-qa, security-scan, secret-scan]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    env:
+      # Iter 306 — hoist secret to job-level env so the step below can
+      # gate on `env.API_KEY != ''` (secrets context is disallowed
+      # inside step-level `if:`).
+      API_KEY: ${{ secrets.AUREM_API_KEY }}
     steps:
       - name: All checks passed
         run: |
@@ -393,9 +402,7 @@ jobs:
           echo "🚀 Safe to deploy to aurem.live"
 
       - name: Notify AUREM dashboard
-        if: ${{ secrets.AUREM_API_KEY != '' }}
-        env:
-          API_KEY: ${{ secrets.AUREM_API_KEY }}
+        if: env.API_KEY != ''
         run: |
           curl -s -X POST \
             "https://auremcto.com/api/aurem-dev/github-deploy/report" \
