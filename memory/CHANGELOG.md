@@ -4,6 +4,42 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 301 (Master QA Track 3 v1: reasoning-quality evaluators for Plan / Verify / Scan)
+
+**Track 3 v1 — founder-corrected scope**: only the check that genuinely requires JUDGMENT (faithfulness) uses an LLM. Everything else is deterministic Python — cheaper AND more trustworthy as a regression gate (no judge-model flakiness on load-bearing invariants).
+
+**Ship**:
+- **NEW: `backend/services/reasoning_evals.py`** — four evaluators over the loop's load-bearing AI outputs:
+  1. `validate_plan_shape(plan, known_paths)` — **deterministic**. Required keys (`title`, `steps`, `files_to_change`), typed step list without TODO/FIXME/`<PLACEHOLDER>` markers, and (if `known_paths` provided) at-most-one-ungrounded files_to_change (2+ = hallucination signal).
+  2. `calibrate_verdict(verdict, evidence)` — **deterministic**. Fixed severity → verdict mapping (`critical|high → fail`, `medium → needs_revision`, `low|info → pass`) + strict enum validation. Catches the worst-case regression: verdict='pass' on a diff carrying a HIGH finding.
+  3. `scan_finding_matches(files, expected_rule_id, expected_severity)` — **deterministic**. Delegates to the real `services.scaffold_security_gate.scan_files` and asserts the expected rule+severity fires.
+  4. `llm_faithfulness_check(output, source, model="claude-sonnet-4-6")` — **LLM-as-judge**. The only LLM call in the module. Uses Emergent LLM key + Claude Sonnet 4.6 at temp=0 (via `emergentintegrations`). Returns `{ok, verdict:"faithful"|"unfaithful", unsupported_claims[], reasoning, raw_response}`.
+- **NEW: `backend/tests/reasoning/`** directory (with `__init__.py`) — 4 test files, 18 tests total:
+  - `test_plan_shape_validity.py` — 5 tests: valid pass, missing-key fail, placeholder-marker fail, wrong-type-steps fail, hallucinated-paths fail.
+  - `test_verify_verdict_calibration.py` — 5 tests: low→pass, high→fail, medium→needs_revision, **miscalibration `pass` on HIGH caught**, unknown-verdict-string rejected.
+  - `test_scan_finding_quality.py` — 5 tests: openai-secret, subprocess-shell-true, eval-of-user-input, dangerouslySetInnerHTML, clean-code-no-false-positives (calls real `scan_files`).
+  - `test_faithfulness_llm_judge.py` — 3 tests behind `@pytest.mark.llm_judge`: faithful output graded faithful, invented-facts (GraphQL/Redis) flagged, hallucinated version numbers flagged.
+- **Updated `backend/pytest.ini`**: added `llm_judge` marker; default `addopts` now `-m "not flaky and not llm_judge"` so PR CI stays free + fast. Weekly cron / on-demand runs `-m "llm_judge or not llm_judge"`.
+
+**Verification**:
+- Deterministic tests (default lane): **15/15 pass in 0.04s**, 3 llm_judge tests correctly deselected.
+- LLM judge live run (opt-in): **3/3 pass in 8.76s** — Claude Sonnet 4.6 correctly grades 1 faithful output + 2 unfaithful (identifying GraphQL/Redis + hallucinated version numbers as unsupported claims). Cost ≈ $0.06/run.
+- Style classifier: **18/18 BEHAVIOURAL, 0 STATIC_GREP**.
+- Lint clean on all touched files.
+
+**Cost characteristics**:
+- Every PR: 15 deterministic tests, $0.00, ~0.04s.
+- Weekly / on-demand: +3 LLM judge tests, ~$0.06, ~9s.
+- No judge-flakiness on load-bearing invariants (plan shape, verdict calibration, scan quality) — those are pure Python. Only the invented-facts detection carries LLM variance.
+
+**Next up**:
+- Frontend QA Charter Layer 3 (P1) — a11y (axe-core).
+- Track 3 Batch 2 (if founder wants): multi-turn Ora chat evals, adversarial prompt-injection evals, RAGAS drop-in comparison.
+- Layer 2 Batch 2 — auth-gated views (`/dashboard`, `/build/*`, `/settings`), interaction states, mobile viewport.
+- QA gate CI step — `qa_matrix.matrix_coverage_gap()` delta-check.
+
+
+
 ## 2026-02 — Iter 300 (One-shot AMD64 rebaseline workflow)
 
 **Follow-up to iter 299**: baselines were captured on the ARM64 dev pod but CI runs on AMD64 → font-hint variance could push some pixels over the 2% threshold on first CI run. This workflow lets you regenerate baselines on the EXACT OS + chromium build CI uses, with an audit-trail commit back to your feature branch.
