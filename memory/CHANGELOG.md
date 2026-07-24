@@ -4,6 +4,27 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 300 (One-shot AMD64 rebaseline workflow)
+
+**Follow-up to iter 299**: baselines were captured on the ARM64 dev pod but CI runs on AMD64 → font-hint variance could push some pixels over the 2% threshold on first CI run. This workflow lets you regenerate baselines on the EXACT OS + chromium build CI uses, with an audit-trail commit back to your feature branch.
+
+**Ship**:
+- **NEW: `.github/workflows/rebaseline-visual.yml`** — manually-triggered (`workflow_dispatch`) with two required inputs (`branch`, `reason`). Refuses to run on `main`/`master`/`prod`/`release/*` (guards production baselines). Runs inside `mcr.microsoft.com/playwright:v1.61.1-jammy` (AMD64 Linux, chromium 1228 pinned to match CI). Boots the frontend, waits for `:3000/` up to 60s, runs `playwright test --update-snapshots`, then commits ONLY the PNG snapshot dirs back with an audit-trail message that names the exact OS + chromium + Playwright version used. Uploads the HTML diff report as an artifact regardless of outcome. `contents: write` scoped to just this workflow.
+- **UPDATED: `docs/visual_regression.md`** — "Environment parity" section now documents both paths (local Docker vs GitHub Action) with the exact `gh workflow run` command.
+
+**Trigger example**:
+```
+gh workflow run "Rebaseline Visual Regression (AMD64 Linux)" \
+    -f branch=my-feature-branch \
+    -f reason="rebaseline after landing page hero redesign"
+```
+
+**Verification**:
+- Both workflow YAML files parse valid (`yaml.safe_load`).
+- No functional changes to the app or test suite (workflow is dormant until dispatched).
+
+
+
 ## 2026-02 — Iter 299 (Frontend QA Charter Layer 2 complete: Playwright visual regression)
 
 **Frontend QA Charter Layer 2** — pixel-level truth of the unauthenticated UI. Silent CSS drift (shadcn version bump, stale utility class, `!important` collision) now fails CI instead of shipping.

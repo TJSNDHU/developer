@@ -1,0 +1,170 @@
+name: Rebaseline Visual Regression (AMD64 Linux)
+
+# Iter 300 — One-shot workflow to (re)capture Playwright visual
+# baselines on the SAME OS + browser build CI actually runs on
+# (AMD64 Linux, chromium 1228 pinned inside the official Playwright
+# Jammy image). Fixes the "baselines were captured on ARM64 dev pod,
+# CI is AMD64 → 2% threshold flakes" class of failures.
+#
+# Trigger: manual only (workflow_dispatch). The workflow refuses to
+# run on main/master to prevent someone accidentally rewriting
+# production baselines without review.
+#
+# Flow:
+#   1. Check out the target branch.
+#   2. Boot the frontend inside the pinned Playwright image.
+#   3. Run `playwright test --update-snapshots`.
+#   4. If anything changed, commit the new PNGs back to the SAME
+#      branch with an audit-trail message that names the exact
+#      chromium build + Playwright version used.
+#
+# After the workflow runs, the CI `visual-regression` job on the
+# same PR will pass on its next run without human intervention.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to rebaseline (must NOT be main/master)"
+        required: true
+        type: string
+      reason:
+        description: "Why are you rebaselining? (goes into the commit message)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebaseline-visual-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  rebaseline:
+    name: Regenerate AMD64 Linux baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # PINNED image — same chromium build the CI `visual-regression`
+    # job uses. Bump both together when you upgrade Playwright.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-jammy
+      options: --user root
+    steps:
+      - name: Reject rebaselining protected branches
+        run: |
+          set -euo pipefail
+          BR="${{ inputs.branch }}"
+          case "$BR" in
+            main|master|production|prod|release/*)
+              echo "::error::Refusing to rebaseline protected branch: $BR"
+              echo "Rebaselining rewrites committed PNGs — open a PR"
+              echo "against a feature branch first."
+              exit 1
+              ;;
+          esac
+          echo "OK — target branch is $BR"
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+          # Use a PAT if branch protection blocks GITHUB_TOKEN
+          # pushes; leave default for now, CI will error clearly
+          # if permission is denied.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: |
+          # The Playwright image already has node + yarn; we just
+          # need our repo deps. Frozen lockfile so we rebaseline
+          # against EXACT prod dep graph.
+          yarn install --frozen-lockfile
+
+      - name: Start frontend
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: http://localhost:8001
+        run: |
+          # Backgrounded — the shell keeps ownership so the next
+          # step can wait for the port and then teardown cleanly.
+          yarn start > /tmp/frontend.log 2>&1 &
+          echo "$!" > /tmp/frontend.pid
+          echo "spawned frontend (pid=$(cat /tmp/frontend.pid))"
+          for i in $(seq 1 60); do
+            if curl -sSf -o /dev/null http://localhost:3000/; then
+              echo "frontend up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::frontend did not come up in 60s"
+          echo "--- last 40 lines of frontend log ---"
+          tail -40 /tmp/frontend.log
+          exit 1
+
+      - name: Rebaseline snapshots
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+        run: |
+          set -euo pipefail
+          npx playwright test --update-snapshots
+          echo "--- new / changed baseline files ---"
+          git status --short frontend/tests/visual || true
+
+      - name: Emit environment fingerprint (audit trail)
+        id: fingerprint
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          PW_VER=$(node -e "console.log(require('@playwright/test/package.json').version)")
+          CHR_VER=$(npx playwright --version | tr -d '\n')
+          OS_INFO=$(uname -srm)
+          echo "pw_ver=$PW_VER"           >> "$GITHUB_OUTPUT"
+          echo "chromium_ver=$CHR_VER"    >> "$GITHUB_OUTPUT"
+          echo "os_info=$OS_INFO"         >> "$GITHUB_OUTPUT"
+          echo "captured on: $OS_INFO — $CHR_VER"
+
+      - name: Commit updated baselines
+        run: |
+          set -euo pipefail
+          git config user.name  "aurem-visual-bot[bot]"
+          git config user.email "aurem-visual-bot@users.noreply.github.com"
+          # Only stage the snapshot dirs — never anything else.
+          git add 'frontend/tests/visual/*-snapshots/*.png' || true
+          if git diff --cached --quiet; then
+            echo "No baseline changes — nothing to commit. Exiting green."
+            exit 0
+          fi
+          {
+            echo "visual: rebaseline on AMD64 Linux (iter 300)"
+            echo ""
+            echo "Reason: ${{ inputs.reason }}"
+            echo ""
+            echo "Captured with:"
+            echo "  os        : ${{ steps.fingerprint.outputs.os_info }}"
+            echo "  chromium  : ${{ steps.fingerprint.outputs.chromium_ver }}"
+            echo "  playwright: ${{ steps.fingerprint.outputs.pw_ver }}"
+            echo ""
+            echo "Triggered by @${{ github.actor }} via workflow_dispatch."
+          } > /tmp/rebaseline-msg.txt
+          git commit -F /tmp/rebaseline-msg.txt
+          git push origin "HEAD:${{ inputs.branch }}"
+          echo "OK — pushed rebaselined PNGs to ${{ inputs.branch }}"
+
+      - name: Stop frontend
+        if: always()
+        run: |
+          if [ -f /tmp/frontend.pid ]; then
+            kill "$(cat /tmp/frontend.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload HTML report on any diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebaseline-report
+          path: frontend/playwright-report
+          retention-days: 7

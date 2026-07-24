@@ -90,12 +90,34 @@ Playwright can differ pixel-for-pixel between a local Mac dev
 machine and CI Linux runners due to font substitution. The
 `toHaveScreenshot` threshold (2%) is sized for this — if you see
 CI-only failures under 2%, they're expected variance. If you see
-larger diffs, the baseline was captured on the wrong OS. To
-recapture on Linux CI:
+larger diffs, the baseline was captured on the wrong OS.
+
+### Option 1 — Locally, in the pinned Docker image
 
     docker run --rm -v $(pwd)/frontend:/w -w /w \
         mcr.microsoft.com/playwright:v1.61.1-jammy \
         npx playwright test --update-snapshots
+
+### Option 2 — Trigger the GitHub Action (recommended)
+
+Run the `Rebaseline Visual Regression (AMD64 Linux)` workflow via
+the Actions tab (or `gh workflow run`). It:
+
+1. Boots the frontend inside the pinned Playwright Jammy image
+   (AMD64 Linux — same runner as CI).
+2. Runs `--update-snapshots`.
+3. Commits the new PNGs back to your feature branch with an
+   audit-trail message that names the exact chromium build +
+   Playwright version used.
+
+Command:
+
+    gh workflow run "Rebaseline Visual Regression (AMD64 Linux)" \
+        -f branch=my-feature-branch \
+        -f reason="rebaseline after landing page hero redesign"
+
+The workflow refuses to run on main/master (prevents accidental
+production-baseline rewrites without review).
 
 See `docs/environments.md` for the full environment-parity ledger.
 
