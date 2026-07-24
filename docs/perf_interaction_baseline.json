@@ -1,0 +1,44 @@
+{
+  "_note": "OBSERVED baseline for iter305 Layer 4 interaction-latency benchmarks. No gate yet — founder decides target after 3-5 runs of variance data. See docs/performance_budget.md.",
+  "_created": "2026-02",
+  "_charter_reference": "docs/performance_budget.md",
+  "measurements": [
+    {
+      "name": "msg-send-to-first-visible-token",
+      "route": "/dev/visual",
+      "value_ms": -1,
+      "ts": 1784923826229
+    },
+    {
+      "name": "msg-send-to-first-visible-token",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 438,
+      "ts": 1784923863631
+    },
+    {
+      "name": "msg-send-to-first-visible-token",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 445,
+      "ts": 1784923956787
+    },
+    {
+      "name": "sse-frame-to-dom-commit",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 16.699999999254942,
+      "ts": 1784923828013
+    },
+    {
+      "name": "sse-frame-to-dom-commit",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 16.699999999254942,
+      "ts": 1784923865478
+    },
+    {
+      "name": "sse-frame-to-dom-commit",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 16.600000001490116,
+      "ts": 1784923958608
+    }
+  ],
+  "_last_run": "2026-07-24T20:12:38.608Z"
+}

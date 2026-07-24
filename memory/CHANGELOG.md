@@ -4,6 +4,50 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 305 (Frontend QA Charter Layer 4 shipped: Lighthouse CI + interaction-latency benchmarks)
+
+Founder-approved budget: Google's "Good" Core Web Vitals as the initial gate (LCP ≤ 2500 ms, TBT ≤ 200 ms, CLS ≤ 0.1) on routes `/`, `/login`, `/dev/loop-live-feed`. Interaction-latency benchmarks observed-only until 3-5 runs of variance data exist.
+
+**Ship**:
+- **NEW: `frontend/.lighthouserc.json`** — LHCI config for prod build (`vite preview` on :4173). `startServerCommand: yarn preview --port 4173`. Google's Good CWV as hard-gate assertions. `temporary-public-storage` upload for shareable reports.
+- **NEW CI job: `.github/workflows/quality-gate.yml::lighthouse-ci`** — checks out repo, builds prod bundle (`yarn build`), spawns preview via LHCI's autorun, uploads HTML report as artifact on failure.
+- **NEW: `frontend/tests/visual/interaction_latency.spec.js`** — 2 Playwright benchmarks:
+  - `msg-send-to-first-visible-token` — wall time from navigation start until the FIRST assistant token is DOM-visible. Uses `/dev/visual?state=feed-live-events` fixture. **First observed: 438 ms.**
+  - `sse-frame-to-dom-commit` — p50 of 5 `requestAnimationFrame` commits with forced style-read flush. Intrinsic frontend paint-commit latency. **First observed: 16.7 ms.**
+  - Numbers append to `docs/perf_interaction_baseline.json` (last-50-per-benchmark, trimmed) — observed only, no gate.
+- **NEW: `docs/perf_interaction_baseline.json`** — measurement ledger for interaction-latency benchmarks.
+- **NEW: `docs/performance_budget.md`** — founder-approved budgets, rationale (Google's Good thresholds), routes, actual first-run numbers, the dev-server-vs-prod-build diagnostic finding, and honest deferred list.
+
+**Diagnostic finding — reported per founder's "no silent lowering" rule**:
+- First LHCI run against the DEV SERVER (yarn start, :3000) → **LCP 4775-4854 ms across all 3 routes (fail by ~2.3s)**. Root cause: Vite dev-server serves ES modules un-bundled with a waterfall of imports, inflating LCP ~4x versus the production bundle.
+- Second run against the PROD BUILD (yarn preview, :4173) → **PASS on all 3 routes**:
+  - `/`: LCP=1147ms · TBT=6ms · CLS=0.0125
+  - `/login`: LCP=1078ms · TBT=0ms · CLS=0.0008
+  - `/dev/loop-live-feed`: LCP=848ms · TBT=0ms · CLS=0.0093
+- Fix: `.lighthouserc.json` now uses `startServerCommand: yarn preview` — the industry-standard pattern. Budget was NOT silently lowered.
+
+**Verification**:
+- LHCI `npx lhci autorun` against prod preview → **all 3 routes green**, well within margin.
+- Playwright `npx playwright test` → **17/17 pass** (5 public + 7 state fixtures + 3 a11y journeys + 2 interaction-latency benchmarks). No flakes.
+- Vitest `yarn test` unchanged: **63/63 pass**.
+- CI workflow YAML valid; new `lighthouse-ci` job registered (quality-gate.yml now 6 jobs total).
+- Dashboard `/admin/qa` reflects updated Playwright counts (10 tests / 4 files, was 8/3).
+
+**Charter L4 exit criteria**:
+
+| Charter demand                                                | Status | Evidence                                                              |
+|---------------------------------------------------------------|--------|-----------------------------------------------------------------------|
+| Lighthouse CI running on every deploy with real budget        | ✅ | `lighthouse-ci` job in quality-gate.yml; docs/performance_budget.md    |
+| Interaction-latency benchmarks with baseline numbers recorded | ✅ | `interaction_latency.spec.js` + `docs/perf_interaction_baseline.json`  |
+
+**Deferred (Batch 2 or when data supports)**:
+- Auth-gated route budgets (needs seeded session fixture).
+- Mobile-preset LHCI (needs stricter mobile CWV thresholds; desktop-first for now).
+- INP (Interaction to Next Paint) — lab measurement tooling not stable enough to gate on yet.
+- Interaction-latency benchmarks becoming hard gates — needs 3-5 CI runs of variance data.
+
+
+
 ## 2026-02 — Iter 304 (Gap 1 closed: L3 a11y zero + L1 coverage complete)
 
 Founder directive: "no more 'deferred' items". Executed in sequence.

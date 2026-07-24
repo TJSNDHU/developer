@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.61.1",
     "@testing-library/dom": "^10",
     "@testing-library/jest-dom": "6.6.4",

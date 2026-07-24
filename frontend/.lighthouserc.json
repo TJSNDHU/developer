@@ -1,0 +1,30 @@
+{
+  "_comment": "Lighthouse CI — Iter 305 (Frontend QA Charter Layer 4). Google's 'Good' Core Web Vitals as the hard gate. Runs against `vite preview` (prod build) NOT `vite dev` — dev-server serves unbundled modules and inflates LCP by ~4x. See docs/performance_budget.md for the rationale + numbers.",
+  "ci": {
+    "collect": {
+      "url": [
+        "http://localhost:4173/",
+        "http://localhost:4173/login",
+        "http://localhost:4173/dev/loop-live-feed"
+      ],
+      "numberOfRuns": 2,
+      "startServerCommand": "yarn preview --port 4173",
+      "startServerReadyPattern": "Local:.*4173",
+      "startServerReadyTimeout": 20000,
+      "settings": {
+        "preset": "desktop",
+        "chromeFlags": "--no-sandbox --headless=new"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "largest-contentful-paint":  ["error", { "maxNumericValue": 2500 }],
+        "total-blocking-time":       ["error", { "maxNumericValue": 200  }],
+        "cumulative-layout-shift":   ["error", { "maxNumericValue": 0.1  }]
+      }
+    },
+    "upload": {
+      "target": "temporary-public-storage"
+    }
+  }
+}

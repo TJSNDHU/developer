@@ -226,6 +226,44 @@ jobs:
       - name: Start frontend
         working-directory: frontend
         env:
+
+  lighthouse-ci:
+    # Iter 305 — Frontend QA Charter Layer 4. Runs Lighthouse against
+    # the PRODUCTION build (`yarn build && yarn preview`) — NEVER the
+    # dev server (Vite serves unbundled modules and inflates LCP ~4x).
+    # Google's "Good" Core Web Vitals as the hard gate:
+    #   LCP ≤ 2500ms · TBT ≤ 200ms · CLS ≤ 0.1
+    # See docs/performance_budget.md for the founder-approved rationale.
+    name: Lighthouse CI (Core Web Vitals)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install frontend deps
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+      - name: Build production bundle
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: http://localhost:8001
+        run: yarn build
+      - name: Run Lighthouse CI (autorun spawns `yarn preview`)
+        working-directory: frontend
+        run: npx lhci autorun --config=.lighthouserc.json
+      - name: Upload Lighthouse report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: frontend/.lighthouseci
+          retention-days: 7
+
           # Point at the built preview so tests hit static assets;
           # we still serve on :3000 like the pod does.
           REACT_APP_BACKEND_URL: http://localhost:8001
