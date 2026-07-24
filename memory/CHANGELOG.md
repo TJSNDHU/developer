@@ -4,6 +4,40 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 293 (Prod-DB honesty upgrade + session-start dashboard)
+
+**Founder catch (verbatim)**: "docs/environments.md abhi bhi 'prod DB name likely X hai' bol raha hai — yeh guess hai." Direct paradox — Part A's own file was doing the exact thing Part A prohibited. Fixed this iter.
+
+### 1. Prod DB name — "likely" replaced with honest verification path
+
+- **PREVIEW db_name = `aurem_dev`** now marked **(confirmed)** — verified via `AsyncIOMotorClient(MONGO_URL).list_database_names()` returning `['admin','aurem_dev','config','local']` and `/loop/_diagnostics` returning `db_name: "aurem_dev"` for a founder-authed caller.
+- **PRODUCTION db_name** → row now reads `**UNVERIFIED from this pod**` with the exact founder-runnable curl inline:
+```bash
+curl -s "https://<PROD_URL>/api/aurem-dev/loop/_diagnostics" \
+     -H "Authorization: Bearer <FOUNDER_JWT>" | jq .db_name
+```
+No "likely" guess anywhere. Cannot be verified from this preview pod; can only be verified by the founder running the curl and pasting the value back into the ledger.
+
+### 2. Session-start dashboard (founder-approved enhancement)
+
+- **`backend/scripts/session_start_dashboard.py`** — new. 3-line no-ceremony output on session start:
+```
+[static-vs-behavioural]  45/98 STATIC_GREP (45.9%)  ✓ improved from baseline 50.7%
+[mock-reality-check]     github=OK  openrouter=OK
+[environment-ledger]     docs/environments.md verified 2026-02
+```
+Flags `⚠ up from baseline` when grep ratio rises since iter290's 50.7%, `✓ improved` when weak-P0 upgrades land. `--json` + `--no-net` flags. Non-blocking (always exits 0). Runs in ~5s.
+- **AGENTS.md** — session-start section now points at the script by exact path. Manual fallback preserved.
+
+**Live measurement now**: 45/98 STATIC_GREP = **45.9%** — improved from 50.7% because iter290/291/292/293 tests are mostly behavioural. Backing the honest baseline the burndown will track.
+
+### 3. Prod GitHub App verification blocker — clarified
+
+Same as Lane B's 5 tokens (not a new blocker). Once `AUREM_ORG_NAME` + `AUREM_ORG_GITHUB_APP_TOKEN` are set in prod env panel, verification is `curl https://api.github.com/orgs/{ORG}/installations -H "Authorization: token $AUREM_ORG_GITHUB_APP_TOKEN"` — one shot, founder-runnable. Ledger updated to consolidate.
+
+**Tests**: 7 new in `test_regression_iter293_session_start_hook.py` — mostly BEHAVIOURAL (subprocess invocations of the script), doc-shape assertions covered by exempt marker. Full curated suite: **113/113** passing.
+
+
 ## 2026-02 — Iter 292 (QA Meta-Layer adopted — parity ledger + flaky quarantine + frontend rule)
 
 **Founder brief**: "adopt NOW in parallel with whichever track is currently active — cheap early, expensive to retrofit once suite/deploy history has grown." Adopted verbatim.

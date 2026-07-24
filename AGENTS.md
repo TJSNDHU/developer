@@ -357,9 +357,18 @@ mistake MUST NOT be repeated:
 
 ### 4. Standing priority for the QA Meta-Layer
 
-Whenever a new session begins:
+At every new session start, run the automated dashboard:
+```bash
+python /app/backend/scripts/session_start_dashboard.py
+```
+3-line output — grep-ratio vs baseline (`50.7%`), mock-reality shape
+status, environment-ledger verification date. Non-blocking; ~5s.
+Prints `⚠ up from baseline` when STATIC_GREP has risen since iter290,
+`✓ improved from baseline` when weak-P0 upgrades have landed.
+
+Manual replacement (if the hook is unavailable):
 - Check `docs/environments.md` for staleness (any env change since
-  the ledger's last `_verified_at`?)
+  the ledger's last `_verified_at`?).
 - Run `qa_static_vs_behavioural_ratio` MCP tool; if grep % rose since
   the last snapshot, that's the top priority to reverse before new
   features.

@@ -30,18 +30,26 @@ never one blanket "deployed" claim.
 
 ## 1. MongoDB — different databases per environment
 
-| Env         | MONGO_URL                        | DB_NAME                           | Notes                                                         |
+| Env         | MONGO_URL                        | DB_NAME                           | Verified how                                                  |
 |-------------|----------------------------------|-----------------------------------|---------------------------------------------------------------|
-| local       | `mongodb://localhost:27017`      | `aurem_dev`                       | Same physical Mongo as `preview`.                             |
-| preview     | `mongodb://localhost:27017`      | `aurem_dev`                       | This pod. Contains only test data (9 loop_sessions from June 2026 as of 2026-02). |
-| production  | Emergent-managed prod Mongo      | Likely `launch-pad-237-aurem_dev` (per past deploy-agent logs — NOT verified from here) | **Never** written from this pod directly. |
+| local       | `mongodb://localhost:27017`      | `aurem_dev`                       | Same physical Mongo as `preview` in this pod.                 |
+| preview     | `mongodb://localhost:27017`      | `aurem_dev` **(confirmed)**       | Iter 292 — `AsyncIOMotorClient(MONGO_URL).list_database_names()` returned `['admin','aurem_dev','config','local']`. `/loop/_diagnostics` returns `db_name: "aurem_dev"` for a founder-authenticated caller. |
+| production  | Emergent-managed prod Mongo      | **UNVERIFIED from this pod**      | Prod runs behind a separate Emergent-managed URL that this preview pod cannot reach. See "How to verify prod" below. |
 
 **Prior confusion the project has hit**:
-Preview's `aurem_dev` was silently treated as if it were prod's
-`launch-pad-237-aurem_dev` — real bug data (loop_1f8, loop_bff)
-was searched here and returned 0 matches because it lived in
-prod, not preview. TTL evictions (7-day, per iter282) further
-prune anything old.
+Preview's `aurem_dev` was silently treated as if it were prod's DB —
+real bug data (loop_1f8, loop_bff) was searched here and returned 0
+matches because it lived in prod, not preview. TTL evictions (7-day,
+per iter282) further prune anything old.
+
+**How to verify prod DB name (founder-only, one-shot)**:
+```bash
+curl -s "https://<PROD_URL>/api/aurem-dev/loop/_diagnostics" \
+     -H "Authorization: Bearer <FOUNDER_JWT>" | jq .db_name
+```
+Paste the value back into this ledger under the `production` row.
+Until then, the prod db_name field above stays **UNVERIFIED** —
+not "likely X", not guessed. Iter 292 explicitly declined to guess.
 
 **Rule**: never assume a query against this pod's Mongo tells you
 anything about prod. If you need prod DB evidence, ask the

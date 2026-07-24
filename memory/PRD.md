@@ -1,12 +1,11 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 292 (QA Meta-Layer
-> adopted: `docs/environments.md` verified ledger, per-env deploy
-> report rule in AGENTS.md, `pytest.ini` flaky marker + `-m "not
-> flaky"` default, quarantine ownership + Loop/SSE exception,
-> frontend RTL rule ahead of Layer 1). Runs in parallel with all
-> track work. Full details in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 293 (Prod-DB
+> "likely" replaced with honest UNVERIFIED + founder curl; session-
+> start dashboard `session_start_dashboard.py` — 3-line output at
+> every session start; current STATIC_GREP baseline improved 50.7%
+> → 45.9%). Full details in `CHANGELOG.md`.
 
 
 
