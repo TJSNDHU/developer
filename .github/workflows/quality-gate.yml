@@ -175,3 +175,54 @@ jobs:
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           echo "Diffing $BASE_SHA..$HEAD_SHA for test-style violations"
           python scripts/ci_check_test_style.py "$BASE_SHA" "$HEAD_SHA"
+
+
+  visual-regression:
+    # Iter 299 — Frontend QA Charter Layer 2. Pixel-diff the 5
+    # canonical unauthenticated routes against committed baselines
+    # in frontend/tests/visual/__screenshots__/. See
+    # docs/visual_regression.md for the workflow.
+    name: Visual regression (Playwright chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install frontend deps
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+      - name: Install Playwright browsers (chromium only)
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Start frontend
+        working-directory: frontend
+        env:
+          # Point at the built preview so tests hit static assets;
+          # we still serve on :3000 like the pod does.
+          REACT_APP_BACKEND_URL: http://localhost:8001
+        run: |
+          yarn start &
+          echo "started; waiting for :3000 ..."
+          for i in $(seq 1 30); do
+            if curl -sSf -o /dev/null http://localhost:3000/; then
+              echo "frontend up after ${i}s"; break
+            fi
+            sleep 1
+          done
+      - name: Run visual regression
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+        run: npx playwright test
+      - name: Upload HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

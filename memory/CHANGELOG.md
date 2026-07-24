@@ -4,6 +4,43 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 299 (Frontend QA Charter Layer 2 complete: Playwright visual regression)
+
+**Frontend QA Charter Layer 2** — pixel-level truth of the unauthenticated UI. Silent CSS drift (shadcn version bump, stale utility class, `!important` collision) now fails CI instead of shipping.
+
+**Ship**:
+- **NEW: `frontend/playwright.config.js`** — chromium desktop `1440×900`, `maxDiffPixelRatio=0.02` (2% tolerance — catches layout/colour drift while surviving font-hinting noise), animations disabled, sequential workers=1 (preview app is a shared singleton), reporter=list+html, trace-on-failure, `PLAYWRIGHT_BASE_URL` env-configurable so CI can point at any preview URL.
+- **NEW: `frontend/tests/visual/public_routes.spec.js`** — 5 canonical unauthenticated views. Every test freezes async work (fonts.ready, networkidle) + neutralises animations & `data-live-clock` elements before snapping:
+  - `/` — Landing (hero + fold)
+  - `/why-ora` — Marketing (long-content layout)
+  - `/demo` — Demo page
+  - `/login` — Auth form
+  - `/dev/loop-live-feed` — Component demo (proves Batch-1 extracted `LoopStepBar` + `AgentStatusBar` + `LoopLiveFeed` still render correctly)
+- **NEW: 5 baseline PNGs** committed at `frontend/tests/visual/public_routes.spec.js-snapshots/`.
+- **NEW: `docs/visual_regression.md`** — coverage matrix, local dev workflow (`yarn test:visual`, `yarn test:visual:update`, `yarn test:visual:report`), rebaselining discipline ("never `--update-snapshots` to make the test pass without inspecting the diff first"), environment-parity note (Docker `mcr.microsoft.com/playwright:v1.61.1-jammy` for cross-OS rebaselines), and explicit deferred scope.
+- **NEW CI job: `.github/workflows/quality-gate.yml::visual-regression`** — boots the frontend, waits for `:3000/` up to 30s, runs Playwright, uploads the HTML report as an artifact on failure so reviewers can inspect the diff without pulling the branch.
+- **package.json scripts**: `test:visual`, `test:visual:update`, `test:visual:report`.
+- **.gitignore**: transient artifacts (`playwright-report/`, `test-results/`, `blob-report/`, `playwright/.cache/`) — baselines ARE committed.
+
+**Verification**:
+- Baseline generation → **5/5 pass in 12.2s** on first `--update-snapshots` run.
+- Stability check (second run against fresh baselines, no update flag) → **5/5 pass in 10.5s**. No flakes.
+- Existing `yarn test` (vitest RTL) → **34/34 pass** (no collision — vitest `include` targets `src/**/*.test.*`, playwright targets `tests/visual/**/*.spec.js`).
+- Backend session dashboard unchanged (52/147 STATIC_GREP = 35.4%).
+
+**Deferred (Layer 2 Batch 2)**:
+- Auth-gated views (`/dashboard`, `/build/*`, `/settings`) — needs seeded session cookie fixture.
+- Interaction states — hover, focus, modal-open, drawer-open.
+- Multi-viewport (mobile 375×667, tablet 768×1024) + dark mode.
+- Loop live view during an active run (needs SSE fixture).
+
+**Next up**:
+- Master QA Track 3 (P1) — Prompting/reasoning quality (RAGAS/DeepEval).
+- Frontend QA Charter Layer 3 (P1) — a11y (axe-core).
+- Layer 2 Batch 2 (auth-gated + interaction states).
+
+
+
 ## 2026-02 — Iter 298 (Task 4 complete: Master QA Track 2 — 22 slash-command + dev-skill deterministic tests)
 
 **Task 4 of Master QA Test Strategy**: prove every agent-facing dispatcher surface (slash-commands + dev-skills) with real code-execution coverage.
