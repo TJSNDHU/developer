@@ -4,6 +4,42 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 298 (Task 4 complete: Master QA Track 2 — 22 slash-command + dev-skill deterministic tests)
+
+**Task 4 of Master QA Test Strategy**: prove every agent-facing dispatcher surface (slash-commands + dev-skills) with real code-execution coverage.
+
+**Ship**:
+- **NEW: `backend/tests/test_regression_iter298_master_qa_track2_slash_and_dev_skills.py`** — 22 BEHAVIOURAL tests, one per handler:
+  - **12 slash-commands** (`services/ora_chat/slash_commands.py::DISPATCH`) — every registered command exercised end-to-end via `run_slash_command()` against a `_StubDB` motor-shaped stub (with async cursor for `.aggregate()`).
+    - `users-today` — 24h signup window filter
+    - `active-users` — 7d activity + total
+    - `personal-track-signups` — breakdown by track (personal / developer / unset)
+    - `legacy-nudge-clicks` — banner funnel + conversion rate rounding
+    - `revenue-snapshot` — poisoned import forces the fallback tier-aggregate branch; asserts per-tier count shape
+    - `repo-tree` / `repo-stats` / `find` / `read` / `defs` — codebase_index handlers monkey-patched; asserts the pass-through shape AND the args-required refusal branches (missing pattern/path/name → `ok:False` with the exact error code)
+    - `loop-stats` — forces the "no `loop_run_log` rows" fallback path against a seeded `loop_sessions` doc; asserts session-derived shape + `total_duration_s` math
+    - `help` — asserts the /help list is a superset of `KNOWN_COMMANDS` (drift-detector: exact source of "command exists but /help doesn't mention it" class of bugs)
+  - **10 dev-skills** (`services/dev_skills.py`) — each one's SECURITY-CRITICAL branch:
+    - `find_usages`, `get_dependencies`, `get_env_vars`, `detect_framework`, `get_commit_history`, `list_issues`, `get_pr_comments` — 7 repo-scoped skills. Each test calls the handler with an EMPTY ctx and asserts the exact `_NO_BIN_CTX_ERROR` refusal shape (`ok:False`, `error_class:"no_bin_ctx"`, user-facing message). Regression on this branch = iter212m-172 privilege-escalation surface reopens.
+    - `find_package_docs` — non-repo-scoped but user-input; asserts missing-package arg refusal so an attacker can't fuzz-crawl every registered package.
+    - `validate_syntax` — fully local Python AST; asserts BOTH branches (valid → summary counts of functions/async/classes/imports; invalid → line+offset+hint) AND unsupported-language refusal.
+    - `e2b_run_code` — asserts missing-code refusal (pre-e2b short-circuit) so a bad LLM tool-call cannot silently burn e2b budget.
+
+**Verification**:
+- `pytest tests/test_regression_iter298...` → **22/22 pass** in 0.41s.
+- Style classifier → **22/22 BEHAVIOURAL, 0 STATIC_GREP** (every test calls `asyncio.run(...)` on a real service coroutine).
+- Session dashboard: STATIC_GREP % **41.6% → 35.4%** (52/147 — suite grew by 22 all-behavioural tests, ratio dropped a full 6 percentage points in one iter).
+- Combined regression across iter212m237/238 + iter296/297/298 files → **117/117 pass**.
+- Lint clean.
+
+**Next up**:
+- Frontend QA Charter Layer 2 (P1) — Playwright visual regression.
+- Master QA Track 3 (P1) — Prompting/reasoning quality (RAGAS/DeepEval).
+- Close j018 fully — Vitest `--coverage` + `frontend/coverage/coverage-summary.json` feed into `qa_matrix._frontend_coverage_summary`.
+- Optional CI gate: fail PRs that introduce a NEW P0 gap via `qa_matrix.matrix_coverage_gap()` delta-check.
+
+
+
 ## 2026-02 — Iter 297.2 (Task 3 complete: 6 P0 untouched journeys now have coverage-hitting behavioural tests)
 
 **Task 3 of Master QA Track 1**: retire the 6 P0 coverage gaps flagged by `services.qa_matrix.matrix_coverage_gap()` — journeys whose `system_paths` were tracked in `docs/traceability_matrix.json` but had `hit=[]` under pytest-cov because the existing regression tests didn't actually execute them.
