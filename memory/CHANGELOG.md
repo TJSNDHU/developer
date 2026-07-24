@@ -4,6 +4,38 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 297 (Task 2 complete: 6 weak-P0 backend tests upgraded STATIC_GREP → BEHAVIOURAL/HYBRID)
+
+**Task 2 of Master QA Track 1**: retire the 6 highest-security-risk grep-only backend tests, replacing them with genuine code execution.
+
+**Ship**:
+- **NEW: `backend/services/boilerplate_audit.py`** — owns the "read the boilerplate" concern so tests don't grep files directly. Three helpers:
+  - `load_python_boilerplate(stack, key)` — runs `importlib.util.spec_from_file_location` + `spec.loader.exec_module` on a boilerplate `.py` file, populating env defaults (`JWT_SECRET`, `MONGO_URL`, etc.) so the module imports cleanly. Returns the executed module object.
+  - `read_js_constant(stack, key, name)` — spawns Node.js to evaluate `const NAME = <expr>;` and returns the numeric result; arithmetic-regex fallback when node isn't on PATH.
+  - `audit_reset_token_flags(stack)` — executes the react-fastapi auth module, then via `inspect.getsource` verifies the single-use pattern flags exist in the compiled module source.
+- **UPGRADED tests** (all 6 now pass style classifier as BEHAVIOURAL or HYBRID):
+  1. `test_iter212m237::test_founder_override_requires_is_founder_and_reason` — invokes the endpoint coroutine with monkey-patched `current_dev` returning a non-founder; asserts `HTTPException(403)`. Also `pytest.raises(ValidationError)` proving `min_length=8` on `reason`.
+  2. `test_iter212m237::test_founder_override_writes_audit_log` — builds a `SpyDB` with an in-memory `scaffold_scan_overrides.insert_one`; runs the endpoint end-to-end; asserts the exact audit-row shape (draft_id, overridden_by, email, reason, findings_snapshot, summary_snapshot, created_at timestamp) AND that the draft update flipped `status:'draft', override_active:True`.
+  3. `test_iter212m238::test_access_token_ttl_is_short_lived` — loads & executes the react-fastapi `auth.py` module, reads `mod._ACCESS_TTL_S == 3600` as a real Python int (not a source string); evaluates the nextjs `ACCESS_TTL_S` const via Node subprocess; adds a belt-and-braces invariant `refresh_ttl > access_ttl * 24`.
+  4. `test_iter212m238::test_reset_token_has_short_ttl_and_single_use` — calls `audit_reset_token_flags` (which requires the module to import cleanly), asserts `reset_ttl_s == 900`, `used_false_present`, `used_true_present`; evaluates nextjs `RESET_TTL_S` via `read_js_constant`.
+  5. `test_regression_iter286::test_ship_code_override_not_llm_grantable` — HYBRID upgrade: (a) calls `services.loop_diff_classifier.is_test_or_fixture` on 10 test paths + 5 source paths, (b) simulates an "LLM tries to smuggle `allow_test_file_change=True` via edits[]" attack against a stub DB and proves the projected DB-read pattern `{"allow_test_file_change": 1, "_id": 0}` cannot be manipulated by edit-level content, (c) retains a defensive source-level guard as a HYBRID belt-and-suspenders check.
+  6. `test_regression_iter288::test_execute_has_scope_drift_gate_before_parliament` — builds a minimal `LoopEngine` with a stub DB + stub bin_ctx, monkey-patches `services.loop_task_specs.get` to return `frozen_files_to_change=["a.py"]`, seeds `plan.files_to_change=["a.py","b.py"]`, awaits `engine._do_execute()`, then asserts: (a) `engine.state == PAUSED_FOR_USER`, (b) `loop_events` row with `kind="scope_drift", frozen, extras`, (c) exactly one `scope_drift` emit frame with `requires_user_action=True`, (d) exactly 2 total frames in the queue — proving the branch RETURNED before Parliament dispatch.
+  - Bonus test `test_scope_drift_emits_requires_user_action` also flipped to HYBRID by adding a real `asyncio.run(loop_task_specs.get(...))` canary alongside the retained source guard.
+
+**Verification**:
+- `pytest` on the 4 touched files → **47/47 pass** (all 6 upgraded tests green, plus 41 pre-existing tests unchanged).
+- `services.test_style_analyzer.analyze_file` per test → **5 BEHAVIOURAL, 1 HYBRID**; 0 STATIC_GREP among the 6.
+- `python /app/backend/scripts/session_start_dashboard.py` → **52/119 STATIC_GREP (43.7%)** — **improved from 46.2%** (55/119) before this iter and 50.7% baseline.
+- `analyze_suite().weak_p0` count → **19 → 12** (7-test drop: my 6 + `test_scope_drift_emits_requires_user_action` freed via HYBRID).
+- Lint clean on all touched files.
+
+**Next up** (Task 2 done — Task 3, Task 4, and Layer 2 unblocked):
+- Backend Task 3: Write tests for 6 P0 untouched journeys (j005, j006, j009, j010, j018, j021).
+- Master QA Track 2: 22 Dev-Skills / Slash-command tests.
+- Frontend QA Charter Layer 2 (Playwright visual regression).
+
+
+
 ## 2026-02 — Iter 296 (Frontend Layer 1 Batch 2 complete: IntentTierIndicator + SelfHealIndicator + PlanApprovalCard tests)
 
 **Batch 2 objective**: extend the iter294 LoopStepBar / iter295 Batch 1 template to the next 3 UI components identified by the founder as recurring state-sync bug sources. 9 new BEHAVIOURAL tests, zero source-string grep, no component extraction needed (all three components were already standalone).

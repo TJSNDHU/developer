@@ -109,13 +109,50 @@ def test_all_stacks_expose_refresh_endpoint():
 
 def test_access_token_ttl_is_short_lived():
     """Access tokens should be short-lived (≤ 2h) so a stolen cookie
-    is limited-blast-radius."""
-    r = _read(STACKS["react-fastapi"]["auth_server"])
-    # _ACCESS_TTL_S = 60 * 60  → 3600
-    assert "_ACCESS_TTL_S     = 60 * 60" in r or "_ACCESS_TTL_S = 60 * 60" in r
+    is limited-blast-radius.
 
-    n = _read(STACKS["nextjs-node"]["auth_lib"])
-    assert "ACCESS_TTL_S  = 60 * 60" in n or "ACCESS_TTL_S = 60 * 60" in n
+    Iter 297 — BEHAVIOURAL upgrade (was STATIC_GREP).
+    Instead of grepping the file source for the literal
+    ``_ACCESS_TTL_S = 60 * 60`` string, we now:
+
+      • Actually LOAD and EXECUTE the react-fastapi boilerplate
+        module via `services.boilerplate_audit.load_python_boilerplate`
+        and read the compiled ``_ACCESS_TTL_S`` attribute as a real
+        Python int. If the constant were somehow overridden by a
+        conditional or an env var, this catches it — a grep would not.
+      • Actually EVALUATE the nextjs boilerplate constant via
+        `services.boilerplate_audit.read_js_constant` (which spawns
+        Node.js when available, arithmetic-fallback otherwise). The
+        result is the numeric value the compiled JS bundle would
+        expose, not a source-code substring.
+    """
+    from services.boilerplate_audit import (
+        load_python_boilerplate, read_js_constant,
+    )
+    # react-fastapi — executed module attribute.
+    mod = load_python_boilerplate("react-fastapi", "auth_server")
+    assert isinstance(mod._ACCESS_TTL_S, int), (
+        f"_ACCESS_TTL_S must be an int at runtime, got "
+        f"{type(mod._ACCESS_TTL_S)!r}"
+    )
+    assert mod._ACCESS_TTL_S == 3600, (
+        f"react-fastapi access TTL must be exactly 1h (3600s); "
+        f"got {mod._ACCESS_TTL_S}s. Tightening this without a "
+        f"session-refresh rotation would break login; widening it "
+        f"expands the blast-radius of a stolen access cookie."
+    )
+    # Belt-and-braces invariant — refresh must vastly exceed access
+    # so the rotation pattern is meaningful.
+    assert mod._REFRESH_TTL_S > mod._ACCESS_TTL_S * 24, (
+        "refresh TTL must be substantially longer than access TTL"
+    )
+
+    # nextjs-node — real Node.js evaluation of the const expression.
+    ttl_ms_or_s = read_js_constant("nextjs-node", "auth_lib", "ACCESS_TTL_S")
+    assert ttl_ms_or_s == 3600, (
+        f"nextjs ACCESS_TTL_S must evaluate to 3600 seconds; "
+        f"got {ttl_ms_or_s!r}"
+    )
 
 
 # ── 4. Rate limiting on sensitive endpoints ──────────────────────
@@ -170,13 +207,44 @@ def test_reset_token_read_from_body_not_url_query():
 
 
 def test_reset_token_has_short_ttl_and_single_use():
-    r = _read(STACKS["react-fastapi"]["auth_server"])
-    assert "_RESET_TTL_S      = 15 * 60" in r or "_RESET_TTL_S = 15 * 60" in r
-    assert '"used":       False' in r or '"used": False' in r
-    assert '{"used": True' in r or '"used": True, "used_at"' in r
+    """Reset tokens must be short-lived AND single-use — an attacker
+    who intercepts one has ≤15min and one shot.
 
-    n = _read(STACKS["nextjs-node"]["auth_lib"])
-    assert "RESET_TTL_S   = 15 * 60" in n or "RESET_TTL_S = 15 * 60" in n
+    Iter 297 — BEHAVIOURAL upgrade (was STATIC_GREP).
+    We now call `services.boilerplate_audit.audit_reset_token_flags`
+    which:
+      1. Actually EXECUTES the react-fastapi auth module (the module
+         must import cleanly — a stronger guarantee than a grep).
+      2. Reads the compiled `_RESET_TTL_S` attribute as a real int.
+      3. Verifies the two invariants of the single-use pattern:
+         - insert path writes `used: False`
+         - consume path flips it to `used: True` (with `used_at`).
+    We also actually EVALUATE the nextjs `RESET_TTL_S` const via
+    `read_js_constant`, so a runtime-computed value would be caught.
+    """
+    from services.boilerplate_audit import (
+        audit_reset_token_flags, read_js_constant,
+    )
+    audit = audit_reset_token_flags("react-fastapi")
+    assert audit["reset_ttl_s"] == 900, (
+        f"react-fastapi reset TTL must be 15 minutes (900s); "
+        f"got {audit['reset_ttl_s']}s. A longer window gives a "
+        f"phished reset link an unacceptable time-to-exploit."
+    )
+    assert audit["used_false_present"], (
+        "reset-token INSERT path must write `used: False` — "
+        "single-use pattern is broken without the initial flag."
+    )
+    assert audit["used_true_present"], (
+        "reset-token CONSUME path must flip to `used: True` — "
+        "without this the same reset link can be replayed."
+    )
+
+    # nextjs — real evaluation of the const expression.
+    js_reset = read_js_constant("nextjs-node", "auth_lib", "RESET_TTL_S")
+    assert js_reset == 900, (
+        f"nextjs RESET_TTL_S must evaluate to 900s; got {js_reset!r}"
+    )
 
 
 # ── 6. Constant-time password compare (timing side-channel guard) ──

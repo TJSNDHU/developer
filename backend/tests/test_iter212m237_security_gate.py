@@ -202,26 +202,161 @@ def test_founder_override_endpoint_registered():
 
 def test_founder_override_requires_is_founder_and_reason():
     """The override endpoint MUST gate on `is_founder` or `is_admin`
-    AND require a min-8-char `reason` for the audit log."""
-    src = open("/app/backend/routers/scaffold.py").read()
-    idx = src.index("async def founder_override(")
-    body = src[idx:idx + 3000]
-    assert 'is_founder' in body
-    assert "HTTPException(403" in body
-    assert "min_length=8" in src
+    AND require a min-8-char `reason` for the audit log.
+
+    Iter 297 — BEHAVIOURAL upgrade (was STATIC_GREP grepping the
+    router source for token strings). We now actually invoke the
+    endpoint coroutine with a monkey-patched `current_dev` returning
+    a NON-founder user, and prove:
+      (a) A non-founder user hits HTTPException(403).
+      (b) The Pydantic body validator rejects reason < 8 chars with
+          a real ValidationError (proving `min_length=8` is enforced
+          at runtime, not just present as a source token).
+    """
+    import asyncio
+    import pytest
+    from pydantic import ValidationError
+    from fastapi import HTTPException
+    from routers import scaffold as _sc
+    from routers.scaffold import FounderOverrideBody
+
+    # (b) Prove the Pydantic min_length=8 actually rejects short reasons.
+    with pytest.raises(ValidationError):
+        FounderOverrideBody(reason="short")
+    # Sane reason passes.
+    body_ok = FounderOverrideBody(reason="operator-approved bypass 2026-02")
+    assert body_ok.reason.startswith("operator-approved")
+
+    # (a) Non-founder invocation → 403.
+    async def _fake_current_dev(_authorization):
+        return {"user_id": "u_nonfounder", "email": "n@x.com",
+                 "is_founder": False, "is_admin": False}
+
+    orig = _sc.current_dev
+    _sc.current_dev = _fake_current_dev
+    try:
+        async def _call():
+            await _sc.founder_override(
+                draft_id="d1",
+                body=body_ok,
+                authorization="Bearer x",
+            )
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(_call())
+        assert exc_info.value.status_code == 403, (
+            f"non-founder must be blocked with 403; got "
+            f"{exc_info.value.status_code}"
+        )
+    finally:
+        _sc.current_dev = orig
 
 
 def test_founder_override_writes_audit_log():
     """Every override MUST append to `db.scaffold_scan_overrides`
     with (draft_id, overridden_by, reason, findings_snapshot,
     timestamp).  Silently missing this collection write would defeat
-    the audit trail."""
-    src = open("/app/backend/routers/scaffold.py").read()
-    idx = src.index("async def founder_override(")
-    body = src[idx:idx + 3000]
-    assert "scaffold_scan_overrides" in body
-    assert "insert_one(" in body
-    assert "reason" in body
+    the audit trail.
+
+    Iter 297 — BEHAVIOURAL upgrade (was STATIC_GREP). We now:
+      • Build a `SpyDB` whose `scaffold_scan_overrides.insert_one`
+        records every doc it receives.
+      • Seed a blocked draft into `scaffold_drafts.find_one`.
+      • Invoke `founder_override` end-to-end with a founder user.
+      • Assert the recorded doc carries the full audit-log shape
+        (reason, overridden_by, findings_snapshot, timestamp) —
+        NOT just that the collection name appears in the source.
+    A regression that removes the `insert_one` call, or truncates the
+    payload, would flip `_inserted` to `[]` (or a wrong-shape doc)
+    and fail loudly.
+    """
+    import asyncio
+    from routers import scaffold as _sc
+    from routers.scaffold import FounderOverrideBody
+
+    # ── SpyDB — records inserts + serves a blocked draft ────────
+    class _Coll:
+        def __init__(self, name):
+            self.name = name
+            self.inserted: list[dict] = []
+            self.updates:  list[tuple] = []
+        async def insert_one(self, doc):
+            self.inserted.append(dict(doc))
+            return type("R", (), {"inserted_id": "x"})()
+        async def find_one(self, q, proj=None):
+            if self.name == "scaffold_drafts":
+                return {
+                    "draft_id": q.get("draft_id"),
+                    "user_id":  q.get("user_id"),
+                    "status":   "blocked_by_scan",
+                    "scan_findings_snapshot": [
+                        {"rule": "hardcoded_secret", "sev": "critical"},
+                    ],
+                    "scan_summary": {"critical": 1, "high": 0, "medium": 0},
+                }
+            return None
+        async def update_one(self, q, u):
+            self.updates.append((dict(q), dict(u)))
+            return type("R", (), {"matched_count": 1, "modified_count": 1})()
+
+    class _SpyDB:
+        def __init__(self):
+            self.scaffold_drafts          = _Coll("scaffold_drafts")
+            self.scaffold_scan_overrides  = _Coll("scaffold_scan_overrides")
+
+    spy_db = _SpyDB()
+
+    async def _fake_current_dev(_authorization):
+        return {"user_id": "u_founder", "email": "f@aurem.dev",
+                 "is_founder": True, "is_admin": False}
+
+    orig_current_dev = _sc.current_dev
+    orig_get_db      = _sc.get_db
+    _sc.current_dev  = _fake_current_dev
+    _sc.get_db       = lambda: spy_db
+    try:
+        async def _call():
+            return await _sc.founder_override(
+                draft_id="draft-abc",
+                body=FounderOverrideBody(
+                    reason="verified false positive — stripe test key"
+                ),
+                authorization="Bearer x",
+            )
+        result = asyncio.run(_call())
+    finally:
+        _sc.current_dev = orig_current_dev
+        _sc.get_db      = orig_get_db
+
+    # Response shape — proves the coroutine ran end-to-end.
+    assert result["ok"] is True
+    assert result["draft_id"] == "draft-abc"
+    assert result["override_active"] is True
+
+    # THE audit-trail assertion — one insert, right shape.
+    inserted = spy_db.scaffold_scan_overrides.inserted
+    assert len(inserted) == 1, (
+        f"exactly one audit row must be written per override; "
+        f"got {len(inserted)}"
+    )
+    row = inserted[0]
+    assert row["draft_id"] == "draft-abc"
+    assert row["overridden_by"] == "u_founder"
+    assert row["overridden_by_email"] == "f@aurem.dev"
+    assert row["reason"] == "verified false positive — stripe test key"
+    # The findings snapshot must be preserved, not discarded.
+    assert row["findings_snapshot"] == [
+        {"rule": "hardcoded_secret", "sev": "critical"},
+    ]
+    assert row["summary_snapshot"] == {"critical": 1, "high": 0, "medium": 0}
+    # Timestamp must be a real number (time.time()).
+    assert isinstance(row["created_at"], (int, float))
+    assert row["created_at"] > 0
+
+    # The draft must have been flipped back to 'draft' with override_active.
+    assert spy_db.scaffold_drafts.updates, "draft must be updated"
+    _q, _u = spy_db.scaffold_drafts.updates[0]
+    assert _u["$set"]["status"] == "draft"
+    assert _u["$set"]["override_active"] is True
 
 
 # ── LLM health diagnostic ────────────────────────────────────────
