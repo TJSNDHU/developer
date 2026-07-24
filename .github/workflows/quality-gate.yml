@@ -135,7 +135,13 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Iter 306 — emergentintegrations is served from Emergent's
+          # private index (not on public PyPI). Without this URL the
+          # install fails on GH-hosted runners and blocks the whole
+          # gate. Source: `pip install emergentintegrations
+          # --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/`
+          pip install -r requirements.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
       - name: Run regression + invariant tests
         working-directory: backend
         env:

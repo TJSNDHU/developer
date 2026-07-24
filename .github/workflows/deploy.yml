@@ -52,7 +52,10 @@ jobs:
       - name: Run backend tests
         run: |
           cd backend
-          pip install -r requirements.txt -q
+          # Iter 306 — emergentintegrations is on Emergent's private
+          # index (not public PyPI); GH runner needs --extra-index-url.
+          pip install -r requirements.txt -q \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
           python -m pytest tests/ -x -q --tb=no 2>/dev/null || true
 
       - name: Trigger Vercel deploy

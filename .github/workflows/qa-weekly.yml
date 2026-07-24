@@ -65,7 +65,11 @@ jobs:
 
       - name: Install backend deps
         working-directory: backend
-        run: pip install -r requirements.txt
+        run: |
+          # Iter 306 — emergentintegrations is on Emergent's private
+          # index (not public PyPI); GH runner needs --extra-index-url.
+          pip install -r requirements.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 
       - name: Boot backend
         working-directory: backend
