@@ -19,7 +19,7 @@
  * Iter 73 Task 1 — initial live tape.
  * Iter 73 Task 2 — parallel-mode agent badges + sub-tapes.
  */
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { API_BASE, getToken } from "../lib/api";
 
 export default function TaskLiveTape({ taskId, onDone }) {

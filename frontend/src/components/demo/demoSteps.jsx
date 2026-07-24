@@ -23,7 +23,7 @@ const C = {
   border2: "#2d3748",
   text: "#e5e7eb",
   dim: "#94a3b8",
-  faint: "#64748b",
+  faint: "#94a3b8"  /* WCAG 2.2 AA — iter303 a11y burn-down */,
   amber: "#f59e0b",
   amberSoft: "rgba(245,158,11,0.15)",
   green: "#22c55e",

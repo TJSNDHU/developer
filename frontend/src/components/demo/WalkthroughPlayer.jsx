@@ -159,7 +159,7 @@ export default function WalkthroughPlayer({
           >
             auremcto.com{active?.urlPath || ""}
           </div>
-          <span style={{ fontSize: 10, color: "#475569" }}>DEMO</span>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>DEMO</span>
         </div>
 
         {/* Stage */}
@@ -279,7 +279,7 @@ export default function WalkthroughPlayer({
           <span style={{ color: "#f59e0b", fontWeight: 700 }}>
             {String(idx + 1).padStart(2, "0")}
           </span>
-          <span style={{ color: "#475569", margin: "0 8px" }}>/</span>
+          <span style={{ color: "#94a3b8", margin: "0 8px" }}>/</span>
           <span style={{ color: "#64748b" }}>
             {String(steps.length).padStart(2, "0")}
           </span>

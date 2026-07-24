@@ -208,9 +208,9 @@ export default function CookieConsentBanner() {
             Strictly-necessary cookies keep you logged in. With your permission,
             we also use analytics and marketing cookies to measure conversions.
             Read our{" "}
-            <Link to="/cookie-policy" style={{ color: "var(--accent, #ff8a2a)" }}>Cookie Policy</Link>
+            <Link to="/cookie-policy" style={{ color: "var(--accent, #ff8a2a)", textDecoration: "underline" }}>Cookie Policy</Link>
             {" · "}
-            <Link to="/privacy" style={{ color: "var(--accent, #ff8a2a)" }}>Privacy Policy</Link>.
+            <Link to="/privacy" style={{ color: "var(--accent, #ff8a2a)", textDecoration: "underline" }}>Privacy Policy</Link>.
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
             <button

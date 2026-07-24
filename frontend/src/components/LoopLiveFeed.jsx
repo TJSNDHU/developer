@@ -54,7 +54,7 @@ function phaseColor(phase) {
   if (p === "SCAN")      return "#facc15";
   if (p === "SHIP")      return "#22c55e";
   if (p === "SELF_HEAL") return "#f87171";
-  return "#6b7280";
+  return "#9ca3af";
 }
 
 function formatEventLine(ev) {
@@ -156,7 +156,7 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
         <div style={{
             display: "flex", alignItems: "center", gap: 6,
             fontSize: 10, letterSpacing: ".08em",
-            color: "#6b7280", textTransform: "uppercase",
+            color: "#9ca3af", textTransform: "uppercase",
           }}>
           <span style={{
             width: 6, height: 6, borderRadius: "50%",
@@ -199,7 +199,7 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
       <div style={{
           display: "flex", alignItems: "center", gap: 6,
           fontSize: 10, letterSpacing: ".08em",
-          color: "#6b7280", marginBottom: 6,
+          color: "#9ca3af", marginBottom: 6,
           textTransform: "uppercase",
         }}>
         <span style={{
@@ -209,7 +209,7 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
           animation: terminal ? "none" : "loop-pulse 1.4s ease-in-out infinite",
         }} />
         Loop {String(loopId).slice(0, 8)}  ·  live feed
-        <span style={{ marginLeft: "auto", color: "#4a5058" }}>
+        <span style={{ marginLeft: "auto", color: "#94a3b8" }}>
           last {events.length} event{events.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -227,7 +227,7 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
                           opacity: keepalive ? 0.55 : 1,
                           fontStyle: keepalive ? "italic" : "normal" }}>
             <span style={{
-                color: keepalive ? "#6b7280" : phaseColor(ev.phase),
+                color: keepalive ? "#9ca3af" : phaseColor(ev.phase),
                 fontWeight: keepalive ? 400 : 600,
                 minWidth: 84, textAlign: "right",
               }}>

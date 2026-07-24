@@ -99,7 +99,7 @@ export default function LoopLiveFeedDemo() {
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
           LoopLiveFeed + growing chat bubble — coexistence demo
         </h1>
-        <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 18 }}>
+        <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18 }}>
           Both surfaces driven by ONE event stream — identical to
           ChatPanel.jsx production wiring. Real per-phase durations
           from <code style={{ background: "#1a1a1a", padding: "0 4px",
@@ -111,7 +111,7 @@ export default function LoopLiveFeedDemo() {
         {/* ─── SURFACE 1 — Growing chat bubble in the message thread ─── */}
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontSize: 11, letterSpacing: ".08em",
-                          color: "#4a5058", marginBottom: 8,
+                          color: "#94a3b8", marginBottom: 8,
                           textTransform: "uppercase" }}>
             Surface 1 · Message thread (growing assistant bubble)
           </div>
@@ -120,13 +120,13 @@ export default function LoopLiveFeedDemo() {
               padding: "12px 14px", fontSize: 13, lineHeight: 1.55,
               border: "1px solid #ffffff10",
           }}>
-            <div style={{ fontSize: 10, color: "#4a5058",
+            <div style={{ fontSize: 10, color: "#94a3b8",
                             marginBottom: 6, textTransform: "uppercase",
                             letterSpacing: ".08em" }}>
               ● ORA · streaming
             </div>
             {bubbleLines.length === 0 && (
-              <div style={{ color: "#4a5058" }}>Waiting for the loop…</div>
+              <div style={{ color: "#94a3b8" }}>Waiting for the loop…</div>
             )}
             {bubbleLines.map((ln, k) => (
               <div key={k} style={{ marginBottom: 4 }}
@@ -143,7 +143,7 @@ export default function LoopLiveFeedDemo() {
         {/* ─── SURFACE 2 — LoopLiveFeed panel above the composer ─── */}
         <div>
           <div style={{ fontSize: 11, letterSpacing: ".08em",
-                          color: "#4a5058", marginBottom: 8,
+                          color: "#94a3b8", marginBottom: 8,
                           textTransform: "uppercase" }}>
             Surface 2 · Composer-adjacent panel (Iter 275)
           </div>
@@ -158,12 +158,12 @@ export default function LoopLiveFeedDemo() {
         <div style={{
             marginTop: 8, background: "#141414",
             border: "1px solid #ffffff10", borderRadius: 10,
-            padding: "10px 14px", fontSize: 13, color: "#4a5058",
+            padding: "10px 14px", fontSize: 13, color: "#94a3b8",
         }}>
           Type a follow-up (composer disabled during active loop)…
         </div>
 
-        <p style={{ fontSize: 10.5, color: "#4a5058", marginTop: 20,
+        <p style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 20,
                     fontFamily: "'JetBrains Mono', monospace" }}>
           {terminal
             ? `run complete · ${DEMO_EVENTS.length} events emitted · both surfaces show terminal state`

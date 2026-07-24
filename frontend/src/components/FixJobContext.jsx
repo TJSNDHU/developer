@@ -28,6 +28,11 @@ const LS_JOB_KEY = "aurem_fix_active_job";
 
 /* ── Public context shape ────────────────────────────────────────── */
 const Ctx = createContext(null);
+// Iter 303 — export the raw Context so tests can inject a stub value
+// via <__FixJobContext.Provider value={mockJob}> without spinning up
+// the real EventSource-owning provider. Production code MUST use
+// <FixJobProvider> — this export is strictly for RTL tests.
+export const __FixJobContext = Ctx;
 export function useFixJob() {
   const v = useContext(Ctx);
   if (!v) throw new Error("useFixJob must be used inside <FixJobProvider>");

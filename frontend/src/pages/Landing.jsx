@@ -52,8 +52,8 @@ const LANDING_CSS = `
   --accent-br: rgba(245,158,11,0.3);
   --text:      #f8fafc;
   --muted-1:   #94a3b8;
-  --muted-2:   #64748b;
-  --muted-3:   #475569;
+  --muted-2:   #94a3b8;   /* WCAG 2.2 AA — 4.5:1 min on darkest bg (was slate-500; iter303) */
+  --muted-3:   #94a3b8;   /* was slate-600 — 2.42:1 fail (iter303 a11y burn-down) */
   --green:     #22c55e;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Fira Code", Menlo, monospace;
   color: var(--text);
@@ -631,7 +631,7 @@ const REVIEWS = [
   { stars: 5, text: "I shipped a Stripe integration in a Slack thread while waiting for a flight. ORA read the repo, wrote the code, ran the tests, committed. Mind blown.", name: "James R.", role: "Founder, Devstream", initials: "JR" },
   { stars: 5, text: "Finally an AI that actually commits — no copy-paste compromise. ORA is just direct.", name: "Sarah P.", role: "Indie dev, Berlin", initials: "SP", color: "#22c55e" },
   { stars: 5, text: "Switched from Cursor. I was paying $40/mo and still getting token-throttled. ORA is flat $9 and just ships.", name: "Mrinul K.", role: "Backend engineer", initials: "MK" },
-  { stars: 5, text: "Compliance team blocked all cloud LLMs. Pointed ORA at our internal Ollama box and shipped 4 PRs the same week. Zero data leakage.", name: "Akari T.", role: "Staff eng, finserv", initials: "AT", color: "#818cf8" },
+  { stars: 5, text: "Compliance team blocked all cloud LLMs. Pointed ORA at our internal Ollama box and shipped 4 PRs the same week. Zero data leakage.", name: "Akari T.", role: "Staff eng, finserv", initials: "AT", color: "#a5b4fc" },
   { stars: 5, text: "The only AI tool that understands my repo. After running it once, the warm-start memory is dialled in. Tasks land in minutes, not hours.", name: "Luca M.", role: "Senior, SaaS startup", initials: "LM", color: "#f472b6" },
   { stars: 5, text: "Linux dev. No IDE, no problem. ORA via Claude Code in terminal is the cleanest workflow I've ever had.", name: "Ridhi P.", role: "Platform team lead", initials: "RP", color: "#fb7185" },
 ];

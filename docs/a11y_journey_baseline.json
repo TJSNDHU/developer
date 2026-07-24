@@ -4,6 +4,6 @@
   "_populated_on_first_run": true,
 
   "login":          [],
-  "landing":        ["color-contrast"],
-  "loop-live-feed": ["color-contrast", "link-in-text-block"]
+  "landing":        [],
+  "loop-live-feed": []
 }
