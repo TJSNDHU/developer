@@ -17,8 +17,8 @@ status` on this preview container.
 | Nickname       | Where                                              | Reachable now?                                     |
 |----------------|----------------------------------------------------|----------------------------------------------------|
 | `local`        | Inside this pod / dev container                    | `curl http://localhost:8001/...`                   |
-| `preview`      | The public Emergent preview URL for this job       | `curl https://launch-pad-237.preview.emergentagent.com/api/...` |
-| `production`   | Real prod behind the founder's custom domain       | Deployed via **`emergent__send_to_deployer`** tool; not directly reachable from this pod |
+| `preview`      | `https://launch-pad-237.preview.emergentagent.com` | Directly, from anywhere.                           |
+| `production`   | `https://auremcto.com` **(confirmed 2026-02, Iter 293)** | Public HTTP reachable; DB / internal state gated behind founder JWT. |
 
 The critical mistake this ledger exists to prevent: treating
 "green on preview" as "green on production." Every deploy-completion
@@ -44,7 +44,7 @@ per iter282) further prune anything old.
 
 **How to verify prod DB name (founder-only, one-shot)**:
 ```bash
-curl -s "https://<PROD_URL>/api/aurem-dev/loop/_diagnostics" \
+curl -s "https://auremcto.com/api/aurem-dev/loop/_diagnostics" \
      -H "Authorization: Bearer <FOUNDER_JWT>" | jq .db_name
 ```
 Paste the value back into this ledger under the `production` row.
