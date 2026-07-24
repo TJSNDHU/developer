@@ -4,6 +4,39 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 295 (Frontend Layer 1 Batch 1 complete: AgentStatusBar + LoopLiveFeed tests)
+
+**Batch 1 objective**: apply the iter294-proven LoopStepBar template to the remaining 2 components — LoopLiveFeed and the "Agent is running…" banner. All 6 new tests must self-verify BEHAVIOURAL before we move to Batch 2.
+
+**Ship**:
+- **`frontend/src/components/AgentStatusBar.jsx`** — extracted from inline JSX in `ChatPanel.jsx`. Prop-only interface (`busy`, `queuedCount`); returns `null` when `!busy` (the exact iter288 invariant). All existing `data-testid`s preserved (`agent-status-bar`, `agent-status-shell`, `queued-chip`). Amber composer-border CSS rule (`form.glass-composer[data-agent-running="true"]`) preserved verbatim including `!important` modifiers — visual behaviour unchanged.
+- **`frontend/src/components/__tests__/AgentStatusBar.test.jsx`** — 3 RTL behavioural tests:
+  1. `reaches-correct-terminal-state`: `busy=true` renders, `busy=false` immediately removes from DOM (iter288 regression lock).
+  2. `clears-stale-prior-state`: `queuedCount` chip appears only when `>0` AND vanishes with the whole bar on terminal.
+  3. `race-condition`: `busy=false` is the sole gate — `queuedCount=99` cannot force render.
+- **`frontend/src/components/__tests__/LoopLiveFeed.test.jsx`** — 3 RTL behavioural tests:
+  1. `reaches-correct-terminal-state`: pending-placeholder renders with `data-state="pending"` when `loopId` set but no events (iter281 regression lock).
+  2. `clears-stale-prior-state`: `terminal=true` purges heartbeat entries + hides `loop-live-gap` (iter288 regression lock).
+  3. `race-condition`: late heartbeat delivered AFTER `terminal=true` does not re-appear in feed.
+- **`frontend/src/__tests__/setup.js`** — new. Loads `@testing-library/jest-dom/vitest` matchers globally. Wired into `vitest.config.js::test.setupFiles`.
+
+**Real classifier proof — all 9 Batch-1 tests BEHAVIOURAL** (via iter290 classifier):
+```
+LoopStepBar.test.jsx             — 3 tests, kinds: ['BEHAVIOURAL', 'BEHAVIOURAL', 'BEHAVIOURAL']
+AgentStatusBar.test.jsx          — 3 tests, kinds: ['BEHAVIOURAL', 'BEHAVIOURAL', 'BEHAVIOURAL']
+LoopLiveFeed.test.jsx            — 3 tests, kinds: ['BEHAVIOURAL', 'BEHAVIOURAL', 'BEHAVIOURAL']
+```
+Zero STATIC_GREP. Zero HYBRID. Founder-required "prove it isn't just RTL-flavoured grep" satisfied.
+
+**Live smoke** (post-ChatPanel refactor): preview HTTP 200, supervisor frontend RUNNING. Extraction broke nothing.
+
+**Tests**: 6 new frontend (21/21 vitest total across 4 files), 6 new backend regression (`test_regression_iter295_frontend_layer1_batch1.py`). Full backend curated suite: **127/127** passing. Session dashboard: STATIC_GREP **46.2%** (still down from 50.7% baseline; ratio held steady while adding real behavioural coverage).
+
+**Batch 1 status**: **COMPLETE**. All 3 components (LoopStepBar iter294, AgentStatusBar + LoopLiveFeed iter295) have the full 3-test state-sync pattern in behavioural form.
+
+**Next**: Batch 2 — `IntentTierIndicator`, `SelfHealIndicator`, `PlanApprovalCard`. Same template, no new patterns required.
+
+
 ## 2026-02 — Iter 294 (Frontend Layer 1 pattern-establishing prototype: LoopStepBar + CI-guard JSX extension)
 
 **Founder decision (option d)**: prove the state-sync behavioural test pattern on ONE component (LoopStepBar) first, self-verify via the CI-guard classifier, THEN scale identical template to Batch 2's remaining components. Race-condition test pattern is new; refusing to write it against 3 components in parallel avoids the loop_1f8-class "N→N+k silent expansion" mistake at the test-authoring layer.

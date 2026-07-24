@@ -41,6 +41,7 @@ import LoopModeToggle, {
 } from "./LoopModeToggle";
 import IntentTierIndicator from "./IntentTierIndicator";
 import LoopStepBar from "./LoopStepBar";
+import AgentStatusBar from "./AgentStatusBar";
 import LoopLiveFeed from "./LoopLiveFeed";
 import PlanApprovalCard from "./PlanApprovalCard";
 // Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
@@ -3288,69 +3289,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         onReviewFindings={() => window.location.assign("/codebase-health")}
       />
 
-      {/* Iter 284 — "N queued · Agent is running" caption row.
-          Only renders while the agent is actively working; visually
-          pairs with the composer below via a matching amber outline
-          on both.  Layout mirrors the reference: chip on the left,
-          animated pulse on the right. */}
-      {busy && (
-        <div className="chat-inline-card" data-testid="agent-status-shell">
-        <div
-          data-testid="agent-status-bar"
-          style={{
-            display: "flex", alignItems: "center", gap: 10,
-            padding: "8px 14px",
-            margin: "0 0 -1px 0",   // sits flush against the composer
-            border: "1px solid rgba(255,102,8,0.35)",
-            borderBottom: "none",
-            borderRadius: "12px 12px 0 0",
-            background: "rgba(255,102,8,0.06)",
-            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-            fontSize: 11.5,
-            color: "#d8dade",
-          }}
-        >
-          {queuedCount > 0 && (
-            <span
-              data-testid="queued-chip"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "3px 10px", borderRadius: 999,
-                background: "rgba(255,102,8,0.14)",
-                border: "1px solid rgba(255,102,8,0.35)",
-                color: "#FF8A3D", fontWeight: 600,
-                fontSize: 10.5, letterSpacing: ".04em",
-              }}
-            >
-              ▸ {queuedCount} queued
-            </span>
-          )}
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            color: "#FF8A3D", fontWeight: 600,
-          }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: "50%",
-              background: "#FF6608",
-              boxShadow: "0 0 8px #FF660888",
-              animation: "agent-pulse 1.4s ease-in-out infinite",
-            }} />
-            Agent is running…
-          </span>
-          <style>{`
-            @keyframes agent-pulse {
-              0%,100% { opacity: 1;   transform: scale(1);   }
-              50%     { opacity: 0.5; transform: scale(1.25); }
-            }
-            form.glass-composer[data-agent-running="true"] {
-              border-color: rgba(255,102,8,0.35) !important;
-              border-top-left-radius: 0 !important;
-              border-top-right-radius: 0 !important;
-            }
-          `}</style>
-        </div>
-        </div>
-      )}
+      {/* Iter 284/288 — "N queued · Agent is running" caption row.
+          Iter 295 — extracted to AgentStatusBar.jsx so it's testable
+          in isolation. Behaviour identical: renders only while
+          `busy` is true, disappears the instant it flips false. */}
+      <AgentStatusBar busy={busy} queuedCount={queuedCount} />
 
       <form
         data-testid="chat-form"
