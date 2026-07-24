@@ -243,6 +243,30 @@ jobs:
       - name: Start frontend
         working-directory: frontend
         env:
+          # Point at the built preview so tests hit static assets;
+          # we still serve on :3000 like the pod does.
+          REACT_APP_BACKEND_URL: http://localhost:8001
+        run: |
+          yarn start &
+          echo "started; waiting for :3000 ..."
+          for i in $(seq 1 30); do
+            if curl -sSf -o /dev/null http://localhost:3000/; then
+              echo "frontend up after ${i}s"; break
+            fi
+            sleep 1
+          done
+      - name: Run visual regression
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+        run: npx playwright test
+      - name: Upload HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
 
   lighthouse-ci:
     # Iter 305 — Frontend QA Charter Layer 4. Runs Lighthouse against
@@ -279,29 +303,4 @@ jobs:
         with:
           name: lighthouse-report
           path: frontend/.lighthouseci
-          retention-days: 7
-
-          # Point at the built preview so tests hit static assets;
-          # we still serve on :3000 like the pod does.
-          REACT_APP_BACKEND_URL: http://localhost:8001
-        run: |
-          yarn start &
-          echo "started; waiting for :3000 ..."
-          for i in $(seq 1 30); do
-            if curl -sSf -o /dev/null http://localhost:3000/; then
-              echo "frontend up after ${i}s"; break
-            fi
-            sleep 1
-          done
-      - name: Run visual regression
-        working-directory: frontend
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
-        run: npx playwright test
-      - name: Upload HTML report on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: frontend/playwright-report
           retention-days: 7
