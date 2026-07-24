@@ -133,7 +133,22 @@ def classify_test_function(func_node: ast.FunctionDef,
 
 
 def analyze_file(path: str) -> dict:
-    """Return per-function classifications for one test file."""
+    """Return per-function classifications for one test file.
+
+    Iter 294 — JSX/TS support. For `.test.jsx` / `.test.js` /
+    `.test.tsx` / `.test.ts` files we can't use Python's `ast` (it
+    doesn't parse JSX). Instead we run a regex heuristic that mirrors
+    the Python classifier's contract:
+      STATIC_GREP — file-reads (`readFileSync`, `fs.readFile`, or
+                    string-includes on file content) AND no RTL/
+                    userEvent evidence.
+      BEHAVIOURAL — presence of RTL/userEvent/fireEvent/waitFor,
+                    which are the observable-DOM assertion helpers
+                    that CANNOT be faked from a source-string grep.
+      HYBRID / UNKNOWN — same rules as the Python path.
+    """
+    if path.endswith((".test.jsx", ".test.js", ".test.tsx", ".test.ts")):
+        return _analyze_js_file(path)
     try:
         with open(path, "r", encoding="utf-8") as f:
             src = f.read()
@@ -156,6 +171,63 @@ def analyze_file(path: str) -> dict:
                 "line":  node.lineno,
                 "kind":  classify_test_function(node, imported),
             })
+    return {"path": path, "ok": True, "tests": per_test}
+
+
+# ── Iter 294 (Frontend Layer 1) — JSX/TS test classifier ─────────────
+# Regex-based since Python's AST cannot parse JSX. Matches the Python
+# classifier's contract; every rule here has a paired regression test
+# in test_regression_iter294_frontend_layer1.py.
+
+_JS_TEST_BLOCK_RE = re.compile(
+    # Match `it(` or `test(` followed by a quoted name. The name may
+    # contain the OTHER quote type (e.g. apostrophes inside a "..."
+    # name) — use a backreference to require the same quote closes.
+    # `.+?` is lazy so we stop at the FIRST matching close quote of
+    # the same type.
+    r'(?:^|\s|;)(?:it|test)\s*\(\s*'
+    r'(?P<q>["\'`])(?P<name>.+?)(?P=q)\s*,',
+    re.M,
+)
+
+# Observable-DOM markers — presence of ANY = BEHAVIOURAL.
+_JS_BEHAVIOURAL_TOKENS = (
+    "render(", "screen.", "fireEvent", "userEvent", "waitFor(",
+    "rerender(", "act(", "toHaveTextContent", "toBeVisible",
+    "getByRole", "getByText", "queryByText", "findByText",
+    "getByTestId", "queryByTestId",
+)
+# File-read markers — presence + no behavioural tokens = STATIC_GREP.
+_JS_STATIC_TOKENS = (
+    "readFileSync", "fs.readFile", "readFile(", "readFileSync(",
+    "path.resolve",
+)
+
+
+def _analyze_js_file(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+    except Exception as e:                                       # noqa: BLE001
+        return {"path": path, "ok": False, "reason": repr(e)[:200]}
+    per_test: list[dict] = []
+    # We classify at file granularity (JS test bodies rarely differ
+    # in kind within one file); every `it(...)`/`test(...)` gets the
+    # same kind derived from file-level evidence.
+    has_behavioural = any(tok in src for tok in _JS_BEHAVIOURAL_TOKENS)
+    has_static      = any(tok in src for tok in _JS_STATIC_TOKENS)
+    if has_behavioural and has_static:
+        kind = "HYBRID"
+    elif has_behavioural:
+        kind = "BEHAVIOURAL"
+    elif has_static:
+        kind = "STATIC_GREP"
+    else:
+        kind = "UNKNOWN"
+    for m in _JS_TEST_BLOCK_RE.finditer(src):
+        line = src[:m.start()].count("\n") + 1
+        per_test.append({"test": m.group("name"),
+                          "line": line, "kind": kind})
     return {"path": path, "ok": True, "tests": per_test}
 
 

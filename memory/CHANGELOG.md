@@ -4,6 +4,52 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 294 (Frontend Layer 1 pattern-establishing prototype: LoopStepBar + CI-guard JSX extension)
+
+**Founder decision (option d)**: prove the state-sync behavioural test pattern on ONE component (LoopStepBar) first, self-verify via the CI-guard classifier, THEN scale identical template to Batch 2's remaining components. Race-condition test pattern is new; refusing to write it against 3 components in parallel avoids the loop_1f8-class "N→N+k silent expansion" mistake at the test-authoring layer.
+
+### Ship
+
+**Frontend RTL setup**:
+- Installed `@testing-library/react@16.3`, `@testing-library/dom@10`, `@testing-library/jest-dom@6.6.4` (pinned to Node-20 compatible version), `@testing-library/user-event@14`. All via `yarn add -D`; `package.json` updated by yarn.
+- `frontend/src/components/__tests__/LoopStepBar.test.jsx` — 3 tests, all BEHAVIOURAL, 76ms runtime:
+  1. `reaches-correct-terminal-state`: executing→failed transitions EXECUTE step from `data-step-state="active"` (orange) to `"error"` (red) — the exact iter288 bug's DOM signature.
+  2. `clears-stale-prior-state`: on ship-time fail (`errorStep=5`), NO step remains `"active"`, SHIP is `"error"`, EXECUTE is NOT `"error"` — catches the pre-iter288 hard-coded `errorStep=2` bug from a second angle.
+  3. `race-condition`: `phase="error"` invariant — no step may render `"active"` under any `errorStep` value; late executing frames after terminal cannot re-flip color at the pure-component layer even if the caller's guard were removed.
+
+**CI-guard JSX extension** (iter293 continuity delivered):
+- `services/test_style_analyzer.py::_analyze_js_file` — regex-based classifier for `.test.jsx`/`.test.js`/`.test.tsx`/`.test.ts`. STATIC_GREP = presence of `readFileSync`/`fs.readFile`/`path.resolve` + no RTL/userEvent tokens. BEHAVIOURAL = presence of `render(`, `screen.`, `fireEvent`, `userEvent`, `waitFor`, `getByRole/Text/TestId`, `toHaveTextContent`, etc. HYBRID/UNKNOWN handled.
+- `services/test_style_analyzer.py::_JS_TEST_BLOCK_RE` — new regex with named backreference so `it("name with 'inner quotes'", ...)` parses correctly (initial version missed 2/3 tests due to overly-strict character class).
+- `scripts/ci_check_test_style.py` — file-glob widened to include `*.test.{js,jsx,ts,tsx}`; exempt regex now matches BOTH `# static-grep-ok:` (Python) AND `// static-grep-ok:` (JS/TS).
+
+### Real classifier output on LoopStepBar.test.jsx (the founder-required proof)
+
+```
+[BEHAVIOURAL] line  38: reaches-correct-terminal-state: executing → failed paints EXECUTE red, not orange
+[BEHAVIOURAL] line  54: clears-stale-prior-state: no step remains 'active' once phase becomes error
+[BEHAVIOURAL] line  76: race-condition: phase=error blocks any step from rendering as 'active', regardless of errorStep target
+```
+3/3 BEHAVIOURAL. STATIC_GREP: 0/3 (0%). CI-guard verdict: **PASS**.
+
+### End-to-end proof (subprocess + tempfile git fixtures — all BEHAVIOURAL)
+
+- Weak `.test.jsx` file (`fs.readFileSync` × 4 tests, no RTL) → guard `BLOCKED`, `static-grep 100.0%` in log.
+- Same file with `// static-grep-ok: intentional` marker → `EXEMPT`, exit 0.
+- JS classifier: readFileSync-only → STATIC_GREP; RTL-only → BEHAVIOURAL; both → HYBRID. All 3 rules regression-tested.
+
+### Metrics
+
+- Frontend vitest: 4 files, 19 tests, all passing.
+- Backend curated suite: **121/121** passing (8 new in `test_regression_iter294_frontend_layer1_loopstepbar.py`).
+- Session dashboard: **STATIC_GREP 45.1%** on 113-test backend view (down from 50.7% iter290 baseline). LoopStepBar's 3 frontend tests, if included in a mixed view, would drop the ratio further — deliberately kept separate since the classifier's JS path uses a different heuristic than the Python AST path.
+
+### Frontend Layer 1 status
+
+- Batch 1 prototype (LoopStepBar): **DONE** with self-verified BEHAVIOURAL classification.
+- Batch 1 remaining (LoopLiveFeed, "Agent is running…" banner): **NOT STARTED** — will use the now-proven template. Batch 2 (`IntentTierIndicator`, `SelfHealIndicator`, PlanApprovalCard) queued after.
+- Layer 1 exit criteria: **NOT MET** — 2 more Batch 1 components + Batch 2's 3 components remain.
+
+
 ## 2026-02 — Iter 293 (Prod-DB honesty upgrade + session-start dashboard)
 
 **Founder catch (verbatim)**: "docs/environments.md abhi bhi 'prod DB name likely X hai' bol raha hai — yeh guess hai." Direct paradox — Part A's own file was doing the exact thing Part A prohibited. Fixed this iter.

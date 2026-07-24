@@ -47,8 +47,11 @@ _THRESHOLD_FRACTION = 0.60
 # are statistical noise. A file with 2 tests, both grep-style, is
 # 100% grep — but the sample size is too small to be meaningful.
 _MIN_TESTS_FOR_GUARD = 3
-# Magic-comment marker for a deliberate opt-out.
-_EXEMPT_RE = re.compile(r"#\s*static-grep-ok\s*:\s*(?P<reason>.+)$", re.M)
+# Magic-comment marker for a deliberate opt-out. Matches Python
+# `# static-grep-ok: <reason>` AND JS/TS `// static-grep-ok: <reason>`.
+_EXEMPT_RE = re.compile(
+    r"(?:#|//)\s*static-grep-ok\s*:\s*(?P<reason>.+)$", re.M
+)
 
 
 def _git_diff_test_files(base_sha: str, head_sha: str) -> list[str]:
@@ -69,21 +72,25 @@ def _git_diff_test_files(base_sha: str, head_sha: str) -> list[str]:
         path = line.strip()
         if not path:
             continue
-        # Only real test files — must live under a `tests/` directory
-        # AND have a test_*.py basename. This avoids picking up
-        # `services/test_style_analyzer.py` (a non-test helper whose
-        # basename happens to start with "test_").
+        # Iter 294 — Python + JS/TS test file globs. Python tests must
+        # live under a `tests/` dir + basename `test_*.py`. JS/TS test
+        # files live anywhere under frontend/ with a `*.test.{js,jsx,
+        # ts,tsx}` basename (project convention).
         base = os.path.basename(path)
         parts = path.split("/")
-        if ("tests" in parts and base.startswith("test_")
-                and base.endswith(".py")):
+        py_test = ("tests" in parts and base.startswith("test_")
+                    and base.endswith(".py"))
+        js_test = base.endswith((".test.jsx", ".test.js",
+                                  ".test.tsx", ".test.ts"))
+        if py_test or js_test:
             files.append(path)
     return files
 
 
 def _file_exempts_itself(path: str) -> str | None:
     """If the file's first 40 lines carry a
-    `# static-grep-ok: <reason>` marker, return the reason. Else None."""
+    `# static-grep-ok: <reason>` (Python) or `// static-grep-ok: <reason>`
+    (JS/TS) marker, return the reason. Else None."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             head_lines = "".join(f.readlines()[:40])

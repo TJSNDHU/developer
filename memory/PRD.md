@@ -1,11 +1,12 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 293 (Prod-DB
-> "likely" replaced with honest UNVERIFIED + founder curl; session-
-> start dashboard `session_start_dashboard.py` — 3-line output at
-> every session start; current STATIC_GREP baseline improved 50.7%
-> → 45.9%). Full details in `CHANGELOG.md`.
+> **Latest closed iteration:** 2026-02 — Iter 294 (Frontend Layer 1
+> pattern-establishing prototype: `LoopStepBar.test.jsx` — 3 RTL
+> behavioural tests, all self-verified as BEHAVIOURAL by the
+> iter290 classifier; CI-guard extended to `.test.jsx/.test.js/`
+> `.test.tsx/.test.ts` with `// static-grep-ok:` opt-out marker).
+> Full details in `CHANGELOG.md`.
 
 
 
