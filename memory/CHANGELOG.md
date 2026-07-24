@@ -4,6 +4,37 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 297.2 (Task 3 complete: 6 P0 untouched journeys now have coverage-hitting behavioural tests)
+
+**Task 3 of Master QA Track 1**: retire the 6 P0 coverage gaps flagged by `services.qa_matrix.matrix_coverage_gap()` — journeys whose `system_paths` were tracked in `docs/traceability_matrix.json` but had `hit=[]` under pytest-cov because the existing regression tests didn't actually execute them.
+
+**Ship**:
+- **NEW: `backend/tests/test_regression_iter297_p0_journey_coverage.py`** — one behavioural test per journey (6 total), each importing the tracked function and calling it with a stub DB + monkey-patched externals. Shared `_StubDB` / `_StubCollection` doubles record every mongo call so tests assert on OBSERVED behaviour (return values, DB writes, index specs, state transitions):
+  - `test_j005_loop_start_endpoint_runs_plan_phase_and_returns_awaiting_confirmation` — invokes `routers.loop.start_loop`, monkey-patches `_generate_plan` + circuit breaker + lock ops. Asserts non-founder → 403 `loop_mode_locked`; founder → `state='awaiting_confirmation'` with plan attached. Hits both `routers/loop.py::start_loop` and `services/loop_engine.py::LoopEngine._do_plan`.
+  - `test_j006_loop_task_specs_freeze_is_idempotent_and_snapshots_files` — calls `loop_task_specs.freeze` three ways: fresh insert (asserts WORM shape + `frozen_files_to_change` extraction), same-loop_id re-call (asserts no 2nd insert, original_task preserved — WORM), string-plan case (asserts `frozen_files_to_change=[]` and task_id fallback to loop_id).
+  - `test_j009_loop_stream_returns_streaming_response_and_404s_unknown_loop` — invokes `routers.loop.loop_stream` twice: unknown loop → `HTTPException(404)`; live registered engine → `StreamingResponse` with `media_type='text/event-stream'` + Nginx-bypass headers. Also asserts the module-level `STREAM_MAX_S == 20*60` Governor constant.
+  - `test_j010_init_prod_collections_declares_ttl_on_loop_machinery` — imports and calls `init_prod_collections.init_prod_collections(stub_db)`. For each of 6 loop-machinery collections asserts: ≥1 index declared AND ≥1 index carries `expireAfterSeconds > 0`. Also verifies the bootstrap result dict shape (`created`/`indexed`/`errors`).
+  - `test_j018_cancel_loop_endpoint_cancels_engine_and_releases_lock` — creates a real `LoopEngine` in `PAUSED_FOR_USER` state, registers it in `_LIVE`, invokes `cancel_loop`. Asserts `engine.cancel()` fired exactly once, `state='aborted'` persisted, `loop_locks` row deleted with the right composite key, and `lock_force_released=True` in the response.
+  - `test_j021_loop_locks_unique_index_is_composite_project_and_user` — calls the bootstrap and reads back `loop_locks.indexes_created`. Asserts the unique index is COMPOSITE `[("project_id",1),("user_id",1)]` — NOT single-key — and is `sparse=True` (the bulkhead invariant preventing cross-user starvation).
+
+- **BUG FIX in `services/qa_matrix.py::_norm_path`**: strip `::function_name` suffix before coverage-map lookup. The traceability matrix uses `path::function` for method-level granularity but coverage.py only tracks at file level — without this fix, EVERY `::`-suffixed tracked path would forever show `hit=[]` regardless of actual coverage. This unblocks the whole gap-computation invariant.
+
+**Verification**:
+- `pytest tests/test_regression_iter297_p0_journey_coverage.py` → **6/6 pass**.
+- Style classifier → **6/6 BEHAVIOURAL** (0 STATIC_GREP; every test calls `asyncio.run(...)` on real service coroutines).
+- `qa_matrix.matrix_coverage_gap()` on the fresh coverage → **5 journeys fully resolved** (j005/j006/j009/j010/j021 all `uncovered_pct=0.0%`), **1 partial** (j018 still 50% because the `ChatPanel.jsx` frontend half needs vitest coverage — orthogonal to backend Task 3 scope).
+- **p0_with_gap dropped 10 → 7** (5 full drops: j005, j006, j009, j010, j021; j018 remains for the frontend half).
+- Session dashboard: STATIC_GREP % **43.7% → 41.6%** (52/125), suite grew by the 6 new BEHAVIOURAL tests.
+- Combined regression across iter212m237/238/286/288/296/297 files → **53/53 pass**.
+- Lint clean on both touched files.
+
+**Next up**:
+- Backend Task 4 (P1): Master QA Track 2 — 22 Dev-Skills / Slash-command tests.
+- Frontend QA Charter Layer 2 (P1): Playwright visual regression.
+- Optional: close j018 fully by running Vitest with `--coverage` and feeding the `frontend/coverage/coverage-summary.json` into qa_matrix (`_frontend_coverage_summary` is already wired to consume it).
+
+
+
 ## 2026-02 — Iter 297 (Task 2 complete: 6 weak-P0 backend tests upgraded STATIC_GREP → BEHAVIOURAL/HYBRID)
 
 **Task 2 of Master QA Track 1**: retire the 6 highest-security-risk grep-only backend tests, replacing them with genuine code execution.

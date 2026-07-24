@@ -203,8 +203,13 @@ def _norm_path(p: str) -> str:
     """Normalise a system_paths entry to match coverage.json's keys.
     coverage.py records file paths relative to the run's cwd (i.e.
     /app/backend), so a matrix entry like 'backend/routers/mcp.py'
-    is compared as 'routers/mcp.py'."""
+    is compared as 'routers/mcp.py'. Also strips `::function_name`
+    suffixes used in the traceability matrix for method-level
+    granularity — coverage.py only tracks at the file level, so we
+    fold both back to the same key."""
     p = (p or "").strip()
+    if "::" in p:
+        p = p.split("::", 1)[0]
     if p.startswith("/app/backend/"):
         return p[len("/app/backend/"):]
     if p.startswith("backend/"):
