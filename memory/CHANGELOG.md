@@ -4,6 +4,41 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 296 (Frontend Layer 1 Batch 2 complete: IntentTierIndicator + SelfHealIndicator + PlanApprovalCard tests)
+
+**Batch 2 objective**: extend the iter294 LoopStepBar / iter295 Batch 1 template to the next 3 UI components identified by the founder as recurring state-sync bug sources. 9 new BEHAVIOURAL tests, zero source-string grep, no component extraction needed (all three components were already standalone).
+
+**Ship** (all new test files, no production code touched):
+- **`frontend/src/components/__tests__/IntentTierIndicator.test.jsx`** — 3 RTL tests:
+  1. `reaches-correct-terminal-state`: `lastTier="agentic"` renders `AGENTIC` label + `data-tier="agentic"` + no `data-pending`.
+  2. `clears-stale-prior-state`: rerender from `casual` → `query` flips both label AND `data-tier` in the same render; stale `CASUAL` text gone.
+  3. `race-condition`: no `lastTier` + no `liveText` still renders (never null DOM — iter281 CSS-anchor invariant) with `data-pending="true"` fallback to `casual` theme.
+- **`frontend/src/components/__tests__/SelfHealIndicator.test.jsx`** — 3 RTL tests:
+  1. `reaches-correct-terminal-state`: `visible=true` shows `role=status` strip with "attempt N/M" copy; `visible=false` removes it immediately (iter288 regression lock).
+  2. `clears-stale-prior-state`: `attempt` prop bump reflects in same instance; `visible=false` clears strip regardless of stale `attempt=3` + `errorPreview`.
+  3. `race-condition`: `visible=false` is the sole gate — even `attempt=99` + loud `errorPreview` cannot force render (container.firstChild is `null`).
+- **`frontend/src/components/__tests__/PlanApprovalCard.test.jsx`** — 3 RTL tests:
+  1. `reaches-correct-terminal-state`: enabled Approve fires `onApprove` exactly once, never `onCancel` (no cross-wiring).
+  2. `clears-stale-prior-state`: `disabled=true` after same-instance rerender blocks click; `onApprove` stays at 1 call. Cancel is also disabled (per-button assertion).
+  3. `race-condition`: three rapid Cancel clicks land on `onCancel` (3×), zero on `onApprove` — locks the branch-wire invariant against a future dispatcher refactor.
+
+**Verification**:
+- `npx vitest run` → **34/34 pass** (9 new + 25 pre-existing).
+- `services.test_style_analyzer.analyze_file` on each of the 3 new files → **9/9 BEHAVIOURAL, 0 STATIC_GREP** (0.0% grep — passes the 60% CI threshold with room to spare).
+- Baseline suite ratio unchanged (backend Python): **46.2% STATIC_GREP (55/119)** — improved from 50.7% baseline.
+
+**No component extraction needed**: `IntentTierIndicator`, `PlanApprovalCard`, and `SelfHealIndicator` (from `LoopActionCards.jsx`) were already standalone exports. Only test files were added.
+
+**Test template consistency**: All 9 tests follow the exact 3-test structure proven in iter294 (`reaches-correct-terminal-state`, `clears-stale-prior-state`, `race-condition`) with the same RTL-only, DOM-observation-only discipline.
+
+**Next up** (unblocked, awaiting founder direction):
+- Backend Task 2: Upgrade 6 weak-P0 backend tests from STATIC_GREP → BEHAVIOURAL.
+- Backend Task 3: Write tests for 6 P0 untouched journeys (j005, j006, j009, j010, j018, j021).
+- Track 2: 22 Dev-Skills / Slash-commands tests.
+- Frontend QA Charter Layer 2 (Playwright visual regression).
+
+
+
 ## 2026-02 — Iter 295 (Frontend Layer 1 Batch 1 complete: AgentStatusBar + LoopLiveFeed tests)
 
 **Batch 1 objective**: apply the iter294-proven LoopStepBar template to the remaining 2 components — LoopLiveFeed and the "Agent is running…" banner. All 6 new tests must self-verify BEHAVIOURAL before we move to Batch 2.
