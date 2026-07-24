@@ -33,6 +33,7 @@ import Landing from "./pages/Landing";
 import Both from "./pages/Both";
 import LoopLiveFeedDemo from "./pages/LoopLiveFeedDemo";
 import VisualFixtures from "./pages/VisualFixtures";
+import AdminQADashboard from "./pages/AdminQADashboard";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 // Iter 212m-219 — Marketing "Why ORA" deep-dive. Lightweight page
@@ -238,6 +239,7 @@ export default function App() {
           <Route path="/dashboard-preview-v2" element={<DashboardPreviewV2 />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/admin/system-health" element={<AdminSystemHealth />} />
+          <Route path="/admin/qa"           element={<AdminQADashboard />} />{/* Iter 303 */}
           <Route path="/admin/personal-track" element={<PersonalTrackAdmin />} />
           <Route path="/admin/ora-chat"       element={<OraChat />} />
           {/* Iter 212m-171 — direct URLs for new admin sections */}

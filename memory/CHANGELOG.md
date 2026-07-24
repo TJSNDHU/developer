@@ -4,6 +4,49 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 303 (Gap 1 audit + Gap 2 /admin/qa dashboard)
+
+Founder blocker before Layer 4: (1) real closing plan for every deferred/skipped item across L1-L3, (2) founder-facing QA dashboard inside the admin panel — behind existing admin auth, so you never have to open GitHub Actions to see if things are green.
+
+### Gap 1 — Audit closing plan (recorded in this session's response)
+
+Every deferred item has an exact ETA + concrete plan (documented inline, ranging 10-30min each, total ~110min budget). Committed order after this iter: L3 a11y burn-down (60min for the 3 known violations) → L1 remaining components (50min: PersistentFixBar + TaskLiveTape) → then Layer 4. NOT "backlog forever."
+
+### Gap 2 — /admin/qa dashboard SHIPPED
+
+**Ship**:
+- **NEW: `backend/routers/admin_qa.py`** — `GET /api/aurem-dev/admin/qa/status`. Reuses existing `_require_admin(authorization)` — same auth surface as every other admin endpoint. Returns a single aggregate payload with 4 sections:
+  - `test_counts`: backend Pytest (AST-authoritative via `services.test_style_analyzer.analyze_suite` — same source CI grades against), frontend Vitest, Playwright, reasoning-evals. Every count computed at request time from disk — no cached numbers to drift.
+  - `test_style`: STATIC_GREP ratio + weak_p0 count vs 60% CI threshold (iter289 guard number).
+  - `a11y`: per-baseline totals + per-surface violation lists (from `docs/a11y_baseline.json` + `docs/a11y_journey_baseline.json`).
+  - `ci_status`: GitHub Actions per-job status (jobs we care about: bug-fix-discipline, invariants, test-style-guard, frontend-vitest, visual-regression). Requires `GITHUB_ACTIONS_TOKEN` + `GITHUB_REPO` env vars with `actions:read` scope. If either is missing, returns honest `{"available": False, "reason": ...}` — never fakes green.
+- **Wired** in `main.py` at `/api/aurem-dev` prefix (same as existing admin router).
+- **NEW: `frontend/src/pages/AdminQADashboard.jsx`** at `/admin/qa`. 4-card grid (test counts, style ratio, a11y baselines, CI status). Manual "Refresh" button. Honest failure states (401 → "Failed to load"; CI unwired → yellow "not wired" chip with env-setup instructions inline). Uses same JWT localStorage pattern as other admin pages. Every element data-testid'd.
+- **Nav link** added to `AdminOverview.jsx` action grid ("📊 QA Health →").
+
+**Verification (all end-to-end)**:
+- Backend endpoint `curl` with test@aurem.dev JWT → 200 with full payload; unauth → 401 "Invalid authorization format" (correct rejection).
+- Frontend rendered at `/admin/qa` after login: all 4 cards visible with live data. Live snapshot: 3340 backend + 56 vitest + 8 playwright + 18 reasoning = **3404 grand total tests**; 26.2% STATIC_GREP (PASS); a11y: 0 component + 3 journey violations tracked; CI: honestly "not wired" with instructions.
+- All 7 declared test-ids found in rendered DOM (`admin-qa-dashboard`, `-card-counts`, `-card-style`, `-card-a11y`, `-card-ci`, `-ci-unavailable`, `-weak-p0`).
+- Lint clean on both `.py` and `.jsx`.
+
+**Reachable via**: `/admin` → "📊 QA Health →" action grid button, OR direct URL `/admin/qa`.
+
+**To wire CI status** (founder action, ~2min): add to `backend/.env`:
+```
+GITHUB_ACTIONS_TOKEN=<fine-grained PAT with actions:read on repo>
+GITHUB_REPO=<owner>/<repo>
+```
+After restart, the "CI status not wired" chip flips to live per-job success/failure badges linked to the exact GitHub run.
+
+### Next up (committed, non-negotiable per iter303 audit)
+
+1. **L3 a11y burn-down** (~60 min): fix 3 known violations (color-contrast × 2, link-in-text-block × 1), rerun `a11y_journeys`, remove from baseline.
+2. **L1 remaining** (~50 min): PersistentFixBar (Context provider helper) + TaskLiveTape (SSE mock helper) — 3-test template each.
+3. **Then Layer 4**: Lighthouse CI + 2 Playwright interaction-latency benchmarks.
+
+
+
 ## 2026-02 — Iter 302 (Frontend QA Charter: Phase A + B + C — L1 audit closed, L2 state fixtures shipped, L3 a11y baselined)
 
 **Founder directive (iter 302)**: execute Phase A + B end-to-end to close L1 and L2 to charter exit criteria, then auto-continue to Phase C (L3 a11y). Do NOT queue-jump.

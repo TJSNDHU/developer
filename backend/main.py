@@ -36,6 +36,7 @@ from routers.cto_projects import router as cto_projects_router
 from routers.automations import router as automations_router
 from routers.upload import router as upload_router
 from routers.admin import router as admin_router
+from routers.admin_qa import router as admin_qa_router          # Iter 303 (/admin/qa dashboard)
 from routers.support import router as support_router
 from routers.payments import router as payments_router
 from routers.mcp import router as mcp_router, mcp_discovery_root
@@ -1625,6 +1626,7 @@ app.include_router(cto_projects_router, prefix="/api/aurem-dev")
 app.include_router(automations_router, prefix="/api/aurem-dev")
 app.include_router(upload_router,        prefix="/api/aurem-dev")
 app.include_router(admin_router,         prefix="/api/aurem-dev")
+app.include_router(admin_qa_router,      prefix="/api/aurem-dev")  # Iter 303 — /admin/qa dashboard
 app.include_router(support_router,       prefix="/api/aurem-dev")
 app.include_router(payments_router,      prefix="/api/aurem-dev")
 app.include_router(usage_router,         prefix="/api/aurem-dev")

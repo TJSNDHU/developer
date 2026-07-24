@@ -269,6 +269,20 @@ export default function AdminOverview() {
               cursor: "pointer", textDecoration: "none",
             }}
           >⌨️ Ops recipes →</a>
+          {/* Iter 303 — /admin/qa QA Health dashboard */}
+          <a
+            data-testid="goto-qa"
+            href="/admin/qa"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >📊 QA Health →</a>
         </div>
       </Section>
 
