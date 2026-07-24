@@ -1,0 +1,9 @@
+{
+  "_note": "a11y journey baseline — Frontend QA Charter Layer 3 C3 (iter 302). Each key is a route/journey; value is the list of axe-core rule ids currently violating for that route. Only NEW rule ids fail CI. Update via reviewer sign-off — never silently accept new IDs.",
+  "_created": "2026-02",
+  "_populated_on_first_run": true,
+
+  "login":          [],
+  "landing":        ["color-contrast"],
+  "loop-live-feed": ["color-contrast", "link-in-text-block"]
+}

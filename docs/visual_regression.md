@@ -7,9 +7,11 @@ version bump) fails CI instead of shipping.
 
 ---
 
-## What it covers today (iter 299)
+## What it covers today (iter 299 + iter 302)
 
-Chromium desktop `1440×900`, 5 unauthenticated routes:
+Chromium desktop `1440×900`, **12 baselines** across 2 spec files:
+
+### `public_routes.spec.js` — 5 unauthenticated views
 
 | Route                       | Baseline                        |
 | --------------------------- | ------------------------------- |
@@ -18,6 +20,24 @@ Chromium desktop `1440×900`, 5 unauthenticated routes:
 | `/demo`                     | `demo.png`                      |
 | `/login`                    | `login.png`                     |
 | `/dev/loop-live-feed`       | `loop-live-feed-demo.png`       |
+
+### `state_fixtures.spec.js` — 7 charter-mandated state baselines (iter 302)
+
+Charter Layer 2 explicitly demanded state-specific baselines for
+the phase stepper (4 states) and LoopLiveFeed (3 states). Driven
+by `/dev/visual?state=<name>` — a fixture-only route family that
+renders each component with hard-coded props (no SSE, no auth,
+no backend, sub-100 ms first paint).
+
+| Component / state                       | Fixture URL                                    | Baseline                                     |
+| --------------------------------------- | ---------------------------------------------- | -------------------------------------------- |
+| Phase stepper — executing               | `/dev/visual?state=step-executing`             | `phase-stepper-executing.png`                |
+| Phase stepper — completed               | `/dev/visual?state=step-completed`             | `phase-stepper-completed.png`                |
+| Phase stepper — failed                  | `/dev/visual?state=step-failed`                | `phase-stepper-failed.png`                   |
+| Phase stepper — paused_for_user         | `/dev/visual?state=step-paused-for-user`       | `phase-stepper-paused-for-user.png`          |
+| LoopLiveFeed — pending-placeholder      | `/dev/visual?state=feed-pending`               | `loop-live-feed-pending.png`                 |
+| LoopLiveFeed — live-events              | `/dev/visual?state=feed-live-events`           | `loop-live-feed-live-events.png`             |
+| LoopLiveFeed — terminal                 | `/dev/visual?state=feed-terminal`              | `loop-live-feed-terminal.png`                |
 
 Baselines live next to the spec at
 `frontend/tests/visual/public_routes.spec.js-snapshots/`.

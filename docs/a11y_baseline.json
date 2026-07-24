@@ -1,0 +1,15 @@
+{
+  "_note": "a11y baseline — Frontend QA Charter Layer 3 (iter 302). Each key is a component name; value is the list of axe-core rule ids currently violating for that component's baseline render. Only NEW rule ids fail CI (charter discipline: burn down, don't block). Update via `yarn test:a11y:update` (once wired) or by editing manually with reviewer sign-off.",
+  "_created": "2026-02",
+  "_charter_reference": "docs/visual_regression.md + Frontend QA Charter Layer 3",
+
+  "LoopStepBar": [],
+  "AgentStatusBar": [],
+  "LoopLiveFeed": [],
+  "IntentTierIndicator": [],
+  "SelfHealIndicator": [],
+  "PlanApprovalCard": [],
+  "UserActionCard": [],
+  "StreamHealthPill": [],
+  "StepCards": []
+}

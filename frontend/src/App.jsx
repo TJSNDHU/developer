@@ -32,6 +32,7 @@ import CookieConsentBanner from "./components/CookieConsentBanner";
 import Landing from "./pages/Landing";
 import Both from "./pages/Both";
 import LoopLiveFeedDemo from "./pages/LoopLiveFeedDemo";
+import VisualFixtures from "./pages/VisualFixtures";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 // Iter 212m-219 — Marketing "Why ORA" deep-dive. Lightweight page
@@ -186,6 +187,10 @@ export default function App() {
           <Route path="/"                element={<Landing />} />
           <Route path="/both"            element={<Both />} />
           <Route path="/dev/loop-live-feed" element={<LoopLiveFeedDemo />} />
+          {/* Iter 302 — Frontend QA Charter Layer 2 Batch 2 —
+              fixture-driven state isolation for Playwright visual
+              regression. See docs/visual_regression.md. */}
+          <Route path="/dev/visual"         element={<VisualFixtures />} />
           <Route path="/why-ora"         element={<WhyOra />} />
           <Route path="/demo"            element={<Demo />} />
           <Route path="/login"           element={<Login />} />

@@ -33,6 +33,7 @@ export default function StepCards({ steps, streaming }) {
   return (
     <div
       data-testid="step-cards"
+      data-streaming={streaming ? "true" : "false"}
       style={{
         display: "flex",
         flexDirection: "column",

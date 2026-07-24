@@ -177,6 +177,30 @@ jobs:
           python scripts/ci_check_test_style.py "$BASE_SHA" "$HEAD_SHA"
 
 
+  frontend-vitest:
+    # Iter 302 — Frontend QA Charter Layer 1 + Layer 3 C2.
+    # Runs the RTL state-sync suite AND the axe-core component-level
+    # a11y suite. Baseline discipline: axe assertions only fail on
+    # NEW violation ids (see docs/a11y_baseline.json).
+    name: Vitest (RTL state-sync + axe component a11y)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install frontend deps
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+      - name: Vitest full run
+        working-directory: frontend
+        run: yarn test
+
+
   visual-regression:
     # Iter 299 — Frontend QA Charter Layer 2. Pixel-diff the 5
     # canonical unauthenticated routes against committed baselines
