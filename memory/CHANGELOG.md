@@ -26,7 +26,16 @@ work in date-stamped chunks so PRD.md stays focused.
 - Founder must now Save-to-GitHub on a NEW branch (e.g. `phase-0.2-canary`) — NOT main — and confirm from the Actions tab that the workflow is RED and the log contains `test_ci_canary_MUST_FAIL` with the AssertionError. Only after that confirmation: delete the canary file + add `pytest -k loop` to the relevant workflow (either extend the backend-tests job in `ci.yml` or add a new `loop-regression` job in `quality-gate.yml`).
 - If the Actions run is GREEN despite the canary, CI failure propagation is broken and Phase 0.2 blocks until fixed. No new features shipped until then.
 
-**Not started yet**: Phase 0.3 (self-heal-exhausted → PAUSED_FOR_USER decision + code alignment), Phase 1 (persistent rules) — will start after Phase 0.2 confirms CI is trustworthy.
+**Phase 0.3 — Self-heal-exhausted contract locked (COMPLETE)**
+- **Audit correction (again)**: my Part 6 Regression #C claim was WRONG. Test failure said "code returns FAILED, test expects PAUSED_FOR_USER" — but actual root cause is the test's `fake_plan` fixture had empty `files_to_change`, so execute short-circuits to FAILED before verify runs at all. Test never reached self-heal path. Code line 1573 in `loop_engine.py::_do_verify` ALREADY emits PAUSED_FOR_USER correctly.
+- Fixed the stale fixture in `test_iter212m62_loop_verify.py::fake_plan` — added `files_to_change: ["bad.py"]` so downstream tests actually traverse execute → verify → self-heal.
+- Added **direct behavioural test** `test_iter309_phase03_self_heal_paused.py` with 2 tests:
+  - `test_verify_self_heal_exhausted_transitions_to_paused_for_user` — invokes `_do_verify` directly with pre-populated context, monkey-patches `verify_files` + `self_heal` to always fail, asserts final state = PAUSED_FOR_USER. Does NOT depend on plan/execute/confirm fixtures being wired correctly.
+  - `test_verify_pauses_on_exhaustion_not_fails_source_of_truth` — static assertion that the "MAX_SELF_HEALS exhausted" comment landmark in loop_engine.py still references `PAUSED_FOR_USER` and does NOT contain a `_fail(` call in scope. Prevents someone silently regressing the contract via refactor.
+- Regression pass: 16/16 tests across iter 307–309 suite (JWT revocation + stuck recovery + frontend sync + housekeeping merge + self-heal contract).
+- **Full known-issue count updated**: audit's "13 failing loop tests" was partially wrong — several are the same class of issue (stale fixtures using an incompatible `_DB` mock, not real code regressions). Correct triage now needs a fresh grep pass.
+
+**Phase 0.2 remains BLOCKED on founder Save-to-GitHub CI verification step.** No Phase 1 work started until that returns a confirmed RED run.
 
 
 ## 2026-02 — Iter 308 (Loop stuck-on-execute — 5 root causes fixed, bug_testing_agent verdict: FIXED)

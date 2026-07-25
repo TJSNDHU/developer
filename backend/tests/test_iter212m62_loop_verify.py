@@ -104,8 +104,16 @@ def _reset(): eng.reset_registry(); yield; eng.reset_registry()
 
 @pytest.fixture
 def fake_plan(monkeypatch):
+    # Iter 309 · Phase 0.3 — files_to_change was empty here, which
+    # made every test using this fixture short-circuit at execute
+    # with "plan has no files_to_change, failing" → engine state
+    # became FAILED at execute, and NEVER reached the verify/self-heal
+    # path some tests were actually asserting about. Now the fake
+    # plan carries a placeholder file so the pipeline actually
+    # traverses execute → verify → self-heal and the downstream
+    # assertions test what they were designed to.
     async def _plan(uid, pid, msg):
-        return {"title": "t", "files_to_change": [],
+        return {"title": "t", "files_to_change": ["bad.py"],
                 "bullets": ["x"], "estimated_time": "?"}
     monkeypatch.setattr(eng, "_generate_plan", _plan)
 
