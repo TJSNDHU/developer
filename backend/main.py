@@ -285,40 +285,56 @@ async def lifespan(app: FastAPI):
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
 
-    # Iter 212m-60 — Loop Mode G3 resume.  Sweep any session stuck in
-    # an executing phase from a prior worker crash and flip it to
-    # PAUSED_FOR_USER with a clear reason so the frontend can prompt.
-    #
-    # Iter 308 — CRITICAL BUG FIX (user reported 2.5 hr stuck execute):
-    # this used to run EXACTLY ONCE at startup. If a pod stayed alive
-    # for hours but an engine task died silently (unhandled callback
-    # exception, GC'd task ref, LLM socket hang, worker OOM without
-    # full restart), the session sat at state="executing" forever
-    # because no reaper was watching. Rewritten as an infinite loop
-    # that runs `resume_stale` every 60 s. Orphaned sessions now get
-    # flipped to PAUSED_FOR_USER within max(STALE_AFTER_S + 60s) of
-    # the last activity — bounded lag, never hangs indefinitely.
-    async def _resume_stale_loops():
+    # Iter 309 · Phase 0.1 — Merged housekeeping loop.
+    # Previously two independent `while True` background tasks:
+    #   • _resume_stale_loops (rescues orphaned EXECUTING/VERIFYING/…)
+    #   • _sweep_awaiting_confirmations (expires paused loops)
+    # Both ran at 60s cadence, so we consolidate into ONE tick to
+    # halve the event-loop wake-up count and to guarantee both
+    # branches share the same DB connection health check. If either
+    # sub-sweep raises, the other still runs this cycle.
+    async def _loop_housekeeping():
         _first_run = True
         while True:
             try:
-                if app.state.db is None:
+                db = app.state.db
+                if db is None:
                     await _asyncio.sleep(60)
                     continue
-                from services.loop_engine import resume_stale
-                n = await resume_stale(app.state.db)
-                if n:
-                    logger.info(
-                        "loop_engine: rescued %d stale session(s)%s",
-                        n, " on startup" if _first_run else " (periodic sweep)",
+                # Branch A — rescue orphaned running sessions.
+                try:
+                    from services.loop_engine import resume_stale
+                    n_rescued = await resume_stale(db)
+                    if n_rescued:
+                        logger.info(
+                            "loop housekeeping: rescued %d stale session(s)%s",
+                            n_rescued,
+                            " on startup" if _first_run else " (periodic sweep)",
+                        )
+                except _asyncio.CancelledError:
+                    raise
+                except Exception as _e:                          # noqa: BLE001
+                    logger.warning("loop housekeeping: resume_stale failed: %r", _e)
+                # Branch B — expire paused / awaiting-confirmation loops.
+                try:
+                    from services.loop_engine import (
+                        sweep_expired_awaiting_confirmations,
                     )
+                    n_expired = await sweep_expired_awaiting_confirmations(db)
+                    if n_expired:
+                        logger.info(
+                            "loop housekeeping: expired %d paused loop(s)",
+                            n_expired,
+                        )
+                except _asyncio.CancelledError:
+                    raise
+                except Exception as _e:                          # noqa: BLE001
+                    logger.warning("loop housekeeping: sweep_expired failed: %r", _e)
             except _asyncio.CancelledError:
-                raise
-            except Exception as e:                          # noqa: BLE001
-                logger.warning("loop_engine resume_stale failed: %r", e)
+                break
             _first_run = False
             await _asyncio.sleep(60)
-    _asyncio.create_task(_resume_stale_loops())
+    app.state.loop_housekeeping_task = _asyncio.create_task(_loop_housekeeping())
 
     # Iter 212m-115 safety — Create the unique index for the
     # concurrent-loop lock collection so we can never have two active
@@ -852,29 +868,11 @@ async def lifespan(app: FastAPI):
     _asyncio.create_task(_probe_loop_linters())
 
     # Iter 212m-172 — Awaiting-confirmation stale sweeper.
-    # If a user starts a Loop but walks away, the plan sits in
-    # AWAITING_CONFIRMATION state forever, holding the loop_lock and
-    # blocking a fresh /start on the same project.  Founder spec: any
-    # PAUSED state older than AWAITING_CONFIRM_MAX_S auto-expires to
-    # ABORTED, the lock releases, and the user sees a clean "Loop
-    # expired — restart if you still want to run it" message.
-    async def _sweep_awaiting_confirmations():
-        from services.loop_engine import (
-            LoopState, sweep_expired_awaiting_confirmations,
-        )
-        while True:
-            try:
-                await _asyncio.sleep(60)  # every minute
-                if app.state.db is None:
-                    continue
-                n = await sweep_expired_awaiting_confirmations(app.state.db)
-                if n:
-                    logger.info("Loop sweeper: expired %d stale paused loop(s)", n)
-            except _asyncio.CancelledError:
-                break
-            except Exception as _e:
-                logger.warning("Loop sweeper tick failed: %r", _e)
-    app.state.loop_expiry_task = _asyncio.create_task(_sweep_awaiting_confirmations())
+    # Iter 309 · Phase 0.1 — Awaiting-confirmation sweeper was previously
+    # a SECOND background task defined at this block. It has been
+    # merged into `_loop_housekeeping` (above, near line 302) as
+    # Branch B so both sweepers share one tick and one DB health
+    # check. Cancel handling is centralized on the merged task.
 
     yield
     if getattr(app.state, "digest_task", None):
@@ -885,7 +883,11 @@ async def lifespan(app: FastAPI):
         app.state.eval_task.cancel()
     if getattr(app.state, "bootstrap_task", None):
         app.state.bootstrap_task.cancel()
+    if getattr(app.state, "loop_housekeeping_task", None):
+        app.state.loop_housekeeping_task.cancel()
     if getattr(app.state, "loop_expiry_task", None):
+        # Iter 309 — legacy attr; guarded so a fork of prior main.py
+        # doesn't crash shutdown. Merged into loop_housekeeping_task.
         app.state.loop_expiry_task.cancel()
     if app.state.mongo:
         app.state.mongo.close()
