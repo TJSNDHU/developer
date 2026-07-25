@@ -2117,6 +2117,12 @@ const NAV = [
   { id: "overview", label: "Overview", Icon: Eye },
   { id: "llm_credits", label: "LLM Credits", Icon: DollarSign },
   { id: "parliament_live", label: "Parliament Live", Icon: Cpu },
+  // Iter 307 — QA Health dashboard is a separate route (/admin/qa),
+  // so `route:` short-circuits the internal setPage(id) switch and
+  // uses react-router's navigate(...) instead. Same visual pattern
+  // as every other sidebar entry; keeps the founder one click away
+  // from the live QA metrics without having to memorize a URL.
+  { id: "qa_health", label: "QA Health", Icon: ShieldCheck, route: "/admin/qa" },
   { group: "USERS" },
   { id: "bin_tracker", label: "BIN Tracker", Icon: Users },
   { id: "users", label: "Users (Legacy)", Icon: Users },
@@ -2274,13 +2280,13 @@ export default function Admin({ initialTab = "overview" }) {
               </div>
             );
           }
-          const { id, label, Icon } = item;
-          const active = page === id;
+          const { id, label, Icon, route } = item;
+          const active = route ? window.location.pathname === route : page === id;
           return (
             <button
               key={id}
               data-testid={`admin-nav-${id}`}
-              onClick={() => go(id)}
+              onClick={() => (route ? navigate(route) : go(id))}
               className="btn-ghost"
               style={{
                 display: "flex", alignItems: "center", gap: 10,
