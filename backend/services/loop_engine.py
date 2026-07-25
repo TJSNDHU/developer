@@ -811,13 +811,24 @@ class LoopEngine:
                     if self.state != _PHASE_STATE.get(phase):
                         continue
                     try:
+                        # Iter 308 v2 — explicit human-readable
+                        # gerund per phase so the "still N..."
+                        # message never renders as "executeing".
+                        _phase_gerund = {
+                            "plan":      "planning",
+                            "execute":   "executing",
+                            "verify":    "verifying",
+                            "scan":      "scanning",
+                            "ship":      "shipping",
+                            "self_heal": "self-healing",
+                        }.get(phase, phase)
                         await self._emit(
                             _PHASE_STATE.get(phase, self.state),
                             phase,
                             step={"plan":1,"execute":2,"verify":3,
                                   "scan":4,"ship":5}.get(phase, 0),
                             total_steps=5,
-                            message=(f"Still {phase}ing — {elapsed}s elapsed…"),
+                            message=(f"Still {_phase_gerund} — {elapsed}s elapsed…"),
                             data={"sub_step":  "heartbeat",
                                   "keepalive": True,
                                   "phase":     phase,

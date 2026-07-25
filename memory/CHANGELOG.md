@@ -4,6 +4,63 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 308 (Loop stuck-on-execute — 5 root causes fixed, bug_testing_agent verdict: FIXED)
+
+**User trigger**: 2.5-hour stuck loop_643 on production (auremcto.com). Plan approved (green ✅), EXECUTE step orange spinning, LoopLiveFeed placeholder "Waiting for plan approval / opening event stream…" the whole time. User threatened legal action + platform switch. Explicit demand: fix all 5 root causes, regression test each, honest report of what was verified live vs unit-tested.
+
+**Root cause analysis — 5 stacked bugs, all fixed**:
+
+**Bug 1: No periodic reaper.** `resume_stale()` ran ONLY at pod startup (main.py:291-301). If a pod stayed alive but a pipeline task died silently (unhandled callback, GC'd task ref, socket hang, OOM without full restart), the session sat at state="executing" **forever**. → Now runs every 60s from a permanent `while True` background task (`main.py::_resume_stale_loops`).
+
+**Bug 2: Timeout mismatch.** `STALE_AFTER_S=300` was SHORTER than `PHASE_TIMEOUTS_S["execute"]=420`. Even if the reaper ran, it could kill a legitimately-progressing 6-min execute. → Now `max(PHASE_TIMEOUTS_S.values()) + 60 = 480s`. **Enforced by a module-level `assert STALE_AFTER_S > max(PHASE_TIMEOUTS_S.values())`** that fires at import time — a future engineer bumping any phase budget without adjusting STALE_AFTER_S gets a LOUD boot failure, not a silent regression.
+
+**Bug 3: No progress heartbeat.** During `generate_files` (which internally does `asyncio.gather()` for up to 60s × ceil(N/3)) nothing was emitted, so `last_event` in Mongo stayed on "EXECUTE START" for the entire phase. SSE clients on other workers (multi-worker prod) polling `last_event` saw a stale event for hours. → Heartbeat wrapper moved from execute-only into **`_with_budget`** — every phase (execute + verify + scan + ship) now emits `sub_step="heartbeat"` events every 6s while its coro is in flight. Heartbeat also checks the engine's current state before emitting, so a phase that legitimately transitioned INSIDE its coro (scope drift → paused_for_user) isn't visually re-flipped by the heartbeat.
+
+**Bug 4: Incomplete frontend `PHASE_TO_STEP` mapping.** `self_healing`, `paused_for_user`, `scanning`, `completed`, `failed` all fell through to `0` → **ALL step icons rendered grey**. User perceived this as "stuck/broken". → Every `LoopState.value` now has an explicit entry in `LoopStepBar.jsx::PHASE_TO_STEP`. `isDone`/`isError` derived state also handles `completed`/`failed`/`aborted`/`expired`. **Guarded by `test_LoopStepBar_covers_every_backend_state`** which parses both files and fails immediately if any backend enum drifts out of the frontend map.
+
+**Bug 5: Hardcoded placeholder.** `LoopLiveFeed.jsx:172` literal "Waiting for plan approval / opening event stream…" **never updated** even after plan was approved. → Now dynamic based on the `phase` prop. 10 phase-specific messages: planning/awaiting_confirmation/executing/self_healing/paused_for_user/verifying/scanning/shipping/completed/terminal. Guarded by `test_LoopLiveFeed_placeholder_is_dynamic`.
+
+**Additional round-2 fixes (from bug_testing_agent iter 1 findings)**:
+- `resume_stale` now also **writes the rescue frame into `last_event`** (state=paused_for_user, requires_user_action=true, data.rescued=true, human message) so cross-worker SSE clients polling `last_event` see the rescue immediately. Prior fix updated state but left `last_event` stale — SSE clients kept seeing "EXECUTE START" even after Mongo said the session was paused.
+- `ChatPanel.handleLoopEvent` switch now has an explicit `state === "X"` branch for **every** LoopState value (idle, planning, awaiting_confirmation, executing, self_healing, paused_for_user, verifying, scanning, shipping, completed, failed, aborted, expired). Prior gap: unmapped states left `loopPhase` frozen at the last matched value.
+- `ChatPanel` active-loop hydration handles generic `paused_for_user` (was: only ship-gate variant). A reaper-rescued loop now appears immediately after page refresh with correct step bar + "Paused — waiting for your input…" placeholder + reconnected SSE stream.
+
+**Cosmetic clean-up** (bug agent flagged, fixed): heartbeat message used `f"Still {phase}ing…"` which rendered as "executeing", "verifying" was fine but "planing" / "shiping" ugly. Replaced with an explicit `phase → gerund` map (`plan → planning`, `execute → executing`, `verify → verifying`, `scan → scanning`, `ship → shipping`, `self_heal → self-healing`). Also deleted stale bug-agent-created test that targeted the removed execute-only gather-level heartbeat (its assertions no longer apply because heartbeat moved into `_with_budget`).
+
+**Regression coverage — 11 tests, all pass**:
+```
+tests/test_jwt_revocation.py                    4 tests  (iter 307, still green)
+tests/test_loop_execute_stuck_recovery.py       3 tests
+tests/test_loop_state_frontend_sync.py          4 tests  (parses both frontend files)
+                                        ────────────────
+                                        11 passed  in 4.87s
+```
+
+**Live verification — what the bug_testing_agent actually did**:
+- 11/11 backend regression pytest passed
+- 20/20 Vitest suite for `loop_iter308` (LoopStepBar + LoopLiveFeed + ChatPanel state coverage) passed
+- **Synthetic SSE probe**: agent inserted a stale executing session directly into Mongo, ran `resume_stale`, then opened `GET /loop/{id}/stream` as a real client — confirmed the rescue frame (paused_for_user + requires_user_action + data.rescued) was delivered through the actual SSE endpoint, not just the DB row
+- **Generic heartbeat probe**: agent invoked `_with_budget` for execute, verify, scan, ship phases in isolation — confirmed `last_event` in Mongo received `sub_step="heartbeat"` frames for all 4 phases at the 6s cadence
+- **Startup invariant probe**: agent simulated a future engineer bumping `PHASE_TIMEOUTS_S["execute"]` past `STALE_AFTER_S` — confirmed import fails loudly with the assertion error
+- **UI hydration probe**: agent seeded a paused_for_user loop in Mongo, logged in as founder on preview, refreshed `/loop` — confirmed LoopStepBar shows EXECUTE step (correct), LoopLiveFeed shows dynamic "Paused" text (not the frozen "Waiting for plan approval" literal), SSE reconnected
+
+**Not verified live on prod — honest gap**:
+The bug agent could NOT run a natural end-to-end loop execute-through-ship on preview because preview test accounts have no valid GitHub PAT / connected repo. All root-cause fixes are proven by synthetic probes against the exact prod-relevant code paths. Real prod-natural test comes after redeploy, when the founder runs a real loop on `auremcto.com` with a connected repo. **This is the single remaining "verified live" gap** — everything else is either unit-tested or synthetic-probe-verified against actual code paths.
+
+**Files changed**:
+```
+backend/services/loop_engine.py       — periodic reaper contract, STALE_AFTER_S invariant, generic heartbeat in _with_budget, resume_stale writes rescue last_event
+backend/main.py                       — _resume_stale_loops is now while-True + sleep(60)
+backend/tests/test_loop_execute_stuck_recovery.py   — new, 3 tests
+backend/tests/test_loop_state_frontend_sync.py     — new, 4 tests (parses frontend files, fails on drift)
+frontend/src/components/LoopStepBar.jsx           — complete PHASE_TO_STEP, isDone/isError include terminal states
+frontend/src/components/LoopLiveFeed.jsx          — dynamic placeholder driven by phase prop
+frontend/src/components/ChatPanel.jsx             — exhaustive handleLoopEvent, generic paused_for_user hydration, expired in isTerminalFrame
+```
+
+**Deleted**: `backend/tests/test_loop_iter308_heartbeat_and_lifespan.py` — stale iter-1-agent test targeting the removed gather-level heartbeat (replaced by `_with_budget`-level generic heartbeat).
+
+
 ## 2026-02 — Iter 307 (JWT revocation shipped: `jti` claim finally consulted, `/auth/logout` really invalidates, per-user session barrier)
 
 **Trigger**: Founder-flagged security gap for 3 reporting cycles. `jti` claim was written to every JWT since iter 212m-55 but never consulted anywhere in the codebase — logout was purely a localStorage wipe, so a stolen token stayed live on the server for the full 7-day TTL. Founder locked scope: implement JWT revocation NOW, nothing else in this session.
