@@ -4,6 +4,31 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 309 · Phase 0.1 + start of 0.2 (Loop housekeeping merge + CI canary staged)
+
+**Founder directive (approved plan)**: Ordering 0→1→2→3→4 locked. Phase 5 deferred with data gate. Binding corrections applied throughout — no LLM correction-detection in Phase 1, no auto-DB-restore in Phase 3, risk score is change-only (no policy factors), 14-day shadow mode for Phase 2, per-project feature flags on ALL phases default OFF, per-phase instrumented success metric mandatory.
+
+**Phase 0.1 — Merged housekeeping loop (COMPLETE)**
+- Two separate `while True: sleep(60)` background tasks (`_resume_stale_loops` + `_sweep_awaiting_confirmations`) merged into ONE `_loop_housekeeping` task in `backend/main.py`. One tick = both branches, each in its own try/except so one branch's failure never skips the other.
+- Shutdown-cancel points to `loop_housekeeping_task`; legacy `loop_expiry_task` kept as a no-op guard so a fork of an older `main.py` never crashes on shutdown.
+- Regression tests: `backend/tests/test_iter309_phase0_merged_housekeeping.py` — 3/3 pass.
+  - `test_merged_housekeeping_rescues_both_stuck_and_expired` — seeds both a stale-executing + a stale-paused doc, runs one tick, asserts both transitioned.
+  - `test_branch_A_failure_does_not_kill_branch_B` — simulates Branch A raising, confirms Branch B still runs.
+  - `test_only_one_housekeeping_task_defined_in_main` — static assertion that `async def _sweep_awaiting_confirmations` cannot come back without failing.
+- Live preview verification: backend restarted cleanly (`/health` = 200); log line proves periodic sweep fires: `loop_engine: rescued 1 stale session(s) (periodic sweep)`.
+- **Audit correction recorded**: my Part 2 audit finding claimed `_sweep_awaiting_confirmations` had no periodic caller. That was WRONG — it WAS scheduled at old `main.py:861-877`, my earlier grep window missed it. The merge is still a real cleanup (halved event-loop wake-ups, unified DB health check) but not the "sweeper never runs" risk I claimed.
+
+**Phase 0.2 — Canary staged, awaiting live CI verification (BLOCKING)**
+- Per founder directive: BEFORE adding `pytest -k "loop"` to CI, prove GitHub Actions actually surfaces test failures. Audit found 13 loop tests were silently failing without CI catching them — must fix the hiding first.
+- Created `backend/tests/test_ci_canary_MUST_FAIL_iter309.py` — one deliberately-failing test, no imports/fixtures/Mongo, `assert False` with an explicit self-documenting message.
+- Verified locally: canary fails as expected.
+- Verified CI wiring: `ci.yml::backend-tests` runs `python -m pytest ... -x 2>&1 | tee ... && exit ${PIPESTATUS[0]}` at line 112-121 — ANY failing test flips the workflow red.
+- Founder must now Save-to-GitHub on a NEW branch (e.g. `phase-0.2-canary`) — NOT main — and confirm from the Actions tab that the workflow is RED and the log contains `test_ci_canary_MUST_FAIL` with the AssertionError. Only after that confirmation: delete the canary file + add `pytest -k loop` to the relevant workflow (either extend the backend-tests job in `ci.yml` or add a new `loop-regression` job in `quality-gate.yml`).
+- If the Actions run is GREEN despite the canary, CI failure propagation is broken and Phase 0.2 blocks until fixed. No new features shipped until then.
+
+**Not started yet**: Phase 0.3 (self-heal-exhausted → PAUSED_FOR_USER decision + code alignment), Phase 1 (persistent rules) — will start after Phase 0.2 confirms CI is trustworthy.
+
+
 ## 2026-02 — Iter 308 (Loop stuck-on-execute — 5 root causes fixed, bug_testing_agent verdict: FIXED)
 
 **User trigger**: 2.5-hour stuck loop_643 on production (auremcto.com). Plan approved (green ✅), EXECUTE step orange spinning, LoopLiveFeed placeholder "Waiting for plan approval / opening event stream…" the whole time. User threatened legal action + platform switch. Explicit demand: fix all 5 root causes, regression test each, honest report of what was verified live vs unit-tested.
