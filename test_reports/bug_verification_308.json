@@ -1,0 +1,83 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "production pe hai bug. loop stucked on exicute from last 2:30 hrs approx . you must need do fix from its rutes no only patch work if again loop not completed ill sue you guys and change my dev from emergent to other. loop always need to compleate with visibal live details",
+  "summary": "No relevant testing skill found. Backend unit/regression tests passed for stale reaper, fresh-session safety, timeout invariant, execute heartbeat persistence, and periodic lifespan sweep. Frontend component tests passed for LoopStepBar phase mapping and LoopLiveFeed dynamic placeholders. However the fix is not end-to-end verified/fixed: preview cannot reach execute with the provided test account because projects have no/invalid PAT, and a reaped paused_for_user session is not made visible through last_event/SSE, so the exact 'visible live details' contract can still fail for a watching user.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "services.loop_engine.resume_stale / GET /api/aurem-dev/loop/{loop_id}/stream",
+        "issue": "resume_stale flips loop_sessions.state to paused_for_user but does not update last_event or emit a paused_for_user SSE frame. Probe showed last_event stayed state=executing after rescue; stream did not deliver a usable paused rescue event. A user watching the LiveFeed may still see stale/no live details after the reaper acts.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/aurem-dev/loop/start",
+        "issue": "Natural preview loop smoke cannot reach plan approval/execute: p_demo_a and p_demo_b have no PAT; p_norepotest has invalid PAT and returns state=failed phase=plan. Additionally, direct no-PAT start attempts created loop_locks before failing; I cleaned the test-created locks, but this can block later starts with queued/loop_already_running.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ChatPanel.jsx",
+        "issue": "Generic active paused_for_user loops from /loop/active are not rehydrated (only paused_for_user + phase=ship is handled). A reaper-rescued execute loop can therefore be invisible/not actionable after refresh.",
+        "selector": "loop-live-feed / loop-step-bar",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Loop mode start → approve → execute live feed",
+        "issue": "Browser smoke logged in and enabled Loop mode, but the selected preview projects cannot execute because repo PAT setup is missing/invalid; no LoopLiveFeed/heartbeat could be observed in a real run.",
+        "affected_selectors": ["loop-mode-toggle", "loop-step-bar", "loop-live-feed"]
+      },
+      {
+        "flow": "Backend paused_for_user rescue → frontend status/live feed",
+        "issue": "handleLoopEvent does not map paused_for_user/self_healing/expired into loopPhase, and aborted maps to idle. The isolated LoopStepBar supports these props, but ChatPanel may not pass them through from backend states.",
+        "affected_selectors": ["loop-step-bar", "loop-live-feed", "user-action-card"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_loop_execute_stuck_recovery.py",
+    "/app/backend/tests/test_loop_iter308_heartbeat_and_lifespan.py",
+    "/app/frontend/src/components/__tests__/loop_iter308.test.jsx",
+    "/app/test_reports/pytest/iter308_loop_backend_regression.log",
+    "/app/test_reports/frontend/iter308_loop_frontend_vitest.log",
+    "/app/test_reports/iter308_api_probe.log",
+    "/app/test_reports/iter308_sse_reaper_visibility_probe.log"
+  ],
+  "action_items": [
+    "Update resume_stale to persist a paused_for_user last_event (with resume_reason=server_restart_mid_loop, clear message, requires_user_action=true) so SSE/live-feed clients see the rescue instead of stale execute/no data.",
+    "Update loop stream/status fallback to emit a state-change frame when loop_sessions.state differs from last_event.state, especially paused_for_user and expired.",
+    "Update ChatPanel rehydrate and handleLoopEvent to handle paused_for_user, self_healing, expired, and aborted consistently with LoopStepBar's backend-state mapping.",
+    "Release loop_locks when /loop/start fails after acquiring a lock (e.g., missing/invalid PAT during build_ora_context or plan preflight).",
+    "Provision a valid preview repo/PAT for test@aurem.dev and rerun the full start → approve → execute heartbeat → verify/scan/ship smoke."
+  ],
+  "critical_code_review_comments": [
+    "backend/services/loop_engine.py resume_stale updates state/resume_reason only; it does not set last_event, so cross-worker SSE clients polling Mongo have no paused_for_user event to show.",
+    "frontend/src/components/ChatPanel.jsx active-loop hydration ignores generic paused_for_user (except ship gate), although /loop/active explicitly returns paused_for_user states.",
+    "frontend/src/components/ChatPanel.jsx handleLoopEvent maps only executing/verifying/scanning/shipping/completed/failed/aborted; paused_for_user, self_healing, and expired are not passed through as loopPhase values."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_loop_iter308_heartbeat_and_lifespan.py",
+    "/app/frontend/src/components/__tests__/loop_iter308.test.jsx",
+    "/app/scripts/iter308_db_probe.py",
+    "/app/scripts/iter308_api_probe.py",
+    "/app/scripts/iter308_sse_reaper_visibility_probe.py",
+    "/app/scripts/iter308_cleanup_test_locks.py",
+    "/app/test_reports/bug_verification_308.json",
+    "/app/test_reports/iteration_308.json"
+  ],
+  "success_rate": {
+    "backend": "70%",
+    "frontend": "70%"
+  },
+  "seed_data_creation": "Created synthetic loop_sessions loop_iter308_periodic_probe and loop_iter308_sse_reaper_probe for reaper/SSE checks; both were deleted. Test-created failed loop docs loop_5bcc168504b641 and loop_657727bef0ac4f plus p_demo_a/p_demo_b test locks were cleaned up.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest: 5/5 passed. Frontend Vitest: 20/20 passed. Preview health/login are OK. Do not treat this as fixed until a valid preview repo/PAT exists and a real loop reaches execute with heartbeat events visible, and until paused_for_user reaper rescue is emitted through last_event/SSE and handled by ChatPanel.",
+  "rca_of_the_issue": "The new heartbeat/reaper code covers important internals, but the user-visible rescue path remains incomplete. The reaper changes loop_sessions.state to paused_for_user without publishing that change to last_event/SSE, and frontend hydration does not handle generic paused_for_user. Therefore an orphaned execute can be corrected in DB while the live panel still lacks a visible paused/rescued event. Natural preview E2E is also currently blocked by invalid/missing GitHub PAT data. No APIs were MOCKED during verification; only isolated unit tests used fakes for external GitHub/LLM dependencies."
+}

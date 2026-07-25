@@ -78,7 +78,11 @@ PHASE_TIMEOUTS_S: dict[str, int] = {
 MAX_PHASE_RESTARTS = 1
 # A session whose Mongo doc hasn't been updated in this long while in
 # EXECUTING/VERIFYING is treated as orphaned by resume_stale().
-STALE_AFTER_S = 300
+# Iter 308 — MUST be strictly greater than any phase's own timeout,
+# otherwise the reaper can kill a legitimately-progressing phase before
+# its own `_with_budget` timeout fires. The largest phase budget is
+# `execute` at 420 s; +60 s safety margin.
+STALE_AFTER_S = max(PHASE_TIMEOUTS_S.values()) + 60
 # Iter 212m-172 — Awaiting-confirmation / paused-for-user auto-expiry.
 # A loop that sits in AWAITING_CONFIRMATION or PAUSED_FOR_USER for more
 # than AWAITING_CONFIRM_MAX_S is auto-cancelled, its lock released,
@@ -1148,7 +1152,59 @@ class LoopEngine:
 
                 async with _httpx.AsyncClient(timeout=20.0) as _client:
                     _tasks = [_gen_via_parliament(_client, p) for p in paths]
-                    _results = await asyncio.gather(*_tasks, return_exceptions=False)
+                    # Iter 308 — Progress heartbeat.  Without this, the
+                    # asyncio.gather() below blocks silently for the
+                    # entire per-file wall-clock (up to 60 s × ceil(N/3)).
+                    # Nothing is emitted → nothing hits Mongo's
+                    # `last_event` → SSE clients (which poll last_event
+                    # when the engine is on a different worker) see the
+                    # stale "EXECUTE START" event for the whole phase
+                    # duration. That's what user saw as "stuck on
+                    # execute — no live details."  A 10-s cadence
+                    # matches the frontend's GAP_MS (LoopLiveFeed.jsx),
+                    # so the "~ still working (avg ~Ns)" fallback line
+                    # never has time to appear.
+                    _hb_done = asyncio.Event()
+                    _t0 = time.time()
+
+                    async def _heartbeat():
+                        i = 0
+                        while not _hb_done.is_set():
+                            try:
+                                await asyncio.wait_for(_hb_done.wait(), 10.0)
+                                return
+                            except asyncio.TimeoutError:
+                                pass
+                            i += 1
+                            elapsed = int(time.time() - _t0)
+                            try:
+                                await self._emit(
+                                    LoopState.EXECUTING, "execute",
+                                    step=2, total_steps=5,
+                                    message=(f"Generating {len(paths)} file(s) "
+                                             f"— {elapsed}s elapsed…"),
+                                    data={"sub_step": "heartbeat",
+                                          "keepalive": True,
+                                          "elapsed_s": elapsed,
+                                          "hb_tick":   i},
+                                )
+                            except Exception as _hbe:               # noqa: BLE001
+                                logger.debug(
+                                    "[loop %s] execute heartbeat emit "
+                                    "failed: %r", self.loop_id, _hbe,
+                                )
+
+                    _hb_task = asyncio.create_task(_heartbeat())
+                    try:
+                        _results = await asyncio.gather(
+                            *_tasks, return_exceptions=False,
+                        )
+                    finally:
+                        _hb_done.set()
+                        try:
+                            await asyncio.wait_for(_hb_task, timeout=1.0)
+                        except (asyncio.TimeoutError, Exception):
+                            _hb_task.cancel()
                 generated = [r for r in _results if r]
                 logger.info(
                     "[parliament] EXECUTE generated %d/%d files",

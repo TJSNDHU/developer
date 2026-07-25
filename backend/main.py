@@ -288,16 +288,36 @@ async def lifespan(app: FastAPI):
     # Iter 212m-60 — Loop Mode G3 resume.  Sweep any session stuck in
     # an executing phase from a prior worker crash and flip it to
     # PAUSED_FOR_USER with a clear reason so the frontend can prompt.
+    #
+    # Iter 308 — CRITICAL BUG FIX (user reported 2.5 hr stuck execute):
+    # this used to run EXACTLY ONCE at startup. If a pod stayed alive
+    # for hours but an engine task died silently (unhandled callback
+    # exception, GC'd task ref, LLM socket hang, worker OOM without
+    # full restart), the session sat at state="executing" forever
+    # because no reaper was watching. Rewritten as an infinite loop
+    # that runs `resume_stale` every 60 s. Orphaned sessions now get
+    # flipped to PAUSED_FOR_USER within max(STALE_AFTER_S + 60s) of
+    # the last activity — bounded lag, never hangs indefinitely.
     async def _resume_stale_loops():
-        try:
-            if app.state.db is None:
-                return
-            from services.loop_engine import resume_stale
-            n = await resume_stale(app.state.db)
-            if n:
-                logger.info("loop_engine: rescued %d stale session(s)", n)
-        except Exception as e:                          # noqa: BLE001
-            logger.warning("loop_engine resume_stale failed: %r", e)
+        _first_run = True
+        while True:
+            try:
+                if app.state.db is None:
+                    await _asyncio.sleep(60)
+                    continue
+                from services.loop_engine import resume_stale
+                n = await resume_stale(app.state.db)
+                if n:
+                    logger.info(
+                        "loop_engine: rescued %d stale session(s)%s",
+                        n, " on startup" if _first_run else " (periodic sweep)",
+                    )
+            except _asyncio.CancelledError:
+                raise
+            except Exception as e:                          # noqa: BLE001
+                logger.warning("loop_engine resume_stale failed: %r", e)
+            _first_run = False
+            await _asyncio.sleep(60)
     _asyncio.create_task(_resume_stale_loops())
 
     # Iter 212m-115 safety — Create the unique index for the

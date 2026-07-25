@@ -24,9 +24,35 @@ const STEPS = [
 ];
 
 const PHASE_TO_STEP = {
-  idle: 0, plan_pending: 1, plan_approved: 1,
-  executing: 2, verifying: 3, security: 4,
-  shipping: 5, done: 5, error: 0,
+  // Iter 308 — COMPLETE mapping for every backend LoopState value.
+  // Prior version only knew 8 keys; the rest fell through to `0`
+  // which renders as "no step active" — user perceived this as
+  // "stuck / broken" (see user report: 2.5 hr stuck loop_643, all
+  // step icons gray because backend was in `self_healing` or
+  // `paused_for_user`, both unmapped).
+  //
+  // Backend LoopState.value strings (see backend/services/loop_engine.py
+  // line 116-129) are: planning, awaiting_confirmation, executing,
+  // verifying, scanning, shipping, self_healing, paused_for_user,
+  // completed, failed, aborted, expired.
+  idle:                  0,
+  plan_pending:          1,
+  plan_approved:         1,
+  planning:              1,   // backend LoopState.PLANNING
+  awaiting_confirmation: 1,   // plan is drafted, waiting for user OK
+  executing:             2,
+  self_healing:          2,   // auto-restart on phase timeout — still "in" that step
+  paused_for_user:       2,   // scope drift / test-file lock etc. — still on active step
+  verifying:             3,
+  security:              4,   // legacy alias (frontend uses this label)
+  scanning:              4,   // backend LoopState.SCANNING
+  shipping:              5,
+  done:                  5,
+  completed:             5,   // backend LoopState.COMPLETED
+  error:                 0,
+  failed:                0,
+  aborted:               0,
+  expired:               0,
 };
 
 export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
@@ -39,9 +65,15 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
   // v2 preview). Only return null when the phase prop is genuinely
   // missing (component not wired up).
   if (!phase) return null;
-  const active = phase === "error" ? errorStep : (PHASE_TO_STEP[phase] || 0);
-  const isDone = phase === "done";
-  const isIdle = phase === "idle";
+  // Iter 308 — treat backend terminal states as their frontend
+  // equivalents so the visual (checkmark vs error triangle) is
+  // correct regardless of which side named the state.
+  const isDone  = phase === "done"  || phase === "completed";
+  const isError = phase === "error" || phase === "failed"
+                                    || phase === "aborted"
+                                    || phase === "expired";
+  const active  = isError ? errorStep : (PHASE_TO_STEP[phase] || 0);
+  const isIdle  = phase === "idle";
 
   return (
     <div
@@ -77,8 +109,8 @@ export default function LoopStepBar({ phase, retryCount = 0, errorStep = 0 }) {
 
       {STEPS.map((s, i) => {
         const done = isDone || s.id < active;
-        const live = !isDone && !isIdle && s.id === active && phase !== "error";
-        const errd = phase === "error" && s.id === errorStep;
+        const live = !isDone && !isIdle && s.id === active && !isError;
+        const errd = isError && s.id === errorStep;
         const future = isIdle || (!done && !live && !errd);
         const color = errd ? "#EF4444"
           : done ? "#22C55E"

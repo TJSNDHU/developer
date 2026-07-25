@@ -75,7 +75,7 @@ function formatEventLine(ev) {
   return { tag: PHASE_LABEL[ph] || ph, text: msg };
 }
 
-export default function LoopLiveFeed({ loopId, event, terminal }) {
+export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
   const [events, setEvents] = useState([]);          // real events only
   const [now, setNow]       = useState(Date.now());
   const lastRealAt = useRef(Date.now());
@@ -169,7 +169,38 @@ export default function LoopLiveFeed({ loopId, event, terminal }) {
         <div data-testid="loop-live-feed-placeholder"
              style={{ marginTop: 8, color: "#9aa0a8",
                       fontStyle: "italic", fontSize: 11 }}>
-          ~ Waiting for plan approval / opening event stream…
+          {/* Iter 308 — Dynamic placeholder based on the ACTUAL
+              current phase, not a hardcoded "waiting for plan
+              approval" that lied during execute/verify/scan.
+              User's bug report ("stuck at execute, no live details")
+              showed this literal string alongside an active execute
+              phase for 2.5 hrs — the message contradicted the state.
+              Frontend now speaks the truth: which phase is running,
+              and that the first real event is imminent. */}
+          {(() => {
+            const p = (phase || "").toLowerCase();
+            if (p === "planning" || p === "plan_pending" || !p || p === "idle")
+              return "~ Waiting for plan approval / opening event stream…";
+            if (p === "awaiting_confirmation")
+              return "~ Plan ready — waiting for your approval…";
+            if (p === "executing" || p === "execute")
+              return "~ Executing — generating file content (first event soon)…";
+            if (p === "self_healing")
+              return "~ Self-healing — retrying after a phase timeout…";
+            if (p === "paused_for_user")
+              return "~ Paused — waiting for your input…";
+            if (p === "verifying" || p === "verify")
+              return "~ Verifying — running lint/type checks…";
+            if (p === "scanning" || p === "scan" || p === "security")
+              return "~ Vanguard scan — checking for security issues…";
+            if (p === "shipping" || p === "ship")
+              return "~ Shipping — committing to GitHub…";
+            if (p === "completed" || p === "done")
+              return "~ Loop completed.";
+            if (p === "failed" || p === "error" || p === "aborted" || p === "expired")
+              return `~ Loop ended (${p}).`;
+            return `~ ${p} — awaiting events…`;
+          })()}
         </div>
         <style>{`
           @keyframes loop-pulse {
