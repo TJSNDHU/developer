@@ -488,6 +488,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         } else if (active.state === "awaiting_confirmation" && active.plan) {
           setLoopId(active.loop_id);
           setLoopPlan(active.plan);
+        } else if (active.state === "paused_for_user") {
+          // Iter 308 v2 — Reaper-rescued execute/verify/scan sessions
+          // land here (state=paused_for_user, phase=execute|verify|...).
+          // Prior code only handled the ship-gate variant above, so
+          // a rescued loop was invisible after refresh — user saw
+          // the "waiting for plan approval" placeholder forever even
+          // though the loop had been paused by the reaper. Now we
+          // hydrate loopId + reconnect SSE so the paused_for_user
+          // event lands, LoopStepBar paints the correct step, and
+          // the LoopLiveFeed placeholder switches to "Paused —
+          // waiting for your input…".
+          setLoopId(active.loop_id);
+          setLoopPhase("paused_for_user");
+          openLoopStream(active.loop_id);
         } else if (["executing", "verifying", "scanning", "shipping",
                     "self_healing"].includes(active.state)) {
           // Iter 212m-177 — P1-7: loop is MID-RUN (user refreshed while
@@ -2252,7 +2266,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // let the terminal frame ITSELF pass through this function.
     const isTerminalFrame = (state === "completed"
                           || state === "failed"
-                          || state === "aborted");
+                          || state === "aborted"
+                          || state === "expired");
     if (loopTerminalRef.current && !isTerminalFrame) {
       // eslint-disable-next-line no-console
       console.debug("[loop-sse] DROP non-terminal frame after terminal:",
@@ -2274,13 +2289,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     setLoopFeedEvent(ev);
 
     // Drive the existing LoopStepBar phase enum.
-    if (state === "executing")     setLoopPhase("executing");
-    else if (state === "verifying") setLoopPhase("verifying");
-    else if (state === "scanning")  setLoopPhase("security");
-    else if (state === "shipping")  setLoopPhase("shipping");
-    else if (state === "completed") setLoopPhase("done");
-    else if (state === "failed")    setLoopPhase("error");
-    else if (state === "aborted")   setLoopPhase("idle");
+    // Iter 308 v2 — EVERY backend LoopState.value is now mapped so
+    // the step bar renders correctly regardless of the engine's
+    // exact state. The prior gap left self_healing / paused_for_user /
+    // expired as noops → loopPhase stayed on the last known
+    // running-state value, which the user perceived as "frozen".
+    // aborted now maps to `aborted` (a terminal state) not idle so
+    // the visual doesn't lie about a still-live loop.
+    if      (state === "idle")                  setLoopPhase("idle");
+    else if (state === "planning")              setLoopPhase("planning");
+    else if (state === "awaiting_confirmation") setLoopPhase("awaiting_confirmation");
+    else if (state === "executing")             setLoopPhase("executing");
+    else if (state === "self_healing")          setLoopPhase("self_healing");
+    else if (state === "paused_for_user")       setLoopPhase("paused_for_user");
+    else if (state === "verifying")             setLoopPhase("verifying");
+    else if (state === "scanning")              setLoopPhase("scanning");
+    else if (state === "shipping")              setLoopPhase("shipping");
+    else if (state === "completed")             setLoopPhase("completed");
+    else if (state === "failed")                setLoopPhase("failed");
+    else if (state === "aborted")               setLoopPhase("aborted");
+    else if (state === "expired")               setLoopPhase("expired");
 
     // Iter 288 — the terminal-frame's own `phase` field tells us WHERE
     // the loop died. Remember it so LoopStepBar can paint the right

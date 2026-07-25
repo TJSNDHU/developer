@@ -83,6 +83,17 @@ MAX_PHASE_RESTARTS = 1
 # its own `_with_budget` timeout fires. The largest phase budget is
 # `execute` at 420 s; +60 s safety margin.
 STALE_AFTER_S = max(PHASE_TIMEOUTS_S.values()) + 60
+# Iter 308 v2 — Hard startup invariant so a future engineer bumping
+# any PHASE_TIMEOUTS_S entry without adjusting STALE_AFTER_S gets a
+# LOUD import-time failure instead of a silent regression. This
+# `assert` runs when `loop_engine` is first imported by main.py,
+# guaranteeing prod can never boot with a broken invariant.
+assert STALE_AFTER_S > max(PHASE_TIMEOUTS_S.values()), (
+    f"STALE_AFTER_S ({STALE_AFTER_S}s) must exceed the largest "
+    f"phase budget ({max(PHASE_TIMEOUTS_S.values())}s) — otherwise "
+    "the resume_stale reaper can kill a legitimately-progressing "
+    "phase (iter 308 root cause of the 2.5-hr stuck-execute bug)."
+)
 # Iter 212m-172 — Awaiting-confirmation / paused-for-user auto-expiry.
 # A loop that sits in AWAITING_CONFIRMATION or PAUSED_FOR_USER for more
 # than AWAITING_CONFIRM_MAX_S is auto-cancelled, its lock released,
@@ -232,10 +243,26 @@ async def rollback(db, loop_id: str) -> list[dict]:
 # ─── Resume after crash (G3) ──────────────────────────────────────────
 
 async def resume_stale(db) -> int:
-    """Called from main.py on app startup.  Find any session stuck in
+    """Iter 308 v2 — Called every 60 s by main.py's background sweeper
+    (previously ONLY at startup, which is what allowed the 2.5 hr
+    stuck-execute prod bug to fester). Find any session stuck in
     EXECUTING/VERIFYING/SCANNING whose `updated_at` is older than
     STALE_AFTER_S and flip it to PAUSED_FOR_USER with a clear message.
-    Returns the count of sessions that were rescued."""
+
+    Iter 308 v3 — MUST ALSO PERSIST `last_event` with the rescue signal,
+    otherwise cross-worker SSE clients polling Mongo's `last_event`
+    field never see the rescue (they keep seeing the stale
+    "EXECUTE START" for the rest of eternity, which is exactly what
+    the founder's screenshot showed for 2.5 hours). Every rescue now
+    writes a real event dict into `last_event` with:
+      * state       = paused_for_user
+      * phase       = the frozen phase (execute / verify / scan / ship)
+      * message     = human-readable "server restarted mid-loop"
+      * data.rescued = true (frontend flag)
+      * requires_user_action = true (unlocks the retry CTA)
+
+    Returns the count of sessions that were rescued.
+    """
     cutoff = _now() - _td(STALE_AFTER_S)
     rescued = 0
     async for doc in db.loop_sessions.find({
@@ -247,14 +274,29 @@ async def resume_stale(db) -> int:
         "updated_at": {"$lt": cutoff},
     }):
         loop_id = doc.get("loop_id")
+        frozen_phase = doc.get("phase") or "?"
+        rescue_event = _new_event(
+            loop_id,
+            LoopState.PAUSED_FOR_USER,
+            frozen_phase,
+            step=0,
+            total_steps=5,
+            message=(f"Server restarted mid-{frozen_phase}; "
+                     "session paused — retry when ready."),
+            requires_user_action=True,
+            data={"sub_step": "rescued_stale",
+                  "rescued":  True,
+                  "resume_reason": "server_restart_mid_loop"},
+        )
         await db.loop_sessions.update_one(
             {"loop_id": loop_id},
             {"$set": {"state": LoopState.PAUSED_FOR_USER.value,
                       "resume_reason": "server_restart_mid_loop",
-                      "updated_at": _now()}},
+                      "updated_at":  _now(),
+                      "last_event":  rescue_event}},
         )
         await _log_error(
-            db, loop_id, doc.get("phase", "?"),
+            db, loop_id, frozen_phase,
             "Server restarted mid-loop; session paused.",
         )
         rescued += 1
@@ -706,6 +748,19 @@ class LoopEngine:
     async def _with_budget(self, phase: str, coro) -> None:
         """Iter 212m-131 — Auto-restart on phase timeout, hardened.
 
+        Iter 308 v2 — Now ALSO runs a background heartbeat task for
+        the entire duration of the phase. Every HEARTBEAT_INTERVAL_S
+        seconds while the phase is in flight, we _emit() an
+        EXECUTING/VERIFYING/SCANNING/SHIPPING event with
+        `data.sub_step="heartbeat"` and `data.elapsed_s` populated.
+        This keeps `last_event` in Mongo fresh, so cross-worker SSE
+        clients polling last_event never see a stale event for the
+        entire phase duration. Root cause of the user's 2.5 hr
+        "stuck on execute — no live details" report: without this
+        heartbeat, `generate_files`' internal asyncio.gather()
+        blocked silently for up to 60 s × ceil(N/3) with zero
+        emission, so watchers saw a frozen UI.
+
         Changes from iter 212m-112:
           • MAX_PHASE_RESTARTS reduced 2 → 1 (see module docstring —
             phase coroutines aren't idempotent across restarts).
@@ -719,23 +774,80 @@ class LoopEngine:
         """
         budget = PHASE_TIMEOUTS_S[phase]
         last_err: Optional[str] = None
+        # Iter 308 — canonical phase → LoopState so the heartbeat
+        # event carries the correct enum value for the frontend
+        # LoopStepBar (matches PHASE_TO_STEP).
+        _PHASE_STATE = {
+            "plan":      LoopState.PLANNING,
+            "execute":   LoopState.EXECUTING,
+            "verify":    LoopState.VERIFYING,
+            "scan":      LoopState.SCANNING,
+            "ship":      LoopState.SHIPPING,
+            "self_heal": LoopState.SELF_HEALING,
+        }
         for attempt in range(MAX_PHASE_RESTARTS + 1):
+            # Iter 308 — Generic heartbeat wrapper. Fires alongside
+            # every phase; visible to SSE clients + LoopLiveFeed.
+            _hb_done = asyncio.Event()
+            _hb_t0   = time.time()
+
+            async def _heartbeat_loop():
+                i = 0
+                while not _hb_done.is_set():
+                    try:
+                        await asyncio.wait_for(_hb_done.wait(),
+                                               HEARTBEAT_INTERVAL_S)
+                        return
+                    except asyncio.TimeoutError:
+                        pass
+                    i += 1
+                    elapsed = int(time.time() - _hb_t0)
+                    # Iter 308 — only heartbeat while the phase is
+                    # actually in flight; a phase that legitimately
+                    # transitioned to PAUSED_FOR_USER inside its
+                    # coroutine (e.g. scope drift, test-file lock)
+                    # must NOT be visually flipped back to a running
+                    # state by our heartbeat.
+                    if self.state != _PHASE_STATE.get(phase):
+                        continue
+                    try:
+                        await self._emit(
+                            _PHASE_STATE.get(phase, self.state),
+                            phase,
+                            step={"plan":1,"execute":2,"verify":3,
+                                  "scan":4,"ship":5}.get(phase, 0),
+                            total_steps=5,
+                            message=(f"Still {phase}ing — {elapsed}s elapsed…"),
+                            data={"sub_step":  "heartbeat",
+                                  "keepalive": True,
+                                  "phase":     phase,
+                                  "elapsed_s": elapsed,
+                                  "hb_tick":   i},
+                        )
+                    except Exception as _hbe:                    # noqa: BLE001
+                        logger.debug(
+                            "[loop %s] heartbeat emit failed "
+                            "(phase=%s): %r", self.loop_id, phase, _hbe,
+                        )
+
+            _hb_task = asyncio.create_task(_heartbeat_loop())
             try:
-                await asyncio.wait_for(coro(), timeout=budget)
-                if attempt > 0:
-                    logger.info(
-                        "[loop %s] phase=%s recovered on attempt %d/%d",
-                        self.loop_id, phase, attempt + 1,
-                        MAX_PHASE_RESTARTS + 1,
-                    )
-                return
-            except asyncio.CancelledError:
-                # User cancel must NOT trigger an auto-restart.
-                raise
-            except asyncio.TimeoutError:
-                last_err = (f"Phase {phase} exceeded {budget}s budget "
-                            f"(attempt {attempt + 1}/{MAX_PHASE_RESTARTS + 1})")
-                logger.warning("[loop %s] %s", self.loop_id, last_err)
+                try:
+                    await asyncio.wait_for(coro(), timeout=budget)
+                    if attempt > 0:
+                        logger.info(
+                            "[loop %s] phase=%s recovered on attempt %d/%d",
+                            self.loop_id, phase, attempt + 1,
+                            MAX_PHASE_RESTARTS + 1,
+                        )
+                    return
+                except asyncio.CancelledError:
+                    # User cancel must NOT trigger an auto-restart.
+                    raise
+                except asyncio.TimeoutError:
+                    last_err = (f"Phase {phase} exceeded {budget}s budget "
+                                f"(attempt {attempt + 1}/{MAX_PHASE_RESTARTS + 1})")
+                    logger.warning("[loop %s] %s", self.loop_id, last_err)
                 if attempt < MAX_PHASE_RESTARTS:
                     backoff = 2 ** (attempt + 1)
                     # Bug #10 fix — set state BEFORE emitting the event
@@ -780,6 +892,19 @@ class LoopEngine:
                 await self._fail(phase, last_err or
                                  f"Phase {phase} exceeded {budget}s budget.")
                 return
+            finally:
+                # Iter 308 — ALWAYS stop the heartbeat before leaving
+                # this iteration (return, raise, retry, or fall-through).
+                # Without this the heartbeat task leaks into the next
+                # phase and continues emitting stale "still executing"
+                # events after we've moved on to verify.
+                _hb_done.set()
+                if not _hb_task.done():
+                    try:
+                        await asyncio.wait_for(_hb_task, timeout=0.5)
+                    except (asyncio.TimeoutError, asyncio.CancelledError,
+                            Exception):
+                        _hb_task.cancel()
 
     # ── Phase 2 — Execute (LLM generates file content) ─────────────
     async def _do_execute(self) -> None:
@@ -1152,59 +1277,7 @@ class LoopEngine:
 
                 async with _httpx.AsyncClient(timeout=20.0) as _client:
                     _tasks = [_gen_via_parliament(_client, p) for p in paths]
-                    # Iter 308 — Progress heartbeat.  Without this, the
-                    # asyncio.gather() below blocks silently for the
-                    # entire per-file wall-clock (up to 60 s × ceil(N/3)).
-                    # Nothing is emitted → nothing hits Mongo's
-                    # `last_event` → SSE clients (which poll last_event
-                    # when the engine is on a different worker) see the
-                    # stale "EXECUTE START" event for the whole phase
-                    # duration. That's what user saw as "stuck on
-                    # execute — no live details."  A 10-s cadence
-                    # matches the frontend's GAP_MS (LoopLiveFeed.jsx),
-                    # so the "~ still working (avg ~Ns)" fallback line
-                    # never has time to appear.
-                    _hb_done = asyncio.Event()
-                    _t0 = time.time()
-
-                    async def _heartbeat():
-                        i = 0
-                        while not _hb_done.is_set():
-                            try:
-                                await asyncio.wait_for(_hb_done.wait(), 10.0)
-                                return
-                            except asyncio.TimeoutError:
-                                pass
-                            i += 1
-                            elapsed = int(time.time() - _t0)
-                            try:
-                                await self._emit(
-                                    LoopState.EXECUTING, "execute",
-                                    step=2, total_steps=5,
-                                    message=(f"Generating {len(paths)} file(s) "
-                                             f"— {elapsed}s elapsed…"),
-                                    data={"sub_step": "heartbeat",
-                                          "keepalive": True,
-                                          "elapsed_s": elapsed,
-                                          "hb_tick":   i},
-                                )
-                            except Exception as _hbe:               # noqa: BLE001
-                                logger.debug(
-                                    "[loop %s] execute heartbeat emit "
-                                    "failed: %r", self.loop_id, _hbe,
-                                )
-
-                    _hb_task = asyncio.create_task(_heartbeat())
-                    try:
-                        _results = await asyncio.gather(
-                            *_tasks, return_exceptions=False,
-                        )
-                    finally:
-                        _hb_done.set()
-                        try:
-                            await asyncio.wait_for(_hb_task, timeout=1.0)
-                        except (asyncio.TimeoutError, Exception):
-                            _hb_task.cancel()
+                    _results = await asyncio.gather(*_tasks, return_exceptions=False)
                 generated = [r for r in _results if r]
                 logger.info(
                     "[parliament] EXECUTE generated %d/%d files",

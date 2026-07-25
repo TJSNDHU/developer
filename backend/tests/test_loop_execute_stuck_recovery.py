@@ -86,12 +86,32 @@ async def test_stale_executing_session_gets_rescued():
         )
         doc = await db.loop_sessions.find_one(
             {"loop_id": loop_id},
-            {"_id": 0, "state": 1, "resume_reason": 1},
+            {"_id": 0, "state": 1, "resume_reason": 1, "last_event": 1},
         )
         assert doc["state"] == LoopState.PAUSED_FOR_USER.value, (
             f"expected paused_for_user, got {doc['state']}"
         )
         assert doc["resume_reason"] == "server_restart_mid_loop"
+        # Iter 308 v2 — bug_testing_agent flagged this: the rescue
+        # MUST also persist a `last_event` frame so cross-worker SSE
+        # clients polling `last_event` see the rescue instead of the
+        # stale "EXECUTE START" from before the crash. Without this,
+        # the user's LoopLiveFeed keeps showing execute-in-progress
+        # forever even after the reaper has actually paused the loop.
+        le = doc.get("last_event") or {}
+        assert le, "resume_stale must persist a last_event on rescue"
+        assert le.get("state") == LoopState.PAUSED_FOR_USER.value, (
+            f"last_event.state must be paused_for_user, got {le.get('state')}"
+        )
+        assert le.get("requires_user_action") is True, (
+            "last_event.requires_user_action must be True so the "
+            "frontend renders the retry CTA"
+        )
+        assert (le.get("data") or {}).get("rescued") is True, (
+            "last_event.data.rescued must be True — LoopLiveFeed uses "
+            "this flag to distinguish reaper rescue from a normal "
+            "paused_for_user pause"
+        )
     finally:
         await db.loop_sessions.delete_many({"loop_id": loop_id})
 
