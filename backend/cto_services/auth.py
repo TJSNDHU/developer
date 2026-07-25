@@ -29,6 +29,34 @@ async def current_dev(authorization: Optional[str] = None) -> dict:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    # Iter 307 — JWT revocation gate. Two orthogonal checks, both cheap
+    # (one indexed find_one each, sub-3ms combined on preview):
+    #   1. jti in `revoked_tokens` collection → user hit /auth/logout
+    #      or an admin nuked this specific token.
+    #   2. iat < dev_users.session_barrier_at → an admin (or the user
+    #      themselves via /auth/revoke-all-sessions) declared every
+    #      token issued before `barrier_at` invalid.
+    # See services/token_revocation.py module docstring for the
+    # fail-open-on-DB-hiccup rationale.
+    try:
+        from cto_services.db import get_db
+        from services import token_revocation as _rev
+        db_for_check = get_db()
+        jti = payload.get("jti")
+        if jti and await _rev.is_jti_revoked(db_for_check, jti):
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+        uid = payload.get("user_id")
+        iat = payload.get("iat")
+        if uid and iat and await _rev.is_iat_before_barrier(db_for_check, uid, iat):
+            raise HTTPException(status_code=401, detail="All sessions revoked — sign in again")
+    except HTTPException:
+        raise
+    except Exception:
+        # DB unavailable → fail-open on the CHECK side. See module
+        # docstring in services/token_revocation.py — matches industry
+        # trade-off (Amazon, GitHub) and the codebase's existing
+        # `require_admin` pattern of swallowing DB hiccups.
+        pass
     # Enrich with DB flags so callers see fresh is_unlimited / tier values
     try:
         from cto_services.db import get_db

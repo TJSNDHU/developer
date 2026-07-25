@@ -573,3 +573,95 @@ async def set_track(
         {"$set": {"track": track, "track_updated_at": now}},
     )
     return {"ok": True, "track": track, "updated_at": now}
+
+
+# ─────────────────────── Iter 307 · JWT revocation ────────────────────────
+#
+# `jti` and `iat` have been on every issued token since iter 212m-55 but
+# were never consulted server-side — logout was purely a localStorage
+# wipe. These endpoints close that loop. See services/token_revocation.py
+# for the store design and hot-path cost measurements.
+
+class RevokeAllBody(BaseModel):
+    user_id: str
+    reason: Optional[str] = None
+
+
+@router.post("/logout")
+async def logout(authorization: Optional[str] = Header(None)) -> dict:
+    """Server-side revocation of the caller's current token.
+    Adds this token's jti to `revoked_tokens` with a TTL matching the
+    token's own `exp`, so every subsequent request that presents the
+    same token is rejected in `current_dev` with 401.
+
+    Idempotent — logging out twice with the same token is a no-op.
+
+    Failure modes:
+      - Missing / malformed Authorization header → 401 (via current_dev).
+      - Already-expired token → 401 (via current_dev). Nothing to revoke.
+      - DB unavailable → 503, so the caller retries. We do NOT silently
+        clear localStorage and pretend — that would leave the server-side
+        session live while the UI thinks it's out.
+    """
+    payload = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected — cannot revoke token")
+    from services.token_revocation import revoke_jti
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        # Legacy tokens without jti/exp (pre-iter-212m-55) — can't be
+        # per-token-revoked. Client should just drop the token; the
+        # 7-day expiry caps blast radius.
+        return {"ok": True, "revoked": False,
+                "reason": "legacy_token_no_jti"}
+    ok = await revoke_jti(
+        db, jti=jti, exp=int(exp),
+        user_id=payload.get("user_id"),
+        reason="logout",
+    )
+    if not ok:
+        raise HTTPException(503, "Revocation store write failed — retry")
+    return {"ok": True, "revoked": True, "jti_last6": jti[-6:]}
+
+
+@router.post("/revoke-all-sessions")
+async def revoke_all_sessions(
+    body: RevokeAllBody,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Admin-only: nuke every active session for a user by setting
+    their `session_barrier_at = now`. All existing JWTs for that user
+    (regardless of jti) start rejecting on the next request.
+
+    O(1) write — no need to enumerate active tokens.
+
+    Used by the founder when a specific user's device / credentials
+    are suspected compromised. The user must log in again to get a
+    fresh token issued after the barrier.
+
+    Also allowed for a user to revoke THEIR OWN sessions (e.g. "log me
+    out of all my devices" flow) — same endpoint, same body, matching
+    user_id.
+    """
+    caller = await current_dev(authorization)
+    target = body.user_id.strip()
+    if not target:
+        raise HTTPException(400, "user_id required")
+    is_self  = caller.get("user_id") == target
+    is_admin = caller.get("is_admin") or caller.get("tier") == "founder"
+    if not (is_self or is_admin):
+        raise HTTPException(403, "Only the account owner or an admin can revoke sessions")
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "Database not connected")
+    from services.token_revocation import revoke_all_for_user
+    modified = await revoke_all_for_user(
+        db, user_id=target,
+        reason=(body.reason or ("self" if is_self else "admin_nuke")),
+    )
+    return {"ok": True, "user_id": target,
+            "sessions_nuked": modified,
+            "actor": "self" if is_self else "admin"}
+

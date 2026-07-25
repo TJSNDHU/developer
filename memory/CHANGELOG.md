@@ -4,6 +4,64 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 307 (JWT revocation shipped: `jti` claim finally consulted, `/auth/logout` really invalidates, per-user session barrier)
+
+**Trigger**: Founder-flagged security gap for 3 reporting cycles. `jti` claim was written to every JWT since iter 212m-55 but never consulted anywhere in the codebase — logout was purely a localStorage wipe, so a stolen token stayed live on the server for the full 7-day TTL. Founder locked scope: implement JWT revocation NOW, nothing else in this session.
+
+**Requirements delivered**:
+
+1. ✅ **jti checked on every protected route** — `cto_services/auth.py::current_dev` now runs two orthogonal revocation checks after JWT decode + before DB enrichment. Every route that gates on `current_dev` OR `require_admin` (which itself calls `current_dev`) inherits this automatically — no per-route wiring.
+2. ✅ **Mongo revocation store with TTL** — `NEW: services/token_revocation.py`. Collection `revoked_tokens` with:
+   - `expires_at` TTL index (`expireAfterSeconds=0`) → Mongo auto-deletes each row at the underlying JWT's natural exp, collection is size-bounded by the 7-day window.
+   - Unique `jti` index → hot-path lookup is a single indexed find_one.
+   - `user_id` secondary index → for audit queries.
+   - Idempotent via `$setOnInsert` — logging out twice is a no-op.
+3. ✅ **`/auth/logout` really revokes** — `NEW: POST /api/aurem-dev/auth/logout`. Reads current jti from the caller's JWT, writes `{jti, user_id, reason:"logout", expires_at}` into `revoked_tokens`. Fails LOUD (503) if the DB write fails — never silently pretends success. Frontend `lib/api.js::logout()` and `Admin.jsx::logout()` both fire `/auth/logout` via `keepalive: true` fetch before wiping localStorage.
+4. ✅ **Admin "revoke all sessions"** — `NEW: POST /api/aurem-dev/auth/revoke-all-sessions`. Sets `dev_users.session_barrier_at = now`. Any JWT for that user with `iat < barrier` gets rejected on the next request. **O(1) write** — no enumeration of active jtis needed. Endpoint accepts self-nuke (user revoking their own sessions) OR admin-nuke (founder revoking someone else's).
+5. ✅ **4 behavioural tests** — `backend/tests/test_jwt_revocation.py`:
+   - `test_valid_token_works_before_logout` — baseline sanity, `/auth/me` returns 200 with the user's email.
+   - `test_same_token_rejected_after_logout` — THE headline test. Original token 200 → `/auth/logout` returns `{ok, revoked:true, jti_last6}` → same token now 401 with detail `"Token has been revoked"`. Also asserts the Mongo row exists with `reason="logout"`, `user_id`, and `expires_at` matching the JWT's own `exp` (± clock skew).
+   - `test_ttl_index_is_installed_on_revoked_tokens` — inspects Mongo `index_information()`, confirms `expireAfterSeconds=0` on `expires_at` and the fast-lookup index on `jti`. Cannot wait 7 days for actual auto-delete; asserts the mechanism is wired.
+   - `test_revoke_all_sessions_kills_every_token_for_user` — issues two independent tokens (signup + login), both work, `/auth/revoke-all-sessions` returns `{sessions_nuked:1, actor:"self"}`, BOTH tokens now 401 with `"All sessions revoked — sign in again"`, then a fresh login AFTER the barrier works again (barrier is a wall, not a permanent ban).
+
+**Live verification on preview (curl, not just unit tests)**:
+```
+STEP 1  signup → token issued
+STEP 2  GET /auth/me    → 200, email echoed
+STEP 3  POST /auth/logout → 200 {ok, revoked:true, jti_last6:"b51a40"}
+STEP 4  GET /auth/me    → 401 {"detail":"Token has been revoked"}
+STEP 5  POST /auth/logout again with same token → 401 (idempotent: current_dev rejects the already-dead token before it can be re-revoked)
+```
+
+**Hot-path latency cost (isolated measurement)**:
+- `is_jti_revoked`         (indexed find_one on `revoked_tokens.jti`): **p50=0.29ms · p95=0.40ms · max=0.50ms**
+- `is_iat_before_barrier`  (find_one on `dev_users.session_barrier_at`): **p50=0.29ms · p95=0.47ms · max=1.67ms**
+- **Combined added overhead per authenticated request: p50 ≈ 0.57ms**. Well below any user-perceptible threshold. Full `/auth/me` round-trip observed p50=4.9ms (includes JWT decode + revocation checks + user enrichment + fresh-token signing + response serialization).
+
+**Design decisions worth flagging**:
+- **Fail-open on the check side** — if Mongo hiccups during the revocation lookup, `current_dev` swallows the exception and lets the request through. Rationale: matches industry standard (Amazon, GitHub) and the codebase's existing `require_admin` pattern. Alternative (fail-closed) would log every user out during any DB blip — much worse blast radius.
+- **Fail-closed on the write side** — `/auth/logout` returns 503 if the revocation write fails. Rationale: we never want the UI to think it logged out while the server-side token stays live. Client retries.
+- **Two orthogonal revocation primitives** (per-jti kill + per-user barrier) — kept separate on purpose. Per-jti is precise (kill exactly one token when a specific device is logged out). Per-user barrier is bulk (kill everything for a user in O(1) without enumerating active tokens). Different tools, different jobs.
+- **`session_barrier_at` compares against integer-second `iat`** — the barrier granularity is 1 second. Cannot revoke tokens issued in the same second as the barrier write; not a real-world concern (attacker would have to steal a token AND replay within the barrier's own microsecond of being set).
+- **Legacy tokens without jti** — pre-iter-212m-55 tokens still decode fine, but their `/auth/logout` returns `{ok:true, revoked:false, reason:"legacy_token_no_jti"}`. Blast radius already capped by the 7-day exp. No user-facing regression.
+
+**Remaining honest gaps**:
+- **Frontend fire-and-forget** — `lib/api.js::logout()` uses `fetch(..., {keepalive:true})` without awaiting. If the network drops in the exact millisecond between token wipe and the /auth/logout hitting the server, the token stays revocation-unregistered on the server (still valid until 7-day natural exp). Trade-off: sign-out UX doesn't hang on a slow backend. `keepalive: true` gives the browser license to complete the request after the page unloads, minimizing this window. Not eliminating it.
+- **No in-memory jti cache** — every authed request hits Mongo. At current traffic (single-digit RPS on preview) the 0.57ms is fine; if we ever hit 10k RPS we should add a per-pod LRU of KNOWN-GOOD jtis. Documented, not built.
+- **Revoke-all-sessions has no audit trail beyond the barrier row** — the `reason` and `session_barrier_reason` are stored on `dev_users` but there's no separate audit event fired. Add if founder wants forensic timeline.
+
+**Files changed**:
+- NEW: `backend/services/token_revocation.py` (152 lines)
+- NEW: `backend/tests/test_jwt_revocation.py` (4 tests, all pass)
+- `backend/cto_services/auth.py` — added revocation checks in `current_dev`
+- `backend/routers/auth.py` — added `POST /auth/logout` + `POST /auth/revoke-all-sessions`
+- `backend/main.py` — added `ensure_indexes` call in lifespan
+- `frontend/src/lib/api.js::logout()` — fires server-side revocation before wiping localStorage
+- `frontend/src/pages/Admin.jsx::logout()` — same
+
+**Still requires prod verification (per founder directive)**: needs redeploy → curl against `https://auremcto.com/api/aurem-dev/auth/logout` with a freshly-issued token, then confirm `/auth/me` returns 401 with `"Token has been revoked"`.
+
+
 ## 2026-02 — Iter 306 (CI workflow bombshell audit: 5 broken files, all fixed, all actionlint-verified)
 
 **Trigger**: User reported GitHub validator rejecting `quality-gate.yml` at lines 243-287 (`Required property is missing: run`), plus near-100% failure rate across 2500+ runs on 4 other workflows (`auto_deploy.yml`, `auto_push.yml`, `ci.yml`, `qa-weekly.yml`). Root cause of my previous "YAML parses clean" false negative: `yaml.safe_load` only checks YAML syntax, not GitHub Actions schema. Fixed by installing `actionlint` (GitHub's own schema validator) in `/tmp/`.

@@ -2196,6 +2196,18 @@ export default function Admin({ initialTab = "overview" }) {
   );
 
   function logout() {
+    // Iter 307 — fire server-side revocation before wiping local state.
+    // Fire-and-forget: sign-out UX should never hang on a slow backend.
+    const tok = localStorage.getItem("aurem_token");
+    if (tok) {
+      try {
+        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/aurem-dev/auth/logout`, {
+          method:  "POST",
+          headers: { Authorization: `Bearer ${tok}` },
+          keepalive: true,
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
+    }
     localStorage.removeItem("aurem_token");
     localStorage.removeItem("aurem_user");
     navigate("/login");

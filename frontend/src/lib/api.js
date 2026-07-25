@@ -141,6 +141,25 @@ export function isAdminOrFounder(u) {
 }
 
 export function logout() {
+  // Iter 307 — fire server-side revocation BEFORE we drop the token
+  // locally. If the network call fails we still clear localStorage so
+  // the user isn't stuck; the token stays valid until natural exp on
+  // the server, capped at 7 days. This is a Best-effort revoke: the
+  // primary safety guarantee is the localStorage wipe + 7-day TTL,
+  // /auth/logout is the belt on top of the braces.
+  const tok = localStorage.getItem("aurem_token");
+  if (tok) {
+    // Fire and forget. Never await — sign-out UX shouldn't hang on a
+    // slow backend. Errors are swallowed intentionally; we're
+    // clearing local state either way.
+    try {
+      fetch(`${process.env.REACT_APP_BACKEND_URL}/api/aurem-dev/auth/logout`, {
+        method:  "POST",
+        headers: { Authorization: `Bearer ${tok}` },
+        keepalive: true,
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+  }
   setToken(null);
   setUser(null);
   window.location.href = "/login";

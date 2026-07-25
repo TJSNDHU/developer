@@ -678,6 +678,17 @@ async def lifespan(app: FastAPI):
         except Exception as _e:
             logger.warning("repo_context_timings TTL index failed: %r", _e)
 
+        # Iter 307 — JWT revocation store. TTL on expires_at auto-drops
+        # entries once the underlying JWT would have expired anyway
+        # (7 days), so the collection is size-bounded. See
+        # services/token_revocation.py.
+        try:
+            from services.token_revocation import ensure_indexes as _rev_idx
+            await _rev_idx(app.state.db)
+            logger.info("🔐 revoked_tokens indexes ensured (jti + TTL)")
+        except Exception as _e:
+            logger.warning("revoked_tokens indexes failed: %r", _e)
+
         # Iter 123 — wire deploy_logger.
         try:
             from services.deploy_logger import log_deploy_event
