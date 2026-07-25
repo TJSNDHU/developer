@@ -4,6 +4,54 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 309 · Phase 0.2 CI Investigation (root causes found, fixes applied, awaiting live GH re-verification)
+
+**Founder finding (better than my original scope)**: pushed `phase-0.2-canary`, opened PR #174 → `ci.yml` never triggered on either the branch push OR the PR into main. `quality-gate.yml` fired, but its pytest job is a hardcoded whitelist of ~15 test node IDs — our canary was never on that list.
+
+**Root cause #1 (mine — iter 306 was incomplete)**:
+- `ci.yml::on: push: branches: [main, master, dev, staging]` — never updated to `**` like I did for quality-gate.yml in iter 306.
+- Result: any feature branch push (which is exactly how Emergent's Save-to-GitHub works — the founder picks any custom branch) never fires ci.yml.
+- **Fix**: `push: branches: ['**']` added to ci.yml, mirroring the iter 306 quality-gate.yml pattern. Diff-based jobs (`deploy-gate` at line 396) keep their existing `github.event_name == 'push'` guards so they don't false-fire on feature-branch pushes.
+
+**Root cause #2 (deeper — actual mechanism behind the "13 silent failures")**:
+- `quality-gate.yml::invariants` job at old lines 155-170 ran a hardcoded WHITELIST of ~15 specific pytest node IDs. Every new test file added to `backend/tests/` was invisible to CI unless someone manually appended it to this list.
+- This is not "tests hidden by broken YAML" — this is "tests never discovered by CI in the first place".
+- **Fix**: replaced hardcoded whitelist with discovery-based collection:
+  ```
+  python -m pytest tests/ \
+    -k "regression or invariant or iter309 or ci_canary or frontend_sync or execute_stuck_recovery or jwt_revocation or self_heal_paused" \
+    --tb=short -q \
+    --ignore=tests/test_iter138_acceptance_seven.py \
+    --ignore=tests/test_iter212m163_aggression_chat.py
+  ```
+- Local pytest `--collect-only` verifies: **191 tests match** (vs old 15-node whitelist), the canary is included (1 collection), all iter309 tests included (6 collections). Two known-broken test files ignored to keep collection green while the DB-dependent tests still live in `ci.yml`'s backend-tests job.
+- **Trade-off flagged**: broader collection means the invariants job now takes ~60-90s instead of the prior <30s. Founder-approved trade if it closes the silent-failures gap.
+
+**Root cause #3 (cannot verify from pod, needs GH-side inspection)**:
+- Even after fix #1, `ci.yml` might still not fire on PR #174. Possible reasons — none of which are checkable from this preview pod:
+  - **GH Actions uses the workflow file from PR HEAD for same-repo PRs**. If `phase-0.2-canary` branch pushed BEFORE this fix landed, its `ci.yml` still has the old branch whitelist. The PR-event runner reads from HEAD → still won't fire.
+  - **Repo-level Actions setting** may restrict workflow runs on same-repo PRs.
+  - **Branch protection rules** may require specific status checks that override `on:` triggers.
+- Founder must manually check GitHub repo → Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests" AND "Workflow permissions" AND Settings → Branches → Branch protection → any required-status-check overrides.
+
+**Files changed**:
+- `.github/workflows/ci.yml` — trigger widened to `push: branches: ['**']`
+- `.github/workflows/quality-gate.yml::invariants` job — discovery-based pytest, no more hardcoded whitelist
+
+**Validated locally**:
+- `actionlint .github/workflows/*.yml` → exit 0
+- Discovery pattern collects 191 tests including canary + all iter309 tests
+
+**Not yet verified live** (needs founder Save-to-GitHub):
+- Re-push `phase-0.2-canary` (a rebase or fresh commit) to bring the updated ci.yml onto the head. Watch Actions tab. Expected outcomes:
+  - ✅ `ci.yml::backend-tests` fires + goes RED with canary AssertionError → both fixes work, delete canary + move to Phase 1
+  - ✅ `quality-gate.yml::invariants` fires + goes RED with canary → fix #2 alone is sufficient, ci.yml issue is separate
+  - 🚫 Neither fires → GH-side setting is blocking, founder must inspect repo Actions permissions
+- Regardless of ci.yml outcome, quality-gate.yml SHOULD now catch the canary since it fires on `push: '**'` and discovery collects the canary file.
+
+**Phase 1 (persistent rules) remains BLOCKED until at least one workflow (ci.yml OR quality-gate.yml) demonstrates a live RED run for the canary.**
+
+
 ## 2026-02 — Iter 309 · Phase 0.1 + start of 0.2 (Loop housekeeping merge + CI canary staged)
 
 **Founder directive (approved plan)**: Ordering 0→1→2→3→4 locked. Phase 5 deferred with data gate. Binding corrections applied throughout — no LLM correction-detection in Phase 1, no auto-DB-restore in Phase 3, risk score is change-only (no policy factors), 14-day shadow mode for Phase 2, per-project feature flags on ALL phases default OFF, per-phase instrumented success metric mandatory.

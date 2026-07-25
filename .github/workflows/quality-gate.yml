@@ -148,27 +148,28 @@ jobs:
           MONGO_URL: mongodb://localhost:27017
           DB_NAME:   aurem_ci_smoke
         run: |
-          # Only source-level regression + invariant tests. The DB-
-          # backed ones are covered by the main ci.yml job that spins
-          # up MongoDB; here we run just the static-guarantee subset
-          # so this gate stays under 30 seconds.
-          python -m pytest \
-            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter278_heartbeat_frames_every_6s \
-            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter280_chat_input_enabled_during_loop \
-            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_plan_approval_reachable_from_any_prior_state \
-            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_loop_live_feed_pending_placeholder \
-            tests/test_regression_iter279_281_bug_per_fix.py::test_regression_iter281_intent_tier_indicator_no_null_return \
-            tests/test_invariants_continuous_quality.py::test_invariant_chat_input_never_disabled_during_active_loop \
-            tests/test_invariants_continuous_quality.py::test_invariant_every_sse_event_reaches_frontend_playwright \
-            tests/test_invariants_continuous_quality.py::test_invariant_loop_live_feed_never_returns_null \
-            tests/test_invariants_continuous_quality.py::test_invariant_intent_tier_indicator_never_returns_null \
-            tests/test_release_it_patterns_iter282.py::test_invariant_bulkhead_unique_index_declared \
-            tests/test_release_it_patterns_iter282.py::test_invariant_steady_state_declared_in_bootstrap_spec \
-            tests/test_release_it_patterns_iter282.py::test_regression_iter282_sse_stream_has_wallclock_ceiling \
-            tests/test_release_it_patterns_iter282.py::test_invariant_governor_retry_ceilings_exist \
-            tests/test_sre_discipline_integrity.py \
-            tests/test_quality_gate_enforcement.py \
-            -v --tb=short
+          # Iter 309 · Phase 0.2 — DISCOVERY-BASED test collection.
+          # Prior version was a hardcoded whitelist of specific test
+          # node IDs (11 tests). Every new test file added to the
+          # repo was invisible to CI unless someone manually
+          # appended it to the whitelist — this is the actual
+          # mechanism behind the "13 silent test failures" the audit
+          # flagged. Discovery-based collection with a keyword filter
+          # picks up new regression/invariant tests automatically.
+          #
+          # Keyword patterns intentionally broad — covers historical
+          # `test_regression_iter*` and `test_invariants_*` naming
+          # plus new iter309+ conventions plus any test containing
+          # the word "canary" (Phase 0.2 CI-signal probes).
+          # DB-backed tests that need a real Mongo instance still
+          # live in ci.yml's backend-tests job (which spins one up).
+          # This job intentionally runs the STATIC / mock-DB subset
+          # for a fast <60s gate.
+          python -m pytest tests/ \
+            -k "regression or invariant or iter309 or ci_canary or frontend_sync or execute_stuck_recovery or jwt_revocation or self_heal_paused" \
+            --tb=short -q \
+            --ignore=tests/test_iter138_acceptance_seven.py \
+            --ignore=tests/test_iter212m163_aggression_chat.py
 
   test-style-guard:
     # Iter 291 — block PRs that add new test files whose STATIC_GREP

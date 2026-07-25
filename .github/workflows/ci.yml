@@ -1,8 +1,19 @@
 name: AUREM CI — Build + Test Guard
 
 on:
+  # Iter 309 · Phase 0.2 — CI trigger reality check (round 2).
+  # Round 1 (iter 306) fixed quality-gate.yml's on: to include
+  # `push: branches: **`. This workflow (ci.yml) was NOT updated at
+  # the same time — it kept `push: branches: [main, master, dev,
+  # staging]` which meant no feature branch push (e.g. Emergent's
+  # Save-to-GitHub picking any custom branch) ever triggered the
+  # backend pytest job. Founder pushed `phase-0.2-canary` to prove
+  # CI failure propagation; ci.yml never fired because the branch
+  # name didn't match the whitelist. Symmetry with quality-gate.yml
+  # restored below.
   push:
-    branches: [main, master, dev, staging]
+    branches:
+      - '**'
   pull_request:
     branches: [main, master]
 
