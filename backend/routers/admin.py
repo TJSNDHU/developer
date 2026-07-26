@@ -4006,6 +4006,15 @@ async def admin_dev_users_created_at_health(
 # reduced 2→1). If the ratio is flat, the test-only regressions are
 # fixture-shape issues; if it climbed, we have a real prod bug and
 # have to jump the queue.
+#
+# Iter 309-b (founder review 2026-07-26) — expanded to also return
+# an explicit `data_source` block (db_name + host-hint + commit_sha
+# + env label) so the founder can verify the card is actually
+# reading prod Mongo, and a `failed_sample` list classifying each
+# failed session as founder / admin / test / user so a 50% failure
+# ratio on 14 resolved sessions can be triaged against WHO owned
+# those sessions before treating the number as a live user-facing
+# signal.
 @router.get("/loop-metrics")
 async def loop_metrics(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
@@ -4049,9 +4058,104 @@ async def loop_metrics(authorization: Optional[str] = Header(None)):
     if current["failed_ratio"] is not None and previous["failed_ratio"] is not None:
         delta_ratio = current["failed_ratio"] - previous["failed_ratio"]
 
+    # ── data_source identity ────────────────────────────────────────
+    # Never leak connection strings; return only fields safe for
+    # display in an admin UI so the founder can confirm the card
+    # is actually reading prod (not preview / not local).
+    from services.usage import is_founder_email
+    mongo_url = os.environ.get("MONGO_URL", "")
+    if "@" in mongo_url:
+        # mongodb+srv://user:pass@host/…  → keep only the host stem
+        host_hint = mongo_url.split("@", 1)[1].split("/", 1)[0]
+    else:
+        host_hint = mongo_url.split("//", 1)[-1].split("/", 1)[0]
+    try:
+        from routers.version import _COMMIT_SHA, _ENV_NAME
+    except Exception:
+        _COMMIT_SHA, _ENV_NAME = "unknown", "unknown"
+    data_source = {
+        "db_name":     os.environ.get("DB_NAME", "unknown"),
+        "mongo_host":  host_hint or "unknown",
+        "commit_sha":  _COMMIT_SHA,
+        "env":         _ENV_NAME,
+        "queried_at":  now.isoformat(),
+    }
+
+    # ── failed-session breakdown for the current window ─────────────
+    # Pulls the actual 7 (or however many) failed sessions so the
+    # founder can eyeball WHO owned them before treating the
+    # failed_ratio as a live user-facing regression.  Classifies
+    # each session's owner into: founder / admin / test / user.
+    failed_cursor = db.loop_sessions.find(
+        {"state": "failed", "created_at": {"$gte": cur_start, "$lt": now}},
+        {
+            "_id": 1, "user_id": 1, "created_at": 1, "updated_at": 1,
+            "current_phase": 1, "phase_history": 1, "error_summary": 1,
+            "prompt_summary": 1,
+        },
+    ).sort("created_at", -1).limit(50)
+
+    failed_sample: list = []
+    async for doc in failed_cursor:
+        uid = doc.get("user_id")
+        user_doc = None
+        if uid:
+            try:
+                # user_id might be stored as ObjectId or string
+                from bson import ObjectId  # type: ignore
+                q = {"_id": ObjectId(uid)} if not isinstance(uid, ObjectId) else {"_id": uid}
+            except Exception:
+                q = {"_id": uid}
+            try:
+                user_doc = await db.dev_users.find_one(q, {"email": 1, "role": 1, "is_admin": 1})
+            except Exception:
+                user_doc = None
+        email = (user_doc or {}).get("email") or ""
+        role  = (user_doc or {}).get("role") or ""
+        is_admin_flag = bool((user_doc or {}).get("is_admin"))
+        # Classification order matters — founder wins over admin
+        # wins over test wins over user.
+        if is_founder_email(email):
+            classification = "founder"
+        elif is_admin_flag or role == "admin":
+            classification = "admin"
+        elif email.endswith("@aurem.dev") or "test" in email.lower():
+            classification = "test"
+        elif not email:
+            classification = "orphan"
+        else:
+            classification = "user"
+
+        # Last phase attempted before failure — useful for the
+        # founder to see if all 7 failed on the same phase (points
+        # at a single root cause) or scattered.
+        phase = doc.get("current_phase") or ""
+        history = doc.get("phase_history") or []
+        if not phase and history:
+            phase = history[-1].get("phase", "") if isinstance(history[-1], dict) else ""
+
+        failed_sample.append({
+            "session_id":     str(doc.get("_id")),
+            "user_hint":      _email_hint(email),
+            "classification": classification,
+            "last_phase":     phase or "?",
+            "error_short":    (doc.get("error_summary") or "")[:140],
+            "created_at":     doc.get("created_at").isoformat()
+                                if hasattr(doc.get("created_at"), "isoformat")
+                                else str(doc.get("created_at") or ""),
+        })
+
+    # Owner-classification summary — makes the "who failed" answer
+    # visible at a glance.
+    owner_counts: dict = {}
+    for row in failed_sample:
+        c = row["classification"]
+        owner_counts[c] = owner_counts.get(c, 0) + 1
+
     return {
         "ok":            True,
         "window_days":   window_days,
+        "data_source":   data_source,
         "current": {
             "since_utc":  cur_start.isoformat(),
             "until_utc":  now.isoformat(),
@@ -4062,16 +4166,34 @@ async def loop_metrics(authorization: Optional[str] = Header(None)):
             "until_utc":  cur_start.isoformat(),
             **previous,
         },
-        "delta_failed_ratio": delta_ratio,
+        "delta_failed_ratio":  delta_ratio,
+        "failed_sample":       failed_sample,
+        "failed_owner_counts": owner_counts,
         "note": (
             "failed_ratio = failed / (failed + completed + aborted). "
             "Expired sessions (reaper-cleared) are excluded so "
-            "housekeeping does not smear the signal. A positive "
-            "delta_failed_ratio means Phase 0 merge coincided with "
-            "a real increase in genuine failures — investigate "
-            "immediately (Cluster 1 promotes to P0). Flat/negative "
-            "delta means the test-scope FAILED regressions are "
-            "fixture-shape (tight budget vs new heartbeat cadence) "
-            "and prod is unaffected."
+            "housekeeping does not smear the signal. "
+            "Cluster 1 priority rule: "
+            "(a) if delta_failed_ratio > +0.05 OR "
+            "(b) if failed_owner_counts.user >= 3 in the current "
+            "window → treat as P0 live regression; "
+            "otherwise (test/admin/founder-only failures) it is a "
+            "fixture-shape / dogfood signal and the fast_timeouts "
+            "fix ships as planned."
         ),
     }
+
+
+def _email_hint(email: str) -> str:
+    """Redacted email — first 3 chars + domain — safe for admin UI.
+    Full email would leak PII in screenshots; the hint is enough
+    for the founder to recognise their own test accounts and to
+    tell one anonymous user from another without collecting the
+    full identifier into a log."""
+    if not email or "@" not in email:
+        return "(no email)"
+    local, _, domain = email.partition("@")
+    if len(local) <= 3:
+        return f"{local}***@{domain}"
+    return f"{local[:3]}***@{domain}"
+

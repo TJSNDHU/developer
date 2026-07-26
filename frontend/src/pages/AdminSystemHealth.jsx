@@ -293,14 +293,32 @@ export default function AdminSystemHealth() {
           status={(() => {
             if (errs.loop_metrics || !loopMetrics) return StatusBadge("down");
             const d = loopMetrics.delta_failed_ratio;
+            const userFails = loopMetrics.failed_owner_counts?.user ?? 0;
+            // P0 conditions: 5pp+ jump OR ≥3 real-user failures.
+            if (d > 0.05 || userFails >= 3) return StatusBadge("degraded");
             if (d === null || d === undefined) return StatusBadge("warming");
-            return d > 0.05 ? StatusBadge("degraded") : StatusBadge("ok");
+            return StatusBadge("ok");
           })()}
         >
           {errs.loop_metrics ? (
             <div style={{ fontSize: 12, color: C.red }}>{errs.loop_metrics}</div>
           ) : loopMetrics ? (
             <>
+              {/* Iter 309-b — explicit data-source identity so the
+                  founder can confirm this card is reading prod
+                  Mongo (not preview / not local) before treating a
+                  50%+ failure ratio as a live user-facing signal. */}
+              <div style={{
+                marginBottom: 10, padding: "6px 8px",
+                background: "#0a0e18", border: `1px dashed ${C.border}`,
+                borderRadius: 6, fontSize: 10, fontFamily: C.mono, color: C.dim,
+              }}>
+                <div>data_source · <span style={{ color: C.text }}>{loopMetrics.data_source?.db_name}</span>
+                  {" @ "}<span style={{ color: C.text }}>{loopMetrics.data_source?.mongo_host}</span></div>
+                <div>env · <span style={{ color: C.text }}>{loopMetrics.data_source?.env}</span>
+                  {" · sha "}<span style={{ color: C.text }}>{(loopMetrics.data_source?.commit_sha || "").slice(0,7)}</span></div>
+              </div>
+
               <Row
                 label="last 7d — resolved"
                 value={String(loopMetrics.current?.resolved ?? 0)}
@@ -353,8 +371,68 @@ export default function AdminSystemHealth() {
                     : C.green
                 }
               />
+
+              {/* Owner-classification counts — makes "who failed"
+                  visible at a glance without expanding the sample. */}
+              {loopMetrics.failed_owner_counts && Object.keys(loopMetrics.failed_owner_counts).length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
+                  <div style={{ fontSize: 10, color: C.dim, marginBottom: 4, fontFamily: C.mono, letterSpacing: "0.08em" }}>
+                    FAILED OWNERS
+                  </div>
+                  {Object.entries(loopMetrics.failed_owner_counts).map(([k, v]) => (
+                    <Row
+                      key={k}
+                      label={k}
+                      value={String(v)}
+                      color={k === "user" && v >= 3 ? C.red : k === "user" && v > 0 ? C.amber : C.text}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Expandable failed-session sample — session_id +
+                  redacted email hint + last_phase + short error.
+                  Full email deliberately never shown to keep
+                  screenshots PII-safe. */}
+              {loopMetrics.failed_sample && loopMetrics.failed_sample.length > 0 && (
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{
+                    cursor: "pointer", fontSize: 10, color: C.amber,
+                    fontFamily: C.mono, letterSpacing: "0.08em",
+                  }} data-testid="failed-sample-expand">
+                    ▶ {loopMetrics.failed_sample.length} failed sessions — expand
+                  </summary>
+                  <div style={{ marginTop: 6, maxHeight: 200, overflowY: "auto" }}>
+                    {loopMetrics.failed_sample.map((s) => (
+                      <div key={s.session_id} style={{
+                        padding: "6px 0", borderBottom: `1px dashed ${C.border}`,
+                        fontSize: 10, fontFamily: C.mono,
+                      }}>
+                        <div style={{ color: C.text }}>
+                          <span style={{
+                            display: "inline-block", padding: "1px 6px", borderRadius: 4,
+                            marginRight: 6, fontSize: 9,
+                            background: s.classification === "user" ? "rgba(239,68,68,0.15)" : "rgba(148,163,184,0.10)",
+                            color: s.classification === "user" ? C.red : C.dim,
+                          }}>
+                            {s.classification}
+                          </span>
+                          {s.user_hint}
+                        </div>
+                        <div style={{ color: C.faint, marginTop: 2 }}>
+                          {s.session_id.slice(0,8)}… · phase={s.last_phase} · {new Date(s.created_at).toLocaleString()}
+                        </div>
+                        {s.error_short && (
+                          <div style={{ color: C.amber, marginTop: 2 }}>{s.error_short}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
               <div style={{ marginTop: 10, fontSize: 10, color: C.faint, lineHeight: 1.4 }}>
-                Gate: Δ &gt; +5pp → real prod regression (P0). Flat/negative → test-scope only.
+                Gate: Δ &gt; +5pp OR user-failures ≥ 3 → P0 live regression. Otherwise fixture-shape / dogfood.
               </div>
             </>
           ) : (
