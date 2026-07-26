@@ -19,6 +19,7 @@
  * All fetches are additive (Promise.all).  Any one failure surfaces
  * inline; the other cards keep working.
  */
+/* global __VITE_BUILD_SHA__ */
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -79,8 +80,19 @@ export default function AdminSystemHealth() {
   const [council, setCouncil]       = useState(null);
   const [learning, setLearning]     = useState(null);
   const [loopMetrics, setLoopMetrics] = useState(null);
+  const [tokenMetrics, setTokenMetrics] = useState(null);
   const [errs, setErrs]             = useState({});
   const [lastRefresh, setLastRefresh] = useState(null);
+
+  // Iter 309 · Batch-2 Items 4 + 9 UI wiring — bundle-time marker so
+  // the founder can diagnose stale-frontend-vs-backend-mismatch by
+  // eyeballing the FRONTEND_BUILD_SHA next to backend /version's sha
+  // in the Deploy Sync card. Injected by Vite at build time via
+  // __VITE_BUILD_SHA__ (see vite.config.js define:). Fallback used if
+  // not injected so dev preview still renders.
+  const frontendBuildSha =
+    (typeof __VITE_BUILD_SHA__ !== "undefined" && __VITE_BUILD_SHA__) ||
+    "unknown";
 
   const fetchAll = useCallback(async () => {
     const nextErrs = {};
@@ -119,6 +131,15 @@ export default function AdminSystemHealth() {
       const r = await api.get("/admin/loop-metrics");
       setLoopMetrics(r.data);
     } catch (e) { nextErrs.loop_metrics = e?.response?.data?.detail || e?.message || "loop-metrics failed"; }
+
+    // 6) Iter 309 · Batch-2 Item 4 — per-loop LLM token accounting.
+    // Feeds the new "Loop Token Metrics" card. Renders per-phase
+    // (loop.plan / loop.execute / loop.verify / loop.scan / loop.ship)
+    // input/output token totals + cost + distinct-loop count.
+    try {
+      const r = await api.get("/admin/loop-token-metrics");
+      setTokenMetrics(r.data);
+    } catch (e) { nextErrs.token_metrics = e?.response?.data?.detail || e?.message || "loop-token-metrics failed"; }
 
     setErrs(nextErrs);
     setLastRefresh(new Date());
@@ -229,6 +250,38 @@ export default function AdminSystemHealth() {
               )}
             </div>
           ))}
+
+          {/* Iter 309 · Batch-2 — Frontend bundle sha (baked at
+              Vite build time). Compare against PRODUCTION backend sha
+              above. Mismatch = frontend bundle is stale relative to
+              backend (rebuild issue or CDN cache serving old JS).
+              Zero-tolerance diagnostic — matches means we know
+              exactly what UI code is running in this browser tab. */}
+          <div
+            data-testid="frontend-build-sha"
+            style={{
+              marginTop: 6,
+              padding: "6px 8px",
+              background: "#0a0e18",
+              border: `1px dashed ${C.border}`,
+              borderRadius: 6,
+              fontFamily: C.mono, fontSize: 10,
+            }}
+          >
+            <div style={{ letterSpacing: "0.14em", color: C.faint, marginBottom: 3 }}>
+              FRONTEND BUNDLE
+            </div>
+            <div style={{ color: C.text }}>
+              build sha · <span style={{ color: C.amber }}>{frontendBuildSha}</span>
+            </div>
+            {prodVer && frontendBuildSha !== "unknown" &&
+              !prodVer.commit_sha.startsWith(frontendBuildSha.slice(0, 7)) &&
+              !frontendBuildSha.startsWith(prodVer.commit_sha.slice(0, 7)) && (
+              <div style={{ color: C.amber, marginTop: 4 }}>
+                ⚠ Frontend bundle ≠ production backend — bundle may be stale.
+              </div>
+            )}
+          </div>
         </Card>
 
         {/* 2. Council A card */}
@@ -318,6 +371,44 @@ export default function AdminSystemHealth() {
                 <div>env · <span style={{ color: C.text }}>{loopMetrics.data_source?.env}</span>
                   {" · sha "}<span style={{ color: C.text }}>{(loopMetrics.data_source?.commit_sha || "").slice(0,7)}</span></div>
               </div>
+
+              {/* Iter 309 · Batch-2 Item 9 — SSE ring buffer live
+                  visibility. Confirms Item 6's Last-Event-ID replay
+                  scaffolding is actually holding state during a live
+                  loop. During a running loop, active_loops ≥ 1 and
+                  max_seq grows monotonically. After all clients
+                  reconnect and consume, total_buffered may drop to
+                  0 while active_loops stays ≥ 1 until the loop ends.
+                  This block is founder's Check D during the live
+                  25-min SSE reconnect test. */}
+              {loopMetrics.sse_buffer && (
+                <div
+                  data-testid="loop-metrics-sse-buffer"
+                  style={{
+                    marginBottom: 10, padding: "8px 10px",
+                    background: "#0a0e18", border: `1px solid ${C.border}`,
+                    borderRadius: 6,
+                  }}>
+                  <div style={{
+                    fontFamily: C.mono, fontSize: 9, letterSpacing: "0.14em",
+                    color: C.dim, marginBottom: 6,
+                  }}>SSE RING BUFFER (ITEM 6/9)</div>
+                  <Row
+                    label="active_loops"
+                    value={String(loopMetrics.sse_buffer.active_loops ?? 0)}
+                    color={(loopMetrics.sse_buffer.active_loops ?? 0) > 0 ? C.green : C.dim}
+                  />
+                  <Row
+                    label="total_buffered"
+                    value={String(loopMetrics.sse_buffer.total_buffered ?? 0)}
+                    color={(loopMetrics.sse_buffer.total_buffered ?? 0) > 0 ? C.amber : C.text}
+                  />
+                  <Row
+                    label="max_seq"
+                    value={String(loopMetrics.sse_buffer.max_seq ?? 0)}
+                  />
+                </div>
+              )}
 
               <Row
                 label="last 7d — resolved"
@@ -434,6 +525,136 @@ export default function AdminSystemHealth() {
               <div style={{ marginTop: 10, fontSize: 10, color: C.faint, lineHeight: 1.4 }}>
                 Gate: Δ &gt; +5pp OR user-failures ≥ 3 → P0 live regression. Otherwise fixture-shape / dogfood.
               </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: C.faint }}>loading…</div>
+          )}
+        </Card>
+
+        {/* 5. Iter 309 · Batch-2 Item 4 — Loop Token Metrics.
+            Displays per-phase LLM token accounting for loop-originated
+            calls, sourced from `ora_chat_usage` filtered by
+            `route ^= "loop."`. Founder's Check B during the 25-min
+            live SSE test: after the loop finishes, this card MUST
+            show non-zero rows for `plan / execute / verify / ship`
+            (and `scan` if scan ran). */}
+        <Card
+          testid="card-loop-token-metrics"
+          title="Loop Token Metrics — per-phase"
+          status={(() => {
+            if (errs.token_metrics || !tokenMetrics) return StatusBadge("down");
+            if ((tokenMetrics.current?.distinct_loops ?? 0) === 0) return StatusBadge("warming");
+            return StatusBadge("ok");
+          })()}
+        >
+          {errs.token_metrics ? (
+            <div style={{ fontSize: 12, color: C.red }}>{errs.token_metrics}</div>
+          ) : tokenMetrics ? (
+            <>
+              <div style={{
+                marginBottom: 10, padding: "6px 8px",
+                background: "#0a0e18", border: `1px dashed ${C.border}`,
+                borderRadius: 6, fontSize: 10, fontFamily: C.mono, color: C.dim,
+              }}>
+                <div>data_source · <span style={{ color: C.text }}>{tokenMetrics.data_source?.db_name}</span>
+                  {" @ "}<span style={{ color: C.text }}>{tokenMetrics.data_source?.mongo_host}</span></div>
+                <div>env · <span style={{ color: C.text }}>{tokenMetrics.data_source?.env}</span>
+                  {" · sha "}<span style={{ color: C.text }}>{(tokenMetrics.data_source?.commit_sha || "").slice(0,7)}</span></div>
+                <div>window · <span style={{ color: C.text }}>{tokenMetrics.window_days ?? 7}d</span></div>
+              </div>
+
+              <Row
+                label="last 7d — distinct loops"
+                value={String(tokenMetrics.current?.distinct_loops ?? 0)}
+                color={(tokenMetrics.current?.distinct_loops ?? 0) > 0 ? C.green : C.dim}
+              />
+              <Row
+                label="last 7d — total calls"
+                value={String(tokenMetrics.current?.total_calls ?? 0)}
+              />
+              <Row
+                label="last 7d — input tok"
+                value={(tokenMetrics.current?.total_input ?? 0).toLocaleString()}
+              />
+              <Row
+                label="last 7d — output tok"
+                value={(tokenMetrics.current?.total_output ?? 0).toLocaleString()}
+              />
+              <Row
+                label="last 7d — cost"
+                value={"$" + (tokenMetrics.current?.total_cost_usd ?? 0).toFixed(4)}
+              />
+
+              {tokenMetrics.current?.by_phase &&
+                Object.keys(tokenMetrics.current.by_phase).length > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
+                  <div style={{
+                    fontSize: 10, color: C.dim, marginBottom: 6,
+                    fontFamily: C.mono, letterSpacing: "0.08em",
+                  }}>
+                    PER-PHASE (loop.*)
+                  </div>
+                  {["plan","execute","verify","scan","ship"].map((phase) => {
+                    const row = tokenMetrics.current.by_phase[phase];
+                    const present = !!row;
+                    return (
+                      <div
+                        key={phase}
+                        data-testid={`token-metrics-phase-${phase}`}
+                        style={{
+                          padding: "6px 0",
+                          borderBottom: `1px dashed ${C.border}`,
+                          fontSize: 11, fontFamily: C.mono,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: present ? C.text : C.faint }}>
+                            loop.{phase}
+                          </span>
+                          <span style={{ color: present ? C.green : C.faint }}>
+                            {present ? `${row.calls} calls · ${row.loop_sessions} loops` : "no data"}
+                          </span>
+                        </div>
+                        {present && (
+                          <div style={{ color: C.dim, fontSize: 10, marginTop: 2 }}>
+                            in {row.input_tokens.toLocaleString()} · out {row.output_tokens.toLocaleString()}
+                            {" · $"}{row.cost_usd.toFixed(4)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Any phase not in the standard list (defensive) */}
+                  {Object.keys(tokenMetrics.current.by_phase)
+                    .filter(p => !["plan","execute","verify","scan","ship"].includes(p))
+                    .map((phase) => {
+                      const row = tokenMetrics.current.by_phase[phase];
+                      return (
+                        <div
+                          key={phase}
+                          style={{
+                            padding: "6px 0",
+                            borderBottom: `1px dashed ${C.border}`,
+                            fontSize: 11, fontFamily: C.mono,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: C.amber }}>loop.{phase} (unknown)</span>
+                            <span style={{ color: C.dim }}>{row.calls} calls</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
+              {tokenMetrics.current?.avg_per_loop && (
+                <div style={{ marginTop: 10, fontSize: 10, color: C.faint, lineHeight: 1.5 }}>
+                  Avg per loop: in {tokenMetrics.current.avg_per_loop.input_tokens.toLocaleString()}
+                  {" · out "}{tokenMetrics.current.avg_per_loop.output_tokens.toLocaleString()}
+                  {" · $"}{tokenMetrics.current.avg_per_loop.cost_usd.toFixed(4)}
+                </div>
+              )}
             </>
           ) : (
             <div style={{ fontSize: 12, color: C.faint }}>loading…</div>
