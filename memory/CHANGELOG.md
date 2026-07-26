@@ -20,6 +20,24 @@ work in date-stamped chunks so PRD.md stays focused.
   Do NOT close this open item until Item 6's live run confirms
   each phase writes its row on `auremcto.com`.
 
+## 2026-07-26 — Iter 309 · Batch-2 Item 5 · Duplicate heartbeat cleanup (bug_testing_agent iter 314: FIXED)
+
+**Founder ask:** Two heartbeat loops fire simultaneously during EXECUTE — iter 278's per-file inside `_do_execute`'s Parliament call AND iter 308's generic inside `_with_budget`. Delete iter 278; keep iter 308 unchanged; regression test asserts zero duplicates.
+
+**Ship:**
+- `services/loop_engine.py` — DELETED iter 278's `async def _heartbeat()` inner function + `_hb_started/_hb_stop/_hb_task` scaffolding inside `_do_execute` (~90 lines gone). Parliament call now bare `await asyncio.wait_for(_parliament.run(...), timeout=PER_FILE_TIMEOUT_S)`. Iter 308's `_with_budget` heartbeat **UNCHANGED** (deletion-only mandate honored).
+- **NEW** `tests/test_iter309_batch2_item5_heartbeat_dedup.py` — 4 tests:
+  - Source contract: exactly one `_heartbeat_loop` definition, iter 278 marker string gone, `_do_execute` body has no direct heartbeat emission (comment-stripped)
+  - Runtime cadence: 3s sleep at 1s cadence produces 1-4 heartbeats, no two within 100ms of each other (classic race signature), no heartbeat carries `file` field (iter 278's exclusive signature)
+
+**Grep proof:**
+- `grep -c 'async def _heartbeat' loop_engine.py` = **1** (was 2)
+- Only 1 real emitter of `sub_step: heartbeat` remains (line ~842 in `_with_budget`)
+
+**Trade-off (intentional per deletion-only):** Users no longer see per-file `Still waiting on LLM response for {path}` during EXECUTE. They see only the phase-level `Still executing — {elapsed}s elapsed…`. Founder accepted this cost of dedup.
+
+**Quality-gate: 373 passed / 3 failed / 4 skipped / 2 errors** (was 369+3+4+2 — 4 new heartbeat tests). Same local-infra residuals. Zero regressions.
+
 ## 2026-07-26 — Iter 309-311 · Phase 0.2 wrap + Cluster 1 fixture-shape fix
 
 **Founder ask (Hinglish):** Post-CI-fix triage — quality-gate keyword-filtered subset showed 21 failed + 2 errors uncovered by removing the whitelist. Fix in sequential order: 🟢 sweep → Cluster 2 (verify_patch) → Cluster 3 (fixture) → Cluster 1 (loop pipeline). Cluster 1 gated on prod-impact data via new `/admin/loop-metrics` endpoint.
