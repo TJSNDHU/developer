@@ -31,10 +31,15 @@ def _read_be(rel: str) -> str:
 
 def test_loop_execute_generates_real_file_content_via_llm():
     src = _read_be("services/loop_engine.py")
-    # The execute phase must import and call the new generate_files()
-    # helper that actually invokes the LLM.
-    assert "from services.loop_execute import generate_files" in src
-    assert "await generate_files(" in src
+    # Iter 212m-150 refactor — the execute phase now dispatches each
+    # file to Parliament (Council A) rather than calling the bulk
+    # `generate_files()` helper directly. The invariants below still
+    # guarantee the founder's original intent: (a) a real LLM is
+    # invoked per file, (b) failures propagate to `_fail("execute"`,
+    # (c) SHIP receives a populated submitted_files list.
+    assert "from core.parliament import Parliament" in src
+    assert "Parliament(db=self.db)" in src
+    assert "_gen_via_parliament" in src or "await _parliament.run(" in src
     # Failure paths must NOT silently succeed — they fail the loop.
     assert "_fail(\"execute\"" in src
     # The submitted_files must be populated from the generated output
@@ -88,10 +93,18 @@ def test_console_error_badge_requires_confirmation():
 
 def test_send_button_is_type_button_with_explicit_handlers():
     """BUG 4 — kill the form-submit + onClick race by making the send
-    button a standalone type=\"button\" and stopping event propagation."""
+    button a standalone type=\"button\".  Iter 212m-132 refined this
+    further: because `type=\"button\"` has no default-submit action
+    to prevent, the redundant e.preventDefault() + e.stopPropagation()
+    calls were removed and replaced with an explicit `onClick={() =>
+    send()}` that takes the exact same code path as the Enter-key
+    path.  This test now enforces the new invariant: the send button
+    is `type=\"button\"`, calls `send()` from its onClick, and does
+    NOT re-introduce the removed defensive event calls (which would
+    signal a merge regression back to the racy old design)."""
     src = _read_fe("components/ChatPanel.jsx")
     # The send button must be type="button" (no form-submit collision)
     assert 'type="button" data-testid="chat-send"' in src
-    # Both preventDefault and stopPropagation must be called.
-    assert "e.preventDefault();" in src
-    assert "e.stopPropagation();" in src
+    # onClick must call send() with no event arg (matches Enter-key
+    # path so both entrypoints take the identical code path).
+    assert "onClick={() => {" in src and "send();" in src

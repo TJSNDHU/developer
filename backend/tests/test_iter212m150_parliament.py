@@ -347,14 +347,34 @@ def test_parliament_wired_only_in_loop_engine():
         (mentions the name, never imports `Parliament` itself)
       • `routers/admin.py`      — reads the `parliament_log` Mongo
         collection for the /system-stats endpoint.
-    The strict rule is: no other module may `import` Parliament."""
+    The strict rule is: no other module may `import` Parliament.
+
+    Iter 309 · Phase 0.2 — updated to check for actual USAGE
+    (import statements, `Parliament(` class instantiation) rather
+    than raw text grep. Docstrings, section headers, and prose
+    comments referencing Parliament for CONTEXT (e.g. scaffold_llm
+    describing that Parliament will be wired in later, or admin_bin
+    exposing a /parliament/live dashboard route) are allowed — they
+    are documentation, not imports.  The stronger assertion below
+    still enforces the import invariant."""
+    import re
     hits = []
+    # Grep only for actual code usage patterns, not free-text
+    # mentions.  Anything matching these is a real dependency on
+    # the Parliament module surface.
+    USAGE_PATTERNS = (
+        re.compile(r"^\s*from\s+core\.parliament\s+import", re.MULTILINE),
+        re.compile(r"^\s*from\s+core\s+import\s+parliament", re.MULTILINE),
+        re.compile(r"^\s*import\s+core\.parliament", re.MULTILINE),
+        # class instantiation — `Parliament(...)` with a capital P.
+        re.compile(r"\bParliament\s*\("),
+    )
     for p in _BACKEND.rglob("*.py"):
         try:
             text = p.read_text()
         except Exception:
             continue
-        if "parliament" in text.lower() or "Parliament" in text:
+        if any(pat.search(text) for pat in USAGE_PATTERNS):
             hits.append(p.relative_to(_BACKEND).as_posix())
     # Tests directory will reference parliament too — strip those.
     hits = [h for h in hits if not h.startswith("tests/")]

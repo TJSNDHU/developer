@@ -256,7 +256,7 @@ async def test_finding_fix_applier_uses_branch_per_fix(monkeypatch):
         return "API_KEY = 'AKIA'\n", None
     monkeypatch.setattr(ff, "_fetch_file_content", fake_fetch)
 
-    async def fake_llm(*, path, current_content, finding, user_id):
+    async def fake_llm(*, path, current_content, finding, user_id, **_kw):
         return "import os\nAPI_KEY = os.environ.get('K')\n", None
     monkeypatch.setattr(ff, "_generate_patched_content", fake_llm)
     monkeypatch.setattr(ff, "_finding_still_present",

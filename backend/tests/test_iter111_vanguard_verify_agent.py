@@ -55,7 +55,7 @@ def test_no_executable_in_non_python_files():
 async def test_clean_patch_passes(monkeypatch):
     """Clean Python — no secrets, no dangerous patterns. Mocks both the
     LLM agent (PASS) and the E2B sandbox (skipped)."""
-    async def fake_llm(_blocks, _ctx):
+    async def fake_llm(_blocks, _ctx, **_kw):
         return {"pass": True, "findings": [], "summary": "clean", "model": "test"}
     async def fake_e2b(_blocks):
         return {"pass": True, "skipped": True, "reason": "no E2B in test"}
@@ -74,7 +74,7 @@ async def test_clean_patch_passes(monkeypatch):
 async def test_hardcoded_secret_BLOCKS_via_regex_floor(monkeypatch):
     """Even if the LLM agent says PASS (or is unavailable), regex
     Vanguard scanner MUST still block a hardcoded AWS key."""
-    async def fake_llm(_b, _c):
+    async def fake_llm(_b, _c, **_kw):
         return {"pass": True, "findings": [], "summary": "missed it", "model": "test"}
     async def fake_e2b(_b):
         return {"pass": True, "skipped": True, "reason": "test"}
@@ -92,7 +92,7 @@ async def test_hardcoded_secret_BLOCKS_via_regex_floor(monkeypatch):
 @pytest.mark.asyncio
 async def test_llm_agent_block_blocks_overall(monkeypatch):
     """Regex passes but the verify agent finds something → must block."""
-    async def fake_llm(_b, _c):
+    async def fake_llm(_b, _c, **_kw):
         return {
             "pass": False,
             "findings": [{
@@ -120,7 +120,7 @@ async def test_llm_agent_block_blocks_overall(monkeypatch):
 async def test_e2b_block_blocks_overall(monkeypatch):
     """Regex + LLM pass, but the E2B smoke import fails (e.g.
     ImportError of a missing module) → must block."""
-    async def fake_llm(_b, _c):
+    async def fake_llm(_b, _c, **_kw):
         return {"pass": True, "findings": [], "summary": "clean", "model": "claude"}
     async def fake_e2b(_b):
         return {"pass": False, "skipped": False,
@@ -142,7 +142,7 @@ async def test_e2b_block_blocks_overall(monkeypatch):
 async def test_llm_agent_unavailable_does_NOT_block(monkeypatch):
     """If Claude / Emergent LLM key is unreachable, the verify agent
     must NOT silently block clean patches — fall back to regex floor."""
-    async def fake_llm(_b, _c):
+    async def fake_llm(_b, _c, **_kw):
         return {"pass": True, "findings": [],
                 "summary": "skipped (network)", "model": ""}
     async def fake_e2b(_b):

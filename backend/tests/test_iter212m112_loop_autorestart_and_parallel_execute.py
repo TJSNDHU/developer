@@ -33,10 +33,17 @@ def test_phase_budgets_realistic():
     assert PHASE_TIMEOUTS_S["plan"]    >= 60
 
 
-def test_max_phase_restarts_is_at_least_2():
+def test_max_phase_restarts_is_at_least_1():
+    # Iter 309 · Phase 0.2 — Founder-approved reduction 2→1 (iter 131
+    # RCA: verify-storm caused ~9 min of wasted work when the same
+    # deterministic LLM call was retried twice against the same file
+    # set with the same failure). One retry is sufficient for the
+    # transient-flake bucket we're protecting against; a second retry
+    # empirically never converted a failure to a success on non-
+    # transient errors.
     from services.loop_engine import MAX_PHASE_RESTARTS
-    assert MAX_PHASE_RESTARTS >= 2, \
-        "Auto-restart must retry at least twice before failing"
+    assert MAX_PHASE_RESTARTS >= 1, \
+        "Auto-restart must retry at least once before failing"
 
 
 # ─── 2. Auto-restart logic ────────────────────────────────────────────

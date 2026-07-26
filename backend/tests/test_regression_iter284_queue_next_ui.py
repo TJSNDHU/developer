@@ -75,16 +75,30 @@ def test_regression_iter284_queued_chip_and_agent_running_present():
     "agent-status-bar"]` row MUST render above the composer while
     the agent is busy. This makes the queue discoverable and
     matches the reference UI pattern (visual status pairing).
-    """
-    src = open("/app/frontend/src/components/ChatPanel.jsx").read()
 
-    assert 'data-testid="agent-status-bar"' in src, (
-        "must render an agent-status-bar row while busy"
+    Iter 295 — the AgentStatusBar was extracted from ChatPanel.jsx
+    into its own component (`components/AgentStatusBar.jsx`) so the
+    RTL unit test can exercise it in isolation. ChatPanel still
+    mounts it (search for `<AgentStatusBar ...>` below), but the
+    testids and the "Agent is running…" copy live in the extracted
+    file now.
+    """
+    chat_src = open("/app/frontend/src/components/ChatPanel.jsx").read()
+    bar_src  = open("/app/frontend/src/components/AgentStatusBar.jsx").read()
+
+    # ChatPanel must still mount the extracted component (regression
+    # against accidental removal / dead import).
+    assert "<AgentStatusBar" in chat_src, (
+        "ChatPanel must mount <AgentStatusBar /> above the composer"
     )
-    assert 'data-testid="queued-chip"' in src, (
-        "must render a queued-chip when queuedCount > 0"
+
+    assert 'data-testid="agent-status-bar"' in bar_src, (
+        "AgentStatusBar must render an agent-status-bar row while busy"
     )
-    assert "Agent is running" in src, (
-        "must include the 'Agent is running…' human label so the "
-        "state is clear without decoding the pulse dot"
+    assert 'data-testid="queued-chip"' in bar_src, (
+        "AgentStatusBar must render a queued-chip when queuedCount > 0"
+    )
+    assert "Agent is running" in bar_src, (
+        "AgentStatusBar must include the 'Agent is running…' human "
+        "label so the state is clear without decoding the pulse dot"
     )
