@@ -4,6 +4,22 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 🚧 Open verification debt (do NOT mark done without honouring)
+
+- **Iter 313 (Item 4)** — the execute/verify/scan/ship LLM
+  instrumentation is currently **UNIT-VERIFIED ONLY**. The
+  contextvars wrap + ledger insert path is proven by 8 unit
+  tests, and the plan phase is proven end-to-end
+  (`bug_verify_313_plan_phase_real_path.py`). But a live 25+ min
+  loop that fires REAL Council-A execute + Parliament fan-out +
+  verify_agent + scan + ship has NOT been observed writing
+  `loop.execute` / `loop.verify` / `loop.scan` / `loop.ship`
+  rows into `ora_chat_usage` in prod.  This end-to-end proof
+  belongs to Batch 2 Item 6 (Live 25-min SSE resilience test) —
+  that same test naturally checkpoints every phase's token row.
+  Do NOT close this open item until Item 6's live run confirms
+  each phase writes its row on `auremcto.com`.
+
 ## 2026-07-26 — Iter 309-311 · Phase 0.2 wrap + Cluster 1 fixture-shape fix
 
 **Founder ask (Hinglish):** Post-CI-fix triage — quality-gate keyword-filtered subset showed 21 failed + 2 errors uncovered by removing the whitelist. Fix in sequential order: 🟢 sweep → Cluster 2 (verify_patch) → Cluster 3 (fixture) → Cluster 1 (loop pipeline). Cluster 1 gated on prod-impact data via new `/admin/loop-metrics` endpoint.
