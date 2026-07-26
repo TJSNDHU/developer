@@ -4,12 +4,15 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
-## 2026-07-26 20:01 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION
+## 2026-07-26 ~20:05 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION (2nd attempt, clean audit trail)
 
 **Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, redeploy).
-**Deployer verdict:** ✅ `Deployment completed. Live at: https://auremcto.com`
-**Commit at deploy:** `77f3483` (`auto-commit for b833dc24-…`)
+**Deployer verdict:** ⏳ (awaiting confirmation from 2nd deploy — will update in-place once received)
+**Commit at deploy:** `86239c685cba` (BUILD_INFO.txt regenerated pre-deploy for a matching audit trail; expected `/version` sha will match this or a newer BUILD_INFO auto-commit).
 **Environment:** production (`auremcto.com`)
+
+**Prior deploy attempt in same session (~20:01 UTC) — self-corrected:**
+The first deploy of this session returned deployer verdict ✅ but prod `/version` reported stale sha `448f8f48e33f` because `backend/BUILD_INFO.txt` had never been refreshed after the 04:13 UTC ship. Could not definitively prove Batch 2 code was live vs. a re-run of the old code. Rather than paper over the ambiguity, BUILD_INFO.txt was regenerated to current HEAD `86239c685cba` and a 2nd deploy was invoked to give the founder a matching, auditable commit sha in `/version`. First attempt considered SUPERSEDED — this 2nd deploy is the canonical Batch 2 prod ship.
 
 **What just went live (code-complete + unit-verified, NOT yet live-verified):**
 - Item 4 — per-loop LLM token accounting (`services/loop_token_ledger.py`, `_call_deepseek` + `call_openrouter_model` instrumentation, `_with_budget` context wrap, plan-phase context wrap)
@@ -21,14 +24,14 @@ work in date-stamped chunks so PRD.md stays focused.
 **Honest verification status:**
 - ✅ Unit + integration tests: 386 passed / 3 failed (documented local-infra artifacts) / 4 skipped / 2 errors
 - ✅ `bug_testing_agent` iter 316 verdict: FIXED (unit-verified)
-- ✅ Deployer health check post-deploy: green
+- ⏳ Main-agent-side smoke curl post-deploy: pending 2nd deploy completion (previous /health returned 200 but that only proves the pod restarted, NOT that Batch 2 code is running — hence the redeploy for a matching sha)
 - ❌ **LIVE 25-MIN SSE RECONNECT TEST ON PROD:** PENDING — founder to run personally
 - ❌ **LIVE PER-PHASE TOKEN ACCOUNTING VERIFY ON PROD:** PENDING — same 25-min test naturally exercises all 4 phases
 
 **Correction on prior claims (self-reported by main agent, 2026-07-26 ~19:55 UTC):**
-Previous handoff summary and multiple internal turns claimed Batch 2 was "shipped to prod / deployed to production" between 04:00-05:00 UTC on 2026-07-26. This was INCORRECT. Actual prior prod ships on 2026-07-26 were limited to the `/admin/loop-metrics` UI card + env-detection hardening (lines 143-145 above). Batch 2 (Items 5/6/8/9) did NOT hit prod until THIS deploy at 20:01 UTC. Correction acknowledged; going forward no "deployed" or "verified in prod" language will be used without a matching deploy-log line + founder personal confirmation.
+Previous handoff summary and multiple internal turns claimed Batch 2 was "shipped to prod / deployed to production" between 04:00-05:00 UTC on 2026-07-26. This was INCORRECT. Actual prior prod ships on 2026-07-26 were limited to the `/admin/loop-metrics` UI card + env-detection hardening (see 04:2x line below). Batch 2 (Items 5/6/8/9) did NOT hit prod until THIS deploy. Correction acknowledged; going forward no "deployed" or "verified in prod" language without a matching deploy-log line + founder personal confirmation.
 
-**Item 7 status:** Moved to backlog (see `## Backlog` section at bottom of this file). NOT started, NOT scoped in code. Awaits founder-approved test-first discovery on a real 25-file plan.
+**Item 7 status:** Moved to backlog (see `## Backlog` section below). NOT started, NOT scoped in code. Awaits founder-approved test-first discovery on a real 25-file plan.
 
 **Phase 1 status:** BLOCKED. Zero implementation code exists. Grep for `correction_rule / persistent_rule / applies_to_paths` across `backend/` + `frontend/` returns 0 matches. Design is locked in PRD.md with binding corrections. Stays blocked until founder personally confirms the live 25-min SSE test succeeds.
 
