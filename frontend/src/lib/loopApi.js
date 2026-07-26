@@ -61,13 +61,28 @@ export async function confirmShip(loopId, approved) {
 }
 
 /**
- * Open the SSE stream and dispatch events.
+ * Open the SSE stream and dispatch events.  Iter 309 · Batch-2 Item 6
+ * — this now auto-reconnects on network error and honors
+ * `Last-Event-ID` so a mid-loop connection drop (mobile switch,
+ * proxy timeout, our own STREAM_MAX_S cap at 20 min) does NOT
+ * lose events.  The server buffers up to `MAX_EVENTS_PER_LOOP=200`
+ * events per loop and replays anything with seq > Last-Event-ID
+ * on the next connect.  We ALSO dedup client-side by seq so a
+ * duplicate replay row never fires `onEvent` twice.
+ *
+ * IMPORTANT for callers (ChatPanel / LoopLiveFeed): do NOT clear
+ * feed state on `onReconnecting` — leave the last-known state
+ * visible with a small "reconnecting…" indicator.  The next
+ * `onEvent` after reconnect will be the FIRST unseen event, not
+ * a redo of the whole loop.
  *
  * @param {string} loopId
  * @param {object} cb
- * @param {(ev: object) => void} [cb.onEvent]     — called for every event
- * @param {(ev: object) => void} [cb.onTerminal]  — completed/failed/aborted
- * @param {(err: Error) => void}  [cb.onError]    — network / parse failure
+ * @param {(ev: object) => void} [cb.onEvent]        — every unique event
+ * @param {(ev: object) => void} [cb.onTerminal]     — completed/failed/aborted
+ * @param {(err: Error) => void}  [cb.onError]       — network / parse failure
+ * @param {(attempt: number) => void} [cb.onReconnecting] — attempt count (1+)
+ * @param {() => void}            [cb.onReconnected] — first event received after reconnect
  *
  * @returns {AbortController}
  */
@@ -75,59 +90,111 @@ export function streamLoopEvents(loopId, cb = {}) {
   const ctrl = new AbortController();
   const token = localStorage.getItem("aurem_token") || "";
   const url   = `${API_BASE}/loop/${loopId}/stream`;
-  (async () => {
+
+  // Iter 309 · Batch-2 Item 6 — client-side reconnect + dedup state.
+  let lastEventId = null;   // `{loop_id}:{seq}` string from SSE `id:` line
+  let lastSeenSeq = -1;     // numeric seq for dedup on replay
+  let terminal    = false;  // stop reconnecting after loop ended
+  let attempt     = 0;      // 0 = initial, 1+ = reconnect count
+
+  async function _openOne() {
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": token ? `Bearer ${token}` : "",
+        "Accept": "text/event-stream",
+        // Native EventSource sends this automatically; we send it
+        // manually since we use fetch() to get Authorization support.
+        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
+      },
+      signal: ctrl.signal,
+    });
+    if (!resp.ok || !resp.body) {
+      throw new Error(`loop stream HTTP ${resp.status}`);
+    }
+    if (attempt > 0) cb.onReconnected?.();
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
     try {
-      const resp = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Authorization": token ? `Bearer ${token}` : "",
-          "Accept": "text/event-stream",
-        },
-        signal: ctrl.signal,
-      });
-      if (!resp.ok || !resp.body) {
-        cb.onError?.(new Error(`loop stream HTTP ${resp.status}`));
-        return;
-      }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      try {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          // SSE frames are separated by \n\n. Each frame may have many
-          // "data:" lines; comments (": keepalive") are ignored.
-          let idx;
-          while ((idx = buf.indexOf("\n\n")) >= 0) {
-            const frame = buf.slice(0, idx);
-            buf = buf.slice(idx + 2);
-            const dataLines = frame
-              .split("\n")
-              .filter((l) => l.startsWith("data:"))
-              .map((l) => l.slice(5).trim());
-            if (!dataLines.length) continue;
-            try {
-              const ev = JSON.parse(dataLines.join("\n"));
-              cb.onEvent?.(ev);
-              const st = ev?.state;
-              if (st === "completed" || st === "failed" || st === "aborted") {
-                cb.onTerminal?.(ev);
-              }
-            } catch (e) {
-              cb.onError?.(e);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          // Extract id: (single line) and all data: lines.
+          let frameId = null;
+          const dataLines = [];
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("id:")) frameId = line.slice(3).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          if (!dataLines.length) continue;
+          // Iter 309 · Batch-2 Item 6 — dedup by seq.  On resume
+          // after reconnect the server replays events with
+          // seq > Last-Event-ID; a well-behaved server won't
+          // give us duplicates but a proxy retry might, so
+          // belt-and-braces skip anything ≤ lastSeenSeq.
+          if (frameId) {
+            const parts = frameId.split(":");
+            const seq = Number(parts[parts.length - 1]);
+            if (Number.isFinite(seq)) {
+              if (seq <= lastSeenSeq) continue;   // already delivered
+              lastSeenSeq = seq;
             }
+            lastEventId = frameId;
+          }
+          try {
+            const ev = JSON.parse(dataLines.join("\n"));
+            cb.onEvent?.(ev);
+            const st = ev?.state;
+            if (st === "completed" || st === "failed" || st === "aborted") {
+              terminal = true;
+              cb.onTerminal?.(ev);
+            }
+          } catch (e) {
+            cb.onError?.(e);
           }
         }
-      } catch (e) {
-        if (e?.name !== "AbortError") cb.onError?.(e);
-      } finally {
-        try { reader.cancel(); } catch { /* swallow */ }
       }
-    } catch (e) {
-      if (e?.name !== "AbortError") cb.onError?.(e);
+    } finally {
+      try { reader.cancel(); } catch { /* swallow */ }
+    }
+  }
+
+  (async () => {
+    // Reconnect loop.  Backs off exponentially with a hard cap so a
+    // dead backend doesn't hammer.  Stops on abort OR terminal event.
+    while (!ctrl.signal.aborted && !terminal) {
+      try {
+        if (attempt > 0) cb.onReconnecting?.(attempt);
+        await _openOne();
+        // Server closed cleanly (terminal state or stream_capped) —
+        // if not terminal (i.e. stream_capped at 20 min), reconnect
+        // immediately and the buffer replays the missed 20+ min.
+        if (terminal) break;
+      } catch (e) {
+        if (e?.name === "AbortError") return;
+        cb.onError?.(e);
+        if (terminal) break;
+      }
+      attempt += 1;
+      // Small backoff — 1 s, 2 s, 4 s, 8 s, cap 8 s.  Matches the
+      // server's `retry: 3000` preamble spirit without being
+      // aggressive on repeated failures.
+      const backoffMs = Math.min(8000, 1000 * (2 ** Math.min(attempt - 1, 3)));
+      try {
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(resolve, backoffMs);
+          ctrl.signal.addEventListener("abort", () => {
+            clearTimeout(t);
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        });
+      } catch { /* aborted during backoff — loop condition catches it */ }
     }
   })();
   return ctrl;

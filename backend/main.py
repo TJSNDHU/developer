@@ -330,6 +330,22 @@ async def lifespan(app: FastAPI):
                     raise
                 except Exception as _e:                          # noqa: BLE001
                     logger.warning("loop housekeeping: sweep_expired failed: %r", _e)
+                # Branch C — Iter 309 · Batch-2 Item 6.  Evict per-loop
+                # SSE ring buffers whose loop ended > BUFFER_TTL_S ago.
+                # Piggybacks on the 60 s sweep cadence — no separate
+                # background task.
+                try:
+                    from services.sse_replay_buffer import evict_expired as _evict_sse
+                    n_evicted = _evict_sse()
+                    if n_evicted:
+                        logger.info(
+                            "sse_replay_buffer: evicted %d expired loop buffer(s)",
+                            n_evicted,
+                        )
+                except _asyncio.CancelledError:
+                    raise
+                except Exception as _e:                          # noqa: BLE001
+                    logger.warning("sse_replay_buffer eviction failed: %r", _e)
             except _asyncio.CancelledError:
                 break
             _first_run = False

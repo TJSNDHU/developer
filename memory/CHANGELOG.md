@@ -20,6 +20,33 @@ work in date-stamped chunks so PRD.md stays focused.
   Do NOT close this open item until Item 6's live run confirms
   each phase writes its row on `auremcto.com`.
 
+## 2026-07-26 — Iter 309 · Batch-2 Item 6 · SSE reconnect resilience (in-progress verification)
+
+**Founder ask:** Server SSE stream caps at 20 min but real loops run up to 40 min. On reconnect (browser auto or after cap) events emitted during the gap are silently lost. Industry-standard fix, no WebSockets, no polling.
+
+**Ship (server):**
+- **NEW** `services/sse_replay_buffer.py` — per-loop in-memory ring buffer (deque cap 200 events, TTL 45 min). Assigns monotonic `{loop_id}:{seq}` id. TTL evict wired into `main.py` housekeeping (60 s sweep).
+- `routers/loop.py::loop_stream` — accepts `Last-Event-ID` header + query fallback, replays events with `seq > last_seen` BEFORE attaching to live queue. Emits `retry: 3000\n\n` preamble. Every event gets `id: {loop_id}:{seq}\n` line. Buffer records BEFORE yield so crash mid-send still leaves event replayable.
+
+**Ship (client):**
+- `frontend/src/lib/loopApi.js::streamLoopEvents` — auto-reconnect on network error / stream_capped. Tracks `lastEventId` + `lastSeenSeq`; sends `Last-Event-ID` header on reconnect. Client-side dedup skips any replayed event with seq ≤ lastSeenSeq. New callbacks `onReconnecting(attempt)` + `onReconnected()`. Exponential backoff 1s→2s→4s→8s (cap). Documented invariant: callers MUST NOT clear feed state on `onReconnecting` — leave last-known state visible.
+
+**Ship (tests):**
+- **NEW** `tests/test_iter309_batch2_item6_sse_resilience.py` — 10 tests (record/replay contract, TTL evict, capacity bound, Test A kill-mid-execute reconnect no-gap-no-dupes, Test B post-reconnect state === uninterrupted final).
+- Fixed `test_regression_iter297_p0_journey_coverage.py::test_j009_loop_stream...` to pass new `request` + `last_event_id` args to `loop_stream()`.
+
+**Verification level (honest):**
+- Ring buffer contract + replay math — ✅ unit-verified (10/10 pass)
+- `Last-Event-ID` parse + replay — ✅ unit-verified
+- Server `id:` + `retry:` emission — ✅ unit-verified via test_j009
+- Client reconnect loop / dedup — ⚠️ **unit-only in tests**; live browser reconnect from a real 25-min loop still pending
+- **PENDING live 25-min preview verify** — force-kill connection at ~min 21, confirm UI catches up. This same test WILL close out the two prior "open verification debt" items:
+  - Iter 313 · Item 4 execute/verify/scan/ship token instrumentation end-to-end
+  - Iter 314 · Item 5 heartbeat dedup end-to-end
+  All three will be marked LIVE-VERIFIED in the same changelog update once the founder runs it.
+
+**Quality-gate: 383 passed / 3 failed / 4 skipped / 2 errors** (was 373+3+4+2 — +10 SSE tests). Same local-infra residuals. Zero regressions.
+
 ## 2026-07-26 — Iter 309 · Batch-2 Item 5 · Duplicate heartbeat cleanup (bug_testing_agent iter 314: FIXED)
 
 **Founder ask:** Two heartbeat loops fire simultaneously during EXECUTE — iter 278's per-file inside `_do_execute`'s Parliament call AND iter 308's generic inside `_with_budget`. Delete iter 278; keep iter 308 unchanged; regression test asserts zero duplicates.

@@ -375,9 +375,22 @@ def test_j009_loop_stream_returns_streaming_response_and_404s_unknown_loop():
     try:
         # (1) Unknown loop → 404. lookup() returns None AND find_one
         # returns None. The endpoint must raise HTTPException(404).
+        # Iter 309 · Batch-2 Item 6 — loop_stream now takes a Request
+        # arg + Last-Event-ID header for the SSE reconnect replay.
+        # Fake both with a minimal Starlette Request stub.
+        from starlette.requests import Request as _Req
+        def _fake_request():
+            return _Req({"type": "http", "method": "GET",
+                         "headers": [], "path": "/",
+                         "query_string": b"", "root_path": "",
+                         "scheme": "http", "server": ("t", 80),
+                         "client": ("t", 0)})
         async def _call_unknown():
             return await _loop_router.loop_stream(
-                loop_id="does-not-exist", authorization="Bearer x")
+                loop_id="does-not-exist",
+                request=_fake_request(),
+                authorization="Bearer x",
+                last_event_id=None)
         with pytest.raises(HTTPException) as exc:
             asyncio.run(_call_unknown())
         assert exc.value.status_code == 404
@@ -393,7 +406,10 @@ def test_j009_loop_stream_returns_streaming_response_and_404s_unknown_loop():
         try:
             async def _call_known():
                 return await _loop_router.loop_stream(
-                    loop_id="loop-live-1", authorization="Bearer x")
+                    loop_id="loop-live-1",
+                    request=_fake_request(),
+                    authorization="Bearer x",
+                    last_event_id=None)
             resp = asyncio.run(_call_known())
         finally:
             _le.deregister("loop-live-1")

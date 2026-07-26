@@ -1,0 +1,54 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "SSE stream caps at 20 min while loops run up to 40 min. On reconnect (browser auto or after cap), events emitted during the gap are silently lost. UI stuck on stale phase, then jumps to COMPLETED. Fix: server-side per-loop ring buffer + `id:` field per event (monotonic `{loop_id}:{seq}`) + `Last-Event-ID` reconnect replay + `retry: 3000` preamble. Client: no feed-state clear on reconnect, auto-reconnect with Last-Event-ID, dedup by seq. Tests: Test A (kill mid-execute, reconnect, 0 missed + 0 dupes) + Test B (post-reconnect state === uninterrupted final). NO WebSockets, NO polling fallback.",
+  "summary": "No relevant testing skill found. Focused backend verification found the replay buffer unit tests pass and unauthenticated preview stream remains 401-gated, but the exact disconnect-gap scenario still loses events: after a stream disconnect, events emitted while no stream is consuming are not recorded in the ring buffer, and reconnect with Last-Event-ID only returned the latest Mongo last_event (event-5), missing event-2 through event-4.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/aurem-dev/loop/{loop_id}/stream",
+        "issue": "Reconnect replay does not cover events emitted during the disconnected gap. sse_replay_buffer.record() is called only inside loop_stream while consuming/yielding events, not at LoopEngine._emit(); therefore no stream consumer means no gap events are buffered. Probe expected event-2..event-5 after Last-Event-ID probe-loop-gap:1 but received only event-5 via Mongo last_event fallback.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/aurem-dev/loop/{loop_id}/stream",
+        "issue": "loop_stream() finally block calls eng.deregister(loop_id) on client disconnect/iterator close. In the focused probe, the still-running engine was removed from the live registry after disconnect, forcing reconnect into the Mongo fallback path and making intermediate gap events unrecoverable.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verify_315_sse_reconnect_gap_probe.py",
+    "/app/test_reports/bug_verification_315.json",
+    "/app/test_reports/iteration_315.json"
+  ],
+  "action_items": [
+    "Move stable event recording to the event production path (LoopEngine._emit and any crash/fallback emit path) or another always-on producer-side hook, not only the SSE consumer path.",
+    "Do not deregister a live/running LoopEngine merely because one SSE client disconnects; only deregister on true terminal cleanup.",
+    "Add an integration regression that opens a stream, receives seq 0..1, closes it, emits seq 2..5 while disconnected, reconnects with Last-Event-ID seq 1, and asserts seq 2..5 are replayed with no duplicates. Current Test A is insufficient because it records gap events directly into the buffer."
+  ],
+  "critical_code_review_comments": [
+    "backend/routers/loop.py records replay-buffer events only immediately before yielding to an active SSE response, so it cannot satisfy the user contract for events emitted during a network gap or 20-minute cap gap.",
+    "backend/routers/loop.py:486-488 deregisters the loop in the SSE generator's finally block; this ties engine liveness to a client stream lifecycle and breaks reconnect to the live queue.",
+    "backend/tests/test_iter309_batch2_item6_sse_resilience.py simulates replay math by directly calling buf.record for all events, so it misses the real producer/consumer gap where no stream is active to call record()."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verify_315_sse_reconnect_gap_probe.py",
+    "/app/test_reports/bug_verification_315.json",
+    "/app/test_reports/iteration_315.json"
+  ],
+  "success_rate": {
+    "backend": "Targeted unit subset 100% (11/11), exact disconnect-gap probe 0% (failed)",
+    "frontend": "Not tested per backend-only request"
+  },
+  "seed_data_creation": "Created only in-memory stub LoopEngine/DB data in the focused probe; no persistent seed data.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run PYTHONPATH=/app/backend python /app/test_reports/bug_verify_315_sse_reconnect_gap_probe.py after the next fix. It should print passed=true and actual_replayed_messages should equal event-2,event-3,event-4,event-5. Also rerun PYTHONPATH=/app/backend pytest -q tests/test_iter309_batch2_item6_sse_resilience.py tests/test_regression_iter297_p0_journey_coverage.py::test_j009_loop_stream_returns_streaming_response_and_404s_unknown_loop.",
+  "rca_of_the_issue": "The implementation adds id/retry formatting correctly for active stream events, but the buffer is populated from the SSE consumer rather than from the loop event producer. When the browser is disconnected, LoopEngine._emit continues updating queue/Mongo last_event, but no code records those events into sse_replay_buffer. On reconnect, the buffer only has pre-disconnect events; the code then attaches/falls back to Mongo last_event, which can only expose the latest event and silently drops intermediate gap events. The SSE generator also deregisters the engine on disconnect, amplifying the fallback behavior. Preview unauthenticated smoke check still returns 401 as expected."
+}

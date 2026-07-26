@@ -27,7 +27,7 @@ import time
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -357,7 +357,11 @@ async def loop_status(loop_id: str,
 
 @router.get("/{loop_id}/stream")
 async def loop_stream(loop_id: str,
-                      authorization: Optional[str] = Header(None)):
+                      request: Request,
+                      authorization: Optional[str] = Header(None),
+                      last_event_id: Optional[str] = Header(
+                          None, alias="Last-Event-ID",
+                      )):
     user = await current_dev(authorization)
     engine = eng.lookup(loop_id)
     if engine is not None and engine.user_id != user["user_id"]:
@@ -377,10 +381,36 @@ async def loop_stream(loop_id: str,
     # See module-level STREAM_MAX_S (Iter 282, Release It! Governor).
     _STREAM_MAX_S = STREAM_MAX_S
 
+    # Iter 309 · Batch-2 Item 6 — parse Last-Event-ID for replay.
+    # `last_event_id` is the FastAPI-parsed header (browsers set it
+    # automatically on reconnect); a query-string fallback is also
+    # honored for hand-crafted curl reconnect testing.
+    from services import sse_replay_buffer as _sse_buf
+    lei_hdr = last_event_id or request.query_params.get("last_event_id") or ""
+    replay_after_seq = _sse_buf.parse_last_event_id(lei_hdr, loop_id)
+
     async def gen():
         db = get_db()
         sent_sig = None
         _stream_started = time.monotonic()
+        # Iter 309 · Batch-2 Item 6 — set the browser reconnect
+        # backoff on OUR terms (default varies by browser; Chrome
+        # is 3s but Safari can be as short as 0ms which hammers
+        # the server on cell-network blips).
+        yield f"retry: {_sse_buf.BROWSER_RECONNECT_MS}\n\n"
+
+        # Iter 309 · Batch-2 Item 6 — replay buffered events with
+        # seq > Last-Event-ID before attaching to the live queue.
+        # Zero events replayed when the client is a fresh subscriber
+        # (Last-Event-ID absent → replay_after_seq = -1 → replay
+        # everything the buffer has, which for a new loop is empty
+        # or just the initial PLANNING event — cheap).
+        for _seq, _ev in _sse_buf.replay_after(loop_id, replay_after_seq):
+            _sig = (_ev.get("ts"), _ev.get("state"),
+                    _ev.get("phase"), _ev.get("message"))
+            sent_sig = _sig
+            _ev_id = f"{loop_id}:{_seq}"
+            yield f"id: {_ev_id}\ndata: {json.dumps(_ev)}\n\n"
         try:
             while True:
                 if time.monotonic() - _stream_started > _STREAM_MAX_S:
@@ -391,7 +421,8 @@ async def loop_stream(loop_id: str,
                     # to the user that the loop finished. The loop's
                     # actual engine task keeps running in the background;
                     # this cap only disconnects THIS SSE client. User
-                    # can reconnect via GET /loop/{id}/stream.
+                    # can reconnect via GET /loop/{id}/stream and the
+                    # ring buffer will replay everything they missed.
                     terminal_ev = {
                         "state":   "stream_capped",
                         "phase":   "?",
@@ -403,6 +434,10 @@ async def loop_stream(loop_id: str,
                         ),
                         "ts": time.time(),
                     }
+                    # Cap-notice does NOT get a stable id — it's a
+                    # transport signal, not a loop event; if the
+                    # client reconnects it will replay from the
+                    # last REAL event's Last-Event-ID.
                     yield f"data: {json.dumps(terminal_ev)}\n\n"
                     break
                 ev = None
@@ -416,7 +451,13 @@ async def loop_stream(loop_id: str,
                 if ev is not None:
                     sent_sig = (ev.get("ts"), ev.get("state"),
                                 ev.get("phase"), ev.get("message"))
-                    yield f"data: {json.dumps(ev)}\n\n"
+                    # Iter 309 · Batch-2 Item 6 — every event carries
+                    # a monotonic `{loop_id}:{seq}` id for reconnect
+                    # replay.  Buffer records BEFORE the yield so a
+                    # crash mid-send still leaves the event available
+                    # to the client's next reconnect attempt.
+                    _seq, _ev_id = _sse_buf.record(loop_id, ev)
+                    yield f"id: {_ev_id}\ndata: {json.dumps(ev)}\n\n"
                     if engine.state in {eng.LoopState.COMPLETED,
                                         eng.LoopState.FAILED,
                                         eng.LoopState.ABORTED}:
@@ -436,7 +477,8 @@ async def loop_stream(loop_id: str,
                        mev.get("phase"), mev.get("message"))
                 if mev and sig != sent_sig:
                     sent_sig = sig
-                    yield f"data: {json.dumps(mev)}\n\n"
+                    _seq, _ev_id = _sse_buf.record(loop_id, mev)
+                    yield f"id: {_ev_id}\ndata: {json.dumps(mev)}\n\n"
                 else:
                     yield ": keepalive\n\n"
                 if (doc.get("state") or "").lower() in _TERMINAL:
