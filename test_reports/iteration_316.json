@@ -1,0 +1,54 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Retest of SSE reconnect resilience after fixing bug_verify_315: buffer record moved from SSE consumer (loop_stream) to producer (LoopEngine._emit line ~2464). Also removed the `finally: eng.deregister(loop_id)` from loop_stream so client disconnect no longer kills the engine. Both critical items in iteration 315's not_fixed verdict addressed.",
+  "summary": "No relevant testing skill found. Focused backend retest confirms the core SSE reconnect bug is fixed: LoopEngine._emit records each event to the replay buffer before queue.put, loop_stream no longer deregisters the engine on client disconnect, and a corrected disconnect-gap probe replayed event-2 through event-5 after reconnect with the engine still registered. The old bug_verify_315 probe still exits 1, but inspection shows it is racy/off-by-one because initial replay can duplicate event-0 before the stream attaches to the live queue; the corrected probe verifies the requested key invariant. Targeted item6 tests passed 10/10, j009 passed 1/1, and the full keyword quality-gate subset matched the expected residual infra baseline: 3 failed, 383 passed, 4 skipped, 2 errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/app/test_reports/bug_verify_315_sse_reconnect_gap_probe.py",
+        "issue": "The legacy probe remains racy and still reports passed=false by reading a duplicate initial event-0/id0 before event-1; it should be updated or replaced with the corrected probe that waits until loop_stream is attached to engine.queue before emitting initial live events."
+      },
+      {
+        "endpoint": "GET /api/aurem-dev/loop/{loop_id}/stream",
+        "issue": "Supplementary probe showed backend can emit replayed gap events again from engine.queue after buffer replay. Frontend loopApi.js dedups by SSE seq, so this should not be user-visible, but server-side filtering/draining of already-replayed seqs would make the no-duplicate invariant cleaner."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verify_315_sse_reconnect_gap_probe.py",
+    "/app/test_reports/bug_verify_316_sse_reconnect_core_probe.py",
+    "/app/test_reports/bug_verify_316_sse_reconnect_duplicate_probe.py",
+    "/app/test_reports/bug_verification_316.json",
+    "/app/test_reports/iteration_316.json"
+  ],
+  "action_items": [
+    "Update the old bug_verify_315 gap probe to avoid the initial replay/live-queue race, or replace it with /app/test_reports/bug_verify_316_sse_reconnect_core_probe.py as the regression harness.",
+    "Consider server-side suppression of queued events whose seq was already replayed on reconnect; frontend dedup currently prevents duplicate user-visible application."
+  ],
+  "critical_code_review_comments": [
+    "backend/services/loop_engine.py::_emit now calls services.sse_replay_buffer.record(self.loop_id, ev) before await self.queue.put(ev), satisfying producer-side recording while no SSE client is connected.",
+    "backend/routers/loop.py::loop_stream finally block now does pass instead of eng.deregister(loop_id), so closing one SSE client does not kill a running engine.",
+    "backend/routers/loop.py no longer records the local live-queue event at consumer yield; Mongo/cross-worker fallback still records last_event locally."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verify_316_sse_reconnect_core_probe.py",
+    "/app/test_reports/bug_verify_316_sse_reconnect_duplicate_probe.py",
+    "/app/test_reports/bug_verification_316.json",
+    "/app/test_reports/iteration_316.json"
+  ],
+  "success_rate": {
+    "backend": "Core disconnect-gap probe passed; requested item6 tests 10/10 passed; j009 1/1 passed; quality-gate subset matched expected residual 3 failed / 383 passed / 4 skipped / 2 errors. Legacy bug_verify_315 probe still fails due harness race, not the disconnect-gap invariant.",
+    "frontend": "Not tested per backend-only request; frontend dedup code was inspected for the duplicate-frame edge."
+  },
+  "seed_data_creation": "Only in-memory stub LoopEngine/DB data in focused probes; no persistent seed data created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use PYTHONPATH=/app/backend python /app/test_reports/bug_verify_316_sse_reconnect_core_probe.py for the key invariant: initial ids 0/1, engine remains registered after disconnect, buffer has six events, reconnect from id1 replays event-2..event-5. The original bug_verify_315 probe currently fails due probe-side initial duplicate/off-by-one behavior.",
+  "rca_of_the_issue": "Iteration 315 failed because only the SSE consumer populated the replay buffer and loop_stream deregistered the engine on client disconnect. The fix moved recording to LoopEngine._emit and removed disconnect-time deregistration. The old probe's remaining failure is caused by emitting event-0 before the generator has completed initial replay and attached to engine.queue, allowing event-0 to be seen from replay and then again from the live queue. A corrected probe that schedules the stream read before each emit proves events emitted during the disconnect gap are recorded and replayable."
+}

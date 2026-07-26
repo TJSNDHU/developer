@@ -451,13 +451,21 @@ async def loop_stream(loop_id: str,
                 if ev is not None:
                     sent_sig = (ev.get("ts"), ev.get("state"),
                                 ev.get("phase"), ev.get("message"))
-                    # Iter 309 · Batch-2 Item 6 — every event carries
-                    # a monotonic `{loop_id}:{seq}` id for reconnect
-                    # replay.  Buffer records BEFORE the yield so a
-                    # crash mid-send still leaves the event available
-                    # to the client's next reconnect attempt.
-                    _seq, _ev_id = _sse_buf.record(loop_id, ev)
-                    yield f"id: {_ev_id}\ndata: {json.dumps(ev)}\n\n"
+                    # Iter 309 · Batch-2 Item 6 (bug_verify_315 fix) —
+                    # the buffer is recorded by LoopEngine._emit at the
+                    # PRODUCER side, not here.  Find the seq that
+                    # _emit already assigned to this event so we can
+                    # emit the matching `id:` line.
+                    _ev_id = None
+                    for _s, _bev in reversed(list(
+                            _sse_buf._BUFFERS.get(loop_id, _sse_buf._LoopBuf()).events)):
+                        if _bev is ev:
+                            _ev_id = f"{loop_id}:{_s}"
+                            break
+                    if _ev_id:
+                        yield f"id: {_ev_id}\ndata: {json.dumps(ev)}\n\n"
+                    else:
+                        yield f"data: {json.dumps(ev)}\n\n"
                     if engine.state in {eng.LoopState.COMPLETED,
                                         eng.LoopState.FAILED,
                                         eng.LoopState.ABORTED}:
@@ -477,6 +485,10 @@ async def loop_stream(loop_id: str,
                        mev.get("phase"), mev.get("message"))
                 if mev and sig != sent_sig:
                     sent_sig = sig
+                    # Producer-side record for cross-worker case: if
+                    # engine is on ANOTHER worker, this worker never
+                    # emits so _emit's record didn't fire here.  Add
+                    # to local buffer for consistency.
                     _seq, _ev_id = _sse_buf.record(loop_id, mev)
                     yield f"id: {_ev_id}\ndata: {json.dumps(mev)}\n\n"
                 else:
@@ -484,7 +496,14 @@ async def loop_stream(loop_id: str,
                 if (doc.get("state") or "").lower() in _TERMINAL:
                     break
         finally:
-            eng.deregister(loop_id)
+            # Iter 309 · Batch-2 Item 6 (bug_verify_315 fix) — do NOT
+            # deregister the engine on client disconnect. The engine
+            # may still be running; tying its lifecycle to a single
+            # SSE client's TCP session breaks reconnect (the next
+            # `open` would find engine=None → Mongo fallback → miss
+            # intermediate gap events). Engines self-deregister on
+            # terminal transitions inside `_do_ship` / `_fail`.
+            pass
 
     return StreamingResponse(
         gen(),

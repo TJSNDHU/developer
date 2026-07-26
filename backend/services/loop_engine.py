@@ -2459,6 +2459,16 @@ class LoopEngine:
         self.state = state
         self.phase = phase
         ev = _new_event(self.loop_id, state, phase, **kw)
+        # Iter 309 · Batch-2 Item 6 (bug_verify_315 fix) — record to
+        # the SSE replay buffer at the PRODUCER, not the consumer.
+        # If we only record when a stream is consuming, then events
+        # emitted while the browser is disconnected are lost — the
+        # exact failure mode the buffer exists to prevent.
+        try:
+            from services.sse_replay_buffer import record as _sse_record
+            _sse_record(self.loop_id, ev)
+        except Exception:
+            pass
         await self.queue.put(ev)
         await _persist_session(self.db, self._doc(extra={"last_event": ev}))
 
