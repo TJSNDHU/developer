@@ -4,6 +4,43 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 309 · Phase 0.2 · Round 6 (exit-code propagation fixed, canary CI-red proven)
+
+**Founder finding**: Round 5 push showed canary + ~20 other real failures visible in the ci.yml log, but the `Run tests` step reported "This step passed" and the whole `Backend — pytest` job showed "succeeded in 5m 51s". Exit code was being swallowed → CI can show green while tests are genuinely failing → defeats the entire point of Phase 0.2.
+
+**Root cause (self-inflicted from Round 5)**: My Round 5 fix added a grep pipeline AFTER the pytest pipe and BEFORE `exit ${PIPESTATUS[0]}`. Bash's `PIPESTATUS` array only refers to the MOST RECENT pipeline — so by the time `exit ${PIPESTATUS[0]}` ran, it was returning the grep's exit code (0 when canary line was present) instead of pytest's exit code. Classic pipeline exit-code trap that I stepped right into.
+
+**Fix**:
+```bash
+set -o pipefail                                    # belt-and-braces
+python -m pytest ... 2>&1 | tee /tmp/pytest_output.txt
+PYTEST_EXIT=${PIPESTATUS[0]}                       # capture IMMEDIATELY
+echo "Pytest exit code (captured immediately): $PYTEST_EXIT"
+
+echo "---iter309-canary-check---"
+grep -E "test_ci_canary_MUST_FAIL_iter309|AssertionError.*CANARY" /tmp/pytest_output.txt \
+  || echo "!!! CANARY NOT PRESENT !!!"
+echo "---end-canary-check---"
+
+exit "$PYTEST_EXIT"                                # use captured var, NOT PIPESTATUS
+```
+
+**Regression guard** (new test): `backend/tests/test_iter309_phase02_ci_exit_propagation.py::test_ci_yml_run_tests_step_propagates_pytest_exit_code` statically parses ci.yml and asserts:
+1. `set -o pipefail` is present OR PIPESTATUS is captured to a variable IMMEDIATELY after the pytest pipe.
+2. Final `exit` line (outside comments) does NOT reference `${PIPESTATUS[0]}` directly — that fragile pattern is banned.
+
+If any future refactor reintroduces the round-6 bug, this test fails immediately.
+
+**Bug_testing_agent verdict**: FIXED. Agent ran the exact founder repro:
+```
+bash -c 'set -o pipefail; python -m pytest tests/test_ci_canary_MUST_FAIL_iter309.py ... 2>&1 | tee /tmp/out.txt; PYTEST_EXIT=${PIPESTATUS[0]}; ...; exit "$PYTEST_EXIT"'
+echo $?   # → 1
+```
+`REQUESTED_ECHO_EXIT=1` confirmed. Canary AssertionError visible in log. New static regression test passes. Reports at `/app/test_reports/iteration_309.json` + `/app/test_reports/scripts/iter309_ci_exit_repro.sh`.
+
+**Phase 0.2 — DONE pending final GH Actions run confirmation** by founder. All local proofs in hand; remote push verification is the last step. Founder pushes → workflow badge goes RED for real → we delete the canary + move to Phase 1 (per-loop LLM token accounting first, then persistent rules).
+
+
 ## 2026-02 — Iter 309 · Phase 0.2 (Round 4+5 — collection-abort chain + `-x` blast radius fixed)
 
 **Founder finding (round 4)**: with the ci.yml trigger fix + quality-gate discovery + requirements.txt cleanup in place, ci.yml DID fire on the next push AND install succeeded. But `Run tests` step failed with:
