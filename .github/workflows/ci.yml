@@ -120,16 +120,17 @@ jobs:
       - name: Run tests
         working-directory: backend
         run: |
-          # Iter 309 · Phase 0.2 · Round 5 — removed `-x` (stop-on-first-
-          # failure) because it was aborting collection at pre-existing
-          # live-API integration tests (test_aurem_rollback.py etc.)
-          # before the CI-signal canary + iter309 regression tests could
-          # execute. We want the FULL failure surface each run, not
-          # just first-hit — that was the whole point of Phase 0.2:
-          # make silent failures visible. Exit code is still non-zero
-          # if ANY test fails; that's the CI RED signal.
-          # `--continue-on-collection-errors` similarly makes sure one
-          # bad-import file doesn't mask 3000 other tests.
+          # Iter 309 · Phase 0.2 · Round 6 — CAPTURE pytest exit code
+          # IMMEDIATELY. Round 5 added a grep-based canary-proof block
+          # AFTER the pytest pipe and BEFORE `exit ${PIPESTATUS[0]}`,
+          # which clobbered PIPESTATUS to point at the grep (always 0
+          # when the canary line is present) instead of pytest.
+          # Result: every failing pytest run showed the step as GREEN
+          # because $? by the time exit ran was zero. Classic
+          # bash-pipe exit-code trap. `set -o pipefail` also enabled
+          # as belt-and-braces so the `2>&1 | tee` pipe returns the
+          # left-hand exit code by default.
+          set -o pipefail
           python -m pytest \
             --tb=short \
             --timeout=30 \
@@ -140,15 +141,16 @@ jobs:
             --ignore=tests/test_iter138_acceptance_seven.py \
             --ignore=tests/test_iter212m163_aggression_chat.py \
             2>&1 | tee /tmp/pytest_output.txt
-          echo "Exit: ${PIPESTATUS[0]}"
-          # Iter 309 · Phase 0.2 · Round 5 — explicit canary proof line
-          # so the founder can grep the log and see the CI-signal
-          # canary actually executed (not silently skipped).
+          PYTEST_EXIT=${PIPESTATUS[0]}
+          echo "Pytest exit code (captured immediately): $PYTEST_EXIT"
+
           echo "---iter309-canary-check---"
           grep -E "test_ci_canary_MUST_FAIL_iter309|AssertionError.*CANARY" /tmp/pytest_output.txt \
             || echo "!!! CANARY NOT PRESENT IN OUTPUT — CI is still not running our test !!!"
           echo "---end-canary-check---"
-          exit ${PIPESTATUS[0]}
+
+          # Exit with pytest's exit code (captured before any post-processing).
+          exit "$PYTEST_EXIT"
 
       - name: Upload test results
         if: always()
