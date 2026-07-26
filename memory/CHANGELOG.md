@@ -4,6 +4,29 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 22:17 UTC — Iter 309 · Speed Diagnostic Part 1 — Tool Built + Preview Ran (thin data)
+
+**Status:** Tool is code-complete and lint-clean. Ran on preview → sample too small for statistical significance (1 real completed loop in 90 days, 0 loop_events retained). **Requires prod run to produce a meaningful Part 2 report.**
+
+**Deliverables (permanent artifacts):**
+- `backend/services/loop_speed_diagnostic.py` (NEW) — pure aggregation module, read-only. Reconstructs per-phase wall-clock from `loop_events` timestamps, joins `ora_chat_usage` for LLM call counts, computes MAX_PARALLEL_GENS=3 queue-wait signal, self-heal breakdown. Excludes test/dogfood users via user_id prefix match (`test_`, `e2e_`, `founder_`, `dogfood_`). Zero writes, zero side effects.
+- `backend/scripts/loop_speed_report.py` (NEW, executable) — CLI wrapper. Uses backend/.env by default; override via `MONGO_URL=<prod_url> DB_NAME=aurem_dev python3 scripts/loop_speed_report.py`. Supports `--window-days`, `--sample`, `--json`.
+- `backend/routers/admin.py::speed_diagnostic` (NEW) — `GET /api/aurem-dev/admin/speed-diagnostic?window_days=30&sample=20` (require_admin, read-only). Founder can hit this from any admin-authenticated tab; response is the same JSON shape as the CLI.
+
+**Preview run findings (2026-07-26 22:17 UTC):**
+- `loop_sessions total: 10, completed: 2` (with only 1 in the 90-day window after real-user filter)
+- `loop_events: 0` — preview retains no per-phase timestamp events
+- `ora_chat_usage w/ loop.*: 0` — Item 4 token tracking hasn't fired on preview
+- Meaningful data is on **prod** (`auremcto.com`). The tooling is ready; awaiting founder to run the endpoint on prod.
+
+**How founder runs it (once ready):**
+```
+GET https://auremcto.com/api/aurem-dev/admin/speed-diagnostic?window_days=30&sample=20
+```
+Response is JSON. Paste it back and I'll write Part 2 (table: phase → avg/median/max → % of total → genuine work vs inefficiency, per row) + any conditional Part 3 fix proposal — with the standing rule (no cuts to verify/scan/self-heal safety gates).
+
+**Zero Part 3 speculation before Part 2 data lands.** The script + endpoint are the entire deliverable for now. No code change to `loop_engine.py`, no runtime touch.
+
 ## 2026-07-26 22:05 UTC — Iter 309 · Live Narration + ECG Step-Bar + UI Cleanup — UNIT-VERIFIED, NOT DEPLOYED
 
 **Status:** Code-complete + unit-verified. **NOT deployed. NOT live-verified on preview.**
@@ -194,6 +217,7 @@ Previous handoff summary and multiple internal turns claimed Batch 2 was "shippe
 - **Track 4 — Master QA · OWASP API Top 10** · P2
 - **Track 5 — Master QA · Load / Concurrency** · P2
 - **3 local-infra test residuals** · P3 · Stripe fake key 503, 429 rate-limit collisions, 401 test-user seed pollution — CI's fresh Mongo handles them; not a code regression.
+- **Slack/Discord webhook progress relay for founder-mode** · P3 · deferred (2026-07-26). Idea: reuse the Iter 309 `_narrate()` helper to emit terminal-loop notifications ("Loop {id} finished — {n} files, no findings, sha {short}") to a founder-configured webhook. Founder explicitly declined for now — not opening new surface area while Batch 2 / Iter 309 verification + speed diagnostic are still open. Revisit after Phase 1-4.
 
 - **Iter 313 (Item 4)** — the execute/verify/scan/ship LLM
   instrumentation is currently **UNIT-VERIFIED ONLY**. The

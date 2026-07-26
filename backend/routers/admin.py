@@ -4433,3 +4433,26 @@ async def loop_inspect(
         "generated_at":  datetime.now(timezone.utc).isoformat(),
     }
 
+
+
+
+# ────────────────────────────────────────────────────────────────────
+# Iter 309 · Speed Diagnostic — read-only per-phase wall-clock report.
+# Founder's speed-diagnostic prompt (2026-07-26): aggregate the last
+# N completed loops from loop_sessions + loop_events + ora_chat_usage
+# to produce a real per-phase duration breakdown WITHOUT touching any
+# runtime code path. Admin-only, zero writes.
+# ────────────────────────────────────────────────────────────────────
+@router.get("/speed-diagnostic")
+async def speed_diagnostic(
+    window_days: int = 30,
+    sample: int = 20,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    from services.loop_speed_diagnostic import compute_speed_report
+    return await compute_speed_report(
+        require_db(),
+        window_days=max(1, min(int(window_days or 30), 180)),
+        sample_target=max(1, min(int(sample or 20), 100)),
+    )
