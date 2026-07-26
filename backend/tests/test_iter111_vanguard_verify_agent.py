@@ -91,16 +91,21 @@ async def test_hardcoded_secret_BLOCKS_via_regex_floor(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_llm_agent_block_blocks_overall(monkeypatch):
-    """Regex passes but the verify agent finds something → must block."""
+    """Regex passes but the verify agent finds something at the
+    configured block_level → must block.  Iter 212m-41 / 212m-42
+    tightened the policy: LLM findings only gate on severities
+    meeting the mode's threshold. The default block_level in
+    `vanguard_config` is CRITICAL (mode-agnostic), so the test
+    supplies a CRITICAL LLM finding to exercise the block path."""
     async def fake_llm(_b, _c, **_kw):
         return {
             "pass": False,
             "findings": [{
-                "file": "app.py", "line": 3, "severity": "HIGH",
+                "file": "app.py", "line": 3, "severity": "CRITICAL",
                 "rule": "missing_auth",
                 "message": "/admin endpoint missing auth dep",
             }],
-            "summary": "1 high finding",
+            "summary": "1 critical finding",
             "model": "claude",
         }
     async def fake_e2b(_b):

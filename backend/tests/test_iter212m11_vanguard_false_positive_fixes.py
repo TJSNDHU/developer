@@ -145,9 +145,15 @@ def test_vanguard_ignore_marker_suppresses_python_finding():
 
 
 def test_vanguard_ignore_marker_suppresses_js_finding():
-    plain = scan_text("el.innerHTML = data;")
+    # Iter 212m-226 — innerHTML_assignment is a CODE-ONLY rule so
+    # it now requires a file extension (.js/.jsx/.ts/.tsx) to fire.
+    # The test passes a `.js` filepath explicitly so the assertion
+    # exercises the suppression marker rather than the code-only
+    # gate.
+    plain = scan_text("el.innerHTML = data;", filepath="app.js")
     assert "innerHTML_assignment" in _names(plain)
-    suppr = scan_text("el.innerHTML = data;  // vanguard: ignore")
+    suppr = scan_text("el.innerHTML = data;  // vanguard: ignore",
+                      filepath="app.js")
     assert "innerHTML_assignment" not in _names(suppr)
 
 
@@ -222,12 +228,29 @@ def test_regression_github_token_still_fires():
 
 
 def test_regression_private_key_still_fires():
-    f = scan_text("-----BEGIN RSA PRIVATE KEY-----")
+    # Iter 212m-224 — the private_key regex was tightened to require
+    # actual base64 key material on the line(s) following the header
+    # (`\n[A-Za-z0-9+/=]{20,}`). Bare `-----BEGIN … PRIVATE KEY-----`
+    # lines with no body were surfacing on placeholder JSX / form
+    # strings and documentation. This test asserts the rule STILL
+    # fires when real key material is present, which is the
+    # security-relevant case.
+    f = scan_text(
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj\n"
+    )
     assert "private_key" in _names(f)
 
 
 def test_regression_eval_still_fires():
-    f = scan_text("eval(user_input)")
+    # Iter 212m-226 — eval_usage is now a CODE-ONLY rule so it only
+    # fires on files with real source-code extensions (.py, .js,
+    # .ts, …). Without a filepath the scanner conservatively skips
+    # eval_usage because plain-text prose (`Running promptfoo
+    # eval …` in run.sh, markdown examples) was surfacing as
+    # CRITICAL. Passing a `.py` filepath restores the previous
+    # behaviour for the security-relevant case.
+    f = scan_text("eval(user_input)", filepath="app.py")
     assert "eval_usage" in _names(f)
 
 

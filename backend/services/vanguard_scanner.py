@@ -160,6 +160,37 @@ def scan_text(
          ".php", ".kt", ".cs", ".c", ".cpp", ".h", ".hpp")
     )
     for name, pattern, severity in SECRET_PATTERNS:
+        # Iter 309 · Phase 0.2 — some SECRET rules use multi-line
+        # regexes (e.g. `private_key` requires `\n[A-Za-z0-9+/=]{20,}`
+        # after the header, iter 212m-224). Line-by-line iteration
+        # cannot match those. Detect multi-line patterns by the
+        # presence of `\n` in the compiled pattern string and run
+        # them against the FULL text with pattern.search() instead.
+        # Per-line iteration is preserved for the single-line rules
+        # so line-number attribution and `# vanguard: ignore`
+        # suppression still work as before.
+        if "\\n" in pattern.pattern or "\n" in pattern.pattern:
+            m = pattern.search(text)
+            if m:
+                # Attribute the finding to the line where the match
+                # started.  `text[:m.start()]` counts newlines up to
+                # the match; +1 because line numbers are 1-indexed.
+                line_no = text[: m.start()].count("\n") + 1
+                line_snippet = lines[line_no - 1].strip() if 0 < line_no <= len(lines) else ""
+                # Respect the per-line suppression marker on the
+                # header line — a developer opting-out with
+                # `# vanguard: ignore` on the header line should
+                # skip the finding even for multi-line rules.
+                if _SUPPRESS_MARKER not in (lines[line_no - 1] if line_no <= len(lines) else ""):
+                    findings.append({
+                        "name": name,
+                        "severity": severity,
+                        "filepath": filepath,
+                        "line": line_no,
+                        "snippet": line_snippet[:120],
+                        "source": "vanguard_007_secrets",
+                    })
+            continue
         for i, line in enumerate(lines, 1):
             if _SUPPRESS_MARKER in line:
                 continue
