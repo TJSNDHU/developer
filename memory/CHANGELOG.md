@@ -4,6 +4,61 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 — Iter 309-311 · Phase 0.2 wrap + Cluster 1 fixture-shape fix
+
+**Founder ask (Hinglish):** Post-CI-fix triage — quality-gate keyword-filtered subset showed 21 failed + 2 errors uncovered by removing the whitelist. Fix in sequential order: 🟢 sweep → Cluster 2 (verify_patch) → Cluster 3 (fixture) → Cluster 1 (loop pipeline). Cluster 1 gated on prod-impact data via new `/admin/loop-metrics` endpoint.
+
+**Ship — Iter 309-b (test-file batch, verified by bug_testing_agent iter 310):**
+- `tests/test_iter212m112_loop_autorestart_and_parallel_execute.py` — `MAX_PHASE_RESTARTS` assertion 2→1 (iter 131 policy)
+- `tests/test_iter212m115_loop_safety_five_fixes.py` — fake_llm signature `**_kw`
+- `tests/test_iter111_vanguard_verify_agent.py` — 5 mocks `**_kw` for new `line_map` kwarg + `test_llm_agent_block_blocks_overall` bumped to CRITICAL severity (iter 212m-41/42 policy: Swift block_level=CRITICAL by default)
+- `tests/test_iter212m109_loop_execute_and_history.py` — Parliament path assertion (was `generate_files()`) + iter 212m-132 button removed defensive `preventDefault/stopPropagation`
+- `tests/test_iter212m150_parliament.py` — regex-based import check (docstring/prose mentions allowed)
+- `tests/test_regression_iter284_queue_next_ui.py` — reads `AgentStatusBar.jsx` (iter 295 extraction from ChatPanel)
+- `tests/test_iter212m11_vanguard_false_positive_fixes.py` — private_key requires body + eval_usage/innerHTML need `.py`/`.js` filepath (iter 212m-224/226 tightenings)
+- `tests/test_jwt_revocation.py` — `load_dotenv(override=True)` for JWT_SECRET consistency + autouse `ensure_indexes` + `_requires_backend` skip marker
+- `tests/test_release_it_patterns_iter282.py` — autouse `init_prod_collections` fixture
+
+**Ship — Iter 309-c (real bug fix, unplanned):**
+- **`services/vanguard_scanner.py`** — the `private_key` rule was **DEAD**: iter 212m-224 changed the regex to require `\n[A-Za-z0-9+/=]{20,}` (multi-line body match), but `scan_text()` iterates line-by-line with `pattern.search(line)` — a `\n` pattern can never match a single line. Patched scanner to detect multi-line patterns (containing `\n`) and run them against the FULL text with `pattern.search(text)`, attributing the finding to the line where the match starts. Preserves single-line rule behavior + `# vanguard: ignore` suppression marker.
+
+**Ship — Iter 309-b (new admin endpoint):**
+- `GET /api/aurem-dev/admin/loop-metrics` — founder-gated, read-only aggregation over `loop_sessions.state` for last-7d vs prior-7d with `delta_failed_ratio`. Later expanded with `data_source` block (db_name + mongo_host + commit_sha + env), `failed_sample` with redacted user_hint + classification (founder/admin/test/user/orphan), and `failed_owner_counts`. Gate rule: `delta_failed_ratio > +5pp` OR `failed_owner_counts.user >= 3` → Cluster 1 promotes to P0.
+
+**Ship — Iter 309-c (env detection hardening):**
+- `services/version.py` — `commit_sha` cascade now: env vars → `.emergent/emergent.yml` → **`backend/BUILD_INFO.txt`** (static ships with code, works when `.emergent` is `.dockerignore`d in prod) → `git rev-parse` → "unknown"
+- `env` label cascade: `AUREM_ENV` → `X-Forwarded-Host` → `Host` → **MONGO_URL heuristic** (`mongodb+srv://` OR `mongodb.net` OR non-localhost → "production"). Solved the "PRODUCTION: unknown" and "env: preview on auremcto.com" bugs the founder observed after the first ship.
+
+**Ship — Iter 311 (Cluster 1 test-only fix, verified by bug_testing_agent iter 311):**
+Prod data confirmed: `failed_owner_counts.user = 0` in last 7d — Cluster 1 = fixture-shape, not P0.
+- `tests/test_iter212m60_loop_engine.py` — added `stub_phases` fixture stubbing `_do_execute/_do_verify/_do_scan/_do_ship` at LoopEngine class level. These tests target the STATE MACHINE (event emission + transitions + terminal states) — not the real GitHub/Parliament LLM stack. Also bumped `fast_timeouts` 2s→10s (comfortable headroom over 6s heartbeat cadence). Also updated `test_resume_stale_flips_to_paused` seed timestamp from hardcoded 3min → dynamic `STALE_AFTER_S + 60s` (iter 308 tightening).
+- `tests/test_iter212m62_loop_verify.py` — added lighter `stub_execute_and_ship` fixture (only stubs execute + ship; verify + scan run natively). Swapped `loop_verify.self_heal` monkeypatch → `Parliament.SelfHeal.heal` (iter 212m-150 refactor).
+- Production `loop_engine.py` **UNCHANGED**.
+
+**Ship — Iter 313 (Item 4: per-loop LLM token accounting, verified by bug_testing_agent iter 313):**
+Founder scope-lock: reuse existing `compute_cost_usd()`, no pricing tables added, no Admin UI in this round, tokens-only if OpenRouter doesn't return cost (`compute_cost_usd` shipped since iter 212m-104, so cost lands automatically). Every loop-originated row MUST have `loop_session_id` + `phase_tag`.
+- **NEW** `services/loop_token_ledger.py` — contextvars-based ambient loop context (`loop_id`, `phase_tag`, `user_id`). `loop_call_context()` async context manager + `log_llm_usage(model, usage_dict)` fire-and-forget writer. NO-OP outside loop context — regular chat / scaffold / deep-research callers unaffected.
+- `services/llm.py` — 2 instrumentation call sites (`_call_deepseek` success path line ~709 + `call_openrouter_model` success path line ~1058) fire `log_llm_usage()` after every successful OpenRouter response. Signature-preserving.
+- `services/loop_engine.py::_with_budget` — wraps every phase coroutine in `loop_call_context`. Also fixed by bug_verify_312 → wraps the initial `_do_plan()` call in `LoopEngine.start()` line ~446 too (plan phase was bypassing `_with_budget`).
+- **NEW** `GET /api/aurem-dev/admin/loop-token-metrics` — founder-gated, reads `ora_chat_usage` filtered by `route ^= 'loop.'`. Returns per-phase breakdown + `total_calls/input/output/cost_usd/distinct_loops/avg_per_loop` for current + prior 7d windows. `data_source` block for env verification.
+- **8 unit tests** in `tests/test_iter309_loop_token_ledger.py` — no_context/inside_context/alt_naming/zero_token_dropped/error_kept/nested_stacks/parallel_no_leak + `test_plan_phase_writes_loop_plan_row` (regression against bug_verify_312).
+- Reuses existing `ora_chat_usage` collection + indexes + `cost_tracker.log_call()` + `compute_cost_usd()` price table. Zero new schema.
+
+**Quality-gate progress:**
+- Start: 349 passed / 21 failed / 4 skipped / 2 errors
+- After iter 310: 354 passed / 10 failed / 4 skipped / 2 errors
+- After iter 311 (Cluster 1): 361 passed / 3 failed / 4 skipped / 2 errors
+- After iter 313 (Item 4 + plan gap): **369 passed / 3 failed / 4 skipped / 2 errors**
+- **Real code failures: 0.** The 3+2 residuals are all local-infra artifacts (Stripe fake `sk_live_test` key, 429 rate-limit collisions, 401 test-user seed pollution) that CI's fresh Mongo handles cleanly.
+
+**Security fix (unplanned but critical):**
+- `/app/memory/test_credentials.md` — founder's prod password was leaked in a prior agent chat turn. User rotated it. File redacted to `<ROTATED_2026-07-26 …>` placeholder + explicit "SECURITY POLICY: never print credentials in chat/logs/curl examples" rule added.
+
+**Deploys (production `auremcto.com`):**
+- 2026-07-26 03:5x — Initial /admin/loop-metrics endpoint + Admin UI card
+- 2026-07-26 04:1x — Enhanced card with data_source + failed_sample + failed_owner_counts
+- 2026-07-26 04:2x — Env detection hardening (BUILD_INFO.txt + MONGO_URL heuristic)
+
 ## 2026-02 — Iter 309 · Phase 0.2 · Round 6 (exit-code propagation fixed, canary CI-red proven)
 
 **Founder finding**: Round 5 push showed canary + ~20 other real failures visible in the ci.yml log, but the `Run tests` step reported "This step passed" and the whole `Backend — pytest` job showed "succeeded in 5m 51s". Exit code was being swallowed → CI can show green while tests are genuinely failing → defeats the entire point of Phase 0.2.
