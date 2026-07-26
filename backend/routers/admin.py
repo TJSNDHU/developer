@@ -4074,7 +4074,9 @@ async def loop_metrics(
         host_hint = mongo_url.split("//", 1)[-1].split("/", 1)[0]
     try:
         from routers.version import _COMMIT_SHA, _env_from_host
-        env_label = _env_from_host(request.headers.get("host", ""))
+        fwd = request.headers.get("x-forwarded-host") or ""
+        host = request.headers.get("host") or ""
+        env_label = _env_from_host(fwd or host)
     except Exception:
         _COMMIT_SHA, env_label = "unknown", "unknown"
     data_source = {

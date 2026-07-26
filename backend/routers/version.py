@@ -59,31 +59,46 @@ def _read_commit() -> str:
     # (1) Explicit env var wins — set this in prod if you have a
     # cleaner value (e.g. from CI).  Never blocked; if missing we
     # cascade to the next source.
-    env = os.environ.get("AUREM_COMMIT_SHA") or os.environ.get("GIT_COMMIT_SHA")
+    env = (
+        os.environ.get("AUREM_COMMIT_SHA")
+        or os.environ.get("GIT_COMMIT_SHA")
+        or os.environ.get("EMERGENT_JOB_ID")
+        or os.environ.get("EMERGENT_DEPLOY_ID")
+    )
     if env:
-        return env.strip()[:12]
+        return env.strip().replace("-", "")[:12]
 
     # (2) Iter 309-b — /app/.emergent/emergent.yml holds a stable
     # per-deploy identifier that survives even when .git is stripped
     # from the container.  Prefer this over "unknown" so prod's
     # Deploy Sync card can actually show something meaningful.
+    for candidate in (
+        Path("/app/.emergent/emergent.yml"),
+        Path("/app/.emergent/emergent.json"),
+    ):
+        try:
+            if candidate.exists():
+                raw = candidate.read_text()
+                data = json.loads(raw)
+                job_id = str(data.get("job_id") or data.get("id") or "")
+                if job_id:
+                    return job_id.replace("-", "")[:12]
+        except Exception:
+            continue
+
+    # (3) Iter 309-c — static build marker written at code time.
+    # This ships with the backend folder so prod's file-system
+    # strip of .emergent/ + .git/ still leaves a usable sha.
     try:
-        info_path = Path("/app/.emergent/emergent.yml")
-        if info_path.exists():
-            raw = info_path.read_text()
-            # Emergent writes this file as JSON (despite the .yml
-            # extension) so `json.loads` is safe.  If they ever
-            # switch to real YAML we fall through to git.
-            data = json.loads(raw)
-            job_id = str(data.get("job_id") or "")
-            if job_id:
-                # Strip dashes so it looks like a git short-sha and
-                # fits the same 12-char UI slot the frontend expects.
-                return job_id.replace("-", "")[:12]
+        marker = Path(__file__).resolve().parent.parent / "BUILD_INFO.txt"
+        if marker.exists():
+            raw = marker.read_text().strip()
+            if raw:
+                return raw.replace("-", "")[:12]
     except Exception:
         pass
 
-    # (3) Local dev / preview containers that ship .git — this is
+    # (4) Local dev / preview containers that ship .git — this is
     # the historical path and still authoritative in preview.
     try:
         out = subprocess.check_output(
@@ -104,14 +119,19 @@ def _read_built_at() -> str:
     env = os.environ.get("AUREM_BUILT_AT")
     if env:
         return env
-    try:
-        raw = Path("/app/.emergent/emergent.yml").read_text()
-        data = json.loads(raw)
-        ts = str(data.get("created_at") or "")
-        if ts:
-            return ts.rstrip("Z") + "+00:00" if ts.endswith("Z") and "+" not in ts else ts
-    except Exception:
-        pass
+    for candidate in (
+        Path("/app/.emergent/emergent.yml"),
+        Path("/app/.emergent/emergent.json"),
+    ):
+        try:
+            if candidate.exists():
+                raw = candidate.read_text()
+                data = json.loads(raw)
+                ts = str(data.get("created_at") or "")
+                if ts:
+                    return ts.rstrip("Z") + "+00:00" if ts.endswith("Z") and "+" not in ts else ts
+        except Exception:
+            continue
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -132,12 +152,45 @@ _PROD_HOST_MARKERS = ("auremcto.com", "www.auremcto.com")
 
 
 def _env_from_host(host: str) -> str:
-    host = (host or "").lower().split(":")[0]
-    if not host:
-        return _ENV_NAME
-    for marker in _PROD_HOST_MARKERS:
-        if host == marker or host.endswith("." + marker):
-            return "production"
+    """Iter 309-c — env detection cascade.  Prod path in the
+    Emergent K8s ingress rewrites the browser's Host header before
+    it reaches the FastAPI app, so a naive `Host: auremcto.com`
+    check fails.  We inspect a wider set of signals in priority
+    order:
+      1. Explicit AUREM_ENV env var (deploy-config override)
+      2. request.headers["x-forwarded-host"]   (K8s / Cloudflare
+         standard for preserving the original client host)
+      3. request.headers["host"]               (bare request host)
+      4. MONGO_URL analysis — Atlas SRV (`mongodb+srv://`) or any
+         non-localhost cluster is a production tell.  Preview /
+         dev backends run against localhost:27017.
+    Anything else defaults to "preview" so a mis-detected prod
+    fails safe (won't overstate its status)."""
+    # (1)
+    env_override = os.environ.get("AUREM_ENV", "").strip().lower()
+    if env_override in ("production", "prod", "preview", "dev", "staging"):
+        return "production" if env_override in ("production", "prod") else env_override
+
+    # (2) + (3)  Host-header inspection.
+    for candidate in (host,):
+        h = (candidate or "").lower().split(",")[0].strip().split(":")[0]
+        if not h:
+            continue
+        for marker in _PROD_HOST_MARKERS:
+            if h == marker or h.endswith("." + marker):
+                return "production"
+
+    # (4) MONGO_URL inspection — last-resort tell.
+    mongo = os.environ.get("MONGO_URL", "").lower()
+    if mongo.startswith("mongodb+srv://") or "mongodb.net" in mongo:
+        return "production"
+    # A cluster running on a private hostname (not localhost / 127.*)
+    # is almost certainly a shared prod instance too.
+    stripped = mongo.split("//", 1)[-1].split("@", 1)[-1].split("/", 1)[0]
+    stripped = stripped.split(":", 1)[0]
+    if stripped and stripped not in ("localhost", "127.0.0.1", "mongo", "0.0.0.0"):
+        return "production"
+
     return "preview"
 
 
@@ -153,10 +206,16 @@ async def get_version(request: Request) -> dict:
     commit hashes.  Mismatch → "out of sync" banner shown across the
     entire admin surface.
     """
+    # Iter 309-c — prefer X-Forwarded-Host (set by K8s ingress /
+    # Cloudflare) over the bare Host header, then fall through to
+    # MONGO_URL heuristics inside `_env_from_host`.
+    fwd = request.headers.get("x-forwarded-host") or ""
+    host = request.headers.get("host") or ""
+    resolved = fwd or host
     return {
         "commit_sha":  _COMMIT_SHA,
         "built_at":    _BUILT_AT,
-        "environment": _env_from_host(request.headers.get("host", "")),
+        "environment": _env_from_host(resolved),
     }
 
 
