@@ -4,7 +4,57 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 20:01 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION
+
+**Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, redeploy).
+**Deployer verdict:** ✅ `Deployment completed. Live at: https://auremcto.com`
+**Commit at deploy:** `77f3483` (`auto-commit for b833dc24-…`)
+**Environment:** production (`auremcto.com`)
+
+**What just went live (code-complete + unit-verified, NOT yet live-verified):**
+- Item 4 — per-loop LLM token accounting (`services/loop_token_ledger.py`, `_call_deepseek` + `call_openrouter_model` instrumentation, `_with_budget` context wrap, plan-phase context wrap)
+- Item 5 — duplicate heartbeat cleanup (iter 278 per-file heartbeat block deleted; iter 308 `_with_budget` heartbeat preserved)
+- Item 6 — SSE resilience (`services/sse_replay_buffer.py`, `Last-Event-ID` parse + replay, `retry: 3000` preamble, ring buffer TTL evict, client auto-reconnect with dedup + exponential backoff)
+- Item 8 — 9 inline admin checks migrated to `require_admin` in `scaffold.py` + `supabase.py`; contract test to prevent regression
+- Item 9 — `sse_buffer` block added to `/admin/loop-metrics` response
+
+**Honest verification status:**
+- ✅ Unit + integration tests: 386 passed / 3 failed (documented local-infra artifacts) / 4 skipped / 2 errors
+- ✅ `bug_testing_agent` iter 316 verdict: FIXED (unit-verified)
+- ✅ Deployer health check post-deploy: green
+- ❌ **LIVE 25-MIN SSE RECONNECT TEST ON PROD:** PENDING — founder to run personally
+- ❌ **LIVE PER-PHASE TOKEN ACCOUNTING VERIFY ON PROD:** PENDING — same 25-min test naturally exercises all 4 phases
+
+**Correction on prior claims (self-reported by main agent, 2026-07-26 ~19:55 UTC):**
+Previous handoff summary and multiple internal turns claimed Batch 2 was "shipped to prod / deployed to production" between 04:00-05:00 UTC on 2026-07-26. This was INCORRECT. Actual prior prod ships on 2026-07-26 were limited to the `/admin/loop-metrics` UI card + env-detection hardening (lines 143-145 above). Batch 2 (Items 5/6/8/9) did NOT hit prod until THIS deploy at 20:01 UTC. Correction acknowledged; going forward no "deployed" or "verified in prod" language will be used without a matching deploy-log line + founder personal confirmation.
+
+**Item 7 status:** Moved to backlog (see `## Backlog` section at bottom of this file). NOT started, NOT scoped in code. Awaits founder-approved test-first discovery on a real 25-file plan.
+
+**Phase 1 status:** BLOCKED. Zero implementation code exists. Grep for `correction_rule / persistent_rule / applies_to_paths` across `backend/` + `frontend/` returns 0 matches. Design is locked in PRD.md with binding corrections. Stays blocked until founder personally confirms the live 25-min SSE test succeeds.
+
+**Hard rule (founder-set, 2026-07-26):** No "deployed" or "verified in prod" language without an actual deploy-log entry in this file AND founder personal confirmation of the live behavior. This rule supersedes any prior agent claim.
+
 ## 🚧 Open verification debt (do NOT mark done without honouring)
+
+## 📋 Backlog (NOT started, awaits founder unblock)
+
+- **Item 7 — Large-plan edge case (21+ files)** · P1 · moved-to-backlog 2026-07-26 20:01 UTC
+  - Status: NOT started. Zero code, zero tests, zero scope in this repo.
+  - Scope idea (unapproved): test-first discovery on a real 25-file LLM plan to document current behavior (truncation? phase timeout? silent drop?), then minimal per-file budget accounting IF needed. Do NOT ship code without founder-approved failure signature.
+  - Unblock condition: founder explicitly says "start Item 7" AND provides / approves a 25-file test plan.
+
+- **Phase 1 — Persistent Correction Rules** · P1 · BLOCKED
+  - Status: NOT started. Grep for `correction_rule / persistent_rule / applies_to_paths` = 0 matches in `backend/` + `frontend/`.
+  - Design (from PRD, locked): regex-only, manual slash command, `applies_to_paths` field, max 10 rules/prompt, per-project feature flag default OFF, no LLM correction-detection.
+  - Unblock condition: founder personally runs + confirms live 25-min SSE test on prod (Items 4/5/6 live-verified) AND greenlights Phase 1 start.
+
+- **Phase 2 — Risk-Based Routing** · P1 · BLOCKED behind Phase 1
+- **Phase 3 — Checkpoints + Rollback (git-revert only)** · P1 · BLOCKED behind Phase 2
+- **Phase 4 — Live Browser Self-Testing** · P1 · BLOCKED behind Phase 3
+- **Phase 5 — Dynamic Re-planning** · deferred pending 30-day data gate
+- **Track 4 — Master QA · OWASP API Top 10** · P2
+- **Track 5 — Master QA · Load / Concurrency** · P2
+- **3 local-infra test residuals** · P3 · Stripe fake key 503, 429 rate-limit collisions, 401 test-user seed pollution — CI's fresh Mongo handles them; not a code regression.
 
 - **Iter 313 (Item 4)** — the execute/verify/scan/ship LLM
   instrumentation is currently **UNIT-VERIFIED ONLY**. The
