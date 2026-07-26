@@ -4016,7 +4016,10 @@ async def admin_dev_users_created_at_health(
 # those sessions before treating the number as a live user-facing
 # signal.
 @router.get("/loop-metrics")
-async def loop_metrics(authorization: Optional[str] = Header(None)):
+async def loop_metrics(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
     await _require_admin(authorization)
     db = require_db()
     now = datetime.now(timezone.utc)
@@ -4070,14 +4073,15 @@ async def loop_metrics(authorization: Optional[str] = Header(None)):
     else:
         host_hint = mongo_url.split("//", 1)[-1].split("/", 1)[0]
     try:
-        from routers.version import _COMMIT_SHA, _ENV_NAME
+        from routers.version import _COMMIT_SHA, _env_from_host
+        env_label = _env_from_host(request.headers.get("host", ""))
     except Exception:
-        _COMMIT_SHA, _ENV_NAME = "unknown", "unknown"
+        _COMMIT_SHA, env_label = "unknown", "unknown"
     data_source = {
         "db_name":     os.environ.get("DB_NAME", "unknown"),
         "mongo_host":  host_hint or "unknown",
         "commit_sha":  _COMMIT_SHA,
-        "env":         _ENV_NAME,
+        "env":         env_label,
         "queried_at":  now.isoformat(),
     }
 
