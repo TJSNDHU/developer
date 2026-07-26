@@ -1169,6 +1169,15 @@ class LoopEngine:
                             message=f"Generating {path}…",
                             data={"file": path, "sub_step": "generating"},
                         )
+                        # Iter 309 · Narration — pending "file-open".
+                        # correlation_id = file path so the paired
+                        # "file-write-complete" (or timeout/error)
+                        # narration resolves the same line.
+                        await self._narrate(
+                            step="execute", tone="pending",
+                            text=f"Writing {path}",
+                            correlation_id=f"execute:{path}",
+                        )
                         try:
                             current = await fetch_file(
                                 client, owner, repo, path, branch, token,
@@ -1236,6 +1245,13 @@ class LoopEngine:
                                           f"(>{PER_FILE_TIMEOUT_S}s) — skipping"),
                                 data={"file": path, "sub_step": "timeout"},
                             )
+                            # Iter 309 · Narration — DANGER resolves
+                            # the pending "Writing {path}" line red.
+                            await self._narrate(
+                                step="execute", tone="danger",
+                                text=f"Timed out on {path}",
+                                correlation_id=f"execute:{path}",
+                            )
                             return None
                         except Exception as e:                # noqa: BLE001
                             logger.exception(
@@ -1247,6 +1263,12 @@ class LoopEngine:
                                 message=f"Error generating {path}: "
                                          f"{type(e).__name__}",
                                 data={"file": path, "sub_step": "error"},
+                            )
+                            # Iter 309 · Narration — DANGER pair.
+                            await self._narrate(
+                                step="execute", tone="danger",
+                                text=f"Error on {path}",
+                                correlation_id=f"execute:{path}",
                             )
                             return None
                         if result.get("status") == "success" and result.get("output"):
@@ -1333,6 +1355,14 @@ class LoopEngine:
                 data={"file": f["path"], "index": i, "total": len(generated),
                       "bytes": len(f.get("content") or "")},
             )
+            # Iter 309 · Narration — SUCCESS resolves the pending
+            # "Writing {path}" line green (same correlation_id).
+            await self._narrate(
+                step="execute", tone="success",
+                text=f"Wrote {f['path']}",
+                correlation_id=f"execute:{f['path']}",
+                extra={"index": i, "total": len(generated)},
+            )
 
         self.context["submitted_files"] = generated
         await _persist_session(self.db, self._doc())
@@ -1385,10 +1415,25 @@ class LoopEngine:
 
         from services.loop_verify import verify_files, self_heal
 
+        # Iter 309 · Narration — test-run-start pending.
+        # correlation_id = "verify:pass_1" pairs with the first
+        # verify_files() report.
+        await self._narrate(
+            step="verify", tone="pending",
+            text="Running lint and type checks",
+            correlation_id="verify:pass_1",
+        )
+
         # Initial verify pass.
         report = await verify_files(file_objs)
         self.context["verification_results"] = report
         if report["ok"]:
+            # Iter 309 · Narration — SUCCESS resolves pending line green.
+            await self._narrate(
+                step="verify", tone="success",
+                text="All checks passed",
+                correlation_id="verify:pass_1",
+            )
             # Iter 272 Feature 1.5 — every Vanguard verdict is
             # audit-logged. A pass is just as important to record
             # as a fail (a drift job may notice the pass-rate
@@ -1426,6 +1471,16 @@ class LoopEngine:
                 ),
                 data={"errors_preview": report["errors"][:10],
                       "failing_count":  len(failing_indices)},
+            )
+            # Iter 309 · Narration — WARNING pending. Resolved by the
+            # per-round done narration emitted right after the heal
+            # inner loop finishes (or by a final danger if the outer
+            # loop exhausts all attempts).
+            await self._narrate(
+                step="verify", tone="warning",
+                text=(f"Self-heal attempt {heal_attempt}/{MAX_SELF_HEALS} — "
+                      f"rewriting {len(failing_indices)} file(s)"),
+                correlation_id=f"verify:heal_{heal_attempt}",
             )
 
             # Self-heal each failing file with a HARD timeout per call
@@ -1541,6 +1596,13 @@ class LoopEngine:
                     "ok":      True,
                     "ts":      _iso(),
                 })
+                # Iter 309 · Narration — SUCCESS resolves the pending
+                # heal-attempt line green.
+                await self._narrate(
+                    step="verify", tone="success",
+                    text=f"Self-heal {heal_attempt} fixed all files",
+                    correlation_id=f"verify:heal_{heal_attempt}",
+                )
                 return
 
         # MAX_SELF_HEALS exhausted with files still failing — pause
@@ -1560,6 +1622,14 @@ class LoopEngine:
                   ]},
             requires_user_action=True,
         )
+        # Iter 309 · Narration — DANGER as the FINAL narration for the
+        # verify step. The last-event tone is what drives the ECG strip
+        # to flatline red for this step (founder Part 1.6 rule).
+        await self._narrate(
+            step="verify", tone="danger",
+            text=f"Verify failed after {MAX_SELF_HEALS} attempts",
+            correlation_id="verify:final",
+        )
 
     # ── Phase 4 — Scan (Phase C: real Vanguard via direct internals) ──
     async def _do_scan(self) -> None:
@@ -1568,6 +1638,13 @@ class LoopEngine:
         await self._emit(LoopState.SCANNING, "scan",
                          step=4, total_steps=5,
                          message="Running Vanguard security scan…")
+        # Iter 309 · Narration — pending scan-start.
+        # correlation_id = "scan:vanguard" pairs with scan-result below.
+        await self._narrate(
+            step="scan", tone="pending",
+            text="Running Vanguard security scan",
+            correlation_id="scan:vanguard",
+        )
         try:
             # Iter 212m-132 — Diff-only scan. The old path called
             # `_run_security_scan` which scanned the ENTIRE repo
@@ -1604,6 +1681,14 @@ class LoopEngine:
                           "diff_mode": results.get("diff_mode", False)},
                     requires_user_action=True,
                 )
+                # Iter 309 · Narration — DANGER resolves scan pending
+                # red. This is the LAST narration for the scan step
+                # before phase transition → ECG flatlines red.
+                await self._narrate(
+                    step="scan", tone="danger",
+                    text=f"{crit} critical finding{'s' if crit != 1 else ''}",
+                    correlation_id="scan:vanguard",
+                )
             elif high > 0:
                 # High is a soft warn — emit but continue.
                 await self._emit(
@@ -1612,6 +1697,26 @@ class LoopEngine:
                     message=f"{high} high finding(s) introduced — continuing with caution.",
                     data={"summary": results.get("summary", {}),
                           "diff_mode": results.get("diff_mode", False)},
+                )
+                # Iter 309 · Narration — WARNING resolves scan pending
+                # amber (not red — high alone doesn't block ship).
+                # NOTE: this resolves the pending line but scan step
+                # still transitions successfully to ship, so the ECG
+                # flatlines green — warning tone here just colors this
+                # ONE line amber inside the feed history.
+                await self._narrate(
+                    step="scan", tone="warning",
+                    text=f"{high} high finding{'s' if high != 1 else ''}, continuing",
+                    correlation_id="scan:vanguard",
+                )
+            else:
+                # Iter 309 · Narration — SUCCESS when scan is clean.
+                # Previously silent — this closed the "did the scan
+                # even run?" honesty gap that Part 1 audit flagged.
+                await self._narrate(
+                    step="scan", tone="success",
+                    text="Scan clean, no findings",
+                    correlation_id="scan:vanguard",
                 )
 
             # ── Iter 212m-190 (Directive Session 2 · Part B) — Full Scan ──
@@ -2275,6 +2380,14 @@ class LoopEngine:
         await self._emit(LoopState.SHIPPING, "ship",
                          step=5, total_steps=5,
                          message=f"Committing {len(files_dict)} file(s) to {owner}/{repo}@{branch}…")
+        # Iter 309 · Narration — pending commit-start.
+        # correlation_id = "ship:commit_1" pairs with commit-complete
+        # (or ship-fail) narration below.
+        await self._narrate(
+            step="ship", tone="pending",
+            text=f"Committing {len(files_dict)} file(s) to {owner}/{repo}",
+            correlation_id="ship:commit_1",
+        )
         try:
             from services.github_api_writer import commit_files
             from services.git_identity import (
@@ -2375,6 +2488,14 @@ class LoopEngine:
                              "files_changed":  list(files_dict.keys()),
                              "scan_results":   self.context.get("scan_results"),
                          })
+        # Iter 309 · Narration — SUCCESS resolves commit-start green
+        # with the short sha inline (founder Part 1.2 spec).
+        await self._narrate(
+            step="ship", tone="success",
+            text=f"Shipped {short_sha}",
+            correlation_id="ship:commit_1",
+            extra={"commit_sha": short_sha, "html_url": html_url},
+        )
 
     async def _fail_ship(self, reason: str) -> None:
         """Helper: persist + emit a clean ship-phase failure event."""
@@ -2386,6 +2507,13 @@ class LoopEngine:
                          message=reason,
                          data={"requires_user_action": True,
                                "error": reason})
+        # Iter 309 · Narration — DANGER resolves the ship pending line
+        # red. Last narration for ship step → ECG flatlines red.
+        await self._narrate(
+            step="ship", tone="danger",
+            text=f"Ship failed: {reason[:60]}",
+            correlation_id="ship:commit_1",
+        )
 
     # ── Cancellation ─────────────────────────────────────────────────
     async def cancel(self) -> None:
@@ -2471,6 +2599,57 @@ class LoopEngine:
             pass
         await self.queue.put(ev)
         await _persist_session(self.db, self._doc(extra={"last_event": ev}))
+
+    # ── Iter 309 · Live Narration (Part 1) ─────────────────────────────
+    #
+    # `_narrate()` emits a PARALLEL narration event on top of any
+    # existing state-transition emits. Frontend filters events by
+    # `data.type == "narration"` to render the live-feed line list +
+    # the ECG strip per step.
+    #
+    # DESIGN INVARIANTS (do not break):
+    #   1. Zero new async loops / timers. Every narration is emitted
+    #      synchronously from an existing code path — the Item 5
+    #      heartbeat-count contract test (exactly one
+    #      `async def _heartbeat_loop`) must stay green.
+    #   2. Backward compat: the narration event is a regular SSE frame
+    #      via `_emit()`. Consumers that don't know about narration
+    #      (older frontends, tests) just render it as another event.
+    #   3. `ts_epoch` is added inside `data` (numeric server time) so
+    #      the frontend timer maths don't have to parse the top-level
+    #      ISO `timestamp` string every 100ms tick. On SSE reconnect
+    #      the frontend recomputes elapsed from `ts_epoch`, never from
+    #      client `Date.now()` at receipt.
+    #   4. Text rule (founder spec): ≤ 10 words, factual, present-tense
+    #      active voice. No filler ("please wait", "hang tight"). The
+    #      helper does NOT enforce this — callers must obey.
+    #   5. Failure signal: the LAST narration event for a step before
+    #      a phase transition must carry `tone="danger"` so the ECG
+    #      strip flatlines red. No separate "step failed" event.
+    async def _narrate(
+        self,
+        step: str,                   # plan | execute | verify | scan | ship
+        tone: str,                   # pending | success | warning | danger
+        text: str,                   # ≤ 10 words, present tense
+        correlation_id: str = "",    # pairs pending↔done events
+        extra: Optional[dict] = None,
+    ) -> None:
+        import time as _time
+        data: dict = {
+            "type":           "narration",
+            "tone":           tone,
+            "narration_step": step,
+            "narration_text": text,
+            "correlation_id": correlation_id or "",
+            "ts_epoch":       _time.time(),
+        }
+        if extra:
+            data.update(extra)
+        # Emit under the CURRENT phase/state so the SSE frame's outer
+        # phase field stays coherent with what the engine is actually
+        # doing. Narration never changes state; it only observes.
+        await self._emit(self.state, self.phase, step=0, total_steps=5,
+                         message=text, data=data)
 
     def _doc(self, extra: Optional[dict] = None) -> dict:
         out = {

@@ -390,6 +390,24 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // for future verify-loop auto-retry UX (max 3).
   const [loopPhase, setLoopPhase] = useState("idle");
   const [loopRetryCount, setLoopRetryCount] = useState(0);
+
+  // ── Iter 309 · Live Narration state ────────────────────────────────
+  // `loopStepTones` — derived from real backend narration events with
+  // `data.type === "narration"`. Maps narration_step → the LATEST
+  // tone we've seen for that step, so LoopStepBar's ECG strip can
+  // render active/success/danger correctly.
+  //
+  // Rule (matches `foldNarrations` in LoopLiveFeed): later events on
+  // the same step OVERWRITE earlier ones, so a pending → success
+  // transition correctly resolves the strip to green. `null` /
+  // missing = future step (untouched).
+  //
+  // On SSE reconnect + gap replay (Item 6), events are re-delivered
+  // in order via `handleLoopEvent`, and this state is rebuilt from
+  // the replayed events — so a resolved-green step will NOT flicker
+  // back to "active" after a reconnect (same guarantee foldNarrations
+  // provides in the feed).
+  const [loopStepTones, setLoopStepTones] = useState({});
   // Iter 288 — the actual phase that failed. Was previously hardcoded
   // to EXECUTE (step 2) inside the LoopStepBar props, which meant a
   // ship-time or verify-time failure would incorrectly paint EXECUTE
@@ -2086,6 +2104,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     setUserAction(null);
     setLoopRetryCount(0);
     setLoopPhase("plan_pending");
+    // Iter 309 · Reset per-step tones on a fresh loop kick-off so
+    // stale success/danger colours from the previous run don't leak
+    // into the new ECG strip.
+    setLoopStepTones({});
 
     // Compose the user message (text + any attachment markdown).
     const attachmentBlock = (readyAttachments || [])
@@ -2288,6 +2310,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     console.debug("[loop-sse] → setLoopFeedEvent",
       "phase=", ev.phase, "sub=", ev.data?.sub_step);
     setLoopFeedEvent(ev);
+
+    // ── Iter 309 · Live Narration — fold into loopStepTones ─────
+    // For any narration event, update the step's tone. This drives
+    // the LoopStepBar ECG strip (active vs resolved) in real time.
+    // Zero client-side simulation — the moment the backend emits a
+    // pending narration, the ECG animates; the moment it emits a
+    // success/danger narration for the same step, the ECG flatlines.
+    if (data && data.type === "narration" && data.narration_step) {
+      const step = String(data.narration_step);
+      const tone = String(data.tone || "pending");
+      setLoopStepTones((prev) => ({ ...prev, [step]: tone }));
+    }
 
     // Drive the existing LoopStepBar phase enum.
     // Iter 308 v2 — EVERY backend LoopState.value is now mapped so
@@ -2710,7 +2744,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           running. Distinct outlined-red "Stop" button with 4s
           click-again-to-confirm — matches ChatGPT/Claude/Cursor's
           converged pattern for long-running task cancellation. */}
-      <LoopStatusChip projectId={activeProject?.project_id || null} />
+      <LoopStatusChip
+        projectId={activeProject?.project_id || null}
+        // Iter 309 · Item E — chip-wins reconciliation. When
+        // /loop/active reports a phase different from SSE-derived
+        // loopPhase (usually after a reconnect gap), backend truth
+        // wins. This is intentional and NOT redundant with the SSE
+        // handler — SSE can lag or drop; the poll is authoritative.
+        onPhaseUpdate={(chipPhase) => {
+          if (chipPhase && chipPhase !== loopPhase) {
+            setLoopPhase(chipPhase);
+          }
+        }}
+      />
 
       {/* Iter 212m-49 — "⚡ free mode" pill. Surfaces when the most
           recent assistant turn was served by the Groq emergency
@@ -3255,6 +3301,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             ? ({plan:1, execute:2, verify:3, security:4, scan:4, ship:5}[
                 (loopErrorPhase || "").toLowerCase()] || 2)
             : 0}
+          // Iter 309 · Live Narration — real per-step tones sourced
+          // from backend narration events. Drives the ECG strip's
+          // active/success/danger variants. Empty object = every step
+          // uses legacy phase-based fallback (backward compat with
+          // loops from stale backends that don't emit narration).
+          stepTones={loopStepTones}
         />
       )}
 
@@ -3343,7 +3395,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           Iter 295 — extracted to AgentStatusBar.jsx so it's testable
           in isolation. Behaviour identical: renders only while
           `busy` is true, disappears the instant it flips false. */}
-      <AgentStatusBar busy={busy} queuedCount={queuedCount} />
+      {/* Iter 309 · Item D — Hide AgentStatusBar during an active
+          loop. LoopStatusChip (sticky top-of-pane) already conveys
+          "agent is running" + the phase, and LoopStepBar's active-step
+          ECG pulse is a third redundant "still working" signal. Three
+          pulsing dots at once was a UX regression per the audit.
+          Guard: hide when a loop is active. Kept fully unchanged for
+          non-loop chat turns (its actual purpose). */}
+      {(() => {
+        const isLoopActive =
+          execMode === EXEC_MODES.LOOP &&
+          loopPhase &&
+          loopPhase !== "idle" &&
+          loopPhase !== "completed" &&
+          loopPhase !== "failed" &&
+          loopPhase !== "aborted" &&
+          loopPhase !== "expired";
+        if (isLoopActive) return null;
+        return <AgentStatusBar busy={busy} queuedCount={queuedCount} />;
+      })()}
 
       <form
         data-testid="chat-form"

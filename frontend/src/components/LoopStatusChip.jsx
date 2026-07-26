@@ -75,7 +75,7 @@ function phaseText(active) {
   return PHASE_LABEL[key] || key.toUpperCase() || "RUNNING";
 }
 
-export default function LoopStatusChip({ projectId = null }) {
+export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null }) {
   const [active, setActive] = useState(null);
   const [err, setErr]       = useState(null);
   const [busy, setBusy]     = useState(false);
@@ -86,12 +86,25 @@ export default function LoopStatusChip({ projectId = null }) {
   const poll = useCallback(async () => {
     try {
       const data = await getActiveLoop(projectId);
-      setActive(data?.active || null);
+      const nextActive = data?.active || null;
+      setActive(nextActive);
       setErr(null);
+      // ── Iter 309 · Item E — chip-wins reconciliation ──────────
+      // LoopStatusChip's polled /loop/active is the source of truth
+      // for whether a loop is running and which phase it's in. On
+      // an SSE reconnect gap, ChatPanel's SSE-derived `loopPhase`
+      // can lag (or contradict) the actual backend state. Notify
+      // the parent so it can reconcile setLoopPhase to match server
+      // truth. Documented as a subtle invariant so future editors
+      // don't remove it thinking it's redundant with SSE.
+      if (typeof onPhaseUpdate === "function" && nextActive) {
+        const p = nextActive.phase || nextActive.state || "";
+        if (p) onPhaseUpdate(String(p).toLowerCase());
+      }
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "loop status fetch failed");
     }
-  }, [projectId]);
+  }, [projectId, onPhaseUpdate]);
 
   // Poll on mount + interval + on tab-focus (users often alt-tab
   // during a 20-min loop; refreshing the chip immediately when they

@@ -45,16 +45,21 @@ describe("Iter 308 LoopStepBar backend phase mapping", () => {
   );
 });
 
-describe("Iter 308 LoopLiveFeed dynamic empty-state placeholder", () => {
+describe("Iter 309 · Item C refined LoopLiveFeed empty-state placeholder", () => {
+  // Iter 309 · Item C — founder approved a simplified single-line
+  // phase-aware placeholder ("~ Opening {phase} stream…") instead of
+  // the prior 24-line branching switch. These expectations track the
+  // new behavior. The narration event stream typically lands within
+  // 1-2s of loop start, so this text is barely visible in practice.
   const placeholderExpectations = [
-    ["executing", /Executing|generating file content/i],
-    ["verifying", /Verifying/i],
-    ["scanning", /Vanguard scan/i],
-    ["shipping", /Shipping|committing/i],
-    ["self_healing", /Self-healing/i],
+    ["executing", /Opening executing stream/i],
+    ["verifying", /Opening verifying stream/i],
+    ["scanning", /Opening scanning stream/i],
+    ["shipping", /Opening shipping stream/i],
+    ["self_healing", /Opening self_healing stream/i],
     ["paused_for_user", /Paused/i],
-    ["planning", /Waiting for plan approval/i],
-    ["", /Waiting for plan approval/i],
+    ["planning", /Opening planning stream/i],
+    ["", /Opening event stream/i],
   ];
 
   it.each(placeholderExpectations)("phase=%s shows the correct placeholder", (phase, expectedText) => {

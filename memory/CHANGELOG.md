@@ -4,6 +4,99 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 22:05 UTC — Iter 309 · Live Narration + ECG Step-Bar + UI Cleanup — UNIT-VERIFIED, NOT DEPLOYED
+
+**Status:** Code-complete + unit-verified. **NOT deployed. NOT live-verified on preview.**
+
+**Deploy holdback (founder directive):** This feature builds on top of Batch 2 Items 5/6/8/9 which are deployed but still awaiting founder's live 25-min SSE reconnect test. Per explicit instruction: *"Deploy as its own change, sequenced after the currently-pending 25-min SSE test is run and confirmed by founder — this feature builds on top of that verified foundation, not in parallel with it."*
+
+**Backend (Part 1) — `_narrate()` helper + 14 emit-site additions**
+- `backend/services/loop_engine.py::LoopEngine._narrate()` — NEW method emitting parallel narration events with shape:
+  ```
+  data = {
+    "type":           "narration",
+    "tone":           "pending" | "success" | "warning" | "danger",
+    "narration_step": "plan" | "execute" | "verify" | "scan" | "ship",
+    "narration_text": "<= 10 words, present-tense active",
+    "correlation_id": "<pairs pending↔done>",
+    "ts_epoch":       <server time.time() float>,
+  }
+  ```
+- Narration inserted at 14 natural points:
+  - Execute: file-open (pending), file-write-complete (success), file-timeout (danger), file-error (danger)
+  - Verify: test-run-start (pending), test-result-ok (success), self-heal-triggered (warning), self-heal-per-round-done (success), verify-fail-final (danger)
+  - Scan: scan-start (pending), scan-critical (danger), scan-high (warning), scan-clean (success — closes the "did the scan even run?" honesty gap)
+  - Ship: commit-start (pending), commit-complete (success with short sha), commit-fail (danger)
+- **Zero new async loops.** Item 5 heartbeat-count contract (`test_iter309_batch2_item5_heartbeat_dedup.py`) still passes — exactly ONE `async def _heartbeat_loop` in `loop_engine.py`.
+- **Zero changes to loop_engine.py phase-transition/state-machine logic** — observability additions only.
+
+**Frontend Part 2 — LoopStepBar ECG strip (`components/LoopStepBar.jsx`)**
+- Replaces static border-bottom with 14px SVG ECG waveform per step
+- Three variants derived from `stepTones` (real narration tones from ChatPanel):
+  - `future` → flat neutral line, no animation
+  - `active` → scrolling ECG waveform (SVG polyline + CSS translateX 1s cycle), amber
+  - `success` / `danger` → flat green / red line, persists
+- `prefers-reduced-motion: reduce` fallback → pulsing dot instead of scrolling waveform
+- Reconstruction from replayed narration events (Item 6 SSE gap replay) is order-invariant (last tone per step wins) — resolved-green steps NEVER flicker back to active
+
+**Frontend Part 3 — LoopLiveFeed rewrite (`components/LoopLiveFeed.jsx`)**
+- **Item A (approved):** Deleted heartbeat rendering (`formatEventLine` heartbeat branch, `data-keepalive` dimming, terminal-purge effect). Backend heartbeat frames still arrive to keep SSE alive but are no longer visually rendered. ECG waveform replaces the "still working" signal.
+- **Item B (approved):** Deleted gap-fallback line (`GAP_MS`, `gapLine` useMemo, `PHASE_TYPICAL_S` constant, ~2s tick effect). Per-line live-ticking timer (baseline `ts_epoch`) replaces the "usually N-Ms" heuristic.
+- **Item C (approved refined):** Empty-state placeholder simplified from 24-line `if/else` switch to single interpolated `"~ Opening {phase} stream…"` line.
+- New narration rendering:
+  - Each event with `data.type === "narration"` renders as icon (tone-mapped) + text + optional live-ticking timer
+  - `foldNarrations()` dedupes by `correlation_id`; resolving event overwrites pending's tone, preserves original `ts_epoch` for elapsed math
+  - Timer baseline = **server `ts_epoch`**, NOT client `Date.now()` at receipt → reconnect + gap replay show TRUE server-elapsed
+  - Timer removed when tone transitions off "pending"; line locks to final icon
+  - Fade-in animation on arrival; auto-scroll to latest
+
+**Frontend Part 4 — AgentStatusBar hide + Item E chip-wins reconciliation**
+- **Item D (approved):** `AgentStatusBar` hidden when `execMode === LOOP && loopPhase !== idle/completed/failed/aborted/expired`. Unchanged for non-loop chat turns.
+- **Item E (approved):** `LoopStatusChip.onPhaseUpdate` callback wired to `setLoopPhase`. Chip's polled `/loop/active` is source of truth; on SSE reconnect gap drift, chip wins. In-code invariant comment documents this so future editors don't remove it as "redundant".
+- `ChatPanel` gains `loopStepTones` state, updated from every `data.type === "narration"` event in `handleLoopEvent`, passed to `LoopStepBar`. Reset to `{}` on fresh loop kickoff so stale colours don't leak across runs.
+
+**Tests (unit-verified)**
+- `backend/tests/test_iter309_narration_backend.py` (NEW): 5 tests
+  - Heartbeat-loop count still exactly 1 (Item 5 regression guard)
+  - `_narrate()` signature intact
+  - Narration event shape contract
+  - Extra fields merge correctly
+  - Word-budget + banned-filler check across every `_narrate` call site
+- `frontend/src/components/__tests__/loop_iter309_narration.test.jsx` (NEW): 15 tests
+  - `foldNarrations` filters, dedupes, preserves ordering
+  - Empty-state placeholder phase interpolation
+  - Item A guard: heartbeat frames never render visible text
+  - Item B guard: `loop-live-gap` testid never exists
+  - Step-bar ECG variant derivation from `stepTones` (pending/success/danger/future)
+  - Scan step uses `narrationKey: "scan"` not legacy `security` label
+  - **Reconnect timer server-ts derivation** (load-bearing): mock `Date.now()` at T=125s, backend `ts_epoch=100`, assert timer shows `"25s"` — NOT `"0s"` (reconnect-relative)
+  - Timer disappears when tone → success; line locks to final text
+- Pre-existing tests updated for Item A/C behavior (`loop_iter308.test.jsx`, `LoopLiveFeed.test.jsx`) — same invariants they guarded, updated expectations. **41/41 loop-related frontend tests pass.**
+
+**Lint:** All new files clean. Pre-existing ChatPanel warnings unchanged. Backend ruff pre-existing errors (F821 in unrelated financials/timings sections at lines 2880/3002) unchanged — zero new lint issues introduced by narration additions.
+
+**HONEST STATUS — what's DONE vs OUTSTANDING:**
+- ✅ Backend narration emit sites: 14 additions, all tested via source-string contract + runtime shape stub
+- ✅ Frontend ECG strip + narration list + timer + hide/reconcile: unit-tested
+- ✅ Item 5 heartbeat-count regression: contract test still passes
+- ✅ Text-rule (≤10 words, no filler) verified via source scan
+- ❌ **REAL preview loop run with LIVE ECG + narration observation:** NOT YET DONE
+- ❌ **REAL induced-failure run (red flatline case):** NOT YET DONE
+- ❌ **`bug_testing_agent` verification:** NOT YET DONE
+- ❌ **Live 25-min SSE test on current prod (Iter 309 Batch 2 prerequisite):** STILL PENDING FOUNDER
+- ❌ **Deploy:** HELD per founder directive
+
+**Files touched (this iteration):**
+- `backend/services/loop_engine.py` (+~150 lines: `_narrate()` method + 14 emit calls; no phase-transition logic touched)
+- `backend/tests/test_iter309_narration_backend.py` (NEW)
+- `frontend/src/components/LoopLiveFeed.jsx` (full rewrite: 292 → 275 lines, dead code deleted, narration path added)
+- `frontend/src/components/LoopStepBar.jsx` (full rewrite: 186 → 289 lines, ECG strip added)
+- `frontend/src/components/LoopStatusChip.jsx` (+15 lines: `onPhaseUpdate` prop)
+- `frontend/src/components/ChatPanel.jsx` (+~45 lines: `loopStepTones` state, narration folding, AgentStatusBar guard, chip reconciliation wiring)
+- `frontend/src/components/__tests__/loop_iter309_narration.test.jsx` (NEW: 15 tests)
+- `frontend/src/components/__tests__/loop_iter308.test.jsx` (test expectations updated for Item C)
+- `frontend/src/components/__tests__/LoopLiveFeed.test.jsx` (test expectations updated for Item A/C)
+
 ## 2026-07-26 21:37 UTC — Iter 309 · Batch-2 UI-wiring + Incident-Class Fix DEPLOYED
 
 **Deploy trigger:** Founder-authorized via UI "Redeploy" button (deployer agent, ecu_charge_acknowledged=true).

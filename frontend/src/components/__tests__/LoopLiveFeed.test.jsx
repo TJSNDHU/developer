@@ -28,12 +28,15 @@ describe("LoopLiveFeed — state-sync behavior (iter295)", () => {
     // Placeholder line must render (iter281's exact bug).
     expect(screen.getByTestId("loop-live-feed-placeholder"))
       .toBeInTheDocument();
-    expect(screen.getByText(/Waiting for plan approval/i))
+    expect(screen.getByText(/Opening event stream/i))
       .toBeInTheDocument();
   });
 
-  it("clears-stale-prior-state: terminal=true purges heartbeat events from the ring buffer (iter288 regression)", () => {
-    // Feed a heartbeat event first — it should render.
+  it("iter309 · Item A: heartbeat events NEVER render as visible feed lines", () => {
+    // Heartbeat frames still arrive from the backend to keep the SSE
+    // connection alive, but Iter 309 removed their visual rendering.
+    // The active-step ECG waveform (Part 2) already conveys "still
+    // working, no new data". This test guards Item A.
     const heartbeat = {
       state:  "executing",
       phase:  "execute",
@@ -43,33 +46,20 @@ describe("LoopLiveFeed — state-sync behavior (iter295)", () => {
     const { rerender } = render(
       <LoopLiveFeed loopId="l1" event={heartbeat} terminal={false} />
     );
-    // Sanity — feed rendered SOMETHING (either as a live event or
-    // the placeholder if the heartbeat filter suppressed it).
+    // Feed still renders — but heartbeat text must not be visible.
     expect(screen.getByTestId("loop-live-feed")).toBeInTheDocument();
-
-    // Now a terminal event arrives. Push a NEW heartbeat first (to
-    // simulate a late in-flight frame) then flip terminal true.
-    rerender(<LoopLiveFeed loopId="l1" event={heartbeat} terminal={false} />);
-    // Terminal flag flips true — the useEffect purge must fire and
-    // strip heartbeat/keepalive entries from the events ring buffer.
-    act(() => {
-      rerender(<LoopLiveFeed loopId="l1" event={null} terminal={true} />);
-    });
-    // After purge, the heartbeat "Still waiting on LLM response..."
-    // line must NOT appear. If it does, the ring buffer wasn't
-    // filtered — the iter288 fix has regressed.
     expect(screen.queryByText(/Still waiting on LLM response/i)).toBeNull();
-    // And the gap-fallback line (~ Execute in progress...) must not
-    // render either, since terminal=true short-circuits it.
+
+    // Also — no gap-fallback line is ever rendered (Item B).
+    rerender(<LoopLiveFeed loopId="l1" event={null} terminal={false} />);
     expect(screen.queryByTestId("loop-live-gap")).toBeNull();
   });
 
-  it("race-condition: a late heartbeat delivered AFTER terminal=true does not re-appear in the rendered feed", () => {
-    // Sequence: terminal fires first, then a stale heartbeat is
-    // handed to the component (this is the real race iter288 fought
-    // — a per-file Parliament heartbeat whose queue.put awaited
-    // across _fail's own _emit). LoopLiveFeed's purge must keep the
-    // buffer clean even if a subsequent late frame lands.
+  it("iter309 · Item A: late heartbeat delivered AFTER terminal never appears", () => {
+    // The invariant is now stronger — heartbeats never render at all,
+    // so there's nothing to "purge on terminal". This test documents
+    // that a late heartbeat post-terminal still produces no visible
+    // text row (matches the Item A contract exactly).
     const late = {
       state:  "executing",
       phase:  "execute",
@@ -79,18 +69,9 @@ describe("LoopLiveFeed — state-sync behavior (iter295)", () => {
     const { rerender } = render(
       <LoopLiveFeed loopId="l2" event={null} terminal={true} />
     );
-    // Now the late heartbeat arrives — component receives new
-    // `event` prop. The purge effect should still keep it out
-    // because the ring buffer was already emptied and terminal
-    // is still true.
     act(() => {
       rerender(<LoopLiveFeed loopId="l2" event={late} terminal={true} />);
     });
-    // The stale-late text must NOT be in the DOM.
     expect(screen.queryByText(/LATE HEARTBEAT MUST NOT SHOW/)).toBeNull();
-    // NB: this test also documents the invariant contract — a
-    // future refactor that stops honouring `terminal` in the purge
-    // effect (e.g. someone drops the `if (!terminal) return`)
-    // will fail here loudly.
   });
 });
