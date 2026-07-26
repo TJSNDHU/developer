@@ -20,6 +20,30 @@ work in date-stamped chunks so PRD.md stays focused.
   Do NOT close this open item until Item 6's live run confirms
   each phase writes its row on `auremcto.com`.
 
+## 2026-07-26 — Iter 309 · Batch-2 Items 6+8+9 · SSE resilience + require_admin refactor + loop-metrics seq
+
+**Ship (Item 6 — SSE resilience, bug_testing_agent iter 316: FIXED):**
+- NEW `services/sse_replay_buffer.py` — in-memory ring buffer (cap 200 events, TTL 45min), monotonic `{loop_id}:{seq}` ids
+- `services/loop_engine.py::_emit` line 2464 — buffer.record() at PRODUCER so events emitted while browser disconnected are captured
+- `routers/loop.py::loop_stream` — accepts `Last-Event-ID`, emits `retry: 3000` preamble + per-event `id:` line, replays gap on reconnect, `finally: pass` (no more engine deregister on client disconnect)
+- `main.py` housekeeping — evict_expired every 60s
+- `frontend/src/lib/loopApi.js::streamLoopEvents` — auto-reconnect with `Last-Event-ID` header, client seq dedup, `onReconnecting`/`onReconnected` callbacks, exponential backoff
+- 10 unit tests + `bug_verify_315_sse_reconnect_gap_probe.py` end-to-end
+- **Open verification debt** (single 25-min live preview test closes all three): Item 4 phase-token instrumentation, Item 5 heartbeat dedup, Item 6 client browser reconnect
+
+**Ship (Item 8 — require_admin refactor):**
+- `routers/scaffold.py` — 7 inline `is_founder OR is_admin` checks migrated to shared `cto_services.auth.require_admin`
+- `routers/supabase.py` — 3 inline checks migrated to require_admin. 1 preserved as documented exception (founder-only force-delete, marked `# inline: founder-only, not admin`)
+- NEW `tests/test_iter309_batch2_item8_item9_contracts.py` — source-pattern contract: any new inline admin check outside `require_admin` fails the test, unless line carries `# inline:` marker for a documented exception
+
+**Ship (Item 9 — loop-metrics seq/lag fields):**
+- `routers/admin.py::loop_metrics` — added `sse_buffer` block to response: `active_loops` + `total_buffered` + `max_seq`. Read from in-memory ring buffer (no new collection), no new UI card (endpoint-only per scope)
+
+**Ship (Item 7 — DEFERRED):**
+- Large-plan edge case (21+ files) — deferred pending founder-approved test-first discovery on a real 25-file plan. Scope was: test first to document current behavior, then minimal per-file budget accounting if needed. Not shipping in this batch to avoid absorbing scope silently.
+
+**Quality-gate: 386 passed / 3 failed / 4 skipped / 2 errors** (was 383+3+4+2 — +3 Item 8+9 contract tests). Zero regressions.
+
 ## 2026-07-26 — Iter 309 · Batch-2 Item 6 · SSE reconnect resilience (in-progress verification)
 
 **Founder ask:** Server SSE stream caps at 20 min but real loops run up to 40 min. On reconnect (browser auto or after cap) events emitted during the gap are silently lost. Industry-standard fix, no WebSockets, no polling.

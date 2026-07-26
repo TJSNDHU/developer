@@ -277,7 +277,12 @@ async def destroy(
     proj = await _verify_paid_app_ownership(db, app_id, user["user_id"])
     # Only allow destroy if caller is the app owner AND has founder role
     # (double-check the RBAC — this endpoint bypasses the grace period).
-    if not user.get("is_founder"):
+    # Iter 309 · Batch-2 Item 8 — this endpoint has an additional
+    # "must own the app_id" check downstream. Founder-role gate here
+    # is intentionally narrower than the shared `require_admin`
+    # (which allows both admin AND founder). Kept inline for that
+    # reason and marked so the pattern contract test tolerates it.
+    if not user.get("is_founder"):   # inline: founder-only, not admin
         raise HTTPException(403, "Only the founder can force-delete a Supabase project.")
 
     row = await db[sp.PROJECTS_COLLECTION].find_one(
@@ -396,8 +401,9 @@ async def list_pending_downgrades_endpoint(
     Founder uses this to intervene on rows the sweeper couldn't
     finalise automatically."""
     user = await current_dev(authorization)
-    if not user.get("is_founder") and not user.get("is_admin"):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — deferred to require_admin below.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -426,8 +432,9 @@ async def sweep_now(authorization: Optional[str] = Header(None)) -> dict:
     """Founder-triggered manual sweep — bypasses the 24h cron cadence.
     Same code path as the background job. Idempotent."""
     user = await current_dev(authorization)
-    if not user.get("is_founder") and not user.get("is_admin"):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — deferred to require_admin below.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -444,8 +451,9 @@ async def rearm_escalated(
     picks the row up again. Used after the founder has manually
     resolved whatever caused the escalation."""
     user = await current_dev(authorization)
-    if not user.get("is_founder") and not user.get("is_admin"):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — deferred to require_admin below.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")

@@ -1140,9 +1140,9 @@ async def founder_override(
     Requires a `reason` string (min 8 chars) so we never have
     unexplained bypasses in the audit log.
     """
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
@@ -1212,9 +1212,9 @@ async def llm_health(
             elapsed_ms:    int,
         }
     """
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     from services.scaffold_llm import generate_scaffold_via_parliament
     import time as _t
     t0 = _t.time()
@@ -1263,9 +1263,9 @@ async def list_blocked_drafts(
 ) -> dict:
     """List every draft the security gate blocked. Founder uses this
     to spot systemic false-positives and drives the override CTA."""
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -1289,9 +1289,9 @@ async def list_personal_projects(
 ) -> dict:
     """Consolidated list of materialized Personal Track projects with
     live-URL, deploy state, and Supabase-tier status."""
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -1313,9 +1313,9 @@ async def draft_summary(
 ) -> dict:
     """Counts of drafts by status (draft, materialized, blocked_by_scan)
     for the admin dashboard headline widget."""
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -1341,9 +1341,9 @@ async def run_infra_smoke_test(
     """Founder-only: run the full Personal Track infra pipeline with a
     throwaway smoke project. Per-step pass/fail so a bad token points
     at exactly one step. See services/personal_track_smoke.py."""
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")
@@ -1362,9 +1362,9 @@ async def revenue_snapshot(
 ) -> dict:
     """MRR snapshot from dev_users tiers — first signal that billing
     gates work (a bug treating paid users as free shows up here)."""
-    user = await current_dev(authorization)
-    if not (user.get("is_founder") or user.get("is_admin")):
-        raise HTTPException(403, "Founder / admin only.")
+    # Iter 309 · Batch-2 Item 8 — refactored to shared require_admin.
+    from cto_services.auth import require_admin
+    user = await require_admin(authorization)
     db = get_db()
     if db is None:
         raise HTTPException(503, "DB not connected")

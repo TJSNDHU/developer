@@ -4061,6 +4061,26 @@ async def loop_metrics(
     if current["failed_ratio"] is not None and previous["failed_ratio"] is not None:
         delta_ratio = current["failed_ratio"] - previous["failed_ratio"]
 
+    # Iter 309 · Batch-2 Item 9 — expose per-loop SSE ring-buffer
+    # health so the founder can eyeball client-vs-server lag on the
+    # same admin card. Read-only, in-memory only, capped by TTL
+    # eviction so no new collection needed. `last_event_seq` is the
+    # highest seq assigned to an event for that loop (proxy for
+    # progress); `client_lag_hint` is how many buffered events sit
+    # UNREAD (never consumed by any SSE client) — non-zero means a
+    # user's browser is behind or disconnected. We don't try to
+    # attribute lag per-client (that would need session tracking).
+    try:
+        from services.sse_replay_buffer import buffer_stats
+        sse_stats = buffer_stats()
+    except Exception:
+        sse_stats = {}
+    sse_summary = {
+        "active_loops":  len(sse_stats),
+        "total_buffered": sum(s["buffered"] for s in sse_stats.values()),
+        "max_seq":       max((s["next_seq"] for s in sse_stats.values()), default=0),
+    }
+
     # ── data_source identity ────────────────────────────────────────
     # Never leak connection strings; return only fields safe for
     # display in an admin UI so the founder can confirm the card
@@ -4173,6 +4193,7 @@ async def loop_metrics(
             **previous,
         },
         "delta_failed_ratio":  delta_ratio,
+        "sse_buffer": sse_summary,
         "failed_sample":       failed_sample,
         "failed_owner_counts": owner_counts,
         "note": (
