@@ -4,6 +4,51 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-02 — Iter 309 · Phase 0.2 (Round 3 — dep-conflict fix, fresh-venv verified)
+
+**Founder finding (round 3, still bigger)**: after the ci.yml trigger fix + quality-gate discovery fix landed, ci.yml DID fire on the next push. But `backend-tests::Install dependencies` step FAILED with:
+```
+ERROR: Cannot install -r requirements.txt (line 37) and litellm 1.80.0
+because these packages have conflicting dependencies. ResolutionImpossible
+```
+"Run tests" step was skipped → canary still never executed. Third false-positive red across the whole verification chain.
+
+**Root cause (pip resolver quirk on GH runners)**:
+- `backend/requirements.txt:37` = `emergentintegrations==0.1.2` which internally requires `litellm @ https://customer-assets.emergentagent.com/internal-asset/library/litellm-1.80.0-py3-none-any.whl` (URL without sha256).
+- `backend/requirements.txt:81` = `litellm @ https://customer-assets.emergentagent.com/.../litellm-1.80.0-py3-none-any.whl#sha256=adf398c513273de9341f61822296c6b2145f7f2dc4a69daf3ac04829f5bde3f8` (URL WITH sha256 fragment).
+- Same package, same version, same wheel — but pip's resolver treats `URL` vs `URL#sha256=x` as **different sources** → refuses to reconcile → `ResolutionImpossible`.
+- Only manifests on fresh pip caches (like a GH-hosted runner). Local dev + preview pod worked because their caches already had a compatible resolution.
+
+**Fix**:
+- Removed the explicit `litellm @ …#sha256=…` line from `requirements.txt`. `emergentintegrations` brings litellm 1.80.0 in transitively via its own URL requirement.
+- No change to actual installed litellm version — still 1.80.0 from the same wheel URL. Only the resolver-visible source declaration is now single, not double.
+
+**Verified with clean-slate install** (per founder directive: "don't push and hope, actually confirm the install succeeds first"):
+```
+$ rm -rf /tmp/freshvenv && python3 -m venv /tmp/freshvenv && source /tmp/freshvenv/bin/activate
+$ pip install -r requirements.txt --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+Successfully installed … emergentintegrations-0.1.2 … litellm-1.80.0 …
+EXIT=0
+$ python -m pytest tests/test_ci_canary_MUST_FAIL_iter309.py --tb=short
+E  AssertionError: CANARY: This test is deliberately failing to verify …
+FAILED tests/test_ci_canary_MUST_FAIL_iter309.py::test_ci_failure_propagation_canary_iter309
+Exit code = 1 from pytest → CI job would fail red
+```
+
+**Cumulative Phase 0.2 findings from this cycle** (all real, all now fixed):
+1. `ci.yml::on: push` didn't include `**` (iter 306 was incomplete on my side)
+2. `quality-gate.yml::invariants` used a hardcoded pytest whitelist (root cause behind "13 silent failures")
+3. `requirements.txt` had a duplicate litellm URL with mismatched sha256 fragment (fresh-venv resolver conflict)
+
+**Still requires founder verification**: push once more to `phase-0.2-canary` bringing `requirements.txt` fix. Both ci.yml AND quality-gate.yml should now:
+1. Fire on the branch push (fix from previous round)
+2. Discover the canary (quality-gate.yml discovery; ci.yml discovers all of tests/)
+3. Install deps cleanly (fix from this round)
+4. Run pytest → canary AssertionError → workflow RED
+
+If any of the 3 workflows still shows a false-positive red without the canary AssertionError in the log, that's a NEW failure mode and Phase 0.2 stays blocked.
+
+
 ## 2026-02 — Iter 309 · Phase 0.2 CI Investigation (root causes found, fixes applied, awaiting live GH re-verification)
 
 **Founder finding (better than my original scope)**: pushed `phase-0.2-canary`, opened PR #174 → `ci.yml` never triggered on either the branch push OR the PR into main. `quality-gate.yml` fired, but its pytest job is a hardcoded whitelist of ~15 test node IDs — our canary was never on that list.
