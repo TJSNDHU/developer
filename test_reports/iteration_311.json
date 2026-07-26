@@ -1,0 +1,44 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Cluster 1 (7 tests in test_iter212m60/62) fail with LoopState.FAILED where COMPLETED/PAUSED_FOR_USER expected. User confirmed via new /admin/loop-metrics prod card that failed_owner_counts.user=0 (0 real-user prod failures) \u2014 treat as fixture-shape not P0, and fix as normal-priority tests-only change without touching production loop_engine.py behavior.",
+  "summary": "No relevant testing skill found. Verified the tests-only fixture-shape fix: the 7 previously failing iter212m60/62 tests passed, both target files passed together (20 passed), and the requested quality-gate keyword subset matched the expected residual local-infra pattern (3 failed, 361 passed, 4 skipped, 2 errors). Confirmed only the two test files are modified; backend/services/loop_engine.py and backend/services/vanguard_scanner.py have no diff.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "quality-gate pytest subset",
+        "issue": "Residual non-Cluster-1 local infra failures remain: Stripe fake key 503 and login rate-limit 429/auth pollution errors, matching the expected baseline and not caused by this fix."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/bug_verify_311_targeted_7.log",
+    "/app/test_reports/pytest/bug_verify_311_target_files.log",
+    "/app/test_reports/pytest/bug_verify_311_quality_gate.log"
+  ],
+  "action_items": [
+    "Proceed to Item 3 final quality-gate count; no Cluster 1 code fix needed based on this verification."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/test_reports/bug_verification_311.json",
+    "/app/test_reports/iteration_311.json",
+    "/app/test_reports/pytest/bug_verify_311_targeted_7.log",
+    "/app/test_reports/pytest/bug_verify_311_target_files.log",
+    "/app/test_reports/pytest/bug_verify_311_quality_gate.log"
+  ],
+  "success_rate": {
+    "backend": "100% for targeted Cluster 1 tests; quality-gate subset has expected residual infra failures",
+    "frontend": "N/A"
+  },
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Targeted command: 7/7 passed. Target files command: 20/20 passed. Quality-gate keyword subset: 3 failed, 361 passed, 4 skipped, 2 errors; failures/errors were Stripe fake key and login rate-limit/state pollution, not loop engine fixture-shape regressions. No relevant testing skill found.",
+  "rca_of_the_issue": "The original failures were fixture-shape failures: tests exercised state-machine outcomes but allowed infrastructure-heavy execute/ship/verify paths to run without real BINContext/GitHub/Parliament setup, producing LoopState.FAILED. The fix stubs phase methods in the relevant tests only and updates stale timestamp/mocked self-heal path to match current engine behavior. Production loop_engine.py behavior was not changed."
+}

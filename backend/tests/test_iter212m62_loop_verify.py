@@ -124,8 +124,57 @@ def fast_timeouts(monkeypatch):
         monkeypatch.setitem(eng.PHASE_TIMEOUTS_S, k, 30)
 
 
+# Iter 309-c — After Phase 0's Execute rewrite (GitHub-creds gate at
+# line ~991 of loop_engine.py, Parliament LLM per file), `_do_execute`
+# refuses to run without a real BINContext or a cto_projects doc with
+# GitHub OAuth/PAT.  These m62 tests target the VERIFY + SELF-HEAL
+# path specifically — the caller has already `submit_files()`'d the
+# code they want linted, so Execute should be a no-op that forwards
+# those files to Verify.  We stub `_do_execute` with a minimal
+# forwarder AND stub `_do_ship` (no real GitHub commit) so the
+# COMPLETED-state assertions actually pass without a repo.  Verify
+# (`_do_verify`) + Scan (`_run_security_scan`, patched per-test) run
+# natively, which is exactly what these tests are designed to cover.
+@pytest.fixture
+def stub_execute_and_ship(monkeypatch):
+    async def _stub_execute(self):
+        self.state = eng.LoopState.EXECUTING
+        self.phase = "execute"
+        # If the caller pre-populated submitted_files via
+        # submit_files(), keep it verbatim so `_do_verify` sees
+        # exactly the code the test intended.  Otherwise seed
+        # from the plan for the "no submitted files" case.
+        existing = self.context.get("submitted_files")
+        if not existing:
+            plan_files = (self.context.get("plan") or {}).get("files_to_change") or []
+            # test_verify_skipped_when_no_files_submitted asserts the
+            # `skipped_no_files` branch — leave submitted_files empty
+            # for that case so `_do_verify` short-circuits.
+            self.context["submitted_files"] = []
+        await self._emit(eng.LoopState.EXECUTING, "execute",
+                         step=2, total_steps=5,
+                         message="Executing (stub)…")
+
+    async def _stub_ship(self):
+        self.state = eng.LoopState.SHIPPING
+        self.phase = "ship"
+        self.context["commit"] = {
+            "message": f"feat(ora): {self.user_message} [loop-verified]",
+            "sha":     "deadbeefcafebabe",
+        }
+        await self._emit(eng.LoopState.SHIPPING, "ship",
+                         step=5, total_steps=5, message="Shipping (stub)…")
+        self.state = eng.LoopState.COMPLETED
+        await self._emit(eng.LoopState.COMPLETED, "ship",
+                         step=5, total_steps=5,
+                         message="Loop complete (stub).")
+
+    monkeypatch.setattr(eng.LoopEngine, "_do_execute", _stub_execute)
+    monkeypatch.setattr(eng.LoopEngine, "_do_ship",    _stub_ship)
+
+
 @pytest.mark.asyncio
-async def test_self_heal_fixes_broken_python(monkeypatch, fake_plan, fast_timeouts):
+async def test_self_heal_fixes_broken_python(monkeypatch, fake_plan, fast_timeouts, stub_execute_and_ship):
     """If the verifier fails, self-heal rewrites and pass on retry."""
     db = _DB()
     engine = eng.LoopEngine(db, eng.new_loop_id(), "u1", None, "fix it")
@@ -133,10 +182,15 @@ async def test_self_heal_fixes_broken_python(monkeypatch, fake_plan, fast_timeou
     await engine.submit_files([
         {"path": "bad.py", "content": "def add(a, b)\n    return a + b\n"},
     ])
-    # Mock self_heal to return a corrected version.
-    async def _heal(file_obj, errs, **kw):
-        return "def add(a, b):\n    return a + b\n"
-    monkeypatch.setattr(loop_verify, "self_heal", _heal)
+    # Iter 309-c — verify phase now uses Parliament.healer.heal
+    # (iter 212m-150 refactor) instead of loop_verify.self_heal.
+    # Mock the parliament path so the test still exercises the
+    # heal-round → re-verify → COMPLETED flow it was designed for.
+    from core import parliament as parl_mod
+    async def _heal(self, *, task, all_attempts, round_num, max_rounds):
+        return {"status": "retry",
+                "output": "def add(a, b):\n    return a + b\n"}
+    monkeypatch.setattr(parl_mod.SelfHeal, "heal", _heal)
     # Skip scan (Phase C calls real GitHub — bypass with stub).
     async def _scan(*a, **kw):
         return {"summary": {"total": 0, "by_severity": {}}}
@@ -156,7 +210,7 @@ async def test_self_heal_fixes_broken_python(monkeypatch, fake_plan, fast_timeou
 
 @pytest.mark.asyncio
 async def test_self_heal_exhausted_pauses_for_user(
-        monkeypatch, fake_plan, fast_timeouts):
+        monkeypatch, fake_plan, fast_timeouts, stub_execute_and_ship):
     """If self-heal can't fix it after MAX attempts, loop pauses."""
     db = _DB()
     engine = eng.LoopEngine(db, eng.new_loop_id(), "u1", None, "fix it")
@@ -164,9 +218,14 @@ async def test_self_heal_exhausted_pauses_for_user(
     await engine.submit_files([
         {"path": "bad.py", "content": "def f(\n  pass\n"},
     ])
-    async def _heal(file_obj, errs, **kw):
-        return "def f(\n  pass\n"   # still broken
-    monkeypatch.setattr(loop_verify, "self_heal", _heal)
+    # Iter 309-c — Parliament heal path returns the SAME broken
+    # content every round, exhausting MAX_SELF_HEALS.  Kept as a
+    # "retry" status so the healer code path stays live (an
+    # "escalate" would short-circuit into a different branch).
+    from core import parliament as parl_mod
+    async def _heal(self, *, task, all_attempts, round_num, max_rounds):
+        return {"status": "retry", "output": "def f(\n  pass\n"}
+    monkeypatch.setattr(parl_mod.SelfHeal, "heal", _heal)
     await engine.confirm(True, "")
     for _ in range(50):
         if engine.state in {eng.LoopState.PAUSED_FOR_USER,
@@ -179,7 +238,7 @@ async def test_self_heal_exhausted_pauses_for_user(
 
 @pytest.mark.asyncio
 async def test_verify_skipped_when_no_files_submitted(
-        monkeypatch, fake_plan, fast_timeouts):
+        monkeypatch, fake_plan, fast_timeouts, stub_execute_and_ship):
     """No submitted files → verify passes through with the flag set."""
     async def _scan(*a, **kw):
         return {"summary": {"total": 0, "by_severity": {}}}
