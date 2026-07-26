@@ -4,12 +4,13 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
-## 2026-07-26 ~20:05 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION (2nd attempt, clean audit trail)
+## 2026-07-26 20:12 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION (2nd attempt, clean audit trail)
 
 **Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, redeploy).
-**Deployer verdict:** ⏳ (awaiting confirmation from 2nd deploy — will update in-place once received)
-**Commit at deploy:** `86239c685cba` (BUILD_INFO.txt regenerated pre-deploy for a matching audit trail; expected `/version` sha will match this or a newer BUILD_INFO auto-commit).
+**Deployer verdict:** ✅ `Deployment completed. Live at: https://auremcto.com`
+**Commit at deploy:** `86239c685cba` — **VERIFIED** by main-agent curl `GET https://auremcto.com/api/aurem-dev/version` returning `{"commit_sha":"86239c685cba","built_at":"2026-07-26T20:12:12.810780+00:00","environment":"production"}`. The `/version` response now matches this CHANGELOG entry — auditable end-to-end.
 **Environment:** production (`auremcto.com`)
+**Post-deploy smoke curl (main-agent-side, not to be confused with founder live-test):** `GET /api/health` → `HTTP 200`, `{"ok":true,"env":"production","db":true,"uptime_s":48}`. Pod restarted cleanly.
 
 **Prior deploy attempt in same session (~20:01 UTC) — self-corrected:**
 The first deploy of this session returned deployer verdict ✅ but prod `/version` reported stale sha `448f8f48e33f` because `backend/BUILD_INFO.txt` had never been refreshed after the 04:13 UTC ship. Could not definitively prove Batch 2 code was live vs. a re-run of the old code. Rather than paper over the ambiguity, BUILD_INFO.txt was regenerated to current HEAD `86239c685cba` and a 2nd deploy was invoked to give the founder a matching, auditable commit sha in `/version`. First attempt considered SUPERSEDED — this 2nd deploy is the canonical Batch 2 prod ship.
@@ -24,7 +25,7 @@ The first deploy of this session returned deployer verdict ✅ but prod `/versio
 **Honest verification status:**
 - ✅ Unit + integration tests: 386 passed / 3 failed (documented local-infra artifacts) / 4 skipped / 2 errors
 - ✅ `bug_testing_agent` iter 316 verdict: FIXED (unit-verified)
-- ⏳ Main-agent-side smoke curl post-deploy: pending 2nd deploy completion (previous /health returned 200 but that only proves the pod restarted, NOT that Batch 2 code is running — hence the redeploy for a matching sha)
+- ✅ Main-agent-side smoke curl post-deploy: `/health` 200 + `/version` sha matches `86239c685cba` (proves the pod is running the intended code snapshot, NOT a live-behavior test)
 - ❌ **LIVE 25-MIN SSE RECONNECT TEST ON PROD:** PENDING — founder to run personally
 - ❌ **LIVE PER-PHASE TOKEN ACCOUNTING VERIFY ON PROD:** PENDING — same 25-min test naturally exercises all 4 phases
 
