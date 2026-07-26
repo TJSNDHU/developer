@@ -4203,3 +4203,131 @@ def _email_hint(email: str) -> str:
         return f"{local}***@{domain}"
     return f"{local[:3]}***@{domain}"
 
+
+
+# ── Iter 309 · Pre-Phase-1 — Loop LLM Token Metrics ────────────────
+# Founder-gated, read-only aggregation over `ora_chat_usage` rows
+# whose `route` starts with `loop.` (loop-originated LLM calls
+# tagged by `services/loop_token_ledger.loop_call_context`).  Uses
+# the SAME collection + indexes as `/admin/loop-metrics` so we don't
+# double-store or double-index.  This is the cost baseline required
+# before Phase 1 (Persistent Correction Rules) can measure the
+# real cost delta of rules-injection.
+@router.get("/loop-token-metrics")
+async def loop_token_metrics(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    db = require_db()
+    now = datetime.now(timezone.utc).timestamp()
+    window_s = 7 * 24 * 3600
+    cur_since = now - window_s
+    prev_since = now - (2 * window_s)
+
+    async def _agg(gte, lt):
+        # `ts` is stored as a UNIX timestamp float by cost_tracker.log_call
+        # (see services/ora_chat/cost_tracker.py line ~218 — `now = time.time()`).
+        pipeline = [
+            {"$match": {
+                "ts":    {"$gte": gte, "$lt": lt},
+                "route": {"$regex": "^loop\\."},
+            }},
+            {"$group": {
+                "_id": "$route",
+                "calls":          {"$sum": 1},
+                "input_tokens":   {"$sum": "$input_tokens"},
+                "output_tokens":  {"$sum": "$output_tokens"},
+                "cost_usd":       {"$sum": "$cost_usd"},
+                "loop_sessions":  {"$addToSet": "$session_id"},
+            }},
+            {"$sort":  {"cost_usd": -1}},
+        ]
+        by_phase: dict = {}
+        total_calls, total_in, total_out, total_cost = 0, 0, 0, 0.0
+        loop_ids: set = set()
+        async for row in db.ora_chat_usage.aggregate(pipeline):
+            route = str(row.get("_id") or "")
+            phase = route.split(".", 1)[-1] if "." in route else route
+            calls = int(row.get("calls") or 0)
+            inp   = int(row.get("input_tokens") or 0)
+            outp  = int(row.get("output_tokens") or 0)
+            cost  = float(row.get("cost_usd") or 0.0)
+            sess  = list(row.get("loop_sessions") or [])
+            by_phase[phase] = {
+                "calls":          calls,
+                "input_tokens":   inp,
+                "output_tokens":  outp,
+                "cost_usd":       round(cost, 6),
+                "loop_sessions":  len(sess),
+            }
+            total_calls += calls
+            total_in    += inp
+            total_out   += outp
+            total_cost  += cost
+            loop_ids.update(sess)
+
+        avg_per_loop = None
+        if loop_ids:
+            avg_per_loop = {
+                "loops":           len(loop_ids),
+                "input_tokens":    total_in  // len(loop_ids),
+                "output_tokens":   total_out // len(loop_ids),
+                "cost_usd":        round(total_cost / len(loop_ids), 6),
+            }
+        return {
+            "by_phase":       by_phase,
+            "total_calls":    total_calls,
+            "total_input":    total_in,
+            "total_output":   total_out,
+            "total_cost_usd": round(total_cost, 6),
+            "distinct_loops": len(loop_ids),
+            "avg_per_loop":   avg_per_loop,
+        }
+
+    current  = await _agg(cur_since,  now)
+    previous = await _agg(prev_since, cur_since)
+
+    try:
+        from routers.version import _COMMIT_SHA, _env_from_host
+        fwd = request.headers.get("x-forwarded-host") or ""
+        host = request.headers.get("host") or ""
+        env_label = _env_from_host(fwd or host)
+    except Exception:
+        _COMMIT_SHA, env_label = "unknown", "unknown"
+    mongo_url = os.environ.get("MONGO_URL", "")
+    if "@" in mongo_url:
+        host_hint = mongo_url.split("@", 1)[1].split("/", 1)[0]
+    else:
+        host_hint = mongo_url.split("//", 1)[-1].split("/", 1)[0]
+
+    return {
+        "ok":           True,
+        "window_days":  7,
+        "data_source": {
+            "db_name":    os.environ.get("DB_NAME", "unknown"),
+            "mongo_host": host_hint or "unknown",
+            "commit_sha": _COMMIT_SHA,
+            "env":        env_label,
+        },
+        "current": {
+            "since_utc": datetime.fromtimestamp(cur_since, tz=timezone.utc).isoformat(),
+            "until_utc": datetime.fromtimestamp(now,       tz=timezone.utc).isoformat(),
+            **current,
+        },
+        "previous": {
+            "since_utc": datetime.fromtimestamp(prev_since, tz=timezone.utc).isoformat(),
+            "until_utc": datetime.fromtimestamp(cur_since,  tz=timezone.utc).isoformat(),
+            **previous,
+        },
+        "note": (
+            "Aggregated from `ora_chat_usage` where route ^= 'loop.'. "
+            "One row per loop-originated LLM call (Council A plan / "
+            "Parliament execute / verify healer). Cost is computed at "
+            "log time using services/ora_chat/cost_tracker's shipped "
+            "price table (deepseek/perplexity/glm/claude-sonnet) — "
+            "unknown models fall to the conservative default "
+            "$1/$3 per 1M in/out. Baseline for Phase 1 cost delta."
+        ),
+    }
+

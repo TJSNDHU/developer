@@ -1,0 +1,12 @@
+{
+  "endpoint_phase_row": {
+    "calls": 1,
+    "cost_usd": 0.000133,
+    "input_tokens": 777,
+    "loop_sessions": 1,
+    "output_tokens": 88
+  },
+  "ok": true,
+  "phase": "endpoint312_0a5346",
+  "total_calls": 1
+}

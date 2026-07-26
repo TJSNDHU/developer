@@ -1,0 +1,67 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Add per-loop LLM token accounting (Pre-Phase 1). Every loop-originated LLM call must be tagged with loop_session_id + phase_tag in ora_chat_usage so /admin/loop-token-metrics can measure the real cost baseline before Phase 1 (Persistent Correction Rules) is built. Reuse existing compute_cost_usd() from ora_chat/cost_tracker.py. Endpoint must be require_admin-gated. No new pricing tables, no admin UI card in this round, no cost-attribution/billing hooks.",
+  "summary": "No relevant testing skill found. Ledger unit tests pass and execute/verify-style LLM instrumentation plus /admin/loop-token-metrics auth/shape/aggregation work, but the fix is incomplete: the LoopEngine plan phase calls _do_plan() directly in start() without loop_call_context/_with_budget, so a real loop-originated plan LLM call writes no ora_chat_usage loop row. That violates 'every loop-originated LLM call' and means baseline costs undercount Plan tokens.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "services/loop_engine.py::LoopEngine.start/_do_plan",
+        "issue": "Plan-phase LLM call is not wrapped in loop_call_context. Repro with MOCKED OpenRouter response: LoopEngine.start() reached awaiting_confirmation but ora_chat_usage mock had 0 rows for loop_plan_gap_312. _with_budget wraps execute/verify/scan/ship only, not the initial plan phase.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "quality-gate/auth-dependent subset",
+        "issue": "Preview/shared QA login is currently rate-limited (429), matching the known local-infra/auth pollution artifact; targeted ledger tests and endpoint checks were still completed with direct JWT admin/non-admin tokens. Reconstructed broad subset was therefore not a clean quality-gate signal."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/bug_verify_312_loop_token_ledger_unit.log",
+    "/app/test_reports/bug_verify_312_loop_token_metrics_checks.log",
+    "/app/test_reports/bug_verify_312_endpoint_seeded.log",
+    "/app/test_reports/bug_verify_312_plan_phase_gap.log",
+    "/app/test_reports/bug_verify_312_plan_phase_gap.json",
+    "/app/test_reports/pytest/bug_verify_312_quality_gate_core_files.log"
+  ],
+  "action_items": [
+    "Wrap the initial plan phase in loop_call_context(loop_id=self.loop_id, phase_tag='plan', user_id=self.user_id) or route LoopEngine.start() through _with_budget('plan', self._do_plan) without changing loop semantics.",
+    "Add a regression test proving LoopEngine.start() / _do_plan() records a route='loop.plan' row with session_id=loop_id when the plan LLM call succeeds.",
+    "Re-run targeted ledger tests plus endpoint auth/aggregation after the plan-phase gap is fixed."
+  ],
+  "critical_code_review_comments": [
+    "services/loop_engine.py lines 447-450 call self._do_plan() inside asyncio.wait_for directly; only _run_pipeline phases use _with_budget, so the contextvars ledger is absent for the first loop-originated LLM call at _generate_plan() -> call_llm_with_meta(... mode='loop_plan').",
+    "Endpoint aggregation filters route /^loop\\./ and works for seeded rows, but because plan rows are never emitted, /admin/loop-token-metrics cannot measure the full real cost baseline."
+  ],
+  "updated_files": [
+    "/app/test_reports/scripts/bug_verify_312_loop_token_metrics.py",
+    "/app/test_reports/scripts/bug_verify_312_endpoint_seeded.py",
+    "/app/test_reports/scripts/bug_verify_312_plan_phase_gap.py",
+    "/app/test_reports/bug_verify_312_loop_token_metrics_checks.json",
+    "/app/test_reports/bug_verify_312_loop_token_metrics_checks.log",
+    "/app/test_reports/bug_verify_312_endpoint_seeded.json",
+    "/app/test_reports/bug_verify_312_endpoint_seeded.log",
+    "/app/test_reports/bug_verify_312_plan_phase_gap.json",
+    "/app/test_reports/bug_verify_312_plan_phase_gap.log",
+    "/app/test_reports/bug_verify_312_code_diff_review.patch",
+    "/app/test_reports/pytest/bug_verify_312_loop_token_ledger_unit.log",
+    "/app/test_reports/pytest/bug_verify_312_quality_gate_core_files.log",
+    "/app/test_reports/bug_verification_312.json",
+    "/app/test_reports/iteration_312.json"
+  ],
+  "success_rate": {
+    "backend": "Partial: 7/7 ledger unit tests pass; endpoint auth/shape/seeded aggregation pass; LLM instrumentation checks pass with MOCKED OpenRouter; plan-phase end-to-end accounting fails (0 usage rows).",
+    "frontend": "N/A"
+  },
+  "seed_data_creation": "Inserted temporary qa_marker rows into ora_chat_usage for route hygiene and endpoint aggregation; cleanup delete_many ran after each test. No persistent seed data intentionally left.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Focus retest on plan phase: MOCKED LoopEngine.start() should produce route='loop.plan' and session_id=loop_id in ora_chat_usage, then verify existing 7 ledger tests and /admin/loop-token-metrics still pass. No relevant testing skill found.",
+  "rca_of_the_issue": "The implementation added contextvars ledger + LLM instrumentation and wrapped _with_budget, but LoopEngine.start() handles PLAN separately and never enters _with_budget. Since _generate_plan() makes an LLM call via call_llm_with_meta(mode='loop_plan'), that loop-originated call has no ambient loop_session_id/phase_tag and log_llm_usage() no-ops. Repro: /app/test_reports/scripts/bug_verify_312_plan_phase_gap.py."
+}

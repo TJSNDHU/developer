@@ -1,0 +1,76 @@
+{
+  "endpoint": {
+    "ok": true,
+    "shape": {
+      "current_keys": [
+        "avg_per_loop",
+        "by_phase",
+        "distinct_loops",
+        "since_utc",
+        "total_calls",
+        "total_cost_usd",
+        "total_input",
+        "total_output",
+        "until_utc"
+      ],
+      "previous_keys": [
+        "avg_per_loop",
+        "by_phase",
+        "distinct_loops",
+        "since_utc",
+        "total_calls",
+        "total_cost_usd",
+        "total_input",
+        "total_output",
+        "until_utc"
+      ],
+      "top_keys": [
+        "current",
+        "data_source",
+        "ok",
+        "previous",
+        "window_days"
+      ]
+    },
+    "statuses": {
+      "admin": 200,
+      "invalid_token": 401,
+      "non_admin": 403,
+      "unauth": 401
+    }
+  },
+  "llm_instrumentation": {
+    "ok": true,
+    "rows": [
+      {
+        "cost_usd": 5.8e-05,
+        "input_tokens": 321,
+        "output_tokens": 45,
+        "route": "loop.verify",
+        "session_id": "loop_instr_ds"
+      },
+      {
+        "cost_usd": 0.000123,
+        "input_tokens": 321,
+        "output_tokens": 45,
+        "route": "loop.execute",
+        "session_id": "loop_instr_or"
+      }
+    ]
+  },
+  "mongo_hygiene": {
+    "agg": [
+      {
+        "_id": "loop.bugverify312_733f30ea",
+        "calls": 1,
+        "input": 100,
+        "loops_count": 1,
+        "output": 25
+      }
+    ],
+    "cost_usd": 2.1e-05,
+    "loop_id": "loop_bugverify312_889ca88b",
+    "ok": true,
+    "phase": "bugverify312_733f30ea"
+  }
+}

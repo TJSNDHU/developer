@@ -844,7 +844,19 @@ class LoopEngine:
             _hb_task = asyncio.create_task(_heartbeat_loop())
             try:
                 try:
-                    await asyncio.wait_for(coro(), timeout=budget)
+                    # Iter 309 · Pre-Phase-1 — Loop-token accounting.
+                    # Wrap the phase coroutine in a contextvar scope so
+                    # every downstream LLM call (Council A, Parliament,
+                    # verify_agent, healer) writes a `loop.<phase>` row
+                    # into `ora_chat_usage`.  Zero API-surface change
+                    # for non-loop LLM callers.
+                    from services.loop_token_ledger import loop_call_context
+                    async with loop_call_context(
+                        loop_id=self.loop_id,
+                        phase_tag=phase,
+                        user_id=self.user_id,
+                    ):
+                        await asyncio.wait_for(coro(), timeout=budget)
                     if attempt > 0:
                         logger.info(
                             "[loop %s] phase=%s recovered on attempt %d/%d",

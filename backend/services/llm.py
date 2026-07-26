@@ -708,6 +708,20 @@ async def _call_deepseek(messages: list, system: str = "",
                         r.raise_for_status()
                         data = r.json()
                         served_by = cand_model
+                        # Iter 309 · Pre-Phase-1 — loop-token accounting.
+                        # If this call is happening inside a loop (see
+                        # loop_engine._with_budget's contextvars scope),
+                        # tag the token usage against loop_id + phase.
+                        # No-op for regular chat/scaffold callers.
+                        try:
+                            from services.loop_token_ledger import log_llm_usage
+                            await log_llm_usage(
+                                cand_model,
+                                (data or {}).get("usage") or {},
+                                temperature=temperature,
+                            )
+                        except Exception:
+                            pass
                         break
                     except Exception as e:
                         retryable, status = _retryable(e)
@@ -1057,6 +1071,18 @@ async def call_openrouter_model(
                 r.raise_for_status()
                 data = r.json()
             content = (data["choices"][0]["message"].get("content") or "").strip()
+            # Iter 309 · Pre-Phase-1 — loop-token accounting.
+            # No-op unless a loop context is active (see
+            # loop_token_ledger.loop_call_context).
+            try:
+                from services.loop_token_ledger import log_llm_usage
+                await log_llm_usage(
+                    candidate,
+                    (data or {}).get("usage") or {},
+                    temperature=temperature,
+                )
+            except Exception:
+                pass
             if i > 0:
                 logger.warning(
                     "call_openrouter_model: primary %r failed, served by free fallback %r",
