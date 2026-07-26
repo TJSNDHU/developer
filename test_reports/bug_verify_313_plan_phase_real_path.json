@@ -1,0 +1,28 @@
+{
+  "assertions": {
+    "awaiting_confirmation": true,
+    "input_tokens": true,
+    "one_row": true,
+    "output_tokens": true,
+    "route_loop_plan": true,
+    "session_id_loop_id": true
+  },
+  "events_count": 2,
+  "last_event_state": "awaiting_confirmation",
+  "state": "awaiting_confirmation",
+  "usage_rows": [
+    {
+      "cost_usd": 4.6e-05,
+      "input_tokens": 111,
+      "model": "z-ai/glm-5.2",
+      "output_tokens": 22,
+      "route": "loop.plan",
+      "session_id": "loop_plan_realpath_313",
+      "temperature": 0.3,
+      "ts": 1785043388.0484526,
+      "ts_day": "2026-07-26",
+      "ts_month": "2026-07",
+      "user_id": "u_plan_gap"
+    }
+  ]
+}

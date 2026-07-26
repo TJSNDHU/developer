@@ -195,3 +195,90 @@ async def test_parallel_tasks_dont_leak_context(_mock_db):
     assert routes == [("A", "loop.plan"),
                       ("B", "loop.execute"),
                       ("C", "loop.verify")]
+
+
+# ── bug_verify_312 regression — plan phase must tag its own tokens ──
+@pytest.mark.asyncio
+async def test_plan_phase_writes_loop_plan_row(_mock_db, monkeypatch):
+    """Regression against the bug_verify_312 gap: LoopEngine.start()'s
+    initial plan phase was bypassing `_with_budget`, so a real
+    plan-LLM call never entered `loop_call_context` and its tokens
+    weren't tagged.  This test proves the fix by driving `start()`
+    with a monkeypatched `_generate_plan` that calls `log_llm_usage`
+    the way the real Council-A path does inside the low-level
+    llm.py instrumentation."""
+    from services import loop_engine as eng
+
+    # In-memory `_DB` replacement — loop_engine only touches a few
+    # collections during plan; give it stub responses.
+    class _Coll:
+        def __init__(self): self.docs = []
+        async def insert_one(self, d): self.docs.append(d)
+        async def update_one(self, *a, **k): pass
+        async def delete_one(self, *a, **k): pass
+        async def delete_many(self, *a, **k): pass
+        async def replace_one(self, *a, **k): pass
+        async def find_one(self, *a, **k): return None
+        def find(self, *a, **k):
+            async def _g():
+                for d in self.docs: yield d
+            class _C:
+                def __init__(self, docs): self.docs = docs
+                def sort(self, *a, **k): return self
+                def limit(self, *a, **k): return self
+                def __aiter__(self): return _g()
+            return _C(self.docs)
+        async def count_documents(self, *a, **k): return 0
+        def aggregate(self, *a, **k):
+            async def _g():
+                for _d in []: yield _d
+            return _g()
+
+    class _EngineDB:
+        def __init__(self):
+            self.loop_sessions = _Coll()
+            self.loop_events   = _Coll()
+            self.dev_users     = _Coll()
+            self.cto_projects  = _Coll()
+            self.loop_errors   = _Coll()
+            self.loop_run_log  = _Coll()
+            self.loop_failures = _Coll()
+            self.loop_locks    = _Coll()
+        # `_ensure_loop_lock` may call db["loop_locks"].delete_one etc.
+        def __getitem__(self, name):
+            if not hasattr(self, name):
+                setattr(self, name, _Coll())
+            return getattr(self, name)
+
+    edb = _EngineDB()
+
+    # Stub _generate_plan to also fire log_llm_usage — mirrors what
+    # the real llm.py instrumentation does after an OpenRouter hit.
+    async def _fake_plan(uid, pid, msg):
+        # Fire the same ledger call the real LLM path fires.
+        await ledger.log_llm_usage(
+            "anthropic/claude-sonnet-4.5",
+            {"prompt_tokens": 500, "completion_tokens": 120},
+        )
+        return {"title": "t", "files_to_change": [], "bullets": [],
+                "estimated_time": "~1 min"}
+    monkeypatch.setattr(eng, "_generate_plan", _fake_plan)
+
+    engine = eng.LoopEngine(edb, "loop_plan_gap_312", "user_42",
+                             None, "fix that bug")
+    # Iterate start() to completion (yields events until AWAITING).
+    # Note: engine may go into FAILED further downstream if `_do_plan`
+    # hits an unmocked dependency after `_generate_plan` — that's fine
+    # for THIS test, which only proves the ledger row was written.
+    async for _evt in engine.start():
+        pass
+
+    # ora_chat_usage should now have exactly ONE row, tagged for the loop plan.
+    rows = _mock_db.ora_chat_usage.docs
+    assert len(rows) == 1, f"expected 1 plan row, got {len(rows)}: {rows}"
+    row = rows[0]
+    assert row["route"]        == "loop.plan"
+    assert row["session_id"]   == "loop_plan_gap_312"
+    assert row["user_id"]      == "user_42"
+    assert row["input_tokens"] == 500
+    assert row["output_tokens"] == 120

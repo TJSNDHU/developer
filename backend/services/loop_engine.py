@@ -444,10 +444,20 @@ class LoopEngine:
         await self._emit(LoopState.PLANNING, "plan",
                          message="Reading the request and drafting a plan…")
         try:
-            await asyncio.wait_for(
-                self._do_plan(),
-                timeout=PHASE_TIMEOUTS_S["plan"],
-            )
+            # Iter 309 · Pre-Phase-1 (bug_verify_312 fix) — the plan
+            # phase is loop-originated too, so its LLM call must
+            # write a `loop.plan` row to `ora_chat_usage`.  Wrap in
+            # the same contextvars scope `_with_budget` uses for
+            # execute/verify/scan/ship — no other semantics change.
+            from services.loop_token_ledger import loop_call_context
+            async with loop_call_context(
+                loop_id=self.loop_id, phase_tag="plan",
+                user_id=self.user_id,
+            ):
+                await asyncio.wait_for(
+                    self._do_plan(),
+                    timeout=PHASE_TIMEOUTS_S["plan"],
+                )
         except asyncio.TimeoutError:
             await self._fail("plan", "Plan generation exceeded 60s budget.")
         except Exception as e:                          # noqa: BLE001

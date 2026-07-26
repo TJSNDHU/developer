@@ -1,0 +1,61 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Retest of Item 4 (per-loop LLM token accounting) after fixing the bug_verify_312 gap: LoopEngine.start()'s initial plan phase was bypassing `_with_budget`, so `_do_plan`'s LLM call never entered `loop_call_context` and its tokens weren't tagged. Fix: wrap the plan-phase `asyncio.wait_for(self._do_plan(), ...)` in `loop_call_context(loop_id=self.loop_id, phase_tag='plan', user_id=self.user_id)` at loop_engine.py line ~446. Added regression test `test_plan_phase_writes_loop_plan_row` proving the row is written.",
+  "summary": "No relevant testing skill found. Verified the exact plan-phase accounting gap is fixed: LoopEngine.start() now wraps _do_plan() in loop_call_context and a plan LLM call writes one ora_chat_usage row with route='loop.plan', session_id=loop_id, user_id, and token counts. Targeted ledger regression tests, admin /loop-token-metrics auth/shape/route filtering, Cluster 1 loop tests, and the exact keyword quality-gate subset all matched expected results; the remaining 3 failed + 2 errors are the known local-infra artifacts, not regressions from this fix.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "quality-gate keyword pytest subset",
+        "issue": "Exact quality-gate subset still has expected residual local-infra artifacts: Stripe fake key failure, auth/login 401/429 test-user pollution/rate-limit failures, and two auth-dependent setup errors. Result: 3 failed, 369 passed, 4 skipped, 2 errors. These do not involve the loop-token plan-phase fix."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/scripts/bug_verify_313_plan_phase_real_path.py",
+    "/app/test_reports/bug_verify_313_plan_phase_real_path.log",
+    "/app/test_reports/bug_verify_313_plan_phase_real_path.json",
+    "/app/test_reports/pytest/bug_verify_313_loop_token_ledger_unit.log",
+    "/app/test_reports/scripts/bug_verify_313_loop_token_metrics_endpoint.py",
+    "/app/test_reports/bug_verify_313_loop_token_metrics_endpoint.log",
+    "/app/test_reports/pytest/bug_verify_313_cluster1_loop_tests.log",
+    "/app/test_reports/pytest/bug_verify_313_quality_gate.log",
+    "/app/test_reports/pytest/bug_verify_313_keyword_subset.log"
+  ],
+  "action_items": [
+    "No code action needed for the reported plan-phase token accounting gap.",
+    "Keep the residual quality-gate infra/auth/Stripe artifacts tracked separately from Item 4."
+  ],
+  "critical_code_review_comments": [
+    "backend/services/loop_engine.py lines 446-460 now imports loop_call_context and wraps asyncio.wait_for(self._do_plan(), timeout=PHASE_TIMEOUTS_S['plan']) with loop_id=self.loop_id, phase_tag='plan', user_id=self.user_id.",
+    "backend/tests/test_iter309_loop_token_ledger.py includes test_plan_phase_writes_loop_plan_row and the full file now passes 8/8.",
+    "backend/routers/admin.py /admin/loop-token-metrics remains require_admin-gated and aggregates only route /^loop\\./ rows; seeded chat/scaffold-style rows did not contaminate results."
+  ],
+  "updated_files": [
+    "/app/test_reports/scripts/bug_verify_313_plan_phase_real_path.py",
+    "/app/test_reports/bug_verify_313_plan_phase_real_path.log",
+    "/app/test_reports/bug_verify_313_plan_phase_real_path.json",
+    "/app/test_reports/pytest/bug_verify_313_loop_token_ledger_unit.log",
+    "/app/test_reports/scripts/bug_verify_313_loop_token_metrics_endpoint.py",
+    "/app/test_reports/bug_verify_313_loop_token_metrics_endpoint.log",
+    "/app/test_reports/pytest/bug_verify_313_cluster1_loop_tests.log",
+    "/app/test_reports/pytest/bug_verify_313_quality_gate.log",
+    "/app/test_reports/pytest/bug_verify_313_keyword_subset.log",
+    "/app/test_reports/bug_verification_313.json",
+    "/app/test_reports/iteration_313.json"
+  ],
+  "success_rate": {
+    "backend": "Fixed for targeted bug: plan-phase real instrumentation path passed with a MOCKED OpenRouter response; 8/8 ledger tests passed; /loop-token-metrics endpoint checks passed; Cluster 1 tests passed 20/20; exact quality-gate subset matched expected residual 3 failed + 369 passed + 4 skipped + 2 errors.",
+    "frontend": "N/A - backend-only retest"
+  },
+  "seed_data_creation": "Inserted three temporary qa313_* ora_chat_usage rows for /admin/loop-token-metrics route-filter verification; cleanup delete_many ran after the endpoint test. No persistent seed data intentionally left.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "No relevant testing skill found. The previously failing plan-phase gap is now closed. Repro proof: /app/test_reports/scripts/bug_verify_313_plan_phase_real_path.py drives LoopEngine.start() through the real _generate_plan -> call_llm_with_meta -> log_llm_usage path with a MOCKED OpenRouter response and observes exactly one route='loop.plan' row for session_id='loop_plan_realpath_313'. Endpoint verification used locally-signed admin/non-admin JWTs and temporary DB rows; credentials were read but not printed.",
+  "rca_of_the_issue": "Prior iteration failed because LoopEngine.start() handled PLAN directly instead of using _with_budget, so contextvars were absent when _generate_plan() called the LLM. The current fix adds loop_call_context around the direct plan wait_for call, preserving plan timeout semantics while tagging the ambient loop_id/user_id/phase_tag. Runtime proof shows plan tokens now persist as loop.plan in ora_chat_usage, and existing execute/verify/scan/ship accounting remains unaffected."
+}
