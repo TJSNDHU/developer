@@ -70,28 +70,116 @@ export function detectMode(message) {
 
 
 // ─── F12 error badge component ────────────────────────────────────────────
-export function F12Badge({ errorCount, hasErrors, onSendToORA }) {
+//
+// Iter 309 · Batch-2 aftermath (2026-07-26 incident):
+// The previous version of this badge looked like a passive error
+// counter but was actually a clickable button that mutated chat state
+// (sent a diagnostic message + reset loop UI mid-live-test). The
+// founder's incident report identified this as a "looks read-only,
+// isn't" anti-pattern.
+//
+// Fix (this iteration):
+//   1. Visually re-cast as TWO explicit controls with distinct
+//      affordances — a READ-ONLY count (cursor: default, no click
+//      handler) and a SEPARATE "Send to ORA →" action button
+//      (outlined amber, arrow glyph, aria-label, keyboard-focusable).
+//   2. Adds a "Copy" side-button for the read-only inspection path so
+//      the user can grab the payload without triggering any send.
+//   3. `onSendToORA` prop remains — the confirm() dialog inside
+//      ChatPanel.jsx (iter 212m-109) still runs on top of these
+//      changes as belt-and-suspenders defence.
+export function F12Badge({ errorCount, hasErrors, onSendToORA, onCopyPayload }) {
   if (!hasErrors) return null;
 
+  const badgeBase = {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "3px 10px",
+    fontSize: 12,
+    borderRadius: 20,
+    userSelect: "none",
+  };
+
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "4px 10px",
-      background: "#ef444411",
-      border: "1px solid #ef444433",
-      borderRadius: 20,
-      fontSize: 12,
-      color: "#f87171",
-      cursor: "pointer",
-      userSelect: "none",
-    }}
-    onClick={onSendToORA}
-    title="Click to send these errors to ORA for diagnosis"
+    <div
+      data-testid="f12-badge-container"
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
     >
-      <span style={{ width: 6, height: 6, background: "#ef4444", borderRadius: "50%", display: "inline-block" }}/>
-      {errorCount} console error{errorCount !== 1 ? "s" : ""} — send to ORA
+      {/* READ-ONLY count pill — no onClick, no cursor:pointer, no
+          side effect. Just displays how many errors were captured. */}
+      <span
+        data-testid="f12-badge-count"
+        role="status"
+        aria-label={`${errorCount} console error${errorCount === 1 ? "" : "s"} captured`}
+        title={`${errorCount} error${errorCount === 1 ? "" : "s"} captured — use the action buttons →`}
+        style={{
+          ...badgeBase,
+          background: "#ef444411",
+          border: "1px solid #ef444433",
+          color: "#f87171",
+          cursor: "default",
+        }}
+      >
+        <span aria-hidden style={{
+          width: 6, height: 6, background: "#ef4444",
+          borderRadius: "50%", display: "inline-block",
+        }} />
+        {errorCount} console error{errorCount === 1 ? "" : "s"}
+      </span>
+
+      {/* ACTION button — outlined amber, arrow glyph, explicit label.
+          Distinct in colour + shape + text from the read-only pill.
+          Clicking triggers ChatPanel's confirm() dialog (defence in
+          depth); pressing Enter/Space on the focused button behaves
+          identically. */}
+      <button
+        type="button"
+        data-testid="f12-badge-send-action"
+        aria-label="Send captured console errors to ORA for diagnosis"
+        onClick={onSendToORA}
+        style={{
+          appearance: "none",
+          background: "transparent",
+          color: "#f5a524",
+          border: "1px solid #f5a52488",
+          borderRadius: 6,
+          padding: "3px 10px",
+          fontSize: 11,
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          cursor: "pointer",
+        }}
+      >
+        Send to ORA →
+      </button>
+
+      {/* Optional COPY button — pure read-only path. Reads the F12
+          payload and puts it on the clipboard so the user can inspect
+          it externally WITHOUT triggering any chat mutation. Only
+          rendered when the parent supplies onCopyPayload. */}
+      {onCopyPayload && (
+        <button
+          type="button"
+          data-testid="f12-badge-copy-action"
+          aria-label="Copy captured console errors to clipboard (read-only, does not send)"
+          onClick={onCopyPayload}
+          style={{
+            appearance: "none",
+            background: "transparent",
+            color: "#9aa0a8",
+            border: "1px solid #1f2937",
+            borderRadius: 6,
+            padding: "3px 10px",
+            fontSize: 11,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+          }}
+        >
+          Copy
+        </button>
+      )}
     </div>
   );
 }
@@ -218,7 +306,7 @@ export default function ChatPanelF12Demo() {
       />
 
       <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 6 }}>
-        Try typing: "why is my auth failing", "review my codebase", "add a login page"
+        Try typing: &quot;why is my auth failing&quot;, &quot;review my codebase&quot;, &quot;add a login page&quot;
       </div>
     </div>
   );

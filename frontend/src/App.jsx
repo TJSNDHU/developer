@@ -72,6 +72,7 @@ const SidebarPreview    = lazy(() => import("./pages/SidebarPreview")); // Iter 
 const DashboardPreviewV2 = lazy(() => import("./pages/DashboardPreviewV2")); // Iter 212m-81
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const AdminSystemHealth = lazy(() => import("./pages/AdminSystemHealth"));   // Iter 212m-205
+const AdminInspectLoop  = lazy(() => import("./pages/AdminInspectLoop"));    // Iter 309 · Batch-2 aftermath
 const PersonalTrackAdmin = lazy(() => import("./pages/admin/PersonalTrackAdmin")); // Iter 212m-240
 const OraChat            = lazy(() => import("./pages/admin/OraChat"));            // Iter 212m-238
 const OraDirect          = lazy(() => import("./pages/OraDirect"));                 // Iter 212m-241 public PIN-gated
@@ -239,6 +240,7 @@ export default function App() {
           <Route path="/dashboard-preview-v2" element={<DashboardPreviewV2 />} />
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/admin/system-health" element={<AdminSystemHealth />} />
+          <Route path="/admin/inspect-loop/:loopId" element={<AdminInspectLoop />} />
           <Route path="/admin/qa"           element={<AdminQADashboard />} />{/* Iter 303 */}
           <Route path="/admin/personal-track" element={<PersonalTrackAdmin />} />
           <Route path="/admin/ora-chat"       element={<OraChat />} />

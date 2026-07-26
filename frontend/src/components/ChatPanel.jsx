@@ -41,6 +41,7 @@ import LoopModeToggle, {
 } from "./LoopModeToggle";
 import IntentTierIndicator from "./IntentTierIndicator";
 import LoopStepBar from "./LoopStepBar";
+import LoopStatusChip from "./LoopStatusChip";        // Iter 309 · Batch-2 aftermath — sticky loop-status chip
 import AgentStatusBar from "./AgentStatusBar";
 import LoopLiveFeed from "./LoopLiveFeed";
 import PlanApprovalCard from "./PlanApprovalCard";
@@ -2701,6 +2702,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           backgroundColor: founderTint,
         }}
       >
+      {/* Iter 309 · Batch-2 aftermath — Persistent loop-status chip.
+          Sticky at the top of the chat pane so it never scrolls out
+          of view during a long-running loop. Reads /loop/active from
+          the backend (10s poll + on-focus refresh) so client-side
+          state resets can never make it lie about whether a loop is
+          running. Distinct outlined-red "Stop" button with 4s
+          click-again-to-confirm — matches ChatGPT/Claude/Cursor's
+          converged pattern for long-running task cancellation. */}
+      <LoopStatusChip projectId={activeProject?.project_id || null} />
+
       {/* Iter 212m-49 — "⚡ free mode" pill. Surfaces when the most
           recent assistant turn was served by the Groq emergency
           fallback (i.e. OpenRouter paid AND every free-tier candidate
@@ -3172,6 +3183,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         <F12Badge
           errorCount={f12.errorCount}
           hasErrors={f12.hasErrors}
+          onCopyPayload={() => {
+            // Iter 309 · Batch-2 aftermath — read-only inspection
+            // path. Never sends a chat turn, never mutates loop
+            // state. User can paste the JSON into a note/issue
+            // tracker for out-of-band diagnosis.
+            const payload = f12.flush();
+            try {
+              navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+            } catch { /* ignore */ }
+          }}
           onSendToORA={() => {
             // Iter 212m-109 — was auto-firing form.requestSubmit() which
             // sent the canned diagnostic message without user consent

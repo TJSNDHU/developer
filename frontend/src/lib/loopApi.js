@@ -46,6 +46,25 @@ export async function cancelLoop(loopId) {
 }
 
 /**
+ * Iter 309 · Batch-2 aftermath — read-only helpers used by the
+ * persistent LoopStatusChip (in ChatPanel) and the AdminInspectLoop
+ * page. Both go through the authenticated `api` client so the JWT
+ * Bearer header is attached uniformly; NO raw fetch / localStorage
+ * token juggling — the chip must not diverge from the rest of the
+ * app's auth flow.
+ */
+export async function getActiveLoop(projectId) {
+  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  const r = await api.get(`/loop/active${q}`);
+  return r?.data || r;
+}
+
+export async function getLoopInspect(loopId, tail = 20) {
+  const r = await api.get(`/admin/loop-inspect/${loopId}?tail=${tail}`);
+  return r?.data || r;
+}
+
+/**
  * Iter 212m-111 — Manual Ship gate. Once the engine reaches
  * PAUSED_FOR_USER/phase=ship with data.kind="awaiting_ship", the user
  * sees a "Ship to GitHub" button. Clicking it calls this helper with

@@ -4352,3 +4352,84 @@ async def loop_token_metrics(
         ),
     }
 
+
+# ────────────────────────────────────────────────────────────────────
+# Iter 309 · Batch-2 aftermath — Read-only Loop Inspect endpoint.
+#
+# Founder incident (2026-07-26): a diagnostic-looking F12Badge button
+# in the chat surface actually mutated state (sent a chat turn) and
+# desynced the running-loop UI mid-live-test. Response: build a
+# zero-mutation `/admin/inspect-loop/{loop_id}` view so future
+# post-mortem inspection has NO risk of poking the loop.
+#
+# This endpoint aggregates three read-only sources:
+#   1. `loop_sessions.find_one({loop_id})`           — the session doc
+#   2. `loop_events.find({loop_id}).sort(-1).limit`  — last N events
+#   3. sse_replay_buffer state (per-loop entry)      — Item 6 buffer
+#
+# Scope-limited per founder directive: NO writes, NO loop_engine.py
+# imports, admin-only. Owner-scope also enforced (admin cannot inspect
+# an arbitrary user's loop unless they own it OR are founder tier).
+# ────────────────────────────────────────────────────────────────────
+@router.get("/loop-inspect/{loop_id}")
+async def loop_inspect(
+    loop_id: str,
+    tail: int = 20,
+    authorization: Optional[str] = Header(None),
+):
+    user = await _require_admin(authorization)
+    db = require_db()
+
+    session = await db.loop_sessions.find_one({"loop_id": loop_id})
+    if not session:
+        raise HTTPException(404, "Loop not found")
+    # Owner-scope: admin bypass only for founder tier; other admins
+    # can inspect only their own loops. This mirrors /loop/{id}/status
+    # scoping semantics for defence-in-depth.
+    is_founder = (user or {}).get("tier") == "founder" or \
+                 (user or {}).get("role") == "founder"
+    if not is_founder and session.get("user_id") != (user or {}).get("user_id"):
+        raise HTTPException(403, "Not your loop")
+
+    session.pop("_id", None)
+    # Redact potentially-sensitive ship_pending token so an inspection
+    # UI can never leak a GitHub PAT even to an authorised viewer.
+    ctx = session.get("context") or {}
+    if isinstance(ctx.get("ship_pending"), dict):
+        ctx["ship_pending"] = {k: v for k, v in ctx["ship_pending"].items()
+                               if k != "token"}
+        session["context"] = ctx
+
+    tail_n = max(1, min(int(tail or 20), 200))
+    events: list = []
+    try:
+        cursor = db.loop_events.find(
+            {"loop_id": loop_id},
+            {"_id": 0},
+        ).sort([("ts", -1), ("seq", -1)]).limit(tail_n)
+        async for row in cursor:
+            events.append(row)
+    except Exception as _e:
+        events = [{"__error": f"loop_events read failed: {_e!r}"}]
+
+    # Per-loop entry from Item 6 ring buffer. Import lazily and guard
+    # so the endpoint still degrades gracefully if the module or its
+    # helper are absent (e.g. rollback scenario).
+    sse_entry: dict | None = None
+    try:
+        from services import sse_replay_buffer as _sse_buf
+        # buffer_stats() returns { loop_id: {next_seq, buffered, last_touched, ended_at}, ... }
+        all_stats = _sse_buf.buffer_stats() if hasattr(_sse_buf, "buffer_stats") else {}
+        sse_entry = (all_stats or {}).get(loop_id)
+    except Exception as _e:
+        sse_entry = {"__error": f"sse_replay_buffer inspect failed: {_e!r}"}
+
+    return {
+        "ok":            True,
+        "loop_id":       loop_id,
+        "session":       session,
+        "events_tail":   events,   # newest-first
+        "sse_buffer":    sse_entry,
+        "generated_at":  datetime.now(timezone.utc).isoformat(),
+    }
+
