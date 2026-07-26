@@ -4,6 +4,48 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 21:37 UTC — Iter 309 · Batch-2 UI-wiring + Incident-Class Fix DEPLOYED
+
+**Deploy trigger:** Founder-authorized via UI "Redeploy" button (deployer agent, ecu_charge_acknowledged=true).
+**Deployer verdict:** ✅ `Deployment completed. Live at: https://auremcto.com`
+**Commit at deploy:** `8608c0bba4af` — **VERIFIED** by main-agent curl `GET https://auremcto.com/api/aurem-dev/version` returning `{"commit_sha":"8608c0bba4af","built_at":"2026-07-26T21:37:32.239114+00:00","environment":"production"}`. `/version` matches this entry.
+**Environment:** production (`auremcto.com`)
+**Post-deploy smoke curl (main-agent-side):** `/health` → 200 `{"ok":true,"env":"production","db":true,"uptime_s":37.74}`. Pod restarted cleanly.
+
+**What just went live (2 bundled workstreams — same commit):**
+
+### A. Batch 2 UI-wiring (Items 4 + 9 finally have UI cards)
+- `AdminSystemHealth.jsx` — sse_buffer live block (Item 9 UI), Loop Token Metrics per-phase card (Item 4 UI), FRONTEND BUNDLE sha marker for stale-bundle diagnostics.
+- `vite.config.js` — `__VITE_BUILD_SHA__` injection at build time via BUILD_INFO.txt cascade.
+- Closes the scope gap discovered ~20:20 UTC: Items 4 + 9 had endpoint-only ships and no frontend card, blocking founder's live-verification test.
+
+### B. Incident-class fix (2026-07-26 F12Badge desync)
+Root cause: F12Badge in chat surface looked read-only (styled as a passive error counter) but was actually a clickable button that mutated chat state — desynced the running-loop UI mid-live-test.
+- `backend/routers/admin.py` — NEW `GET /admin/loop-inspect/{loop_id}` endpoint (require_admin, owner-scoped, aggregates loop_sessions doc + loop_events tail + sse_buffer stats). **No** `loop_engine.py` touch.
+- `frontend/src/components/LoopStatusChip.jsx` (NEW) — sticky chip at top of chat pane, polls `/loop/active` every 10s + on-focus, outlined-red Stop button with 4-second click-again-to-confirm.
+- `frontend/src/pages/AdminInspectLoop.jsx` (NEW) — route `/admin/inspect-loop/:loopId`, zero-mutation read-only inspection view.
+- `frontend/src/components/ChatPanelF12.jsx` — F12Badge redesigned: split into read-only count pill (`cursor: default`, `role="status"`) + explicit "Send to ORA →" action button + new "Copy" read-only button.
+- `frontend/src/components/ChatPanel.jsx` — mount LoopStatusChip at top; F12Badge `onCopyPayload` wired.
+- `frontend/src/lib/loopApi.js` — `getActiveLoop()`, `getLoopInspect()` helpers via authenticated `api` client (no raw fetch, no localStorage-token juggling).
+- `frontend/src/App.jsx` — `/admin/inspect-loop/:loopId` route.
+
+**Scope limits honoured (founder directive):**
+- `backend/services/loop_engine.py` untouched.
+- No address-bar-GET pattern for authenticated endpoints (confirmed: auth is JWT-in-localStorage → Bearer header, cookie-based address-bar-GET would be broken).
+- All new authenticated calls go through shared `api.js` client.
+
+**Audit sweep (Requirement 3): No other "looks-read-only-but-mutates" patterns found in loop/chat UI.** Every other action button already uses `<button type="button">` with clear action-tone labels + colors (`ship-to-github-btn`, `loop-abort-btn`, `loop-retry-btn`, etc.). F12Badge was the sole offender.
+
+**Honest verification status:**
+- ✅ Unit + integration tests: 386 passed / 3 failed (documented local-infra artifacts) / 4 skipped / 2 errors (unchanged from pre-Batch-2 baseline).
+- ✅ Frontend lint: all new files clean; pre-existing warnings in ChatPanel.jsx (12 unused-eslint-disable) and admin.py (7 ruff F821/F811 in unrelated financials/timings sections) unchanged — zero new lint issues introduced.
+- ✅ Preview smoke test (screenshot 2026-07-26 ~21:27 UTC): AdminInspectLoop rendered with only Refresh + Back buttons, error card handled 404 cleanly, all 3 read-only sections present.
+- ✅ Main-agent-side post-deploy curl: `/health` 200 + `/version` sha matches `8608c0bba4af` (proves the pod is running the intended code snapshot).
+- ❌ **LIVE 25-MIN SSE RECONNECT TEST ON PROD:** PENDING — founder to run personally on a fresh loop.
+- ❌ **LIVE UI VERIFICATION** of LoopStatusChip during a running loop + AdminInspectLoop against a live loop_id: PENDING founder.
+
+**Hard rule reminder (founder-set):** No "deployed" or "verified in prod" language without an actual deploy-log entry in this file AND founder personal confirmation of live behavior. This entry has the deploy log line; live-behavior confirmation is still pending on founder's fresh 25-min test.
+
 ## 2026-07-26 20:12 UTC — Iter 309 · Batch-2 (Items 5+6+8+9) DEPLOYED TO PRODUCTION (2nd attempt, clean audit trail)
 
 **Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, redeploy).
