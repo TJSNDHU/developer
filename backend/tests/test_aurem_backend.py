@@ -24,7 +24,17 @@ if not BASE_URL:
     except FileNotFoundError:
         pass
 
-assert BASE_URL, "REACT_APP_BACKEND_URL must be set"
+# Iter 309 · Phase 0.2 · Round 4 — was a bare module-level `assert BASE_URL`
+# which raised AssertionError at collection time, aborting the ENTIRE
+# pytest run in CI (where REACT_APP_BACKEND_URL isn't set). Every other
+# test file — including the CI canary — was silently uncollected as a
+# result. Correct pytest pattern is `pytest.skip(..., allow_module_level=True)`
+# so this file's tests are cleanly skipped and collection continues.
+if not BASE_URL:
+    pytest.skip(
+        "REACT_APP_BACKEND_URL not set — skipping live-URL smoke tests",
+        allow_module_level=True,
+    )
 BASE_URL = BASE_URL.rstrip("/")
 API = f"{BASE_URL}/api"
 AUREM = f"{API}/aurem-dev"

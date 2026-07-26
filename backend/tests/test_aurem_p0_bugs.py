@@ -17,12 +17,18 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")
 if not BASE_URL:
-    with open("/app/frontend/.env") as fh:
-        for line in fh:
-            if line.startswith("REACT_APP_BACKEND_URL"):
-                BASE_URL = line.split("=", 1)[1].strip()
-                break
-assert BASE_URL
+    # Iter 309 · Phase 0.2 · Round 4 — guard fallback + skip cleanly.
+    try:
+        with open("/app/frontend/.env") as fh:
+            for line in fh:
+                if line.startswith("REACT_APP_BACKEND_URL"):
+                    BASE_URL = line.split("=", 1)[1].strip()
+                    break
+    except FileNotFoundError:
+        pass
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping live-URL tests",
+                allow_module_level=True)
 BASE_URL = BASE_URL.rstrip("/")
 AUREM = f"{BASE_URL}/api/aurem-dev"
 

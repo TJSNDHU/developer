@@ -19,12 +19,22 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")
 if not BASE_URL:
-    with open("/app/frontend/.env") as fh:
-        for line in fh:
-            if line.startswith("REACT_APP_BACKEND_URL"):
-                BASE_URL = line.split("=", 1)[1].strip()
-                break
-assert BASE_URL, "REACT_APP_BACKEND_URL must be set"
+    # Iter 309 · Phase 0.2 · Round 4 — wrap the .env fallback in
+    # try/except FileNotFoundError. In CI there is no /app/frontend/.env,
+    # and a bare open() there raises at collection time and aborts
+    # pytest for the whole run (masking every subsequent test, including
+    # the CI canary). Matches the guard already in test_aurem_backend.py.
+    try:
+        with open("/app/frontend/.env") as fh:
+            for line in fh:
+                if line.startswith("REACT_APP_BACKEND_URL"):
+                    BASE_URL = line.split("=", 1)[1].strip()
+                    break
+    except FileNotFoundError:
+        pass
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping live-URL smoke tests",
+                allow_module_level=True)
 BASE_URL = BASE_URL.rstrip("/")
 AUREM = f"{BASE_URL}/api/aurem-dev"
 

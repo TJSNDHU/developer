@@ -11,12 +11,20 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 if not BASE_URL:
-    # Live URL needed; fall back to reading frontend/.env directly.
-    with open("/app/frontend/.env") as f:
-        for line in f:
-            if line.startswith("REACT_APP_BACKEND_URL"):
-                BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
-                break
+    # Iter 309 · Phase 0.2 · Round 4 — try/except so a missing
+    # /app/frontend/.env in CI doesn't abort pytest collection.
+    try:
+        with open("/app/frontend/.env") as f:
+            for line in f:
+                if line.startswith("REACT_APP_BACKEND_URL"):
+                    BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+                    break
+    except FileNotFoundError:
+        pass
+if not BASE_URL:
+    import pytest as _pytest
+    _pytest.skip("REACT_APP_BACKEND_URL not set — skipping live-URL smoke tests",
+                 allow_module_level=True)
 
 INGEST_URL = f"{BASE_URL}/api/aurem-dev/vanguard/ci-findings"
 

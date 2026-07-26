@@ -54,7 +54,14 @@ if not BASE_URL:
     except FileNotFoundError:
         pass
 
-assert BASE_URL, "REACT_APP_BACKEND_URL must be set"
+# Iter 309 · Phase 0.2 · Round 4 — see identical fix in
+# tests/test_aurem_backend.py. Bare `assert` raises at collection
+# time and aborts the WHOLE pytest run when the env var is missing;
+# use pytest.skip so this file is cleanly skipped in CI without
+# affecting collection of every other test.
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping live-URL smoke tests",
+                allow_module_level=True)
 BASE_URL = BASE_URL.rstrip("/")
 AUREM = f"{BASE_URL}/api/aurem-dev"
 
