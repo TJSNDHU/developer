@@ -78,6 +78,7 @@ export default function AdminSystemHealth() {
   const [prodVer, setProdVer]       = useState(null);
   const [council, setCouncil]       = useState(null);
   const [learning, setLearning]     = useState(null);
+  const [loopMetrics, setLoopMetrics] = useState(null);
   const [errs, setErrs]             = useState({});
   const [lastRefresh, setLastRefresh] = useState(null);
 
@@ -108,6 +109,16 @@ export default function AdminSystemHealth() {
       const r = await api.get("/admin/system-health/ora-learning");
       setLearning(r.data);
     } catch (e) { nextErrs.learning = e?.response?.data?.detail || e?.message || "learning failed"; }
+
+    // 5) Iter 309 · Phase 0.2 — Loop metrics (post-Phase-0 impact
+    // probe). Compares last-7d vs prior-7d failed_ratio so the
+    // founder can eyeball whether the recent loop-engine rewrite
+    // shifted the FAILED rate in real traffic without pasting
+    // credentials into a terminal.
+    try {
+      const r = await api.get("/admin/loop-metrics");
+      setLoopMetrics(r.data);
+    } catch (e) { nextErrs.loop_metrics = e?.response?.data?.detail || e?.message || "loop-metrics failed"; }
 
     setErrs(nextErrs);
     setLastRefresh(new Date());
@@ -267,6 +278,88 @@ export default function AdminSystemHealth() {
               </div>
             </>
           ) : <div style={{ fontSize: 12, color: C.faint }}>loading…</div>}
+        </Card>
+
+        {/* 4. Iter 309 · Phase 0.2 — Loop metrics (Phase-0 rewrite impact probe).
+            Compares failed_ratio for the last 7 days vs the prior 7
+            days so we can eyeball whether the recent loop-engine
+            rewrite (heartbeats + periodic reaper + MAX_PHASE_RESTARTS
+            2→1) shifted real prod traffic. Gate for Cluster 1 fix
+            prioritization: delta ≥ 5pp → treat as P0 regression;
+            flat/negative → test-scope fixture-shape only. */}
+        <Card
+          testid="card-loop-metrics"
+          title="Loop Metrics — Phase 0 impact"
+          status={(() => {
+            if (errs.loop_metrics || !loopMetrics) return StatusBadge("down");
+            const d = loopMetrics.delta_failed_ratio;
+            if (d === null || d === undefined) return StatusBadge("warming");
+            return d > 0.05 ? StatusBadge("degraded") : StatusBadge("ok");
+          })()}
+        >
+          {errs.loop_metrics ? (
+            <div style={{ fontSize: 12, color: C.red }}>{errs.loop_metrics}</div>
+          ) : loopMetrics ? (
+            <>
+              <Row
+                label="last 7d — resolved"
+                value={String(loopMetrics.current?.resolved ?? 0)}
+              />
+              <Row
+                label="last 7d — failed"
+                value={String(loopMetrics.current?.failed ?? 0)}
+                color={
+                  (loopMetrics.current?.failed ?? 0) > 0 ? C.amber : C.text
+                }
+              />
+              <Row
+                label="last 7d — failed_ratio"
+                value={
+                  loopMetrics.current?.failed_ratio === null
+                    ? "n/a"
+                    : (loopMetrics.current.failed_ratio * 100).toFixed(1) + "%"
+                }
+              />
+              <Row
+                label="prior 7d — resolved"
+                value={String(loopMetrics.previous?.resolved ?? 0)}
+              />
+              <Row
+                label="prior 7d — failed_ratio"
+                value={
+                  loopMetrics.previous?.failed_ratio === null
+                    ? "n/a"
+                    : (loopMetrics.previous.failed_ratio * 100).toFixed(1) + "%"
+                }
+              />
+              <Row
+                label="Δ failed_ratio"
+                value={
+                  loopMetrics.delta_failed_ratio === null ||
+                  loopMetrics.delta_failed_ratio === undefined
+                    ? "insufficient data"
+                    : (loopMetrics.delta_failed_ratio >= 0 ? "+" : "") +
+                      (loopMetrics.delta_failed_ratio * 100).toFixed(1) +
+                      "pp"
+                }
+                color={
+                  loopMetrics.delta_failed_ratio === null ||
+                  loopMetrics.delta_failed_ratio === undefined
+                    ? C.faint
+                    : loopMetrics.delta_failed_ratio > 0.05
+                    ? C.red
+                    : loopMetrics.delta_failed_ratio > 0
+                    ? C.amber
+                    : C.green
+                }
+              />
+              <div style={{ marginTop: 10, fontSize: 10, color: C.faint, lineHeight: 1.4 }}>
+                Gate: Δ &gt; +5pp → real prod regression (P0). Flat/negative → test-scope only.
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: C.faint }}>loading…</div>
+          )}
         </Card>
       </div>
     </div>

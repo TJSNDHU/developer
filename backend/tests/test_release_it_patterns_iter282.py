@@ -23,6 +23,29 @@ async def db():
     c.close()
 
 
+@pytest_asyncio.fixture(autouse=True, scope="module")
+async def _ensure_loop_indexes():
+    """Iter 309 · Phase 0.2 — In CI the pytest job spins up a fresh
+    Mongo without booting the backend, so `main.py`'s lifespan hook
+    (which calls `init_prod_collections`) never fires and the loop_*
+    collections have no TTL indexes. Call the same bootstrap script
+    directly here so the invariant assertion sees production state.
+    Idempotent — Mongo `create_index` is a no-op if the same index
+    already exists (which is the case in the local dev DB)."""
+    c = AsyncIOMotorClient(os.environ["MONGO_URL"],
+                           serverSelectionTimeoutMS=3000)
+    try:
+        from scripts.init_prod_collections import init_prod_collections
+        await init_prod_collections(c[os.environ["DB_NAME"]])
+    except Exception:
+        # Non-fatal: the invariant test itself will surface a
+        # missing-TTL error with a clearer message.
+        pass
+    finally:
+        c.close()
+    yield
+
+
 # ═══════════════════════════════════════════════════════════════════
 # BULKHEAD — project-level isolation
 # ═══════════════════════════════════════════════════════════════════

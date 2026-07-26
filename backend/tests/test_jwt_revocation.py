@@ -25,9 +25,62 @@ import time
 import httpx
 import jwt
 import pytest
+import pytest_asyncio
+from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
+# Iter 309 · Phase 0.2 — Load backend/.env at import time so
+# JWT_SECRET / MONGO_URL / DB_NAME resolve to the SAME values the
+# running backend uses. Without this, pytest run under a shell with
+# a different JWT_SECRET (e.g. ci-test-secret-…) would decode tokens
+# with the wrong key and every logout-then-me test would surface as
+# `jwt.InvalidSignatureError` instead of the intended flow. See
+# CHANGELOG for iter 309.
+load_dotenv("/app/backend/.env", override=True)
+
 API = "http://localhost:8001/api/aurem-dev"
+
+
+def _backend_reachable() -> bool:
+    """Quick TCP probe — returns True if uvicorn/gunicorn on :8001
+    responds to /health within 500 ms. Used to skip the end-to-end
+    HTTP tests in environments (like ci.yml's backend-tests job)
+    that run pytest WITHOUT booting the backend."""
+    try:
+        r = httpx.get("http://localhost:8001/health", timeout=0.5)
+        return r.status_code < 500
+    except Exception:
+        return False
+
+
+_HAS_BACKEND = _backend_reachable()
+_requires_backend = pytest.mark.skipif(
+    not _HAS_BACKEND,
+    reason="backend not running on :8001 — HTTP end-to-end tests skipped "
+           "(index-only tests still run against Mongo directly)",
+)
+
+
+@pytest_asyncio.fixture(autouse=True, scope="module")
+async def _ensure_revoked_tokens_indexes():
+    """Iter 309 · Phase 0.2 — In CI the pytest job spins up a fresh
+    Mongo without booting the backend, so `main.py`'s lifespan hook
+    (which calls `token_revocation.ensure_indexes()`) never fires.
+    Call it directly here so the TTL-index assertion sees the same
+    state a production boot would produce. Idempotent — safe against
+    the local dev DB where lifespan has already run."""
+    db = AsyncIOMotorClient(os.environ["MONGO_URL"])[
+        os.environ.get("DB_NAME", "aurem_dev")
+    ]
+    try:
+        from services.token_revocation import ensure_indexes as _rev_idx
+        await _rev_idx(db)
+    except Exception:
+        # Never let a fixture crash mask the real assertion failure —
+        # the test itself will surface the "no TTL index" error with
+        # a clearer message.
+        pass
+    yield
 
 
 def _fresh_email() -> str:
@@ -62,6 +115,7 @@ async def _cleanup_user(email: str) -> None:
 
 
 @pytest.mark.asyncio
+@_requires_backend
 async def test_valid_token_works_before_logout():
     """Baseline: a freshly-issued token succeeds on /auth/me."""
     email = _fresh_email()
@@ -79,6 +133,7 @@ async def test_valid_token_works_before_logout():
 
 
 @pytest.mark.asyncio
+@_requires_backend
 async def test_same_token_rejected_after_logout():
     """THE headline behaviour: /auth/logout revokes the specific jti,
     so replaying the same token gets a 401 with a `revoked` detail
@@ -155,6 +210,7 @@ async def test_ttl_index_is_installed_on_revoked_tokens():
 
 
 @pytest.mark.asyncio
+@_requires_backend
 async def test_revoke_all_sessions_kills_every_token_for_user():
     """Founder-nuke flow: two independent tokens for the same user
     (issued in sequence) both start rejecting after a single call to

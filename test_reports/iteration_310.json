@@ -1,0 +1,65 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "CI's quality-gate.yml was hiding ~20 broken tests behind a fixed whitelist. After we removed the whitelist and fixed exit-code propagation, ~20 pre-existing test failures surfaced. Fix them without introducing regressions in the passing ~340 tests in that keyword-filtered scope.",
+  "summary": "No relevant testing skill found. Focused verification of the quality-gate keyword-filtered scope and related targeted fixes: exact quality-gate command now reports 354 passed, 4 skipped, 10 failed, 2 errors (within requested <=10 failures and <=2 errors, with Cluster 1 intentionally still failing/on hold). Targeted unmasked-failure tests passed 63/63. Verified Vanguard multi-line private_key behavior, JWT/TTL fixtures, admin /loop-metrics API auth/shape, and Admin System Health loop metrics card end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "quality-gate keyword pytest subset",
+        "issue": "Residual expected status remains: 10 failed + 2 errors. Failures include the intentional Cluster 1 LoopState FAILED tests pending prod-data RCA; two collection/runtime errors remain in the full filtered subset as previously documented."
+      },
+      {
+        "endpoint": "/api/aurem-dev/admin/loop-metrics",
+        "issue": "No backend issue found: unauthenticated/bad token requests returned 401; admin token returned 200 with expected JSON shape."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/bug_verify_310_quality_gate_exact.log",
+    "/app/test_reports/pytest/bug_verify_310_targeted_pytests.log",
+    "/app/test_reports/bug_verify_310_vanguard_multiline_check.log",
+    "/app/test_reports/bug_verify_310_loop_metrics_api.log",
+    "/app/test_reports/bug_verify_310_loop_metrics_bad_token.log",
+    "/app/test_reports/scripts/bug_verify_310_vanguard_multiline_check.py",
+    "/app/test_reports/scripts/bug_verify_310_loop_metrics_api.py",
+    "/app/test_reports/scripts/bug_verify_310_loop_metrics_bad_token.py"
+  ],
+  "action_items": [
+    "Do not treat Cluster 1 residual LoopState FAILED tests as fixed yet; they remain intentionally on hold pending the user's prod-data check.",
+    "If the acceptance target changes from <=10 failures/<=2 errors to zero failures, resume RCA on the residual 10 failures and 2 errors."
+  ],
+  "critical_code_review_comments": [
+    "quality-gate.yml now uses discovery-based pytest collection with the requested keyword filter and ignores only the two known env-sensitive collection files; no fixed node-ID whitelist remains in the invariants job.",
+    "vanguard_scanner.scan_text() handles multi-line regexes against full text while preserving bare private-key-header suppression and line-level ignore behavior.",
+    "Admin System Health stores the loop metrics card at data-testid='card-loop-metrics' and calls /admin/loop-metrics through the shared authenticated API client."
+  ],
+  "updated_files": [
+    "/app/test_reports/scripts/bug_verify_310_vanguard_multiline_check.py",
+    "/app/test_reports/scripts/bug_verify_310_loop_metrics_api.py",
+    "/app/test_reports/scripts/bug_verify_310_loop_metrics_bad_token.py",
+    "/app/test_reports/scripts/write_bug_verify_310_report.py",
+    "/app/test_reports/pytest/bug_verify_310_quality_gate_subset.log",
+    "/app/test_reports/pytest/bug_verify_310_quality_gate_exact.log",
+    "/app/test_reports/pytest/bug_verify_310_targeted_pytests.log",
+    "/app/test_reports/bug_verify_310_vanguard_multiline_check.log",
+    "/app/test_reports/bug_verify_310_loop_metrics_api.log",
+    "/app/test_reports/bug_verify_310_loop_metrics_bad_token.log",
+    "/app/test_reports/bug_verification_310.json",
+    "/app/test_reports/iteration_310.json"
+  ],
+  "success_rate": {
+    "backend": "100% for targeted fixes (63/63) and acceptance threshold met for full quality-gate keyword subset (354 passed, 10 failed, 2 errors)",
+    "frontend": "100% for focused Admin System Health loop metrics card flow"
+  },
+  "seed_data_creation": "No persistent seed data created. Used temporary locally-signed admin JWT for API/UI verification and removed the temp token file after testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Skill lookup for 'pytest quality-gate regression invariant CI' returned no relevant testing skill. Exact CI-like quality-gate command with ignores was run from /app/backend using MONGO_URL=mongodb://localhost:27017 DB_NAME=aurem_ci_smoke and produced 10 failed, 354 passed, 4 skipped, 2 errors, 3312 deselected. A broader no-ignore local run was also attempted and showed the known collection errors immediately; the exact quality-gate command is the contract. Admin UI card was verified in browser via data-testid='card-loop-metrics' and observed 200 responses from /api/aurem-dev/admin/loop-metrics.",
+  "rca_of_the_issue": "The original failure mode was CI test invisibility from a fixed whitelist plus exit-code propagation problems. The current workflow uses discovery by keyword filter, and the newly surfaced target tests now pass. Residual failures are no longer hidden: the exact quality-gate subset visibly exits non-zero with the documented remaining 10 failures/2 errors, satisfying the current threshold while Cluster 1 remains intentionally on hold."
+}

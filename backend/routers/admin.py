@@ -15,7 +15,7 @@ import os
 import asyncio
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -3994,4 +3994,84 @@ async def admin_dev_users_created_at_health(
         "missing_field":   by_type.get("missing", 0),
         "healthy": (by_type.get("date", 0) == 0
                     and by_type.get("missing", 0) == 0),
+    }
+
+
+
+# ── Iter 309 · Phase 0.2 — Loop metrics prod-impact probe ───────────
+# Founder-gated, read-only aggregation over `loop_sessions.state` for
+# the last 7 days AND the 7 days before that, so we can eyeball
+# whether the FAILED ratio actually shifted after the Phase 0 loop-
+# engine rewrite (heartbeats + periodic reaper + MAX_PHASE_RESTARTS
+# reduced 2→1). If the ratio is flat, the test-only regressions are
+# fixture-shape issues; if it climbed, we have a real prod bug and
+# have to jump the queue.
+@router.get("/loop-metrics")
+async def loop_metrics(authorization: Optional[str] = Header(None)):
+    await _require_admin(authorization)
+    db = require_db()
+    now = datetime.now(timezone.utc)
+    window_days = 7
+    cur_start   = now - timedelta(days=window_days)
+    prev_start  = now - timedelta(days=window_days * 2)
+
+    async def _agg(gte, lt):
+        pipeline = [
+            {"$match": {"created_at": {"$gte": gte, "$lt": lt}}},
+            {"$group": {"_id": "$state", "n": {"$sum": 1}}},
+            {"$sort":  {"n": -1}},
+        ]
+        out: dict = {}
+        async for row in db.loop_sessions.aggregate(pipeline):
+            out[str(row.get("_id") or "unknown")] = int(row["n"])
+        total = sum(out.values())
+        failed = out.get("failed", 0)
+        completed = out.get("completed", 0)
+        aborted = out.get("aborted", 0)
+        # Founder-facing metric: what fraction of RESOLVED sessions
+        # ended in FAILED?  Excludes expired (housekeeping reaper)
+        # and in-flight states so noise doesn't smear the ratio.
+        resolved = failed + completed + aborted
+        failed_ratio = (failed / resolved) if resolved else None
+        return {
+            "counts":         out,
+            "total":          total,
+            "resolved":       resolved,
+            "failed":         failed,
+            "completed":      completed,
+            "failed_ratio":   failed_ratio,
+        }
+
+    current  = await _agg(cur_start, now)
+    previous = await _agg(prev_start, cur_start)
+
+    delta_ratio: Optional[float] = None
+    if current["failed_ratio"] is not None and previous["failed_ratio"] is not None:
+        delta_ratio = current["failed_ratio"] - previous["failed_ratio"]
+
+    return {
+        "ok":            True,
+        "window_days":   window_days,
+        "current": {
+            "since_utc":  cur_start.isoformat(),
+            "until_utc":  now.isoformat(),
+            **current,
+        },
+        "previous": {
+            "since_utc":  prev_start.isoformat(),
+            "until_utc":  cur_start.isoformat(),
+            **previous,
+        },
+        "delta_failed_ratio": delta_ratio,
+        "note": (
+            "failed_ratio = failed / (failed + completed + aborted). "
+            "Expired sessions (reaper-cleared) are excluded so "
+            "housekeeping does not smear the signal. A positive "
+            "delta_failed_ratio means Phase 0 merge coincided with "
+            "a real increase in genuine failures — investigate "
+            "immediately (Cluster 1 promotes to P0). Flat/negative "
+            "delta means the test-scope FAILED regressions are "
+            "fixture-shape (tight budget vs new heartbeat cadence) "
+            "and prod is unaffected."
+        ),
     }
