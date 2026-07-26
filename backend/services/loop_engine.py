@@ -1190,84 +1190,37 @@ class LoopEngine:
                             "No fences. No commentary. Just the file content."
                         )
                         try:
-                            # Iter 278 — heartbeat frame every 6s while
-                            # the LLM call is in flight. The Parliament
-                            # call is a non-streaming multi-member vote
-                            # (3 council members + CEO judge — all need
-                            # full completions to score), so real
-                            # token-level streaming is not available
-                            # here.  A labeled keepalive is the honest
-                            # substitute: it tells the user how long
-                            # we've been waiting on THIS specific file,
-                            # without claiming new progress.
-                            _hb_started = time.time()
-                            _hb_stop = asyncio.Event()
-
-                            async def _heartbeat():
-                                # First frame after 6s so short (<6s)
-                                # generations don't add noise.
-                                while not _hb_stop.is_set():
-                                    try:
-                                        await asyncio.wait_for(
-                                            _hb_stop.wait(),
-                                            timeout=HEARTBEAT_INTERVAL_S,
-                                        )
-                                        return                # stop signalled
-                                    except asyncio.TimeoutError:
-                                        pass
-                                    elapsed = int(time.time() - _hb_started)
-                                    try:
-                                        await self._emit(
-                                            LoopState.EXECUTING, "execute",
-                                            step=2, total_steps=5,
-                                            message=(
-                                                f"Still waiting on LLM "
-                                                f"response for {path} — "
-                                                f"{elapsed}s elapsed"
-                                            ),
-                                            data={
-                                                "file":       path,
-                                                "sub_step":   "heartbeat",
-                                                "elapsed_s":  elapsed,
-                                                "keepalive":  True,
-                                            },
-                                        )
-                                    except Exception:         # noqa: BLE001
-                                        # Never let a heartbeat failure
-                                        # affect the primary LLM path.
-                                        return
-
-                            _hb_task = asyncio.create_task(_heartbeat())
-                            try:
-                                result = await asyncio.wait_for(
-                                    _parliament.run(
-                                        task=task_text,
-                                        context={
-                                            # Iter 212m-160 — `council` hardcode
-                                            # removed. `task_type="code_fix"`
-                                            # still routes to Council A via
-                                            # TaskRouter, so behaviour is
-                                            # unchanged for this code-gen
-                                            # path. The change unblocks
-                                            # Council B/C for future callers
-                                            # that pass different task_types.
-                                            "file_path":       path,
-                                            "task_type":       "code_fix",
-                                            "loop_session_id": self.loop_id,
-                                            "user_id":         self.user_id,
-                                        },
-                                    ),
-                                    timeout=PER_FILE_TIMEOUT_S,
-                                )
-                            finally:
-                                _hb_stop.set()
-                                if not _hb_task.done():
-                                    _hb_task.cancel()
-                                    try:
-                                        await _hb_task
-                                    except (asyncio.CancelledError,
-                                             Exception):     # noqa: BLE001
-                                        pass
+                            # Iter 309 · Batch-2 Item 5 — the per-file
+                            # heartbeat (iter 278) has been REMOVED
+                            # to eliminate duplicate/near-simultaneous
+                            # heartbeat pairs during EXECUTE.  The
+                            # generic phase-level heartbeat in
+                            # `_with_budget` (iter 308, cadence
+                            # HEARTBEAT_INTERVAL_S) is now the SOLE
+                            # emitter of `sub_step: "heartbeat"`
+                            # frames — this cleanup was demanded
+                            # after the founder observed two
+                            # heartbeat loops racing per file.
+                            result = await asyncio.wait_for(
+                                _parliament.run(
+                                    task=task_text,
+                                    context={
+                                        # Iter 212m-160 — `council` hardcode
+                                        # removed. `task_type="code_fix"`
+                                        # still routes to Council A via
+                                        # TaskRouter, so behaviour is
+                                        # unchanged for this code-gen
+                                        # path. The change unblocks
+                                        # Council B/C for future callers
+                                        # that pass different task_types.
+                                        "file_path":       path,
+                                        "task_type":       "code_fix",
+                                        "loop_session_id": self.loop_id,
+                                        "user_id":         self.user_id,
+                                    },
+                                ),
+                                timeout=PER_FILE_TIMEOUT_S,
+                            )
                         except asyncio.TimeoutError:
                             logger.warning(
                                 "[parliament] file %s timed out (>%ds) — skipping",

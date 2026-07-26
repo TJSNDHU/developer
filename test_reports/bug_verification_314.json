@@ -1,0 +1,57 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Two heartbeat loops fire simultaneously during EXECUTE — iter 278's per-file loop inside `_do_execute`'s Parliament call AND iter 308's generic loop inside `_with_budget`. During parallel file fan-out (3 files), this produced 1 phase-level + 3 file-level heartbeat events every 6s — duplicate/near-simultaneous pairs. User demand: deletion-only cleanup; keep the generic _with_budget heartbeat (iter 308), remove iter 278's per-file loop; do NOT improve the surviving one; add regression test proving zero duplicates.",
+  "summary": "No relevant testing skill found. Verified the deletion-only heartbeat cleanup: `loop_engine.py` now has exactly one heartbeat definition/emitter, the old per-file `Still waiting on LLM response for {path}` heartbeat path is gone, `_with_budget`'s generic `_heartbeat_loop` remains in place, and the new heartbeat dedup regression passes with runtime cadence proving no near-simultaneous duplicate heartbeats and no `file` field on heartbeat frames. Cluster 1 and loop-token-ledger regressions still pass; exact quality-gate subset matches expected residual local-infra artifacts (3 failed + 373 passed + 4 skipped + 2 errors).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "quality-gate keyword pytest subset",
+        "issue": "Exact quality-gate subset still has the pre-existing local-infra artifacts: invalid Stripe test key failure plus auth/login rate-limit setup failures/errors. Result: 3 failed, 373 passed, 4 skipped, 2 errors; these are unchanged in kind from the prior baseline and unrelated to the EXECUTE heartbeat dedup fix."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verify_314_grep_heartbeat_count.log",
+    "/app/test_reports/pytest/bug_verify_314_heartbeat_dedup_backend_cwd.log",
+    "/app/test_reports/pytest/bug_verify_314_cluster1_loop_tests.log",
+    "/app/test_reports/pytest/bug_verify_314_loop_token_ledger.log",
+    "/app/test_reports/pytest/bug_verify_314_quality_gate_exact.log"
+  ],
+  "action_items": [
+    "No code action needed for the reported duplicate EXECUTE heartbeat bug.",
+    "Keep the residual quality-gate Stripe/auth local-infra artifacts tracked separately from Item 5."
+  ],
+  "critical_code_review_comments": [
+    "`grep -c 'async def _heartbeat' backend/services/loop_engine.py` returned exactly 1; the only definition is `_heartbeat_loop` in `_with_budget`.",
+    "Grep found only one real `sub_step: heartbeat` emitter in `loop_engine.py` (line ~842); other heartbeat matches are doc/comment text only.",
+    "At the Parliament call site, the iter 278 per-file `_heartbeat`, `_hb_started`, `_hb_stop`, `_hb_task`, and cancel/finally scaffolding are deleted, and the `_parliament.run(..., timeout=PER_FILE_TIMEOUT_S)` wait_for path remains bare.",
+    "The surviving `_with_budget` heartbeat emits phase-level data with `sub_step`, `keepalive`, `phase`, `elapsed_s`, and `hb_tick`; no `file` field is emitted on heartbeats."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verify_314_grep_heartbeat_count.log",
+    "/app/test_reports/pytest/bug_verify_314_heartbeat_dedup.log",
+    "/app/test_reports/pytest/bug_verify_314_heartbeat_dedup_backend_cwd.log",
+    "/app/test_reports/pytest/bug_verify_314_cluster1_loop_tests.log",
+    "/app/test_reports/pytest/bug_verify_314_loop_token_ledger.log",
+    "/app/test_reports/pytest/bug_verify_314_keyword_subset.log",
+    "/app/test_reports/pytest/bug_verify_314_quality_gate.log",
+    "/app/test_reports/pytest/bug_verify_314_quality_gate_exact.log",
+    "/app/test_reports/bug_verification_314.json",
+    "/app/test_reports/iteration_314.json"
+  ],
+  "success_rate": {
+    "backend": "Fixed for targeted bug: heartbeat dedup regression 4/4 passed; Cluster 1 loop tests 20/20 passed; loop-token-ledger tests 8/8 passed; exact quality-gate subset matched expected residual 3 failed + 373 passed + 4 skipped + 2 errors.",
+    "frontend": "N/A - backend-only verification"
+  },
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "No relevant testing skill found. Focused plan was to prove the duplicate EXECUTE heartbeat emitter was deleted, only `_with_budget` emits heartbeat frames, runtime cadence has no <100ms duplicate pairs, and related loop regression suites remain stable. Tests were run from `/app/backend` to match CI import paths; an initial root-cwd invocation of the new test failed with `ModuleNotFoundError: services`, then passed 4/4 from backend cwd.",
+  "rca_of_the_issue": "Before the fix, EXECUTE had both a phase-level `_with_budget` heartbeat and an iter 278 per-file heartbeat around Parliament calls, so parallel file fan-out could emit phase + per-file heartbeat frames almost simultaneously every interval. Current code removes the per-file loop and its `file`-tagged heartbeat frames, leaving one phase-level heartbeat stream."
+}
