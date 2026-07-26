@@ -144,11 +144,6 @@ jobs:
           PYTEST_EXIT=${PIPESTATUS[0]}
           echo "Pytest exit code (captured immediately): $PYTEST_EXIT"
 
-          echo "---iter309-canary-check---"
-          grep -E "test_ci_canary_MUST_FAIL_iter309|AssertionError.*CANARY" /tmp/pytest_output.txt \
-            || echo "!!! CANARY NOT PRESENT IN OUTPUT — CI is still not running our test !!!"
-          echo "---end-canary-check---"
-
           # Exit with pytest's exit code (captured before any post-processing).
           exit "$PYTEST_EXIT"
 

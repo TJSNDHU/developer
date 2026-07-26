@@ -165,8 +165,14 @@ jobs:
           # live in ci.yml's backend-tests job (which spins one up).
           # This job intentionally runs the STATIC / mock-DB subset
           # for a fast <60s gate.
+          # Iter 309 · Phase 0.2 (post-canary) — added `loop` to the
+          # discovery keyword filter permanently now that CI failure
+          # propagation is proven. The Loop engine is the platform's
+          # heart; regressions here (stuck states, missing heartbeats,
+          # phase-mapping drift) must fail the gate immediately, not
+          # hide inside the wider ci.yml suite.
           python -m pytest tests/ \
-            -k "regression or invariant or iter309 or ci_canary or frontend_sync or execute_stuck_recovery or jwt_revocation or self_heal_paused" \
+            -k "regression or invariant or iter309 or ci_canary or frontend_sync or execute_stuck_recovery or jwt_revocation or self_heal_paused or loop" \
             --tb=short -q \
             --ignore=tests/test_iter138_acceptance_seven.py \
             --ignore=tests/test_iter212m163_aggression_chat.py
