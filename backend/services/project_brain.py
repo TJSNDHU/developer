@@ -215,63 +215,75 @@ async def update_brain_after_commit(
     Called after every successful gh_api_commit().
     Updates brain with what was done and any recurring patterns.
 
-    Usage in cto_projects.py after gh_api_commit():
-        await update_brain_after_commit(
-            db=db,
-            project_id=str(task.project_id),
-            task_description=task.description,
-            files_changed=list(final_code.keys()),
-            was_correction_applied=not review["pass"],
-            issues_found=review.get("issues", []),
-            sha=commit_sha,
-        )
+    Iter 328 · #3-a — fail-open silent-failure logging. Every write
+    into `project_brains` is now wrapped so a broken write path is
+    instrumented (visible at WARNING) instead of silent — matches the
+    dead-write-path diagnosis in the master queue. When callsites are
+    reattached in step (b), the logs will confirm each write succeeded
+    or reveal the exact failure.
     """
-    now = datetime.now(timezone.utc)
-    event = {
-        "type": "commit",
-        "description": task_description,
-        "files": files_changed[:10],      # cap at 10 files
-        "correction_applied": was_correction_applied,
-        "issues": issues_found[:5],
-        "sha": (sha or "")[:40],
-        "ts": now,
-    }
+    import logging as _log
+    _l = _log.getLogger(__name__)
+    try:
+        now = datetime.now(timezone.utc)
+        event = {
+            "type": "commit",
+            "description": task_description,
+            "files": files_changed[:10],      # cap at 10 files
+            "correction_applied": was_correction_applied,
+            "issues": issues_found[:5],
+            "sha": (sha or "")[:40],
+            "ts": now,
+        }
 
-    update_ops: dict = {
-        "$set": {"updated_at": now},
-        "$push": {
-            "event_log": {
-                "$each": [event],
-                "$slice": -200,           # keep last 200 events only
+        update_ops: dict = {
+            "$set": {"updated_at": now},
+            "$push": {
+                "event_log": {
+                    "$each": [event],
+                    "$slice": -200,           # keep last 200 events only
+                }
             }
         }
-    }
 
-    # If correction was applied, track as potential recurring bug
-    if was_correction_applied and issues_found:
-        for issue in issues_found[:2]:
-            # Increment count if already exists
-            existing = await db["project_brains"].find_one({
-                "project_id": project_id,
-                "recurring_bugs.description": issue,
-            })
-            if existing:
-                await db["project_brains"].update_one(
-                    {"project_id": project_id, "recurring_bugs.description": issue},
-                    {"$inc": {"recurring_bugs.$.count": 1}}
-                )
-            else:
-                update_ops.setdefault("$push", {})
-                update_ops["$push"]["recurring_bugs"] = {
-                    "$each": [{"description": issue, "fix_applied": "auto-corrected by Claude", "count": 1}],
-                    "$slice": -20,
-                }
+        # If correction was applied, track as potential recurring bug
+        if was_correction_applied and issues_found:
+            for issue in issues_found[:2]:
+                # Increment count if already exists
+                existing = await db["project_brains"].find_one({
+                    "project_id": project_id,
+                    "recurring_bugs.description": issue,
+                })
+                if existing:
+                    await db["project_brains"].update_one(
+                        {"project_id": project_id, "recurring_bugs.description": issue},
+                        {"$inc": {"recurring_bugs.$.count": 1}}
+                    )
+                else:
+                    update_ops.setdefault("$push", {})
+                    update_ops["$push"]["recurring_bugs"] = {
+                        "$each": [{"description": issue, "fix_applied": "auto-corrected by Claude", "count": 1}],
+                        "$slice": -20,
+                    }
 
-    await db["project_brains"].update_one(
-        {"project_id": project_id},
-        update_ops,
-        upsert=True,
-    )
+        await db["project_brains"].update_one(
+            {"project_id": project_id},
+            update_ops,
+            upsert=True,
+        )
+        _l.info(
+            "🧠 update_brain_after_commit · project=%s sha=%s "
+            "files=%d correction=%s",
+            project_id, (sha or "")[:7], len(files_changed),
+            was_correction_applied,
+        )
+    except Exception as e:                                  # noqa: BLE001
+        _l.warning(
+            "🧠 update_brain_after_commit FAILED (fail-open) · "
+            "project=%s err=%r", project_id, e,
+        )
+        # Never re-raise — must not block a user task.
+        return
 
 
 async def update_brain_from_conversation(
