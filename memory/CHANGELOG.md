@@ -4,6 +4,61 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 03:40 UTC — Iter 315 · Diagnostic-honesty class (loop_events phase-transition write + avg_calls unit fix + sample_loop_ids + frontend 3-state visual disambiguation) — UNIT + SMOKE VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Trigger:** Founder pulled real speed-diagnostic JSON from prod after Iter 314 deployed. Report showed `phase_wall_clock` = `n:0, avg_s:null` for every phase across 10 sampled loops, AND `llm_calls_by_phase` = `n:10, avg_s:0` — the two together made it impossible to confirm/refute the 171s RCA hypothesis. Founder correctly diagnosed this as a data-write bug blocking the RCA and requested code-level investigation before any RCA conclusions.
+
+**Investigation (30 min, no code touched):**
+
+Gap A — `phase_wall_clock` n:0 for every phase: **Genuine code bug.** `services/loop_engine.py::_emit()` (line 2586) pushes state-transitions to `self.queue` (SSE), records to `sse_replay_buffer`, and persists `loop_sessions.last_event`, but NEVER inserts into `db.loop_events`. Only specific audit kinds (`scope_drift`, `plan_ungrounded_paths`, `task_spec_freeze`) write to that collection. The diagnostic aggregator at `services/loop_speed_diagnostic.py::_phase_durations_from_events` queries `db.loop_events` and finds 0-3 audit rows per loop, none with the `phase`+`ts` shape needed to compute durations. Preview DB confirmed: `db.loop_events.count_documents({}) == 0`.
+
+Gap B — `llm_calls_by_phase` avg_s:0: **Two separate issues.** (B1) `loop_token_ledger` shipped 2026-07-26 05:16 UTC (git log confirmed); loops completed before that timestamp have zero `route ~ ^loop\\.` rows in `ora_chat_usage`. Founder's 10 sampled loops were likely dominated by pre-instrumentation loops. (B2) Real diagnostic-tool bug independent of B1: `_stats_line` returns `avg_s`/`median_s`/`p95_s` field names, but `llm_calls_by_phase` aggregates row COUNTS, not durations. The field labels lied about units — `avg_s: 0` was actually "avg number of calls per loop = 0", not "0 seconds duration."
+
+**Fix (single class of change — diagnostic honesty):**
+
+Backend:
+- `backend/services/loop_engine.py` — `_emit()` now writes a `state_transition` row to `db.loop_events` after the SSE queue push and session persist. Try/except fire-and-forget; a Mongo failure logs and continues (SSE loop must never break). Row envelope: `{loop_id, user_id, project_id, kind:"state_transition", state, phase, ts, seq}`. `kind` marker distinguishes from existing audit-kind rows so downstream queries can filter either family.
+- `backend/services/loop_speed_diagnostic.py` — new `_calls_stats_line()` helper returning `{n, avg_calls, median_calls, max_calls, p95_calls}` fields. `llm_call_stats` now uses this helper instead of `_stats_line`. Renamed field labels no longer lie about units.
+- `backend/services/loop_speed_diagnostic.py` — new `sample_loop_ids` field in the return dict per Option-(a). Per-loop metadata (`loop_id, created_at, updated_at, state, user_id`) so "n:10 avg:0" ambiguity can be resolved from a single JSON pull. If every loop's `created_at` predates the token-ledger cutoff → predates-instrumentation (fix time, not a runtime bug). If any post-cutoff loop shows zero → real ledger write bug.
+- `backend/services/loop_speed_diagnostic.py` — `notes` section rewritten to honestly explain the Iter 315 cutoffs and how to disambiguate future results using `sample_loop_ids`.
+
+Frontend:
+- `frontend/src/pages/AdminInspectSpeedDiagnostic.jsx` — new `StatCell` component with three distinct visual states per your spec: (1) `n === 0` → dim `"— no data —"`, (2) `n > 0 && avg is 0/null` → amber `"⚠ n=X, avg=0 (possible write bug)"`, (3) otherwise → green `"avg=Xs (n=Y, median=Z, max=W)"`. Renders as a summary block above the raw JSON. Supports both `avg_s` (durations) and `avg_calls` (counts) schemas via unit prop.
+- Added `sample_too_small` warning banner and `sample_loop_ids` footer showing oldest `created_at` for at-a-glance predates-instrumentation check.
+- Test-ids: `speed-diag-summary`, `speed-diag-wc-{phase}-{ok|nodata|writebug}`, `speed-diag-llm-{phase}-{ok|nodata|writebug}`, `speed-diag-sample-warn`, `speed-diag-sample-ids`.
+
+**Tests (`backend/tests/`, 7-panel, all PASS):**
+- `test_iter315_loop_events_phase_transitions.py` (4 tests):
+  - `test_repro_emit_does_not_write_loop_events` — grep-invariant. FAIL→PASS after Fix 1.
+  - `test_emit_writes_state_transition_row_when_fix_lands` — envelope validation on mocked db.
+  - `test_emit_insert_failure_is_swallowed` — regression: Mongo insert failure must not break the SSE queue push.
+  - `test_state_transition_kind_marker_distinct` — `kind='state_transition'` distinguishes from audit rows.
+- `test_iter315_diagnostic_field_naming_and_sample_ids.py` (3 tests):
+  - `test_llm_calls_by_phase_section_uses_calls_units` — enforces `avg_calls` label.
+  - `test_sample_loop_ids_field_present_in_result` — Option-(a) contract.
+  - `test_no_bare_avg_s_survives_in_llm_calls_by_phase_section` — forward guardrail.
+
+Regression: `test_iter312`, `test_iter313`, `test_iter315` all PASS (15/15).
+
+**Self-verification (Playwright smoke with mocked payload):** all 8 expected visual states rendered correctly — plan wall-clock=green-OK, execute=dim-nodata, verify=amber-writebug, LLM plan=green-OK, LLM execute=amber-writebug, LLM scan=dim-nodata, sample_too_small warning=amber, sample_loop_ids footer present. Screenshot at `/tmp/iter315_speed_diag_visual_states.jpg`.
+
+**Honest deviations:**
+- Two of the seven tests initially failed because my mock db was missing `AsyncMock` for `update_one` (called from `_persist_session` in the same code path). Not a code bug — a mock-setup bug in the test. Fixed by adding the missing async methods to the mock. Documented at each test site.
+- `loop_engine.py` shows a pre-existing F821 lint warning at lines 2908/3030 (`_scan_text` undefined) unrelated to Iter 315. Not touched — outside scope.
+
+**What Iter 315 does NOT touch (still separate iterations):**
+- Iter 316 (loop-mode UX bundle: ChatPanel terminal-frame timer cleanup + `loop_engine.py:462` stale "60s budget" f-string) — scoped, tested-first-ready, deferred per founder's "one class per deploy" rule.
+- Iter 317 (Deploy Sync SHA-match chip) — queued.
+- Item 1 (171s plan-phase RCA fix) — still waiting on real post-Iter-315 data to confirm which suspect dominates. Founder pulls a fresh report post-deploy, and this time the `sample_loop_ids` field tells us definitively whether the loops predate the instrumentation. Only THEN do we decide whether to touch the timeout constant, async-refactor `build_graph()`, or leave 120s alone.
+
+**Files touched:**
+- `backend/services/loop_engine.py` (Fix 1)
+- `backend/services/loop_speed_diagnostic.py` (Fix 2 + Option-a)
+- `backend/tests/test_iter315_loop_events_phase_transitions.py` (new)
+- `backend/tests/test_iter315_diagnostic_field_naming_and_sample_ids.py` (new)
+- `frontend/src/pages/AdminInspectSpeedDiagnostic.jsx` (Fix 3)
+
+
 ## 2026-07-27 03:02 UTC — Iter 314 · Admin UI wrappers for speed-diagnostic + scope-drift-audit — UNIT/SMOKE VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Trigger:** Founder blocked twice by the JWT wall on admin endpoints (`/admin/speed-diagnostic` and `/admin/scope-drift-audit`). Direct URL navigation returns `{"detail":"Authorization header missing"}` because the app uses JWT-in-localStorage (via `api.js` axios request interceptor) rather than cookies — browser session token isn't attached to raw endpoint hits. Rather than fix each admin endpoint one-off, founder asked for the universal pattern: dedicated `/admin/inspect-*` pages that use the shared `api` axios instance (JWT rides automatically). Same zero-mutation discipline as `AdminInspectLoop` (which already works and is grep-auditable for `api.post` / `api.put` / `api.delete` returning zero real matches).

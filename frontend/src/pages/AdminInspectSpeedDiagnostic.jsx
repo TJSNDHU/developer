@@ -80,6 +80,58 @@ function Pre({ value, testid, maxHeight = 480 }) {
   );
 }
 
+// ── Iter 315 · Fix 3 — three distinct visual states per stat cell ──
+// Prevents "no data" and "zero-duration data" from looking identical
+// in the diagnostic report. Same spirit as the honest sample_too_small
+// flag the backend tool already emits.
+//   • n === 0                    → "— no data —" (dim)
+//   • n > 0, avg == 0 || null    → "⚠ n=X, avg=0" (amber, write-bug hint)
+//   • otherwise                  → "avg=Xs (n=Y)" (default text)
+function StatCell({ label, stat, unit = "s", testid }) {
+  if (!stat || typeof stat !== "object") {
+    return (
+      <div data-testid={`${testid}-nodata`}
+           style={{ color: C.faint, fontSize: 11 }}>
+        {label}: — no data —
+      </div>
+    );
+  }
+  const n = stat.n ?? 0;
+  // Support both avg_s (durations) and avg_calls (counts) schemas.
+  const avg = (unit === "calls")
+    ? (stat.avg_calls ?? null)
+    : (stat.avg_s ?? null);
+  if (n === 0) {
+    return (
+      <div data-testid={`${testid}-nodata`}
+           style={{ color: C.faint, fontSize: 11 }}>
+        {label}: — no data —
+      </div>
+    );
+  }
+  const zeroLike = (avg === null || avg === undefined || avg === 0);
+  if (zeroLike) {
+    return (
+      <div data-testid={`${testid}-writebug`}
+           style={{ color: C.amber, fontSize: 11 }}>
+        ⚠ {label}: n={n}, avg=0 <span style={{ color: C.faint }}>
+          (data present but duration/count=0 — possible write bug)
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div data-testid={`${testid}-ok`}
+         style={{ color: C.green, fontSize: 11 }}>
+      {label}: avg={avg}{unit === "calls" ? "" : "s"}
+      <span style={{ color: C.faint }}>
+        {" "}(n={n}, median={unit === "calls" ? stat.median_calls : stat.median_s},
+        max={unit === "calls" ? stat.max_calls : stat.max_s})
+      </span>
+    </div>
+  );
+}
+
 function Btn({ children, onClick, testid, kind = "default" }) {
   const styles = kind === "primary"
     ? { background: "#1e3a8a", borderColor: "#3b82f6", color: "#e0e7ff" }
@@ -235,6 +287,66 @@ export default function AdminInspectSpeedDiagnostic() {
               </Btn>
             }
           >
+            {/* Iter 315 · Fix 3 — visual warning states summary */}
+            <div data-testid="speed-diag-summary"
+                 style={{ marginBottom: 12, padding: 10,
+                          background: C.bg, borderRadius: 6,
+                          border: `1px solid ${C.border}` }}>
+              <div style={{
+                color: C.dim, fontSize: 10,
+                letterSpacing: "0.14em", marginBottom: 8,
+              }}>PHASE WALL-CLOCK (seconds)</div>
+              {["plan", "execute", "verify", "scan", "ship"].map((ph) => (
+                <StatCell
+                  key={`wc-${ph}`}
+                  testid={`speed-diag-wc-${ph}`}
+                  label={ph}
+                  stat={data.phase_wall_clock?.[ph]}
+                  unit="s"
+                />
+              ))}
+              <div style={{
+                color: C.dim, fontSize: 10,
+                letterSpacing: "0.14em", margin: "12px 0 8px",
+              }}>LLM CALLS BY PHASE (count per loop)</div>
+              {["plan", "execute", "verify", "scan", "ship"].map((ph) => (
+                <StatCell
+                  key={`llm-${ph}`}
+                  testid={`speed-diag-llm-${ph}`}
+                  label={ph}
+                  stat={data.llm_calls_by_phase?.[ph]}
+                  unit="calls"
+                />
+              ))}
+              {data.sample_too_small && (
+                <div data-testid="speed-diag-sample-warn"
+                     style={{
+                       marginTop: 10, padding: 8,
+                       background: "rgba(245,165,36,0.10)",
+                       border: `1px solid ${C.amber}`,
+                       borderRadius: 5, color: C.amber, fontSize: 11,
+                     }}>
+                  ⚠ sample_size={data.sample_size} &lt; 15 — statistics unreliable
+                </div>
+              )}
+              {Array.isArray(data.sample_loop_ids) && data.sample_loop_ids.length > 0 && (
+                <div data-testid="speed-diag-sample-ids"
+                     style={{
+                       marginTop: 10, fontSize: 10, color: C.faint,
+                     }}>
+                  Sample of {data.sample_loop_ids.length} loops
+                  {" · oldest created_at: "}
+                  {data.sample_loop_ids
+                    .map(l => l.created_at)
+                    .filter(Boolean)
+                    .sort()[0] || "—"}
+                </div>
+              )}
+            </div>
+            <div style={{
+              color: C.dim, fontSize: 10, letterSpacing: "0.14em",
+              marginBottom: 6,
+            }}>RAW JSON</div>
             <Pre
               testid="speed-diag-json"
               value={JSON.stringify(data, null, 2)}

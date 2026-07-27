@@ -2599,6 +2599,34 @@ class LoopEngine:
             pass
         await self.queue.put(ev)
         await _persist_session(self.db, self._doc(extra={"last_event": ev}))
+        # ── Iter 315 · Fix 1 — persist phase-transition to loop_events ──
+        # Diagnostic aggregator (`services/loop_speed_diagnostic.py::
+        # _phase_durations_from_events`) reads `db.loop_events` grouped
+        # by (loop_id, phase, ts) to compute per-phase wall-clock. Before
+        # Iter 315 only audit kinds (scope_drift, task_spec_freeze,
+        # plan_ungrounded_paths) wrote to that collection, so every
+        # regular loop reported n:0 for every phase in the speed report.
+        # Fix: fire a `state_transition` row per emit. `kind` marker
+        # keeps this family distinct from the audit kinds. Fire-and-
+        # forget — a Mongo failure must NEVER break the live SSE loop.
+        try:
+            await self.db.loop_events.insert_one({
+                "loop_id":    self.loop_id,
+                "user_id":    self.user_id,
+                "project_id": self.project_id,
+                "kind":       "state_transition",
+                "state":      state.value if hasattr(state, "value") else str(state),
+                "phase":      phase,
+                "ts":         ev.get("timestamp") or _iso(),
+                "seq":        ev.get("seq"),
+            })
+        except Exception as _e:                        # noqa: BLE001
+            # Log-only. Diagnostic honesty is worth less than a
+            # working loop.
+            logger.debug(
+                "[loop %s] loop_events state_transition write failed "
+                "(non-fatal): %r", self.loop_id, _e,
+            )
 
     # ── Iter 309 · Live Narration (Part 1) ─────────────────────────────
     #

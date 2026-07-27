@@ -66,6 +66,44 @@ def _stats_line(values: list[float]) -> dict:
     }
 
 
+def _calls_stats_line(values: list[float]) -> dict:
+    """Iter 315 · Fix 2 — COUNT-labelled stats.
+
+    The previous `_stats_line` above uses `avg_s`/`median_s`/`max_s`/
+    `p95_s` field names — semantically SECONDS. `llm_calls_by_phase`
+    aggregates row COUNTS from `ora_chat_usage` (how many loop.<phase>
+    rows per loop), not durations. Reusing `_stats_line` there
+    produced `avg_s: 0` for what was actually "avg number of calls
+    per loop = 0" — the field lied about units. This helper returns
+    the identical numeric shape with correctly-labelled unit suffix.
+    """
+    if not values:
+        return {
+            "n": 0, "avg_calls": None, "median_calls": None,
+            "max_calls": None, "p95_calls": None,
+        }
+    return {
+        "n":             len(values),
+        "avg_calls":     round(sum(values) / len(values), 2),
+        "median_calls":  round(stats.median(values), 2),
+        "max_calls":     round(max(values), 2),
+        "p95_calls":     round(sorted(values)[int(0.95 * (len(values) - 1))], 2),
+    }
+
+
+def _iso_dt(v) -> Any:
+    """Iter 315 · Option-(a) — normalize created_at/updated_at values
+    for the per-loop metadata list. Mongo may store these as
+    datetime OR as ISO string depending on write path — the JSON
+    consumer wants a stable string either way. Falsy → None."""
+    if not v:
+        return None
+    try:
+        return v.isoformat() if hasattr(v, "isoformat") else str(v)
+    except Exception:
+        return None
+
+
 async def _phase_durations_from_events(
     db, loop_id: str,
 ) -> dict[str, float]:
@@ -271,9 +309,23 @@ async def compute_speed_report(
         k: [] for k in per_phase
     }
     self_heal_rows: list[dict] = []
+    # ── Iter 315 · Option-(a) — per-loop metadata for RCA verification.
+    # Diagnostic aggregates alone can hide whether "n:10, avg:0" is
+    # (1) instrumentation predates these loops, or (2) a genuine
+    # write bug. Emitting per-loop created_at + state means the
+    # ambiguity is resolvable from the JSON without a second query.
+    sample_loop_ids: list[dict] = []
 
     for doc in real_sessions:
         lid = doc.get("loop_id")
+        # Collect per-loop metadata first — safe read, no I/O.
+        sample_loop_ids.append({
+            "loop_id":    lid,
+            "created_at": _iso_dt(doc.get("created_at")),
+            "updated_at": _iso_dt(doc.get("updated_at")),
+            "state":      doc.get("state"),
+            "user_id":    doc.get("user_id"),
+        })
         durations = await _phase_durations_from_events(db, lid)
         # Fallback: total session duration only.
         session_total = None
@@ -336,8 +388,10 @@ async def compute_speed_report(
     resolved_at_1 = [r for r in triggered_heals
                      if r.get("resolved_at_attempt") == 1]
 
+    # Iter 315 · Fix 2 — use _calls_stats_line so the field labels
+    # match the actual unit (COUNTS, not seconds). See helper docstring.
     llm_call_stats = {
-        ph: _stats_line([float(x) for x in vals])
+        ph: _calls_stats_line([float(x) for x in vals])
         for ph, vals in llm_calls_by_phase_agg.items()
     }
 
@@ -359,6 +413,13 @@ async def compute_speed_report(
             "samples":               queue_wait_summaries[:5],
         },
         "llm_calls_by_phase":       llm_call_stats,
+        # Iter 315 · Option-(a) — per-loop metadata so "n:10 avg:0"
+        # ambiguity can be resolved from a single JSON pull. If every
+        # loop's created_at predates the token-ledger cutoff
+        # (2026-07-26 05:16 UTC) the zero counts are "predates
+        # instrumentation" (fix time, not a runtime bug). If any
+        # post-cutoff loop shows zero, it's a real ledger write bug.
+        "sample_loop_ids":          sample_loop_ids,
         "self_heal": {
             "loops_analysed":              len(self_heal_rows),
             "triggered":                   len(triggered_heals),
@@ -369,13 +430,20 @@ async def compute_speed_report(
                                                 max(len(triggered_heals), 1)),
         },
         "notes": [
-            ("Per-phase durations come from loop_events timestamps. If "
-             "loop_events is empty for a session, that session contributes "
-             "only to total_loop_duration (session.created_at → updated_at) "
-             "and NOT to per-phase splits."),
+            ("Per-phase durations come from loop_events state_transition "
+             "rows (kind='state_transition'). Iter 315 fixed the missing "
+             "write in loop_engine._emit(); loops completed BEFORE Iter "
+             "315 deployed have no rows and contribute only to "
+             "total_loop_duration. Check sample_loop_ids[].created_at "
+             "against the Iter 315 deploy time to disambiguate."),
             ("`ora_chat_usage` join keys off session_id == loop_id. Zero "
              "counts mean either loops without Item-4 token tracking "
-             "(pre-Batch-2 loops) or a data-write bug worth flagging."),
+             "(loop_token_ledger shipped 2026-07-26 05:16 UTC) or a "
+             "genuine ledger write bug. Cross-check sample_loop_ids to "
+             "distinguish."),
+            ("llm_calls_by_phase fields are labeled *_calls (COUNTS), "
+             "NOT *_s (seconds). The previous avg_s label was a units "
+             "lie fixed in Iter 315."),
             ("Sample excludes user_id prefixes: "
              + ", ".join(_EXCLUDE_USER_PREFIXES)),
         ],
