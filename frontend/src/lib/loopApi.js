@@ -64,6 +64,23 @@ export async function getLoopInspect(loopId, tail = 20) {
   return r?.data || r;
 }
 
+// ── Iter 314 · Admin inspect wrappers ────────────────────────────
+// Small read-only helpers so the admin inspect pages can hit these
+// endpoints with the same axios instance every other admin surface
+// uses (JWT-in-Authorization via api.js request interceptor). Zero
+// mutations. Bounds mirror the backend clamps in routers/admin.py.
+export async function getSpeedDiagnostic({ windowDays = 30, sample = 20 } = {}) {
+  const q = `?window_days=${encodeURIComponent(windowDays)}&sample=${encodeURIComponent(sample)}`;
+  const r = await api.get(`/admin/speed-diagnostic${q}`);
+  return r?.data || r;
+}
+
+export async function getScopeDriftAudit({ days = 30, limit = 50 } = {}) {
+  const q = `?days=${encodeURIComponent(days)}&limit=${encodeURIComponent(limit)}`;
+  const r = await api.get(`/admin/scope-drift-audit${q}`);
+  return r?.data || r;
+}
+
 /**
  * Iter 212m-111 — Manual Ship gate. Once the engine reaches
  * PAUSED_FOR_USER/phase=ship with data.kind="awaiting_ship", the user

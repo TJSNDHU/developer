@@ -73,6 +73,8 @@ const DashboardPreviewV2 = lazy(() => import("./pages/DashboardPreviewV2")); // 
 const AdminApiKeys      = lazy(() => import("./pages/AdminApiKeys"));
 const AdminSystemHealth = lazy(() => import("./pages/AdminSystemHealth"));   // Iter 212m-205
 const AdminInspectLoop  = lazy(() => import("./pages/AdminInspectLoop"));    // Iter 309 · Batch-2 aftermath
+const AdminInspectSpeedDiagnostic = lazy(() => import("./pages/AdminInspectSpeedDiagnostic")); // Iter 314
+const AdminInspectScopeDriftAudit = lazy(() => import("./pages/AdminInspectScopeDriftAudit")); // Iter 314
 const PersonalTrackAdmin = lazy(() => import("./pages/admin/PersonalTrackAdmin")); // Iter 212m-240
 const OraChat            = lazy(() => import("./pages/admin/OraChat"));            // Iter 212m-238
 const OraDirect          = lazy(() => import("./pages/OraDirect"));                 // Iter 212m-241 public PIN-gated
@@ -241,6 +243,11 @@ export default function App() {
           <Route path="/admin/api-keys"     element={<AdminApiKeys />} />
           <Route path="/admin/system-health" element={<AdminSystemHealth />} />
           <Route path="/admin/inspect-loop/:loopId" element={<AdminInspectLoop />} />
+          {/* Iter 314 — universal admin-inspect wrappers so admin
+              endpoints can be reached without hitting the JWT wall
+              from direct URL navigation. */}
+          <Route path="/admin/inspect-speed-diagnostic" element={<AdminInspectSpeedDiagnostic />} />
+          <Route path="/admin/inspect-scope-drift"      element={<AdminInspectScopeDriftAudit />} />
           <Route path="/admin/qa"           element={<AdminQADashboard />} />{/* Iter 303 */}
           <Route path="/admin/personal-track" element={<PersonalTrackAdmin />} />
           <Route path="/admin/ora-chat"       element={<OraChat />} />

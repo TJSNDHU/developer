@@ -4,6 +4,47 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 03:02 UTC — Iter 314 · Admin UI wrappers for speed-diagnostic + scope-drift-audit — UNIT/SMOKE VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Trigger:** Founder blocked twice by the JWT wall on admin endpoints (`/admin/speed-diagnostic` and `/admin/scope-drift-audit`). Direct URL navigation returns `{"detail":"Authorization header missing"}` because the app uses JWT-in-localStorage (via `api.js` axios request interceptor) rather than cookies — browser session token isn't attached to raw endpoint hits. Rather than fix each admin endpoint one-off, founder asked for the universal pattern: dedicated `/admin/inspect-*` pages that use the shared `api` axios instance (JWT rides automatically). Same zero-mutation discipline as `AdminInspectLoop` (which already works and is grep-auditable for `api.post` / `api.put` / `api.delete` returning zero real matches).
+
+**Fix (single class of change — admin observability):**
+- `frontend/src/lib/loopApi.js` — added `getSpeedDiagnostic({ windowDays, sample })` and `getScopeDriftAudit({ days, limit })` — read-only helpers that route through the shared `api` axios instance. Bounds mirror the backend clamps in `routers/admin.py` (1-180 days, 1-100 sample, 1-500 limit).
+- `frontend/src/pages/AdminInspectSpeedDiagnostic.jsx` — new dedicated page at `/admin/inspect-speed-diagnostic`. Form inputs for `window_days` + `sample`, primary "Run report" CTA, JSON pretty-print result card with "Copy JSON" button, "Close" nav back. Zero mutations — grep for `api.post` / `api.put` / `api.delete` in the file returns only the audit-comment matches, no real calls.
+- `frontend/src/pages/AdminInspectScopeDriftAudit.jsx` — new dedicated page at `/admin/inspect-scope-drift`. Same pattern with `days` + `limit` inputs, "Run audit" CTA.
+- `frontend/src/App.jsx` — lazy-imports both pages, adds two routes.
+
+**Design notes:**
+- Mirrors `AdminInspectLoop.jsx` conventions exactly: same color palette (`C.bg`, `C.panel`, etc.), same `Card` / `Pre` / `Btn` component shapes, same monospace font stack, same read-only-only invariant.
+- No auto-refresh — user pulls fresh data explicitly. Prevents pages from becoming "helpfully" reactive during inspection.
+- Every interactive element has a `data-testid` for future testing (10 total: `admin-inspect-speed-diagnostic`, `speed-diag-query-card`, `speed-diag-window-days`, `speed-diag-sample`, `speed-diag-refresh-btn`, `speed-diag-close` + 5 mirrors for scope-drift).
+
+**Verification (self-tested on preview):**
+- Lint: ✅ both files clean, no issues.
+- Backend `/admin/speed-diagnostic` and `/admin/scope-drift-audit` return HTTP 401 without JWT (auth gate intact — the wrappers ADD auth to the request, they don't bypass it).
+- Screenshot smoke test on preview: both pages render, all 10 test-id elements present, empty-state message shown pre-run, forms accept input.
+- Zero-mutation invariant: `grep -n "api\\.post\\|api\\.put\\|api\\.delete"` on both pages returns ONLY the audit-comment lines (comment #16/20), no real API mutation calls.
+
+**Files touched:**
+- `frontend/src/lib/loopApi.js` (added two read-only helpers)
+- `frontend/src/pages/AdminInspectSpeedDiagnostic.jsx` (new)
+- `frontend/src/pages/AdminInspectScopeDriftAudit.jsx` (new)
+- `frontend/src/App.jsx` (2 lazy-imports + 2 routes)
+
+**What's next after Iter 314 deploys:**
+- Founder pulls speed-diagnostic report from prod via the new page → pastes JSON back → confirms or refutes the primary suspect for the 171s failure (see RCA hypothesis below).
+- Iter 315: timer fix (ChatPanel terminal-event replaces loopPending bubble) + 60s message fix (loop_engine stale string) — small, focused bundle.
+- Deploy Sync SHA-match warning chip queued for Iter 316 when it has a natural bundle-mate.
+
+**171s plan-phase RCA hypothesis (issued in parallel — waiting on speed-diagnostic JSON to confirm/refute):**
+- Primary suspect: `services/graph_builder.py::build_graph()` triggered synchronously inside `_do_plan()` (loop_engine.py:2756) when the project's graph is missing OR >30-min stale. Walks entire repo via GitHub API, regex-parses every file. On a large repo this alone can eat 90-150s of the 120s plan budget.
+- Secondary suspect: Council-A LLM call (`call_llm_with_meta(..., review_mode="pro")`) with a large compact repo map (15KB+) + complex user prompt. Anthropic latency variance can push a single Claude Sonnet 4.5 call to 40-90s.
+- Minor contributor: `build_repo_map()` is called twice per plan phase (once at line 2765 inside `_generate_plan`, once at line 537 for the grounding check). Small (~200ms each) but genuinely wasted work worth cleaning up alongside the primary fix.
+- Ruled out: no retry loop inside `_do_plan()` — it's a single sequential pass.
+- Total worst-case sequential budget: ~186s (fits 171s failure cleanly).
+- Waiting on speed-diagnostic JSON to distinguish which suspect dominates; likely fix if #1 confirms: async graph refresh (kick off in background, fall back to stale map if fresh isn't ready) — never block plan on it.
+
+
 ## 2026-07-27 02:35 UTC — Iter 313 · /version SHA cascade write-through — UNIT VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Trigger:** Founder observed on 2026-07-27 02:20 UTC that `GET /api/aurem-dev/version` returned the SAME `commit_sha` ("34e9731265cf") across two distinct deploys (Iter 311 at 00:19 UTC, Iter 312 at 01:52 UTC), even though `built_at` legitimately changed. This makes deploy-verification timestamp-only — meaningful, but every future "did the code change on prod?" check is untrustworthy without a real SHA. Founder flagged it as small-but-critical dev-infra hygiene before proceeding to Speed Diagnostic Part 2.
