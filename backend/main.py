@@ -761,6 +761,25 @@ async def lifespan(app: FastAPI):
         except Exception as _e:
             logger.warning(f"github_deploy_service.set_db failed: {_e}")
 
+        # Iter 328 — SYSTEM_INVENTORY auto-append (Ripple miss #3 close-out).
+        # On every boot (which happens after every Emergent auto-commit), scan
+        # the last commit range for inventory-worthy additions (new routers,
+        # env vars, loop_run_log kinds, services) and append them to
+        # /app/memory/SYSTEM_INVENTORY.md. Idempotent — the scripts helper
+        # uses HTML-comment markers so re-boots never double-append.
+        # Fail-open: any scan/git/write failure is swallowed and logged at
+        # debug so it CAN NEVER block boot or slow the app.
+        try:
+            from services.inventory_service import record_from_git_async
+            import os as _os
+            iter_num = int((_os.environ.get("AUREM_ITER_NUM") or "0").strip() or "0")
+            _asyncio.create_task(
+                record_from_git_async("HEAD~1", "HEAD", iter_num=iter_num)
+            )
+            logger.info("📚 SYSTEM_INVENTORY auto-append scheduled (HEAD~1..HEAD)")
+        except Exception as _e:                               # noqa: BLE001
+            logger.debug(f"inventory auto-append schedule failed: {_e!r}")
+
     app.state.bootstrap_task = _asyncio.create_task(_bg_bootstrap())
 
     # Iter 212m-160 — LongCat availability probe (non-blocking).
