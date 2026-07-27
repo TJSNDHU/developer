@@ -137,29 +137,62 @@ async def select_relevant_files(
 
     tokens = _tokenize(task_description)
     scored: list[tuple[str, int]] = []
-    for path, node in nodes.items():
+    # ── Iter 311 · Fix C ────────────────────────────────────────────
+    # NARROWED SCOPE: file_selector's job is to RANK and FILTER
+    # WITHIN planner_set, never to introduce files the planner didn't
+    # pick. Prior behaviour scored every node in the graph and let
+    # keyword-collision winners displace planner picks — the exact
+    # mechanism that pulled 9 unrelated routers into
+    # loop_511cdd848b5945's execute scope on 2026-07-26 (naive
+    # keyword match: `health`/`endpoint`/`detailed` tokens matched
+    # unrelated `campaign_health_router.py`, `admin_financials_router.py`,
+    # etc.).
+    #
+    # Fix boundary:
+    #   • Sweep now iterates ONLY planner_set, not all graph nodes.
+    #   • Files outside planner_set can never appear in candidates.
+    #   • Scoring is preserved for RANKING planner files (so if the
+    #     planner over-specified 15 files, we still trim to the top-N
+    #     most task-relevant ones — Iter 212m-116's original purpose).
+    #   • Defensive fallback: if scoring somehow produces zero valid
+    #     entries, return planner_set unchanged rather than [].
+    for path in planner_set:
+        node = nodes.get(path) or {}
         s = score_file(node, path, tokens)
-        if path in planner_set:
-            s += 200          # planner-blessed → guaranteed inclusion
-        if s > 0:
-            scored.append((path, s))
+        # +200 planner-blessed boost is now redundant (every file in
+        # this loop IS planner-blessed), but keep it for consistency
+        # with the historic scoring model — makes the score numeric
+        # range comparable across iterations for audit purposes.
+        s += 200
+        scored.append((path, s))
     scored.sort(key=lambda t: t[1], reverse=True)
+
+    # Trim to top_n (or all planner files if fewer). `skipped` now
+    # tracks planner files pushed out of top_n by relevance ranking —
+    # they DID score well enough to be in planner_set but not in the
+    # top-N cut. Still valuable diagnostic data.
     top = scored[:max(1, top_n)]
     skipped = [p for p, _ in scored[top_n:]]
     candidates = [p for p, _ in top]
-    # Fold in any planner files that scored 0 (kept by planner trust).
-    for p in planner_set:
-        if p not in candidates:
-            candidates.append(p)
+
+    # Defensive fallback: if trimming somehow produced an empty list
+    # (should be impossible with +200 boost + non-empty planner_set,
+    # but guard explicitly per the founder's directive), fall back
+    # to raw planner_set. Zero risk of empty execute scope.
+    if not candidates and planner_set:
+        candidates = list(planner_set)
+
     return {
-        "ok": True,
-        "has_graph": True,
-        # Iter 212m-142 — hard cap is `top_n + planner_set` so planner-
-        # appended files (line 128 above) are NEVER truncated. The old
-        # `max(top_n, len(planner_set))` cut planner files when
-        # `len(planner_set) < top_n` — exact PROD bug repro.
-        "candidates":   candidates[:top_n + len(planner_set)],
-        "skipped":      skipped,
-        "total_scored": len(scored),
-        "tokens":       tokens,
+        "ok":           True,
+        "has_graph":    True,
+        # Iter 311 · Fix C — candidates is a strict SUBSET of
+        # planner_set. Cap is min(top_n, len(planner_set)) since we
+        # never introduce external files. `+ len(planner_set)` from
+        # the old formula was there to prevent planner-file truncation
+        # when external candidates dominated the top-N — no longer
+        # needed because externals can't compete.
+        "candidates":    candidates,
+        "skipped":       skipped,
+        "total_scored":  len(scored),
+        "tokens":        tokens,
     }
