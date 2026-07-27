@@ -1,0 +1,99 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Loop 4473f240 was reported stuck by the founder on 2026-07-27: ChatPanel showed 'Loop failed to start' at the top of the chat while LoopStatusChip in the header simultaneously showed 'LOOP \u00b7 PLANNING'. Root cause: /loop/start was synchronous \u2014 `async for _ev in engine.start(): pass` at loop.py:162 drained the entire plan phase before returning the HTTP response. Any complex plan taking >60s hit the frontend axios timeout (frontend/src/lib/api.js:15 has `timeout: 60000`). Backend session was created (lock write happens BEFORE the plan work), engine kept running, chip polled /loop/active and saw truth \u2014 but ChatPanel rendered the failure card from the raw axios error, so chip + chat contradicted.",
+  "summary": "No relevant testing skill found. Focused Iter 312 verification found backend /loop/start now returns quickly and immediate second start 409s, but the end-to-end founder criteria are not met: /loop/active does not expose planning sessions, timeout recovery did not render the required still-working banner in browser simulation, and the ChatPanel recovery path does not open/bind SSE or process plan-ready events, so the approval card cannot reliably render after recovery.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/aurem-dev/loop/active",
+        "issue": "Planning sessions are excluded from the active query (state $in omits 'planning'). BACKEND-3 failed: after POST /loop/start returned 200 in 0.107654s with {loop_id:'loop_487276bec65b46', state:'planning', phase:'plan', plan:null, async_start:true}, immediate GET /loop/active?project_id=p_norepotest returned {ok:true, active:null}. This breaks the frontend timeout recovery poll while a complex plan is still running.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/aurem-dev/loop/start",
+        "issue": "Preview repo setup prevents a real simple/fast loop E2E: selected demo repos either have no PAT or an invalid PAT. Real UI submit returned HTTP 400 {'detail':'No PAT configured for this project...'}; p_norepotest background session immediately failed with 'GitHub PAT preflight failed: pat_invalid_or_expired'. Per verdict rules, missing required working preview data prevents declaring fixed.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/aurem-dev/loop/start",
+        "issue": "BACKEND-1 and BACKEND-2 partial pass on p_norepotest: first POST returned 200 in 0.107654s with async_start:true; second immediate POST returned 409 loop_already_running with existing_loop_id matching the first loop. Rollback flag path was not runtime-tested after critical failures were found."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ChatPanel.jsx",
+        "issue": "Timeout recovery browser simulation (real 60s axios timeout by holding /loop/start for 70s while /loop/active returned an active planning loop) did not render 'Plan taking longer than expected \u2014 still working\u2026'. At 65s: still-working=false, loop-failed=false, plan-card=false, while LoopStatusChip displayed 'LOOP \u00b7 PLANNING'. This does not satisfy founder criterion #1.",
+        "selector": "chat messages / [data-testid='loop-status-chip']",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "ChatPanel.jsx / PlanApprovalCard",
+        "issue": "Plan approval card did not render after simulated recovery; no /loop/{loop_id}/stream request was observed. This directly fails founder criterion #2.",
+        "selector": "[data-testid='plan-approval-card']",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Timeout recovery: startLoop axios timeout -> getActiveLoop -> SSE -> approval card",
+        "issue": "Code review confirms the recovery branch only calls setLoopId/setLoopPhase and replaces the pending message. It does not call openLoopStream(active.loop_id), and there is no useEffect that opens SSE on loopId. handleLoopEvent also does not setLoopPlan from ev.data.plan, while showPlanCard requires loopPhase === 'plan_pending'. Therefore even if active polling succeeds, the plan-ready SSE cannot update the chat into an approval card.",
+        "affected_selectors": [
+          "chat messages",
+          "[data-testid='plan-approval-card']",
+          "[data-testid='loop-status-chip']"
+        ]
+      },
+      {
+        "flow": "Fast-task regression guard",
+        "issue": "Could not verify a normal fast loop E2E in preview because available projects have missing/invalid PATs. The actual UI flow with the selected demo project returned a red HTTP 400 PAT error instead of a plan; no approval card appeared.",
+        "affected_selectors": [
+          "[data-testid='chat-input']",
+          "[data-testid='chat-send']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter312_backend_probe_p_norepotest.log",
+    "/app/test_reports/bug_verification_artifacts/iter312_start_active_db_probe.log",
+    "/app/test_reports/bug_verification_artifacts/iter312_static_audit.log",
+    "/app/test_reports/bug_verification_artifacts/iter312_ui_probe.log",
+    "/root/.emergent/automation_output/20260727_010228/console_20260727_010228.log"
+  ],
+  "action_items": [
+    "Add 'planning' to /loop/active's active-state query so timeout recovery and LoopStatusChip can see an in-progress plan immediately after async start.",
+    "In ChatPanel timeout recovery, actually open/bind the loop SSE stream after setLoopId(active.loop_id).",
+    "Handle plan-ready/awaiting_confirmation SSE events by setting loopPlan from ev.data.plan and replacing the recovery/pending bubble with formatted plan markdown.",
+    "Relax/fix showPlanCard gating so recovered plan states such as 'awaiting_confirmation' or phase 'plan' can render the approval card; do not require only 'plan_pending'.",
+    "Provide a valid preview project/PAT or a safe no-ship fixture so the founder's simple fast-task regression can be verified end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "backend/routers/loop.py:get_active_loop state filter includes awaiting_confirmation/executing/verifying/scanning/shipping/paused_for_user/self_healing but not planning, so active polling during the long plan phase returns null.",
+    "frontend/src/components/ChatPanel.jsx recovery block comments say 'Bind SSE', but the code never calls openLoopStream(active.loop_id).",
+    "ChatPanel handleLoopEvent does not read ev.data.plan or call setLoopPlan when state='awaiting_confirmation', phase='plan'.",
+    "showPlanCard requires loopPhase === 'plan_pending', but recovery sets loopPhase to active.phase/state (usually 'plan' or 'awaiting_confirmation'), preventing recovered approvals."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_artifacts/iter312_backend_probe.sh",
+    "/app/test_reports/bug_verification_artifacts/iter312_backend_probe_noproject.sh",
+    "/app/test_reports/bug_verification_artifacts/iter312_start_active_db_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter312_static_audit.py",
+    "/app/test_reports/bug_verification_artifacts/iter312_ui_probe.py",
+    "/app/test_reports/bug_verification_317.json",
+    "/app/test_reports/iteration_317.json"
+  ],
+  "success_rate": {
+    "backend": "50%",
+    "frontend": "0%"
+  },
+  "seed_data_creation": "No seed data created. Only test locks for test_admin_001 on p_demo_a/_no_project/p_norepotest were cleaned up after probes.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use /app/frontend/.env REACT_APP_BACKEND_URL and preview creds. Re-run a timeout simulation after code changes and require: banner appears, SSE /loop/{loop_id}/stream opens, ev.data.plan renders as markdown, [data-testid='plan-approval-card'] appears, and chip never contradicts chat. Also verify with a valid PAT-backed preview project.",
+  "rca_of_the_issue": "The backend async fire-and-forget part is only partially fixed. The reconciliation chain still has gaps: /loop/active hides planning sessions; ChatPanel timeout recovery only mutates local state/message and does not attach SSE; plan-ready SSE data is not consumed into loopPlan; approval-card gating is incompatible with recovered states. Result: the founder-visible contradiction class is still possible, and the required recovery-to-plan outcome is not implemented end to end."
+}
