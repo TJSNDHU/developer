@@ -180,17 +180,30 @@ export default function LoopStepBar({
 
   // Derive per-step ECG variant from real narration tones.
   // Priority (highest wins):
-  //   0. ── Iter 323 · Bug A frontend — terminal-success OVERRIDE ──
+  //   0. ── Iter 323/329 · terminal-state pending resolver ──
   //      When the loop reaches a terminal-success phase
-  //      (`completed` / `done` / `shipped`), force step 5 (SHIP) to
-  //      "success" regardless of any stale narration tone. Live
-  //      incident (commit 7bb304d): the ship-success narration was
-  //      lost when SSE closed on the terminal frame, so
-  //      stepTones.ship stayed "pending" and the SHIP ECG stayed
-  //      orange forever. Backend fix (Iter 323 Bug A backend)
-  //      reorders narration to precede terminal emit; this front-
-  //      end override is defence-in-depth against any future
-  //      variant of the same lost-narration race.
+  //      (`completed` / `done` / `shipped`), every step whose
+  //      narration tone is still "pending" is force-resolved to
+  //      "success". Same class of fix as LoopLiveFeed's
+  //      resolvePendingOnTerminal (Iter 329 · Fix B) — some phases'
+  //      correlation_id resolver frames never arrive (SSE gap OR
+  //      backend narration omission). We also keep the legacy
+  //      isDone → SHIP=success override so an all-tones-empty
+  //      terminal still shows SHIP green.
+  //
+  //      Founder-observed bug (Iter 329 · Fix C · Bug 2): PLAN ✓,
+  //      EXECUTE (amber spinning), VERIFY ✓, SCAN ✓, SHIP ✓ on a
+  //      real completed ship (commit 0b79db0). Logically
+  //      impossible — SHIP done implies EXECUTE done. Root cause:
+  //      execute's stepTones stayed at "pending" and the prior
+  //      Rule 0 only covered step 5.
+  //
+  //      For terminal-failure (isError) with a still-pending tone
+  //      on a step that ISN'T the errorStep, we resolve to
+  //      "future"-ish (not "active") because we don't know the
+  //      real outcome but the loop is over — a spinning ECG on a
+  //      dead loop is the worst UX. Only the actual errorStep
+  //      gets "danger".
   //   1. If stepTones[key] === "success" → resolved green.
   //   2. If stepTones[key] === "danger" → resolved red.
   //   3. If stepTones[key] === "warning" → resolved green (warning
@@ -200,10 +213,22 @@ export default function LoopStepBar({
   //      backend hasn't emitted narration for that step yet or the
   //      loop is running on a stale build without narration).
   function ecgVariant(step) {
-    // Rule 0 (highest): terminal-success phase forces step 5 green.
-    if (isDone && step.id === 5) return "success";
     const key = step.narrationKey || step.key;
     const tone = stepTones[key];
+    // Rule 0-a: terminal-success — resolve any still-pending tone
+    // to success + keep the legacy SHIP override.
+    if (isDone) {
+      if (tone === "pending") return "success";
+      if (step.id === 5)      return "success";
+    }
+    // Rule 0-b: terminal-failure — the actual error step is danger;
+    // any OTHER step still stuck on "pending" resolves to "future"
+    // (loop is dead, spinner is a lie). Other tones fall through
+    // to their normal handling below.
+    if (isError) {
+      if (step.id === errorStep) return "danger";
+      if (tone === "pending")    return "future";
+    }
     if (tone === "success" || tone === "warning") return "success";
     if (tone === "danger") return "danger";
     if (tone === "pending") return "active";

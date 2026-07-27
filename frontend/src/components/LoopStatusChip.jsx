@@ -94,8 +94,30 @@ const PHASE_LABEL = {
   expired:               "EXPIRED",
 };
 
-function phaseText(active) {
+// ── Iter 329 · Fix C · Bug 1 — terminal-state label wins over phase ─
+// When the loop is done, `state` is the source of truth for the pill
+// label — NOT the last mid-loop `phase`. Prior code let phase win
+// (phase || state), so a terminal snapshot with state=completed +
+// phase="ship" mapped through PHASE_LABEL["ship"]="SHIPPING", freezing
+// the chip on SHIPPING for the entire 30s terminal grace window
+// instead of transitioning to SHIPPED.
+//
+// Same class as LoopLiveFeed's resolvePendingOnTerminal (Iter 329 ·
+// Fix B): once the loop is terminal, no lingering mid-loop label can
+// be legitimately in-progress. Terminal state MUST win.
+const TERMINAL_STATES = new Set([
+  "completed", "done", "shipped",
+  "failed", "aborted", "expired", "cancelled", "canceled",
+]);
+
+export function phaseText(active) {
   if (!active) return "IDLE";
+  const state = String(active.state || "").toLowerCase();
+  const phase = String(active.phase || "").toLowerCase();
+  // Rule 0 (Iter 329 · Fix C): terminal state trumps phase.
+  if (TERMINAL_STATES.has(state)) {
+    return PHASE_LABEL[state] || state.toUpperCase();
+  }
   // Iter 312 · Class 3 companion — state-first for approval variants.
   // When the engine sits at state='awaiting_confirmation' during the
   // plan phase, the raw phase is still 'plan' (which maps to
@@ -104,8 +126,6 @@ function phaseText(active) {
   // whenever it's an approval-gate variant so the chip agrees with
   // the visible card. For all other running phases the finer-grained
   // phase field still wins (executing/verifying/shipping etc.).
-  const state = String(active.state || "").toLowerCase();
-  const phase = String(active.phase || "").toLowerCase();
   if (state === "awaiting_confirmation" || state === "paused_for_user") {
     const key = state;
     return PHASE_LABEL[key] || key.toUpperCase() || "RUNNING";
@@ -113,6 +133,9 @@ function phaseText(active) {
   const key = phase || state || "";
   return PHASE_LABEL[key] || key.toUpperCase() || "RUNNING";
 }
+
+// Exposed for unit tests — pure helper, no state, no side effects.
+export const __testables__ = { phaseText };
 
 export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null }) {
   const [active, setActive] = useState(null);
