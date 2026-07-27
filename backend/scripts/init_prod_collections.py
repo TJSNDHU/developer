@@ -374,30 +374,66 @@ async def init_prod_collections(db) -> dict:
         except Exception as e:
             out["errors"].append(f"{name}: {type(e).__name__}: {e}")
             logger.warning("init_prod_collections %s failed: %r", name, e)
-    # Iter 140 — seed default feature flags if the collection is empty.
-    # Idempotent: only runs once per fresh DB.
-    try:
-        if await db.feature_flags.count_documents({}) == 0:
-            await db.feature_flags.insert_many([
-                {"flag": "new_analytics_v2", "enabled": True,
-                 "tier_allowlist": [], "user_allowlist": [],
-                 "description": "New product analytics dashboard"},
-                {"flag": "maxx_mode_beta", "enabled": True,
-                 "tier_allowlist": ["pro", "team", "founder"],
-                 "user_allowlist": [],
-                 "description": "Maxx dual-model review mode"},
-                {"flag": "parallel_agents", "enabled": True,
-                 "tier_allowlist": ["pro", "team", "founder"],
-                 "user_allowlist": [],
-                 "description": "3-agent parallel task execution"},
-                {"flag": "chrome_extension_beta", "enabled": False,
-                 "tier_allowlist": [], "user_allowlist": [],
-                 "description": "Chrome extension side panel (beta)"},
-            ])
-            out["created"].append("feature_flags:seeded(4)")
-    except Exception as e:
-        out["errors"].append(f"feature_flags seed: {type(e).__name__}: {e}")
-        logger.warning("feature_flags seed failed: %r", e)
+    # Iter 140 → Iter 328 · #11 — per-flag idempotent seed.
+    #
+    # HISTORY: The original implementation used
+    # `insert_many(if collection empty)`. That guard caused a silent
+    # data-migration bug: once production had ANY flag, subsequent
+    # additions to this seed list never propagated to prod, so newly
+    # added flags (e.g. `integration_health_cron`) were absent from the
+    # admin UI while the code that read them was live. Discovered when
+    # the founder found the cron kill-switch flag missing from
+    # /admin/feature-flags on prod despite being in code.
+    #
+    # FIX: Per-flag `update_one($setOnInsert, upsert=True)`. This
+    # guarantees:
+    #   1. Missing flags get inserted with the seed defaults.
+    #   2. Existing flags — including any founder-toggled `enabled`
+    #      state — are NEVER touched by boot. `$set` would silently
+    #      wipe a founder's manual OFF toggle on every restart; that's
+    #      the exact silent-state-loss class we're eliminating.
+    #   3. Idempotent — safe to run on every boot.
+    _SEED_FLAGS = [
+        {"flag": "new_analytics_v2", "enabled": True,
+         "tier_allowlist": [], "user_allowlist": [],
+         "description": "New product analytics dashboard"},
+        {"flag": "maxx_mode_beta", "enabled": True,
+         "tier_allowlist": ["pro", "team", "founder"],
+         "user_allowlist": [],
+         "description": "Maxx dual-model review mode"},
+        {"flag": "parallel_agents", "enabled": True,
+         "tier_allowlist": ["pro", "team", "founder"],
+         "user_allowlist": [],
+         "description": "3-agent parallel task execution"},
+        {"flag": "chrome_extension_beta", "enabled": False,
+         "tier_allowlist": [], "user_allowlist": [],
+         "description": "Chrome extension side panel (beta)"},
+        {"flag": "integration_health_cron", "enabled": True,
+         "tier_allowlist": [], "user_allowlist": [],
+         "description": "Periodic integration health probe (default: 10 min). Toggle OFF to pause runtime without a restart."},
+    ]
+    inserted_flags: list[str] = []
+    for _spec in _SEED_FLAGS:
+        _fname = _spec["flag"]
+        try:
+            res = await db.feature_flags.update_one(
+                {"flag": _fname},
+                {"$setOnInsert": _spec},
+                upsert=True,
+            )
+            if getattr(res, "upserted_id", None) is not None:
+                inserted_flags.append(_fname)
+        except Exception as e:
+            out["errors"].append(
+                f"feature_flags seed {_fname}: {type(e).__name__}: {e}"
+            )
+            logger.warning(
+                "feature_flags seed %s failed: %r", _fname, e
+            )
+    if inserted_flags:
+        out["created"].append(
+            f"feature_flags:inserted({','.join(inserted_flags)})"
+        )
     logger.info("init_prod_collections done — created=%d, indexed=%d, errors=%d",
                 len(out["created"]), len(out["indexed"]), len(out["errors"]))
     _LAST_BOOTSTRAP = out
