@@ -277,32 +277,70 @@ async def _probe_firecrawl() -> dict:
         return _result("firecrawl", "Firecrawl Scrape", "missing",
                        summary="FIRECRAWL_API_KEY not configured",
                        fix_hint="Get key at firecrawl.dev/app")
-    async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post(
-            "https://api.firecrawl.dev/v1/scrape",
-            headers={"Authorization": f"Bearer {key}"},
-            json={"url": "https://example.com", "formats": ["markdown"]},
-        )
-        if r.status_code == 200:
-            data = r.json()
-            ok = data.get("success", False)
-            return _result("firecrawl", "Firecrawl Scrape",
-                           "ok" if ok else "warn",
-                           summary=f"Live • scraped example.com",
-                           detail=f"success={ok}")
-        if r.status_code == 401:
-            return _result("firecrawl", "Firecrawl Scrape", "broken",
-                           summary="Invalid API key",
-                           detail=r.text[:200],
-                           fix_hint="Rotate at firecrawl.dev/app")
-        if r.status_code == 402:
-            return _result("firecrawl", "Firecrawl Scrape", "warn",
-                           summary="Credits exhausted",
-                           detail=r.text[:200],
-                           fix_hint="Top up at firecrawl.dev/pricing")
+    # ── Iter 326 · Firecrawl diagnostic instrumentation ───────────
+    # Founder request: capture per-probe latency + failure signature
+    # so the next prod-side 20s timeout has a real fingerprint
+    # instead of just "timeout after 20s". Key hash (sha256[:8])
+    # only — full key never logged. Diagnostic-only, no behaviour
+    # change to the probe result contract.
+    import hashlib
+    import time as _t
+    key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
+    key_prefix = key[:6]                 # e.g. `fc-b13b`, safe to log
+    t0 = _t.monotonic()
+    diag: dict = {
+        "key_hash":   key_hash,
+        "key_prefix": key_prefix,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(
+                "https://api.firecrawl.dev/v1/scrape",
+                headers={"Authorization": f"Bearer {key}"},
+                json={"url": "https://example.com", "formats": ["markdown"]},
+            )
+    except httpx.TimeoutException as _te:
+        diag["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+        diag["signature"]  = "timeout"
+        diag["exception"]  = type(_te).__name__
+        # Preserve existing _result() contract but attach `diag`
+        # dict so callers logging to integration_health_history
+        # capture the fingerprint.
         return _result("firecrawl", "Firecrawl Scrape", "broken",
-                       summary=f"HTTP {r.status_code}",
-                       detail=r.text[:200])
+                       summary=f"Timeout after {diag['elapsed_ms']}ms",
+                       detail=f"key_hash={key_hash} prefix={key_prefix} — no upstream response",
+                       fix_hint="Verify prod k8s FIRECRAWL_API_KEY value matches active Firecrawl account")
+    except Exception as _ex:                              # noqa: BLE001
+        diag["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+        diag["signature"]  = f"exception:{type(_ex).__name__}"
+        return _result("firecrawl", "Firecrawl Scrape", "broken",
+                       summary=f"{type(_ex).__name__} at {diag['elapsed_ms']}ms",
+                       detail=f"key_hash={key_hash} prefix={key_prefix} — {str(_ex)[:120]}",
+                       fix_hint="Check prod egress + k8s secret")
+    diag["elapsed_ms"]  = int((_t.monotonic() - t0) * 1000)
+    diag["status_code"] = r.status_code
+    diag["body_prefix"] = (r.text or "")[:200]
+    diag["signature"]   = f"http_{r.status_code}"
+    if r.status_code == 200:
+        data = r.json()
+        ok = data.get("success", False)
+        return _result("firecrawl", "Firecrawl Scrape",
+                       "ok" if ok else "warn",
+                       summary=f"Live • scraped example.com in {diag['elapsed_ms']}ms",
+                       detail=f"success={ok} key_hash={key_hash} prefix={key_prefix}")
+    if r.status_code == 401:
+        return _result("firecrawl", "Firecrawl Scrape", "broken",
+                       summary="Invalid API key",
+                       detail=f"key_hash={key_hash} prefix={key_prefix} — {r.text[:150]}",
+                       fix_hint="Rotate at firecrawl.dev/app")
+    if r.status_code == 402:
+        return _result("firecrawl", "Firecrawl Scrape", "warn",
+                       summary="Credits exhausted",
+                       detail=f"key_hash={key_hash} prefix={key_prefix} — {r.text[:150]}",
+                       fix_hint="Top up at firecrawl.dev/pricing")
+    return _result("firecrawl", "Firecrawl Scrape", "broken",
+                   summary=f"HTTP {r.status_code} in {diag['elapsed_ms']}ms",
+                   detail=f"key_hash={key_hash} prefix={key_prefix} — {r.text[:150]}")
 
 
 async def _probe_resend() -> dict:
