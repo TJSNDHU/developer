@@ -4,6 +4,17 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 04:35 UTC — Iter 309 Part 2 · Visual QA spec captured (NOT built, gated behind SSE test)
+
+Founder-provided screenshot marked up 2026-07-27 confirming the LoopStepBar ECG-strip requirement: each of the 5 phase labels (PLAN/EXECUTE/VERIFY/SCAN/SHIP) must have its own ECG-pulse strip directly beneath it, width-aligned per-label (NOT one continuous strip spanning the row).
+
+**Persisted spec file:** `/app/memory/ITER_309_PART_2_SPEC.md` — contains exact pixel geometry constraints (width parity ±1px, horizontal alignment ±1px, fixed vertical row ±1px, vertical gap 4-16px), Playwright assertions template, and required `data-testid` list (`loop-step-label-{phase}` + `loop-step-strip-{phase}` for 5 phases).
+
+**No code change in this entry.** Requirement captured only. Whichever agent builds Iter 309 Part 2 must read `/app/memory/ITER_309_PART_2_SPEC.md` FIRST before touching `LoopStepBar.jsx` so the visual contract is met on the first pass. Skip this file → regenerate the misaligned-row problem → founder finds it on visual QA → iterate.
+
+**Gate order unchanged:** 25-min SSE test → Iter 309 deploy → Iter 309 Part 2 → Chip Smart Visibility → Ship-stage chip button. This entry preserves the requirement across any context boundary between now and the actual build.
+
+
 ## 2026-07-27 04:15 UTC — Iter 316 · SSE-plan-delivery hardening (fallback poll + hydrate SSE bind + telemetry + replay-buffer inspection) — REGRESSION-VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Trigger:** Founder ran a genuinely simple task (Path A sanity check, "add one-line comment to README.md") post-Iter-315 deploy to verify the diagnostic write-through. Chip correctly showed `LOOP · AWAITING APPROVAL` but ChatPanel stayed stuck on "Generating plan… 66.8s" with zero plan text and zero approval button in the DOM (verified via full page-source dump). Founder correctly reframed this as potentially the shared root cause behind both the earlier 171s timeout AND today's simple-task stall — same underlying SSE-delivery gap, different visible symptom.
