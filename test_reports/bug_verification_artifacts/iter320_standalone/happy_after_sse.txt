@@ -6,8 +6,6 @@ main
 Swift
 Pro
 Maxx
---
-HEALTH
 New run
 Chat
 Preview
@@ -31,9 +29,6 @@ A simple test plan to verify Iter 312 recovery.
 · Plan ready — awaiting your approval.
 ▎
 Mode C · Code task
-6 console errors
-SEND TO ORA →
-COPY
 LOOP
 PLAN
 —

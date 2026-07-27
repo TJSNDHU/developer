@@ -40,7 +40,7 @@ SHIP
 LOOP LOOP_FAK · LIVE FEED
 ~ Opening plan stream…
 ORA · Vanguard reviews every change before it ships.
-CASUAL
+AGENTIC
 LOOP ON
 ADVISOR
 

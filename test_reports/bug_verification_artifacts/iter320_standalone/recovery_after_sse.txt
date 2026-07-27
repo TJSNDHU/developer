@@ -13,7 +13,7 @@ Graph
 ⚠
 3 projects point to deleted or unreachable repos — click to clean up
 Open →
-LOOP · PLANNING
+LOOP · AWAITING APPROVAL
 id · recovery
 STOP LOOP
 Clear chat
@@ -62,7 +62,7 @@ Cancel loop
 LOOP LOOP_FAK · LIVE FEED
 ~ Opening plan_pending stream…
 ORA · Vanguard reviews every change before it ships.
-CASUAL
+AGENTIC
 LOOP ON
 ADVISOR
 

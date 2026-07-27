@@ -13,10 +13,6 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/@react-refresh"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/F12ErrorCapture.js"
   },
   {
@@ -25,11 +21,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116446525"
   },
   {
     "method": "GET",
     "url": "https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/@react-refresh"
   },
   {
     "method": "GET",
@@ -45,11 +45,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116446525"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116446525"
   },
   {
     "method": "GET",
@@ -58,18 +58,6 @@
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/vite/dist/client/env.mjs"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-5LUJUZZY.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-D2H3OWU7.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-MTI3AIJG.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -137,11 +125,55 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-D2H3OWU7.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-MTI3AIJG.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-5LUJUZZY.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopLiveFeed.jsx"
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/axios.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/lucide-react.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AuthShell.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/api.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RobotGuide.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
   },
   {
     "method": "GET",
@@ -158,38 +190,6 @@
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/demo/demoSteps.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/api.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AuthShell.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RobotGuide.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/axios.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
   },
   {
     "method": "GET",
@@ -233,11 +233,11 @@
   },
   {
     "method": "POST",
-    "url": "https://launch-pad-237.preview.emergentagent.com/cdn-cgi/challenge-platform/h/g/jsd/oneshot/b0da9f4911ba/0.5748515336314267:1785114038:XjnHbZOxgMMU1UXaVD4d0nnTjCz5rV_yqt9jb52yBOw/a217ee0a4d00ff5c"
+    "url": "https://launch-pad-237.preview.emergentagent.com/cdn-cgi/challenge-platform/h/g/jsd/oneshot/b0da9f4911ba/0.5748515336314267:1785114038:XjnHbZOxgMMU1UXaVD4d0nnTjCz5rV_yqt9jb52yBOw/a217f21b193fff5c"
   },
   {
     "method": "POST",
-    "url": "https://pagead2.googlesyndication.com/ccm/collect?rcb=12&frm=0&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Flogin&scrsrc=www.googletagmanager.com&rnd=2637535.1785116362&navt=n&npa=1&gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G100&gcd=13p3p3p3p5l1&dma_cps=-&dma=0&tag_exp=115938465~115938469~118897920~118897930~119896802&apve=1&apvf=f&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116362062&tfd=824&fmt=8"
+    "url": "https://pagead2.googlesyndication.com/ccm/collect?rcb=12&frm=0&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Flogin&scrsrc=www.googletagmanager.com&rnd=1010177779.1785116529&navt=n&npa=1&gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G100&gcd=13p3p3p3p5l1&dma_cps=-&dma=0&tag_exp=115616986~115938466~115938468~118897920~118897930~119724320~119896802&apve=1&apvf=f&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116528647&tfd=874&fmt=8"
   },
   {
     "method": "POST",
@@ -253,7 +253,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -264,24 +264,8 @@
     "url": "https://launch-pad-237.preview.emergentagent.com/cdn-cgi/rum?"
   },
   {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/TopBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
-  },
-  {
     "method": "POST",
     "url": "https://launch-pad-237.preview.emergentagent.com/cdn-cgi/rum?"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ConnectRepoBanner.jsx"
   },
   {
     "method": "GET",
@@ -289,7 +273,43 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ConnectRepoBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/ConnectRepoTour.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecretScanCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/TopBar.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Shell.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -305,35 +325,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116212187"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/ConnectRepoTour.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TabBar.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecretScanCard.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/NewUserWizard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/aurem-bg.webp"
   },
   {
     "method": "GET",
@@ -345,11 +341,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/aurem-bg.webp"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/F12ErrorCapture.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -361,23 +361,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react-dom_client.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116212187"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116212187"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/errorReporter.js"
   },
   {
     "method": "GET",
@@ -385,11 +369,31 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react-dom_client.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116446525"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/errorReporter.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116446525"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=2aa46b32"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Toast.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-D2H3OWU7.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-MTI3AIJG.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -397,15 +401,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FixJobContext.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/AdminQADashboard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Signup.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Toast.jsx"
   },
   {
     "method": "GET",
@@ -413,7 +409,35 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/LoopLiveFeedDemo.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/AdminQADashboard.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Login.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FixJobContext.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/useAutoClearConsole.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/services/theme.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/WhyOra.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Signup.jsx"
   },
   {
     "method": "GET",
@@ -425,35 +449,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/useAutoClearConsole.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/WhyOra.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/LoopLiveFeedDemo.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/services/theme.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-MTI3AIJG.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Both.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Landing.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-D2H3OWU7.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Both.jsx"
   },
   {
     "method": "GET",
@@ -465,6 +465,10 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AuthShell.jsx"
   },
   {
@@ -473,27 +477,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopLiveFeed.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/axios.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
   },
   {
     "method": "GET",
@@ -509,15 +497,27 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PricingCards.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/dompurify.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/demo/demoSteps.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/axios.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/dompurify.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -537,47 +537,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116212187"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TabBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/FinishSetupBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/TopBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Shell.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ConnectRepoBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/NewUserWizard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -585,15 +545,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/ConnectRepoTour.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/SidebarBound.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipConfirmModal.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
   },
   {
     "method": "GET",
@@ -601,11 +553,63 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/SidebarBound.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/ConnectRepoTour.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/FinishSetupBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TabBar.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/NewUserWizard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipConfirmModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ConnectRepoBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/TopBar.jsx"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/cn.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Shell.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116446525"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskLiveTape.jsx"
   },
   {
     "method": "GET",
@@ -617,6 +621,18 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThemeToggle.jsx"
+  },
+  {
+    "method": "POST",
+    "url": "https://pagead2.googlesyndication.com/ccm/collect?rcb=4&frm=0&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=1180476802.1785116530&navt=n&npa=1&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G100&gcd=13p3p3p3p5l1&dma_cps=-&dma=0&tag_exp=115938466~115938468~118897920~118897930~119896802&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116529938&tfd=709&fmt=8"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PWAInstallPrompt.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ClearCacheButton.jsx"
   },
   {
@@ -625,19 +641,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PWAInstallPrompt.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskLiveTape.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThemeToggle.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SuggestionBoxModal.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/WarmStatusBar.jsx"
   },
   {
     "method": "GET",
@@ -645,39 +649,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThinkingHint.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PreviewPanel.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopModeToggle.jsx"
-  },
-  {
-    "method": "POST",
-    "url": "https://pagead2.googlesyndication.com/ccm/collect?rcb=15&frm=0&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=741856850.1785116363&navt=n&npa=1&gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G100&gcd=13p3p3p3p5l1&dma_cps=-&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&apve=1&apvf=f&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116363338&tfd=667&fmt=8"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveTaskPopup.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PostTaskScan.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AgentStatusBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/WarmStatusBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TemperatureBadge.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThinkingHint.jsx"
   },
   {
     "method": "GET",
@@ -685,27 +661,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PlanApprovalCard.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveTaskPopup.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveStepFloatingCard.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TemperatureBadge.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MessageBubble.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useWarmStart.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferCard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/securityScanCache.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PostTaskScan.jsx"
   },
   {
     "method": "GET",
@@ -713,19 +677,27 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopActionCards.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GraphPanel.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/ToolButton.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopModeToggle.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatBgTint.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AgentStatusBar.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStatusChip.jsx?t=1785116446525"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PlanApprovalCard.jsx"
   },
   {
     "method": "GET",
@@ -733,27 +705,23 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/RepoHelpDialog.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/securityScanCache.js"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipPendingCard.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStatusChip.jsx?t=1785116183674"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatBgTint.js"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecurityScanDrawer.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatSession.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useORAPanel.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/StreamHealthPill.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MessageBubble.jsx"
   },
   {
     "method": "GET",
@@ -761,11 +729,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatTextUtils.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/RepoHelpDialog.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/StreamHealthPill.jsx"
   },
   {
     "method": "GET",
@@ -773,11 +737,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SlashCommandMenu.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/ToolButton.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ORASidePanel.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatTextUtils.js"
   },
   {
     "method": "GET",
@@ -785,11 +749,55 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/DeployPanel.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatSession.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecurityScanDrawer.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SlashCommandMenu.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SuggestionBoxModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useWarmStart.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveStepFloatingCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopActionCards.jsx"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/loopApi.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useORAPanel.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ORASidePanel.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/KnowledgeGraph.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/DeployPanel.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FileDiffPeek.jsx"
   },
   {
     "method": "GET",
@@ -801,15 +809,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PatRequiredCTA.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FileDiffPeek.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/StepCards.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskProgressCard.jsx"
   },
   {
     "method": "GET",
@@ -817,11 +817,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/KnowledgeGraph.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PatRequiredCTA.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/sonner.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/StepCards.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SystemSignalBanner.jsx"
   },
   {
     "method": "GET",
@@ -833,11 +837,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskProgressCard.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/@xyflow/react/dist/style.css"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useTextToVoice.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/sonner.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -845,23 +849,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SystemSignalBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipLintBadge.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/CodeBlock.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/@xyflow/react/dist/style.css"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/mermaid.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useTextToVoice.js"
   },
   {
     "method": "GET",
@@ -869,47 +857,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-E27TLA6T.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/CodeBlock.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-NBNKHDLM.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipLintBadge.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-ZLWDVJFY.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-UYLWTCVG.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TVFYHS4S.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TNWHCC6S.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-XDAX6ODJ.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-ZC5CJRJ4.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-6IV5PJ4B.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-SQFHAAAJ.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-FRORFES4.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/mermaid.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -921,6 +877,50 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-NBNKHDLM.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-FRORFES4.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-6IV5PJ4B.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-XDAX6ODJ.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-SQFHAAAJ.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TNWHCC6S.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TVFYHS4S.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-E27TLA6T.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-UYLWTCVG.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-ZLWDVJFY.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-ZC5CJRJ4.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-AG6KA2XO.js?v=2aa46b32"
   },
   {
@@ -929,11 +929,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-POX264PI.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-GYCHOOWS.js?v=2aa46b32"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-GYCHOOWS.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-POX264PI.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1141,11 +1141,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/history?session_id=c993690c-4efc-41d4-8727-d5d22c094e1d"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/history?session_id=fd6a0a7b-a49a-4c0e-b000-597b71858a47"
   },
   {
     "method": "GET",
@@ -1161,19 +1157,19 @@
   },
   {
     "method": "POST",
-    "url": "https://ad.doubleclick.net/ccm/s/collect?auid=1287937018.1785116364&gtm=45be67m0v9255500229za200zd9255500229xec"
+    "url": "https://ad.doubleclick.net/ccm/s/collect?auid=164753268.1785116531&gtm=45be67m1h2v9255500229za200zd9255500229xec"
   },
   {
     "method": "GET",
-    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116364167&cv=11&fst=1785116364167&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&rcb=15&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=4"
+    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116530667&cv=11&fst=1785116530667&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&rcb=4&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=4"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116364167&cv=11&fst=1785116364167&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&rcb=15&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=68&gcp=5"
+    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116530667&cv=11&fst=1785116530667&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&rcb=4&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=68&gcp=5"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/ccm/collect?rcb=15&frm=0&auid=1287937018.1785116364&dt=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&en=consent_update&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=741856850.1785116363&navt=n&npa=0&gcu=1&gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&apve=1&apvf=f&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116364179&tfd=1508&fmt=8"
+    "url": "https://www.google.com/ccm/collect?rcb=4&frm=0&auid=164753268.1785116531&dt=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&en=consent_update&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=1180476802.1785116530&navt=n&npa=0&gcu=1&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116530704&tfd=1475&fmt=8"
   },
   {
     "method": "GET",
@@ -1189,23 +1185,43 @@
   },
   {
     "method": "GET",
-    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116364167&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&rcb=15&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS7AEAEQoqgZ6RfZ9ckwPF-6qwBMpXElMymB0Jv23WuTQm97-kGl1hdPsE9h0Rzk9GLwvFTflQuCSEZP2oGR4CYolsg99-erHxYGWTkqBzzx-1Xqt61sm0wQ4FhU1qAUr1Aj858TexmdcsEpHDt2dGqY5EnEsFAsrguAbMXOvoQQR2up98Xj00Naidh5QxyWtCF6s_5z9Qvs6BuncgTWPKddT3MT4gO4o92myhU5S37mOn3u7gEKkKRQTUhMvxWuMGtoBlIK2VKG9_csYTpbMDoHnqzs2eCdGYLeVEPt0nn3x4g9K1RjimfvB5LJfw2A&random=2105512101&rmt_tld=0&ipr=y"
-  },
-  {
-    "method": "POST",
-    "url": "https://www.google.com/pagead/form-data/18239920865?gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&rcb=15&npa=0&frm=0&pscdl=noapi&ae=a&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&gap.fsrc=1"
-  },
-  {
-    "method": "POST",
-    "url": "https://www.google.com/ccm/form-data/18239920865?gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&rcb=15&npa=0&frm=0&ae=a&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&ec_mode=a&gap.fsrc=1&em=tv.1&emd=tvd.1"
+    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116530667&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&rcb=4&frm=0&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS7AEAEQoqgfsT93fgLu7JtMJoyyYjrGQBj4zcM-8s0RdlwUgWuaRFw5SMJZhEjC68UYi8w25PYmm0W5HlJAFEvs1sFcJel-KK4SY5U2cSVuA0uGszi0Iv6e93wG9qIjfZamaEYuj_9fdThrzHcl3JS4TGeYbRumsLsbL7qYI5NAovSLrO2XBL6BCa-_cdmabVBFrhJgY_vcGlZzUDn7cDr8er1fYMco1oCbMmNlt04atHbf6BE2P3G7T1jBy3RUVAi0RSLPXUUFxPvaMTOOZWMTJISQvudRZaEKP4yXIKDViv4R3QFU-WcRFi_9bkDA&random=721105768&rmt_tld=0&ipr=y"
   },
   {
     "method": "GET",
-    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116364362&cv=11&fst=1785116364362&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=15&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=4"
+    "url": "https://connect.facebook.net/signals/config/1571887197933821?v=2.9.363&r=stable&domain=launch-pad-237.preview.emergentagent.com&hme=de91ab0f62915af60750e9ff269a9938d70054f827732c0fc5f10a02500a436d&ex_m=108%2C210%2C160%2C22%2C73%2C74%2C151%2C69%2C68%2C11%2C169%2C93%2C16%2C143%2C131%2C39%2C76%2C81%2C139%2C165%2C171%2C26%2C27%2C28%2C30%2C48%2C152%2C78%2C116%2C18%2C20%2C44%2C40%2C42%2C41%2C86%2C95%2C99%2C114%2C150%2C153%2C46%2C115%2C24%2C21%2C123%2C70%2C36%2C155%2C154%2C156%2C147%2C145%2C25%2C35%2C59%2C113%2C167%2C71%2C17%2C158%2C118%2C84%2C67%2C19%2C88%2C89%2C120%2C87%2C141%2C140%2C144%2C100%2C166%2C34%2C49%2C117%2C47%2C8%2C4%2C5%2C7%2C6%2C3%2C94%2C105%2C172%2C177%2C224%2C75%2C237%2C236%2C235%2C23%2C33%2C55%2C107%2C61%2C10%2C64%2C101%2C102%2C103%2C109%2C134%2C31%2C29%2C136%2C137%2C138%2C133%2C132%2C161%2C77%2C164%2C162%2C163%2C50%2C60%2C127%2C15%2C168%2C45%2C282%2C283%2C281%2C296%2C312%2C217%2C206%2C62%2C207%2C205%2C315%2C306%2C52%2C218%2C111%2C135%2C83%2C125%2C54%2C124%2C130%2C129%2C58%2C65%2C63%2C157%2C79%2C80%2C119%2C37%2C32%2C53%2C56%2C104%2C170%2C1%2C128%2C14%2C126%2C12%2C2%2C57%2C96%2C66%2C122%2C92%2C91%2C173%2C174%2C97%2C98%2C9%2C106%2C51%2C148%2C90%2C82%2C72%2C121%2C110%2C43%2C149%2C0%2C85%2C142%2C146%2C159%2C38%2C112%2C13%2C175"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116364362&cv=11&fst=1785116364362&fmt=8&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=15&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=68&gcp=5"
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/classify-intent"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+  },
+  {
+    "method": "POST",
+    "url": "https://www.google.com/pagead/form-data/18239920865?gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&rcb=4&npa=0&frm=0&pscdl=noapi&ae=a&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&gap.fsrc=1"
+  },
+  {
+    "method": "POST",
+    "url": "https://www.google.com/ccm/form-data/18239920865?gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&rcb=4&npa=0&frm=0&ae=a&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&ec_mode=a&gap.fsrc=1&em=tv.1&emd=tvd.1"
+  },
+  {
+    "method": "GET",
+    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116531475&cv=11&fst=1785116531475&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=4&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=4"
+  },
+  {
+    "method": "POST",
+    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116531475&cv=11&fst=1785116531475&fmt=8&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=4&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=68&gcp=5"
   },
   {
     "method": "POST",
@@ -1229,19 +1245,11 @@
   },
   {
     "method": "GET",
-    "url": "https://connect.facebook.net/signals/config/1571887197933821?v=2.9.363&r=stable&domain=launch-pad-237.preview.emergentagent.com&hme=de91ab0f62915af60750e9ff269a9938d70054f827732c0fc5f10a02500a436d&ex_m=108%2C210%2C160%2C22%2C73%2C74%2C151%2C69%2C68%2C11%2C169%2C93%2C16%2C143%2C131%2C39%2C76%2C81%2C139%2C165%2C171%2C26%2C27%2C28%2C30%2C48%2C152%2C78%2C116%2C18%2C20%2C44%2C40%2C42%2C41%2C86%2C95%2C99%2C114%2C150%2C153%2C46%2C115%2C24%2C21%2C123%2C70%2C36%2C155%2C154%2C156%2C147%2C145%2C25%2C35%2C59%2C113%2C167%2C71%2C17%2C158%2C118%2C84%2C67%2C19%2C88%2C89%2C120%2C87%2C141%2C140%2C144%2C100%2C166%2C34%2C49%2C117%2C47%2C8%2C4%2C5%2C7%2C6%2C3%2C94%2C105%2C172%2C177%2C224%2C75%2C237%2C236%2C235%2C23%2C33%2C55%2C107%2C61%2C10%2C64%2C101%2C102%2C103%2C109%2C134%2C31%2C29%2C136%2C137%2C138%2C133%2C132%2C161%2C77%2C164%2C162%2C163%2C50%2C60%2C127%2C15%2C168%2C45%2C282%2C283%2C281%2C296%2C312%2C217%2C206%2C62%2C207%2C205%2C315%2C306%2C52%2C218%2C111%2C135%2C83%2C125%2C54%2C124%2C130%2C129%2C58%2C65%2C63%2C157%2C79%2C80%2C119%2C37%2C32%2C53%2C56%2C104%2C170%2C1%2C128%2C14%2C126%2C12%2C2%2C57%2C96%2C66%2C122%2C92%2C91%2C173%2C174%2C97%2C98%2C9%2C106%2C51%2C148%2C90%2C82%2C72%2C121%2C110%2C43%2C149%2C0%2C85%2C142%2C146%2C159%2C38%2C112%2C13%2C175"
+    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116531475&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938466~115938468~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=4&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgUt7jQfFFpaFgV4XfR6GR9hEtidp4M6VZrvAGmHgPOQLQpxg4BarcZSRyV1uP0dv5g9r3ggd2lMrdswAWeqmwXF5rEbUfGpjc3uOdNntmhh4HPBfwWeO5GuCY1R7ocgEsrhSWQg5suKop34Z2Iu9ZyO-GFj54DjtJz8kAl5MJwtq4ZK9ctKmdUuNZ-Sz7s5ga_AB6t4LYgmjFKSRuvaC6MrQyOrIYGlJzo1TO1fWKkXPkX5kOEO-rub7bGZAGJp4fxGoChtIZCjBiF0JkFQREZuk8JzfssQ8zmmkdsDlrhITNWY2JnEeUC6lceLmkUMM1N96mkh7&random=2748163606&rmt_tld=0&ipr=y"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/loop_fake_iter312_recovery/stream"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
-  },
-  {
-    "method": "GET",
-    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116364362&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938465~115938468~118897920~118897930~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=15&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgU5_xMM2sdN0Y8JJUvVTNiQ3wfUDrVpbmzQHW1E26zIXgT6uAKrIe1ss8jJC6tI3PYihSEyr1ICCFd8OhOGTgjzjOEnjFEkoOa8F-FoGIXUTWQRQopazPL-EWG4sYdozKBBW7_dfoTlCftBi-tiCh0-21-wQE452k6MOJz4vURuYquZPxXUtgPKbAarnJZr2hvV7OuPPqM2OwdvNfcYE62mIEGMtVZYNwwWLciQXlU0hYGgcc-4U55A_BBHoR8a1KZsl4R_LqzAPCYAnNPUrcrgzz18O9t9lU59Fj5H2T15mSvND4aM4gyLPULJyTwhlA3PA3v_x&random=2774768554&rmt_tld=0&ipr=y"
   },
   {
     "method": "GET",
@@ -1301,6 +1309,10 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/aurem-bg.webp"
+  },
+  {
+    "method": "GET",
     "url": "https://www.googletagmanager.com/gtag/js?id=AW-18239920865"
   },
   {
@@ -1309,23 +1321,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/aurem-bg.webp"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/F12ErrorCapture.js"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/main.jsx?t=1785116446525"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://connect.facebook.net/signals/config/1571887197933821?v=2.9.363&r=stable&domain=launch-pad-237.preview.emergentagent.com&hme=de91ab0f62915af60750e9ff269a9938d70054f827732c0fc5f10a02500a436d&ex_m=108%2C210%2C160%2C22%2C73%2C74%2C151%2C69%2C68%2C11%2C169%2C93%2C16%2C143%2C131%2C39%2C76%2C81%2C139%2C165%2C171%2C26%2C27%2C28%2C30%2C48%2C152%2C78%2C116%2C18%2C20%2C44%2C40%2C42%2C41%2C86%2C95%2C99%2C114%2C150%2C153%2C46%2C115%2C24%2C21%2C123%2C70%2C36%2C155%2C154%2C156%2C147%2C145%2C25%2C35%2C59%2C113%2C167%2C71%2C17%2C158%2C118%2C84%2C67%2C19%2C88%2C89%2C120%2C87%2C141%2C140%2C144%2C100%2C166%2C34%2C49%2C117%2C47%2C8%2C4%2C5%2C7%2C6%2C3%2C94%2C105%2C172%2C177%2C224%2C75%2C237%2C236%2C235%2C23%2C33%2C55%2C107%2C61%2C10%2C64%2C101%2C102%2C103%2C109%2C134%2C31%2C29%2C136%2C137%2C138%2C133%2C132%2C161%2C77%2C164%2C162%2C163%2C50%2C60%2C127%2C15%2C168%2C45%2C282%2C283%2C281%2C296%2C312%2C217%2C206%2C62%2C207%2C205%2C315%2C306%2C52%2C218%2C111%2C135%2C83%2C125%2C54%2C124%2C130%2C129%2C58%2C65%2C63%2C157%2C79%2C80%2C119%2C37%2C32%2C53%2C56%2C104%2C170%2C1%2C128%2C14%2C126%2C12%2C2%2C57%2C96%2C66%2C122%2C92%2C91%2C173%2C174%2C97%2C98%2C9%2C106%2C51%2C148%2C90%2C82%2C72%2C121%2C110%2C43%2C149%2C0%2C85%2C142%2C146%2C159%2C38%2C112%2C13%2C175"
   },
   {
     "method": "GET",
@@ -1341,15 +1345,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/index.css?t=1785116446525"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/@react-refresh"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/@vite/client"
+    "url": "https://connect.facebook.net/signals/config/1571887197933821?v=2.9.363&r=stable&domain=launch-pad-237.preview.emergentagent.com&hme=de91ab0f62915af60750e9ff269a9938d70054f827732c0fc5f10a02500a436d&ex_m=108%2C210%2C160%2C22%2C73%2C74%2C151%2C69%2C68%2C11%2C169%2C93%2C16%2C143%2C131%2C39%2C76%2C81%2C139%2C165%2C171%2C26%2C27%2C28%2C30%2C48%2C152%2C78%2C116%2C18%2C20%2C44%2C40%2C42%2C41%2C86%2C95%2C99%2C114%2C150%2C153%2C46%2C115%2C24%2C21%2C123%2C70%2C36%2C155%2C154%2C156%2C147%2C145%2C25%2C35%2C59%2C113%2C167%2C71%2C17%2C158%2C118%2C84%2C67%2C19%2C88%2C89%2C120%2C87%2C141%2C140%2C144%2C100%2C166%2C34%2C49%2C117%2C47%2C8%2C4%2C5%2C7%2C6%2C3%2C94%2C105%2C172%2C177%2C224%2C75%2C237%2C236%2C235%2C23%2C33%2C55%2C107%2C61%2C10%2C64%2C101%2C102%2C103%2C109%2C134%2C31%2C29%2C136%2C137%2C138%2C133%2C132%2C161%2C77%2C164%2C162%2C163%2C50%2C60%2C127%2C15%2C168%2C45%2C282%2C283%2C281%2C296%2C312%2C217%2C206%2C62%2C207%2C205%2C315%2C306%2C52%2C218%2C111%2C135%2C83%2C125%2C54%2C124%2C130%2C129%2C58%2C65%2C63%2C157%2C79%2C80%2C119%2C37%2C32%2C53%2C56%2C104%2C170%2C1%2C128%2C14%2C126%2C12%2C2%2C57%2C96%2C66%2C122%2C92%2C91%2C173%2C174%2C97%2C98%2C9%2C106%2C51%2C148%2C90%2C82%2C72%2C121%2C110%2C43%2C149%2C0%2C85%2C142%2C146%2C159%2C38%2C112%2C13%2C175"
   },
   {
     "method": "GET",
@@ -1361,15 +1361,19 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116212187"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-5LUJUZZY.js?v=2aa46b32"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react-router-dom.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/@vite/client"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/@react-refresh"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/App.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -1378,6 +1382,10 @@
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/services/theme.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/react-router-dom.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1393,35 +1401,19 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Signup.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/api.js"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/AdminQADashboard.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/CookieConsentBanner.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersistentFixBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/VisualFixtures.jsx"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/axios.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/CookieConsentBanner.jsx"
   },
   {
     "method": "GET",
@@ -1433,19 +1425,31 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/WhyOra.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Signup.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/lucide-react.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersistentFixBar.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/VisualFixtures.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/AdminQADashboard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/usePageMeta.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/analytics.js"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Login.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/WhyOra.jsx"
   },
   {
     "method": "GET",
@@ -1457,23 +1461,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AuthShell.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RobotGuide.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/dompurify.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/lucide-react.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1481,15 +1469,35 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStepBar.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RobotGuide.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GoogleIcon.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/dompurify.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AuthShell.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PricingCards.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferPill.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/demo/WalkthroughPlayer.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/demo/WalkthroughPlayer.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferPill.jsx"
   },
   {
     "method": "GET",
@@ -1501,15 +1509,15 @@
   },
   {
     "method": "GET",
-    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116378680&cv=11&fst=1785116378680&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=4"
+    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116545359&cv=11&fst=1785116545359&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=4"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116378680&cv=11&fst=1785116378680&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=68&gcp=5"
+    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116545359&cv=11&fst=1785116545359&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=68&gcp=5"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/ccm/collect?rcb=3&frm=0&auid=1287937018.1785116364&dt=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=1572464809.1785116379&navt=r&npa=0&gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&apve=1&apvf=f&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116379039&tfd=452&fmt=8"
+    "url": "https://www.google.com/ccm/collect?rcb=18&frm=0&auid=164753268.1785116531&dt=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&en=page_view&dl=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&scrsrc=www.googletagmanager.com&rnd=971668650.1785116546&navt=r&npa=0&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&apvc=1&tids=AW-18239920865&tid=AW-18239920865&tft=1785116545736&tfd=486&fmt=8"
   },
   {
     "method": "GET",
@@ -1517,11 +1525,11 @@
   },
   {
     "method": "GET",
-    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116378680&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgXmlyqWvtCGrqMJ7PRF5fSZeva9sZlW4QPmVbZdoaSO6_fC4sQwT_ZNQA7GDtKGDMTuWtvYcikTarcBA_DSty5AnqSleIN3tzeU9MIZXyHQ459RJxYV2OSH6ONAxQTyhiXk_pF6yGuJSPC6sx8djqKJDWJG8bPh9rQW4ymidkP3soGKBMQiprvMmd50p2-8WkBlzadnQGFfvhzQQ78Ws2k64Z9-WjrY932sHM3XosuLhMXwDL0gyiVBpKsicDWI2YrpIcYy-htWn-Zkpqjn6Hhj2m_DQ6Mvk6EFPlpcM9gUl4iSdclByQsguv44UG5NG84TWCjXg&random=1456785339&rmt_tld=0&ipr=y"
+    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116545359&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dgtag.config&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgZYdAFELUpWQSNL7SbDOTOujBUAOwjFABakXgFmksNkQS4ipaE_x-bu0cbmxXMtHXOHPU2XRUzrmc4evFsKdnbQ-ONJN0w3s3L-SPF8rkz79IlEudOImJRoyqYLzL8QhBcV2CcRvLbtDnP_N9babUaDzzP641VU0Kxw2X4bPwqXp6oWSREcUK1PrVaCvZTWbiqILGIKf9mC9n9Codlx4F2CbjE-RA5_cgb-cn_yTwhiYk9TGhD_ShOpqRJLtxVuzG-VzuPE__3C0WjcdwhZtlj4qv0zzrYHMUe_jyVu5wjFOBPEagdpk-QuAr_6n1pjrh5RneNef&random=3159595476&rmt_tld=0&ipr=y"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/pages/Dashboard.jsx?t=1785116446525"
   },
   {
     "method": "POST",
@@ -1533,31 +1541,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecretScanCard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Shell.jsx"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ConnectRepoBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/FinishSetupBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/cacheCleaner.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipStreakWidget.jsx"
   },
   {
     "method": "GET",
@@ -1565,15 +1549,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/cn.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
   },
   {
     "method": "GET",
@@ -1581,11 +1557,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipConfirmModal.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RepoCleanupBanner.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PersonalTrackBanner.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AddLiveSiteModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipStreakWidget.jsx"
   },
   {
     "method": "GET",
@@ -1593,43 +1573,51 @@
   },
   {
     "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/Shell.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecretScanCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/cn.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/cacheCleaner.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/tour/FinishSetupBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/AskAdvisorReal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipConfirmModal.jsx"
+  },
+  {
+    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/dashboard/v2/SidebarBound.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116212187"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ChatPanel.jsx?t=1785116446525"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useWarmStart.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TokenBell.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/securityScanCache.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskLiveTape.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatBgTint.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/loopApi.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatSession.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatStream.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatMessages.js"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatTextUtils.js"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThemeToggle.jsx"
   },
   {
     "method": "GET",
@@ -1641,7 +1629,35 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TokenBell.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useWarmStart.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/securityScanCache.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatMessages.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/lib/loopApi.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatBgTint.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatStream.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/hooks/useChatSession.js"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/utils/chatTextUtils.js"
   },
   {
     "method": "GET",
@@ -1649,11 +1665,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskLiveTape.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThinkingHint.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PWAInstallPrompt.jsx"
   },
   {
     "method": "GET",
@@ -1661,19 +1673,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ModeSelector.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PWAInstallPrompt.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PreviewPanel.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveTaskPopup.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThinkingHint.jsx"
   },
   {
     "method": "GET",
@@ -1681,39 +1681,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/RepoHelpDialog.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PreviewPanel.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/IntentTierIndicator.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferCard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AgentStatusBar.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PlanApprovalCard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopModeToggle.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/TokenBanner.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStatusChip.jsx?t=1785116183674"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MessageBubble.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ModeSelector.jsx"
   },
   {
     "method": "GET",
@@ -1721,15 +1693,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SlashCommandMenu.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TemperatureBadge.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/ToolButton.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PostTaskScan.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopModeToggle.jsx"
   },
   {
     "method": "GET",
@@ -1737,19 +1705,35 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopActionCards.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GraphPanel.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/StreamHealthPill.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/AgentStatusBar.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TemperatureBadge.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FounderOfferCard.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ScanStatusStrip.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PostTaskScan.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LiveTaskPopup.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/IntentTierIndicator.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/RepoHelpDialog.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopStatusChip.jsx?t=1785116446525"
   },
   {
     "method": "GET",
@@ -1757,7 +1741,35 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/GraphPanel.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PlanApprovalCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/TokenBanner.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SlashCommandMenu.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MessageBubble.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/ToolButton.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/chat/StreamHealthPill.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/LoopActionCards.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ScanStatusStrip.jsx"
   },
   {
     "method": "GET",
@@ -1766,10 +1778,6 @@
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/SecurityScanDrawer.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/DeployPanel.jsx"
   },
   {
     "method": "GET",
@@ -1785,11 +1793,27 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FileDiffPeek.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/KnowledgeGraph.jsx"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PatRequiredCTA.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/DeployPanel.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/@xyflow/react/dist/style.css"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/@xyflow_react.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-IXVEWXTN.js?v=2aa46b32"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-I676OURV.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1797,23 +1821,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskProgressCard.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/StepCards.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskManagementPanel.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MermaidBlock.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/BulkFixConfirmModal.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RenderedMessage.jsx"
   },
   {
     "method": "GET",
@@ -1821,7 +1829,31 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/RenderedMessage.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/FileDiffPeek.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskManagementPanel.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/TaskProgressCard.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/BulkFixConfirmModal.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/StepCards.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/PatRequiredCTA.jsx"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/MermaidBlock.jsx"
   },
   {
     "method": "GET",
@@ -1829,7 +1861,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/KnowledgeGraph.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipLintBadge.jsx"
   },
   {
     "method": "GET",
@@ -1837,11 +1869,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-FRORFES4.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-UYLWTCVG.js?v=2aa46b32"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-UYLWTCVG.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-FRORFES4.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1865,11 +1897,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-SQFHAAAJ.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TNWHCC6S.js?v=2aa46b32"
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-TNWHCC6S.js?v=2aa46b32"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-SQFHAAAJ.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1885,19 +1917,7 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/@xyflow/react/dist/style.css"
-  },
-  {
-    "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-POX264PI.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-I676OURV.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-GYCHOOWS.js?v=2aa46b32"
   },
   {
     "method": "GET",
@@ -1905,23 +1925,11 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/@xyflow_react.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-IXVEWXTN.js?v=2aa46b32"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ShipLintBadge.jsx"
+    "url": "https://launch-pad-237.preview.emergentagent.com/node_modules/.vite/deps/chunk-GYCHOOWS.js?v=2aa46b32"
   },
   {
     "method": "GET",
     "url": "https://launch-pad-237.preview.emergentagent.com/src/components/CodeBlock.jsx"
-  },
-  {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/src/components/ThemeToggle.jsx"
   },
   {
     "method": "GET",
@@ -2105,7 +2113,15 @@
   },
   {
     "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/history?session_id=c993690c-4efc-41d4-8727-d5d22c094e1d"
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/history?session_id=fd6a0a7b-a49a-4c0e-b000-597b71858a47"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
   },
   {
     "method": "GET",
@@ -2144,24 +2160,20 @@
     "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/chat/classify-intent"
   },
   {
-    "method": "GET",
-    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
+    "method": "POST",
+    "url": "https://www.google.com/pagead/form-data/18239920865?gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&rcb=18&npa=0&frm=0&pscdl=noapi&ae=a&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&gap.fsrc=1"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/pagead/form-data/18239920865?gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&rcb=3&npa=0&frm=0&pscdl=noapi&ae=a&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&gap.fsrc=1"
-  },
-  {
-    "method": "POST",
-    "url": "https://www.google.com/ccm/form-data/18239920865?gtm=45be67m0v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&rcb=3&npa=0&frm=0&ae=a&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&ec_mode=a&gap.fsrc=1&em=tv.1&emd=tvd.1"
+    "url": "https://www.google.com/ccm/form-data/18239920865?gtm=45be67m1h2v9255500229za200zd9255500229xec&gcs=G111&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&rcb=18&npa=0&frm=0&ae=a&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&ec_mode=a&gap.fsrc=1&em=tv.1&emd=tvd.1"
   },
   {
     "method": "GET",
-    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116380899&cv=11&fst=1785116380899&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=4"
+    "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/18239920865/?random=1785116547075&cv=11&fst=1785116547075&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=4"
   },
   {
     "method": "POST",
-    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116380899&cv=11&fst=1785116380899&fmt=8&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=68&gcp=5"
+    "url": "https://www.google.com/rmkt/collect/18239920865/?random=1785116547075&cv=11&fst=1785116547075&fmt=8&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=68&gcp=5"
   },
   {
     "method": "POST",
@@ -2185,7 +2197,11 @@
   },
   {
     "method": "GET",
-    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116380899&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m0v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115938465~115938469~118897920~118897930~119724320~119896803&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=3&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=1287937018.1785116364&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgYx5iNDL9hMTsI9kFK5G1Yx-4Z4wuAlu4c7Gf1Ny3XRbLSqCxlvLKCW-p_PfvmV4020m9MelIuMeU1khbl8Xz1KnJkD8JpyosYfT7lhCfJrUWS_clnHfEkdcBIIsD5an1dpdtxX6dE6j_35AqwFDu8dgY7QI5YcEO4ZoCDPGqsRq7LrHcc-B1Sk9b8Su3HVdmTZs83CpvuMANtdfGge-YV61ydxC0R7VUA7vLViOdR1U6Tp8xX_-xQ78ON8gdiDsMW6zShVxD2uF55ADEmAETv9t7CQOgAeJ0HUDEte1b7UeSWmyKcgtcbImVxMDbZkjW2rwnSOO&random=4009845560&rmt_tld=0&ipr=y"
+    "url": "https://www.google.com/pagead/1p-user-list/18239920865/?random=1785116547075&cv=11&fst=1785114000000&bg=ffffff&guid=ON&async=1&en=form_start&gtm=45be67m1h2v9255500229za200zd9255500229xec&gcd=13r3r3r3r5l1&dma=0&tag_exp=115616986~115938466~115938468~118395334~118897920~118897930~119732170~119896802&u_w=1920&u_h=1080&url=https%3A%2F%2Flaunch-pad-237.preview.emergentagent.com%2Fdashboard&rcb=18&frm=0&tiba=ORA%20by%20Aurem%20CTO%20%E2%80%94%20The%20AI%20Engineer%20That%20Actually%20Commits%20%7C%20%249%2Fmo&ae=a&hn=www.googleadservices.com&npa=0&pscdl=noapi&auid=164753268.1785116531&uaa=arm&uab=64&uafvl=HeadlessChrome%3B149.0.7827.0%7CChromium%3B149.0.7827.0%7CNot)A%253BBrand%3B24.0.0.0&uamb=0&uam=&uap=Linux&uapv=&uaw=0&data=event%3Dform_start&gap.fsrc=1&ept=9&rfmt=3&fmt=3&is_vtc=1&cid=CAQS-gEAEQoqgbU8x3Ta9TRDKSlYSkSgdopazAbjrlrV8KXlSq8yQNgM9qA6qUkpk9LVtIJbDpk-nDx5ckO9iuU1taUuOnuA3H7EINIyx-J6GcJ096dtJ0zSD1NhiAxYr06b61HpXKA9ZmfyD5OAqlnm24SFg9cjgIg30uA-EUOIXddiQHeTIXq-SqETz4JMM73ZbhqA1Jsaqtfg7gNXKOURSVaMoc1-Ywdx-AWxY9g-y-WDE3StfPqd_1zUQYAYjSBY1qfPxJ10QWR5BGJyjXehHvaAhuyX7VH4gIGRGLrAPSY17uHy3FJ4UMPMTLb9_neY6woDcwg0khovu_Oj&random=3455992829&rmt_tld=0&ipr=y"
+  },
+  {
+    "method": "GET",
+    "url": "https://launch-pad-237.preview.emergentagent.com/api/aurem-dev/loop/active?project_id=p_iter312_mock"
   },
   {
     "method": "GET",

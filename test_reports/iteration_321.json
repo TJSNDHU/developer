@@ -1,0 +1,37 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Loop 4473f240 on 2026-07-27: ChatPanel showed 'Loop failed to start' while LoopStatusChip showed 'LOOP · PLANNING' — chip and chat contradicted. Iter 312 fix has three parts: (i) backend fire-and-forget /loop/start + planning visible in /loop/active (validated iteration_318 via curl), (ii) frontend timeout recovery + SSE bind + plan absorption (validated iteration_320 — 10/12 checks pass, plan approval card renders after both recovery AND async happy path), (iii) LoopStatusChip label agreement — the last remaining gap.",
+  "summary": "No relevant testing skill found. Focused UI re-verification reused the iter320 Playwright script against the preview app with MOCKED loop APIs. Login, timeout recovery banner, recovery SSE binding, PlanApprovalCard rendering/markdown, chip label agreement during awaiting_confirmation+phase=plan, full 10s poll re-check, and async happy path all passed. The chip showed 'LOOP · AWAITING APPROVAL' with the approval card visible and stayed correct after polling; 'Loop failed to start' was absent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter320_playwright_loop_recovery.py",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/checks.json",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/requests.json",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/console.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Verified LoopStatusChip.jsx now prefers state for approval-gate variants (awaiting_confirmation, paused_for_user), preventing phase='plan' from mapping the visible chip to PLANNING while approval UI is shown."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_321.json",
+    "/app/test_reports/iteration_321.json"
+  ],
+  "success_rate": {
+    "backend": "not tested (frontend-only request; loop backend endpoints were MOCKED)",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "No backend seed data created. Playwright seeded localStorage project/user state for the focused UI flow.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Focused re-run of iter320 recovery script passed 12/12 checks. Key previously failing PW4 now passes: chip text was 'LOOP · AWAITING APPROVAL' while PlanApprovalCard was visible, and remained so after the 10s active-loop poll. Screenshot evidence was captured by the script in bug_verification_artifacts/iter320_standalone/recovery_after_sse.jpg and recovery_after_sse_after_poll.jpg.",
+  "rca_of_the_issue": "Prior behavior derived LoopStatusChip text from phase before state, so active={state:'awaiting_confirmation', phase:'plan'} displayed 'LOOP · PLANNING'. The inspected fix makes approval-gate states state-first, mapping awaiting_confirmation to 'AWAITING APPROVAL'. Runtime evidence confirmed chat and chip no longer contradict in the mocked timeout recovery and async happy-path flows."
+}

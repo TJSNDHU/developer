@@ -70,8 +70,21 @@ const PHASE_LABEL = {
 
 function phaseText(active) {
   if (!active) return "IDLE";
-  // Prefer the finer-grained `phase` field; fall back to `state`.
-  const key = String(active.phase || active.state || "").toLowerCase();
+  // Iter 312 · Class 3 companion — state-first for approval variants.
+  // When the engine sits at state='awaiting_confirmation' during the
+  // plan phase, the raw phase is still 'plan' (which maps to
+  // 'PLANNING'). That produced a chip↔chat contradiction: chat
+  // shows PlanApprovalCard while chip says PLANNING. Prefer state
+  // whenever it's an approval-gate variant so the chip agrees with
+  // the visible card. For all other running phases the finer-grained
+  // phase field still wins (executing/verifying/shipping etc.).
+  const state = String(active.state || "").toLowerCase();
+  const phase = String(active.phase || "").toLowerCase();
+  if (state === "awaiting_confirmation" || state === "paused_for_user") {
+    const key = state;
+    return PHASE_LABEL[key] || key.toUpperCase() || "RUNNING";
+  }
+  const key = phase || state || "";
   return PHASE_LABEL[key] || key.toUpperCase() || "RUNNING";
 }
 

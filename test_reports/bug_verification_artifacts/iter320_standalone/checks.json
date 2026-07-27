@@ -31,13 +31,13 @@
   },
   {
     "name": "PLAYWRIGHT-4",
-    "passed": false,
-    "details": "Chip still says planning while approval card is expected/visible: chip='LOOP \u00b7 PLANNING\\nid \u00b7 recovery\\nSTOP LOOP'"
+    "passed": true,
+    "details": "No chip/chat contradiction observed; chip='LOOP \u00b7 AWAITING APPROVAL\\nid \u00b7 recovery\\nSTOP LOOP'"
   },
   {
     "name": "PLAYWRIGHT-4 after poll",
-    "passed": false,
-    "details": "Chip still says planning after a full poll interval with approval UI visible: chip='LOOP \u00b7 PLANNING\\nid \u00b7 recovery\\nSTOP LOOP'"
+    "passed": true,
+    "details": "Chip/chat agreed after poll interval; chip='LOOP \u00b7 AWAITING APPROVAL\\nid \u00b7 recovery\\nSTOP LOOP'"
   },
   {
     "name": "PLAYWRIGHT-5 pending",
