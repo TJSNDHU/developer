@@ -98,8 +98,18 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
       // truth. Documented as a subtle invariant so future editors
       // don't remove it thinking it's redundant with SSE.
       if (typeof onPhaseUpdate === "function" && nextActive) {
+        // Iter 312 · Class 3 companion — pass BOTH state and phase so
+        // the parent can apply the same plan-variant remap it uses in
+        // handleLoopEvent (awaiting_confirmation + phase=plan →
+        // plan_pending so PlanApprovalCard's showPlanCard gate
+        // remains true). Previously we sent only `phase` which caused
+        // the parent to overwrite loopPhase='plan_pending' with the
+        // raw 'plan', suppressing the recovered approval card. Kept
+        // second-arg optional so any other caller passing just `p`
+        // still gets the legacy behavior via string signature.
         const p = nextActive.phase || nextActive.state || "";
-        if (p) onPhaseUpdate(String(p).toLowerCase());
+        const s = nextActive.state || "";
+        if (p) onPhaseUpdate(String(p).toLowerCase(), String(s).toLowerCase());
       }
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "loop status fetch failed");

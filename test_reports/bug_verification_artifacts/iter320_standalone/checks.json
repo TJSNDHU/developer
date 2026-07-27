@@ -1,0 +1,62 @@
+[
+  {
+    "name": "login",
+    "passed": true,
+    "details": "https://launch-pad-237.preview.emergentagent.com/dashboard"
+  },
+  {
+    "name": "dashboard loaded with loop mode",
+    "passed": true,
+    "details": ""
+  },
+  {
+    "name": "PLAYWRIGHT-1",
+    "passed": true,
+    "details": "Recovery banner/bubble visible and no failure card"
+  },
+  {
+    "name": "PLAYWRIGHT-2",
+    "passed": true,
+    "details": "Browser issued GET /loop/loop_fake_iter312_recovery/stream"
+  },
+  {
+    "name": "PLAYWRIGHT-3 card",
+    "passed": true,
+    "details": "Plan approval card/buttons rendered after recovery SSE"
+  },
+  {
+    "name": "PLAYWRIGHT-3 markdown",
+    "passed": true,
+    "details": "Plan markdown includes title, file, and steps"
+  },
+  {
+    "name": "PLAYWRIGHT-4",
+    "passed": false,
+    "details": "Chip still says planning while approval card is expected/visible: chip='LOOP \u00b7 PLANNING\\nid \u00b7 recovery\\nSTOP LOOP'"
+  },
+  {
+    "name": "PLAYWRIGHT-4 after poll",
+    "passed": false,
+    "details": "Chip still says planning after a full poll interval with approval UI visible: chip='LOOP \u00b7 PLANNING\\nid \u00b7 recovery\\nSTOP LOOP'"
+  },
+  {
+    "name": "PLAYWRIGHT-5 pending",
+    "passed": true,
+    "details": "Generating plan pending bubble appeared"
+  },
+  {
+    "name": "PLAYWRIGHT-5 stream",
+    "passed": true,
+    "details": "Happy path SSE stream opened"
+  },
+  {
+    "name": "PLAYWRIGHT-5 card",
+    "passed": true,
+    "details": "Async happy path card/buttons rendered without failure card"
+  },
+  {
+    "name": "PLAYWRIGHT-5 markdown",
+    "passed": true,
+    "details": "Happy path markdown includes title, file, and steps"
+  }
+]

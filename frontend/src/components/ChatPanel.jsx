@@ -2371,16 +2371,48 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (!plan || typeof plan !== "object") return "_(no plan returned)_";
     const title = plan.title || "Plan";
     const eta   = plan.estimated_time ? ` — _${plan.estimated_time}_` : "";
+    // Iter 312 · Class 3 companion — support BOTH the legacy plan
+    // schema (bullets + files_to_change) and the engine's actual
+    // AWAITING_CONFIRMATION emission schema (description + steps +
+    // files-of-objects with path/action/reason). The prior formatter
+    // silently swallowed the SSE-delivered plan because it only read
+    // the legacy keys, leaving the recovery bubble showing a title
+    // with no body.
+    const description = typeof plan.description === "string"
+      ? plan.description.trim()
+      : "";
     const bullets = Array.isArray(plan.bullets) ? plan.bullets : [];
-    const files = Array.isArray(plan.files_to_change) ? plan.files_to_change : [];
+    const steps   = Array.isArray(plan.steps)   ? plan.steps   : [];
+    const filesLegacy = Array.isArray(plan.files_to_change) ? plan.files_to_change : [];
+    const filesNew    = Array.isArray(plan.files) ? plan.files : [];
+
     let out = `### ${title}${eta}\n\n`;
-    if (bullets.length) {
-      bullets.forEach((b, i) => { out += `${i + 1}. ${b}\n`; });
+    if (description) {
+      out += `${description}\n\n`;
+    }
+    // Prefer the new `steps` key, fall back to legacy `bullets`.
+    const stepList = steps.length ? steps : bullets;
+    if (stepList.length) {
+      stepList.forEach((s, i) => {
+        const line = typeof s === "string" ? s : (s?.text || s?.title || JSON.stringify(s));
+        out += `${i + 1}. ${line}\n`;
+      });
       out += "\n";
     }
-    if (files.length) {
+    // Files section — support both string list (legacy) and object list.
+    const filesToRender = filesNew.length ? filesNew : filesLegacy;
+    if (filesToRender.length) {
       out += `**Files to change:**\n`;
-      files.forEach((f) => { out += `- \`${f}\`\n`; });
+      filesToRender.forEach((f) => {
+        if (typeof f === "string") {
+          out += `- \`${f}\`\n`;
+        } else if (f && typeof f === "object") {
+          const path = f.path || f.file || "";
+          const action = f.action ? ` _(${f.action})_` : "";
+          const reason = f.reason ? ` — ${f.reason}` : "";
+          out += `- \`${path}\`${action}${reason}\n`;
+        }
+      });
     }
     return out.trim() || "_Empty plan_";
   }
@@ -2904,9 +2936,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         // loopPhase (usually after a reconnect gap), backend truth
         // wins. This is intentional and NOT redundant with the SSE
         // handler — SSE can lag or drop; the poll is authoritative.
-        onPhaseUpdate={(chipPhase) => {
-          if (chipPhase && chipPhase !== loopPhase) {
-            setLoopPhase(chipPhase);
+        onPhaseUpdate={(chipPhase, chipState) => {
+          // Iter 312 · Class 3 companion — apply the same plan-variant
+          // remap used in handleLoopEvent so the chip's poll doesn't
+          // clobber loopPhase='plan_pending' with the raw 'plan'
+          // (which would suppress PlanApprovalCard's showPlanCard
+          // gate immediately after timeout recovery). If the backend
+          // reports awaiting_confirmation+phase=plan, canonicalise to
+          // plan_pending on the client.
+          let normalised = chipPhase;
+          if (chipState === "awaiting_confirmation" && chipPhase === "plan") {
+            normalised = "plan_pending";
+          }
+          if (normalised && normalised !== loopPhase) {
+            setLoopPhase(normalised);
           }
         }}
       />

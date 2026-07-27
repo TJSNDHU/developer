@@ -1,0 +1,60 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Loop 4473f240 on 2026-07-27: ChatPanel showed 'Loop failed to start' while LoopStatusChip showed 'LOOP \u00b7 PLANNING'. Root cause: sync /loop/start blocked past 60s axios timeout. Fix (Iter 312): backend fire-and-forget + planning visible in /loop/active (already fully validated in iteration_318), frontend timeout recovery + SSE bind + plan absorption + approval card render. iteration_319 found TWO specific gaps in the frontend: (a) LoopStatusChip's onPhaseUpdate callback was overwriting loopPhase='plan_pending' back to raw 'plan', which suppressed the PlanApprovalCard's showPlanCard gate; (b) formatPlanMarkdown only knew the legacy plan schema (bullets + files_to_change) and ignored the engine's actual awaiting_confirmation payload (description + steps + files-of-objects). BOTH ARE NOW FIXED. This run must verify closure.",
+  "summary": "Focused frontend-only MOCKED Playwright re-verification completed. No relevant testing skill found. Timeout recovery banner, SSE bind, PlanApprovalCard/buttons, new plan markdown schema, and async happy path all passed. However LoopStatusChip still shows 'LOOP \u00b7 PLANNING' while the chat displays the plan approval UI, including after a full 10s chip poll interval, so the chip\u2194chat agreement criterion is not closed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LoopStatusChip",
+        "issue": "During awaiting_confirmation with phase='plan', the approval card renders correctly but the chip continues to display 'LOOP \u00b7 PLANNING' instead of agreeing with the approval state. Reproduced immediately after SSE and again after a full poll interval.",
+        "selector": "[data-testid='loop-status-chip']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Loop timeout recovery -> /loop/active recovery -> SSE awaiting_confirmation -> plan approval",
+        "issue": "ChatPanel now remaps/absorbs the plan correctly, but the visible chip label still derives from phase before state, so active={state:'awaiting_confirmation', phase:'plan'} renders as PLANNING while chat asks for approval.",
+        "affected_selectors": [
+          "[data-testid='loop-status-chip']",
+          "[data-testid='plan-approval-card']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter320_playwright_loop_recovery.py",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/checks.json",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/requests.json",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/recovery_after_sse.txt",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/recovery_after_sse_after_poll.txt",
+    "/app/test_reports/bug_verification_artifacts/iter320_standalone/happy_after_sse.txt"
+  ],
+  "action_items": [
+    "Update LoopStatusChip visible label logic so active loops with state='awaiting_confirmation' and phase='plan' render as awaiting approval (or otherwise agree with ChatPanel's plan approval state).",
+    "Retest the same MOCKED Playwright recovery and async happy-path flow after the chip label fix."
+  ],
+  "critical_code_review_comments": [
+    "ChatPanel.jsx contains the expected fixes: formatPlanMarkdown now supports description/steps/files objects, and onPhaseUpdate remaps awaiting_confirmation+plan to plan_pending.",
+    "LoopStatusChip.jsx onPhaseUpdate now passes phase and state, but phaseText(active) still prefers active.phase over active.state; with the engine payload state='awaiting_confirmation', phase='plan', this renders 'LOOP \u00b7 PLANNING'."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_artifacts/iter320_playwright_loop_recovery.py",
+    "/app/test_reports/bug_verification_320.json",
+    "/app/test_reports/iteration_320.json"
+  ],
+  "success_rate": {
+    "backend": "N/A - frontend-only test; backend was intentionally skipped per request",
+    "frontend": "10/12 checks passed (83%); required chip/chat agreement check failed"
+  },
+  "seed_data_creation": "No persistent seed data created. Playwright used MOCKED API routes and localStorage/sessionStorage project setup for p_iter312_mock.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use /app/test_reports/bug_verification_artifacts/iter320_playwright_loop_recovery.py. It is the iter319 MOCKED script with stricter recovery banner assertion and an added post-poll chip agreement check. The card/markdown fixes passed; focus retest on LoopStatusChip label agreement plus ensure PW3/PW5 remain green.",
+  "rca_of_the_issue": "Repro: login as preview test user, mock POST /loop/start timeout, mock /loop/active as planning, then fulfill SSE with awaiting_confirmation + phase='plan' and plan {title, description, files objects, steps}. ChatPanel renders the approval card and plan markdown, but LoopStatusChip displays phaseText(active). That helper prefers active.phase ('plan' -> 'PLANNING') over active.state ('awaiting_confirmation' -> 'AWAITING APPROVAL'), leaving a visible chip/chat mismatch. This testing used MOCKED APIs exactly as requested."
+}

@@ -1,0 +1,71 @@
+mock/iter312 · main · checking
+Developer tools
+TA
+mock/iter312
+main
+Swift
+Pro
+Maxx
+--
+HEALTH
+New run
+Chat
+Preview
+Graph
+⚠
+3 projects point to deleted or unreachable repos — click to clean up
+Open →
+Clear chat
+I'm ORA — developers choice, by Aurem CTO — your sovereign engineering co-pilot. Ask me to plan a feature, write code, or debug an error. What are we shipping today?
+add a comment to README
+### Test Plan
+
+A simple test plan to verify Iter 312 recovery.
+
+1. Read README
+2. Add comment at top
+3. Save
+
+**Files to change:**
+- README.md _(edit)_ — Add project overview comment
+· Plan ready — awaiting your approval.
+▎
+Mode C · Code task
+6 console errors
+SEND TO ORA →
+COPY
+LOOP
+PLAN
+—
+EXECUTE
+—
+VERIFY
+—
+SCAN
+—
+SHIP
+Plan ready — your approval needed
+Review the plan above. ORA will only start writing files once you approve. You can cancel any time before Step 2 begins.
+Approve & Run
+Cancel loop
+LOOP LOOP_FAK · LIVE FEED
+~ Opening plan_pending stream…
+ORA · Vanguard reviews every change before it ships.
+AGENTIC
+LOOP ON
+ADVISOR
+
+Ask Advisor
+
+ORA copilot · online
+
+Morning brief
+
+loading live signals…
+
+Diagnose failed run
+Summarize open PRs
+Token breakdown
+Hi — I'm the ORA Advisor. Ask anything about your repo, failed runs, PRs, or token usage. I'll respond live.
+
+Advisor sees your screen.
