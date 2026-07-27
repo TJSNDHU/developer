@@ -300,49 +300,66 @@ async def update_brain_from_conversation(
 
     Usage in chat.py SSE handler after streaming completes:
         await update_brain_from_conversation(db, project_id, msg, reply, "B")
+
+    Iter 328 · #3-a — fail-open silent-failure logging. See docstring
+    of update_brain_after_commit for the pattern rationale.
     """
-    now = datetime.now(timezone.utc)
-    lower_msg = user_message.lower()
-    lower_reply = ora_reply.lower()
+    import logging as _log
+    _l = _log.getLogger(__name__)
+    try:
+        now = datetime.now(timezone.utc)
+        lower_msg = user_message.lower()
+        lower_reply = ora_reply.lower()
 
-    push_ops = {}
+        push_ops = {}
 
-    # Detect tech stack mentions
-    stack_keywords = [
-        "fastapi", "flask", "django", "react", "vue", "next.js", "mongodb",
-        "postgres", "redis", "celery", "docker", "kubernetes", "stripe",
-        "typescript", "python", "node", "graphql", "rest", "grpc",
-    ]
-    found_stack = [k for k in stack_keywords if k in lower_msg or k in lower_reply]
-    if found_stack:
-        await db["project_brains"].update_one(
-            {"project_id": project_id},
-            {"$addToSet": {"tech_stack": {"$each": found_stack[:4]}}},
-            upsert=True,
+        # Detect tech stack mentions
+        stack_keywords = [
+            "fastapi", "flask", "django", "react", "vue", "next.js", "mongodb",
+            "postgres", "redis", "celery", "docker", "kubernetes", "stripe",
+            "typescript", "python", "node", "graphql", "rest", "grpc",
+        ]
+        found_stack = [k for k in stack_keywords if k in lower_msg or k in lower_reply]
+        if found_stack:
+            await db["project_brains"].update_one(
+                {"project_id": project_id},
+                {"$addToSet": {"tech_stack": {"$each": found_stack[:4]}}},
+                upsert=True,
+            )
+
+        # Detect rejection signals ("don't use", "we decided against", "avoid")
+        rejection_signals = ["don't use", "avoid", "we decided against", "not using", "we rejected"]
+        if any(s in lower_msg for s in rejection_signals):
+            push_ops["rejected"] = {
+                "$each": [{"idea": user_message[:120], "why_rejected": "user explicitly rejected", "date": str(now.date())}],
+                "$slice": -30,
+            }
+
+        # Detect decision signals ("we'll use", "let's go with", "decided to")
+        decision_signals = ["we'll use", "let's go with", "decided to", "going with", "we chose"]
+        if any(s in lower_msg for s in decision_signals):
+            push_ops["decisions"] = {
+                "$each": [{"title": user_message[:100], "reason": "from conversation", "date": str(now.date())}],
+                "$slice": -30,
+            }
+
+        if push_ops:
+            await db["project_brains"].update_one(
+                {"project_id": project_id},
+                {"$set": {"updated_at": now}, "$push": push_ops},
+                upsert=True,
+            )
+        _l.info(
+            "🧠 update_brain_from_conversation · project=%s mode=%s "
+            "stack=%d push_ops=%d",
+            project_id, mode, len(found_stack), len(push_ops),
         )
-
-    # Detect rejection signals ("don't use", "we decided against", "avoid")
-    rejection_signals = ["don't use", "avoid", "we decided against", "not using", "we rejected"]
-    if any(s in lower_msg for s in rejection_signals):
-        push_ops["rejected"] = {
-            "$each": [{"idea": user_message[:120], "why_rejected": "user explicitly rejected", "date": str(now.date())}],
-            "$slice": -30,
-        }
-
-    # Detect decision signals ("we'll use", "let's go with", "decided to")
-    decision_signals = ["we'll use", "let's go with", "decided to", "going with", "we chose"]
-    if any(s in lower_msg for s in decision_signals):
-        push_ops["decisions"] = {
-            "$each": [{"title": user_message[:100], "reason": "from conversation", "date": str(now.date())}],
-            "$slice": -30,
-        }
-
-    if push_ops:
-        await db["project_brains"].update_one(
-            {"project_id": project_id},
-            {"$set": {"updated_at": now}, "$push": push_ops},
-            upsert=True,
+    except Exception as e:                                  # noqa: BLE001
+        _l.warning(
+            "🧠 update_brain_from_conversation FAILED (fail-open) · "
+            "project=%s err=%r", project_id, e,
         )
+        return
 
 
 async def add_decision(
