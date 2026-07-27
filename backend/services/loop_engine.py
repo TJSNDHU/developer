@@ -2871,6 +2871,44 @@ class LoopEngine:
         self.context.pop("ship_pending", None)
         self.state = LoopState.COMPLETED
         await _persist_session(self.db, self._doc())
+        # ── Iter 328 · #3-b · Brain V2 writeback ─────────────────────
+        # Fire-and-forget writes to project_brains after every real
+        # commit. Callsites 1 + 3 from ora_learning_callsite_proposal:
+        #   • update_brain_after_commit — event_log push + recurring
+        #     bugs increment
+        #   • update_brain_after_task   — full Brain V2 refresh
+        # Both wrapped in per-callsite WARNING log so a silent failure
+        # (import err / wrong signature / missing db field) is visible
+        # in backend.err.log, not swallowed. NEVER blocks the ship
+        # path or user-facing state.
+        try:
+            from services.project_brain import (
+                update_brain_after_commit, update_brain_after_task,
+            )
+            asyncio.create_task(update_brain_after_commit(
+                db=self.db,
+                project_id=self.project_id or "",
+                task_description=(self.context.get("original_prompt") or "")[:200],
+                files_changed=list(files_dict.keys()),
+                was_correction_applied=bool(self.context.get("integrity_guard")),
+                issues_found=[],
+                sha=full_sha,
+            ))
+            asyncio.create_task(update_brain_after_task(
+                db=self.db,
+                project_id=self.project_id or "",
+                user_id=self.user_id,
+                changed_files=list(files_dict.keys()),
+                task_id=self.loop_id,
+                github_token=token, github_owner=owner,
+                github_repo=repo, branch=branch,
+            ))
+        except Exception as e:                              # noqa: BLE001
+            logger.warning(
+                "brain-write callsite failed: %r "
+                "(loop=%s project=%s)",
+                e, self.loop_id, self.project_id,
+            )
         # Iter 212m-115 — release the concurrent-loop lock on success.
         try:
             from services.loop_safety import release_loop_lock
