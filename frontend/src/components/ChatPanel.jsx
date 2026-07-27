@@ -49,6 +49,14 @@ import PlanApprovalCard from "./PlanApprovalCard";
 // User Action card (powered by the real /loop/* SSE stream).
 import { SelfHealIndicator, UserActionCard } from "./LoopActionCards";
 import ShipPendingCard from "./ShipPendingCard";
+// Iter 328 hotfix v3 — pure mappers for the two ship-pending ingress
+// paths. Extracted here (and unit-tested at src/lib/__tests__) after
+// the founder's fiber-trace found one path had silently reverted its
+// files_diff/integrity_verdict forwarding between deploys.
+import {
+  mapShipPendingFromActive,
+  mapShipPendingFromAwaitingShipEvent,
+} from "../lib/shipPendingMappers.js";
 import {
   startLoop, confirmLoop, pauseResponse, cancelLoop, streamLoopEvents,
   confirmShip,
@@ -510,15 +518,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           setLoopId(active.loop_id);
           setLoopPhase("ship");
           openLoopStream(active.loop_id);
-          setShipPending({
-            owner:          active.ship_pending.owner,
-            repo:           active.ship_pending.repo,
-            branch:         active.ship_pending.branch,
-            files:          Object.keys(active.ship_pending.files || {}),
-            file_count:     Object.keys(active.ship_pending.files || {}).length,
-            commit_message: active.ship_pending.commit_message,
-            message:        "Loop resumed — ready to ship.",
-          });
+          // Iter 328 hotfix v3 — use the shared mapper. Direct object
+          // literal here previously dropped files_diff +
+          // integrity_verdict after one deploy's search_replace was
+          // silently reverted by a platform auto-commit. Centralising
+          // the mapping makes that class of drift impossible.
+          setShipPending(mapShipPendingFromActive(active.ship_pending));
           // eslint-disable-next-line no-console
           console.debug("[iter320] hydrate — ship-gate branch bound SSE",
             "loop_id=", active.loop_id);
@@ -2709,21 +2714,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // dedicated ShipPendingCard with a green "Ship to GitHub" button
       // — NOT the generic retry/skip/abort UserActionCard.
       if (data && data.kind === "awaiting_ship") {
-        setShipPending({
-          owner:             data.owner,
-          repo:              data.repo,
-          branch:            data.branch,
-          files:             data.files || [],
-          file_count:        data.file_count || (data.files || []).length,
-          commit_message:    data.commit_message || "",
-          // ── Iter 328 · Deploy 2 hotfix ── SSE-event branch parity
-          // with the /loop/active rehydrate branch. Both must forward
-          // files_diff + integrity_verdict or the ShipPendingCard's
-          // safety pill + per-file diff chips render empty.
-          files_diff:        data.files_diff || [],
-          integrity_verdict: data.integrity_verdict || null,
-          message:           ev.message || "Ready to ship.",
-        });
+        // Iter 328 hotfix v3 — shared mapper (see /lib/shipPendingMappers).
+        setShipPending(mapShipPendingFromAwaitingShipEvent(data, ev));
         setUserAction(null);
       } else {
         const errors = Array.isArray(data.errors)
