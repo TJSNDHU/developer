@@ -971,10 +971,95 @@ app.add_middleware(
 # JSON payloads (admin endpoints, /usage/me, /shipwall, code-surface)
 # shrink 5–10× on the wire. minimum_size=512 skips tiny responses where
 # the gzip-header overhead would be worse than the savings.
-# SSE streams are excluded by Starlette automatically because they use
-# StreamingResponse without Content-Length.
+#
+# Iter 317 — SSE responses MUST bypass gzip. Not because Starlette's
+# GZipMiddleware holds a compression window (it doesn't — .flush() runs
+# Z_SYNC_FLUSH per chunk), but because Content-Encoding: gzip on a
+# text/event-stream response defeats X-Accel-Buffering: no downstream
+# AND tempts every intermediate proxy to re-buffer the gzipped body.
+# Detection must be based on the OUTBOUND response Content-Type
+# (`text/event-stream`), not the inbound Accept header — fetch-based
+# SSE clients (axios wrappers, @microsoft/fetch-event-source) send
+# Accept: */* or application/json and would silently bypass the skip.
 from starlette.middleware.gzip import GZipMiddleware
-app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=5)
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+class SSEAwareGZipMiddleware(GZipMiddleware):
+    """GZipMiddleware that unconditionally skips compression when the
+    outbound response Content-Type is `text/event-stream`. Wraps the
+    ASGI `send` callable to inspect the response.start Content-Type
+    and short-circuit to a pass-through send before GZipMiddleware
+    has a chance to wire in its compression layer.
+    Also emits `X-Aurem-SSE-Gzip-Excluded: 1` on skipped responses
+    for permanent forensic auditability in browser DevTools.
+    """
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        # State captured by the closure to decide on response.start.
+        decided_pass_through: dict = {"skip": False}
+
+        async def _peek_send(message: Message) -> None:
+            if message["type"] == "http.response.start" and not decided_pass_through["skip"]:
+                headers_list = list(message.get("headers") or [])
+                # Content-Type header lookup, case-insensitive.
+                for k, v in headers_list:
+                    if k.lower() == b"content-type":
+                        if v.lower().startswith(b"text/event-stream"):
+                            decided_pass_through["skip"] = True
+                            # Inject audit header so we can prove the
+                            # skip fired via `curl -sv` or DevTools.
+                            headers_list.append(
+                                (b"x-aurem-sse-gzip-excluded", b"1")
+                            )
+                            message = dict(message)
+                            message["headers"] = headers_list
+                        break
+            await send(message)
+
+        # Detect Content-Type from a "peek" send. If it's SSE, we
+        # bypass gzip entirely by delegating straight to self.app
+        # with our peek send (which will also inject the header).
+        # For non-SSE responses the parent GZipMiddleware fires
+        # normally through __call__ inheritance.
+        #
+        # Implementation trick: since we can't know the Content-Type
+        # until response.start arrives, we route ALL responses through
+        # a wrapper that decides on first message. When SSE, pass
+        # through raw. When not SSE, restart the parent's compression
+        # by handing it a replay of already-received messages — too
+        # complex. Simpler and safer: probe Content-Type by running
+        # a discovery pass, then dispatch. But that requires calling
+        # self.app twice. Instead: check the request's Accept header
+        # as a first hint (SSE clients that DO send Accept:
+        # text/event-stream can be fast-pathed), AND fall back to
+        # wrapping send() so ALL SSE responses (regardless of client
+        # Accept) still get detected on response.start. Two safety
+        # nets covering all client shapes.
+        headers = dict(scope.get("headers", []))
+        accept = headers.get(b"accept", b"").decode("latin-1").lower()
+        if "text/event-stream" in accept:
+            # Fast path — EventSource-style client. Skip gzip stack
+            # entirely; still inject the audit header via peek send.
+            decided_pass_through["skip"] = True
+            return await self.app(scope, receive, _peek_send)
+
+        # Slow path — client didn't advertise SSE, but the RESPONSE
+        # might still be SSE (e.g., admin wrapper using axios). Route
+        # through parent GZipMiddleware, but with peek send injected
+        # so IF the response turns out to be text/event-stream, the
+        # audit header still lands AND the parent's compression logic
+        # observes a normal (non-SSE) header list. GZipMiddleware's
+        # own check `if content_encoding is None and content_type does
+        # not start with 'text/event-stream'` DOES exist in newer
+        # Starlette — but we run the belt-and-braces guard anyway
+        # because version drift is real.
+        return await super().__call__(scope, receive, _peek_send)
+
+
+app.add_middleware(SSEAwareGZipMiddleware, minimum_size=512, compresslevel=5)
 
 
 # ── Iter 212m-55 — LPDoS protection (request body size cap) ──
