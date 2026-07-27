@@ -1,0 +1,16 @@
+HTTP/1.1 401 Unauthorized
+date: Mon, 27 Jul 2026 00:08:40 GMT
+server: uvicorn
+content-length: 41
+content-type: application/json
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+referrer-policy: strict-origin-when-cross-origin
+x-xss-protection: 1; mode=block
+permissions-policy: geolocation=(), microphone=(), camera=()
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://auremcto.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://auremcto.com wss://auremcto.com https://openrouter.ai https://api.github.com; frame-src 'self' blob:; font-src 'self' data:;
+x-aurem-version: 1.0.0
+x-response-time-ms: 3
+
+{"detail":"Authorization header missing"}

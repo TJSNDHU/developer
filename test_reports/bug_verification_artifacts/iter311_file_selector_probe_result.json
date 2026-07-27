@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "top10_candidates": [
+    "backend/routers/health.py",
+    "backend/tests/test_health_detailed.py",
+    "backend/services/health_service.py"
+  ],
+  "top10_extras": [],
+  "top10_total_scored": 3,
+  "top2_candidates": [
+    "backend/routers/health.py",
+    "backend/tests/test_health_detailed.py"
+  ],
+  "top2_extras": [],
+  "top2_is_proper_subset_of_planner_files": true
+}

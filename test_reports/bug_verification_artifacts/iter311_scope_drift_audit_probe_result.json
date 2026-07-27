@@ -1,0 +1,18 @@
+{
+  "authed_status": 200,
+  "db_collection_count_deltas_after_read_only_get": {},
+  "distinct_loops": 0,
+  "note": "No DB collection count changes observed; endpoint code review shows only find/sort/limit reads.",
+  "ok": true,
+  "response_fields_present": [
+    "avg_extras_per_drift",
+    "distinct_loops",
+    "most_frequent_extra_paths",
+    "notes",
+    "ok",
+    "samples",
+    "total_drift_events"
+  ],
+  "total_drift_events": 0,
+  "unauth_status": 401
+}

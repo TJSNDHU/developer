@@ -1,15 +1,10 @@
 {
   "verdict": "fixed",
-  "user_reported_bug": "Cluster 1 (7 tests in test_iter212m60/62) fail with LoopState.FAILED where COMPLETED/PAUSED_FOR_USER expected. User confirmed via new /admin/loop-metrics prod card that failed_owner_counts.user=0 (0 real-user prod failures) \u2014 treat as fixture-shape not P0, and fix as normal-priority tests-only change without touching production loop_engine.py behavior.",
-  "summary": "No relevant testing skill found. Verified the tests-only fixture-shape fix: the 7 previously failing iter212m60/62 tests passed, both target files passed together (20 passed), and the requested quality-gate keyword subset matched the expected residual local-infra pattern (3 failed, 361 passed, 4 skipped, 2 errors). Confirmed only the two test files are modified; backend/services/loop_engine.py and backend/services/vanguard_scanner.py have no diff.",
+  "user_reported_bug": "loop_511cdd848b5945 execute-phase scope-drift: agent tried to expand from 3 planner-picked files to 12, adding 9 unrelated files (admin_financials_router.py, campaign_health_router.py, case_study_router.py, aurem_llm_proxy_router.py, aurem_redis_router.py, autonomous_repair_router.py, action_engine_router.py, evolver_router.py in _archive/, db.py). Root cause: file_selector.select_relevant_files was scoring every node in the repo graph and letting keyword-collision winners (e.g. token 'health' matching campaign_health_router.py basename) displace planner picks in top-N candidates. Trust-verbatim guard only covered planner_set <= 2 files; with exactly 3 planner files the naive keyword sweep ran and pulled unrelated routers.",
+  "summary": "No relevant testing skill found. Verified Iter 311 Fix C in preview/backend: the dedicated 6-test repro/regression panel passed; a focused realistic 3-file planner probe returned only planner files and a strict subset when top_n=2; /api/aurem-dev/admin/scope-drift-audit returned 401 without auth and 200 with admin auth plus the required fields. Read-only check showed zero DB collection count deltas around the authed GET. No production deploy was performed.",
   "backend_issues": {
     "critical": [],
-    "minor": [
-      {
-        "endpoint": "quality-gate pytest subset",
-        "issue": "Residual non-Cluster-1 local infra failures remain: Stripe fake key 503 and login rate-limit 429/auth pollution errors, matching the expected baseline and not caused by this fix."
-      }
-    ]
+    "minor": []
   },
   "frontend_issues": {
     "ui_bugs": [],
@@ -17,28 +12,37 @@
     "design_issues": []
   },
   "test_report_links": [
-    "/app/test_reports/pytest/bug_verify_311_targeted_7.log",
-    "/app/test_reports/pytest/bug_verify_311_target_files.log",
-    "/app/test_reports/pytest/bug_verify_311_quality_gate.log"
+    "/app/test_reports/pytest/bug_verify_iter311_file_selector_scope_drift.log",
+    "/app/test_reports/bug_verification_artifacts/iter311_file_selector_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter311_file_selector_probe_result.json",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_probe_result.json",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_unauth.txt"
   ],
-  "action_items": [
-    "Proceed to Item 3 final quality-gate count; no Cluster 1 code fix needed based on this verification."
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Code review confirms select_relevant_files now iterates only planner_set for the sweep, so candidates cannot include files outside planner_files by construction. admin.py scope-drift-audit code performs find/sort/limit reads only; no insert/update/delete/write methods are present in the endpoint."
   ],
-  "critical_code_review_comments": [],
   "updated_files": [
     "/app/test_reports/bug_verification_311.json",
     "/app/test_reports/iteration_311.json",
-    "/app/test_reports/pytest/bug_verify_311_targeted_7.log",
-    "/app/test_reports/pytest/bug_verify_311_target_files.log",
-    "/app/test_reports/pytest/bug_verify_311_quality_gate.log"
+    "/app/test_reports/pytest/bug_verify_iter311_file_selector_scope_drift.log",
+    "/app/test_reports/bug_verification_artifacts/iter311_file_selector_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter311_file_selector_probe_stdout.log",
+    "/app/test_reports/bug_verification_artifacts/iter311_file_selector_probe_result.json",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_probe_stdout.log",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_probe_result.json",
+    "/app/test_reports/bug_verification_artifacts/iter311_scope_drift_audit_unauth.txt",
+    "/app/test_reports/bug_verification_artifacts/iter311_login_response.json"
   ],
   "success_rate": {
-    "backend": "100% for targeted Cluster 1 tests; quality-gate subset has expected residual infra failures",
+    "backend": "100% (6/6 targeted pytest tests passed; 2/2 focused verification scripts passed; endpoint auth/read-only checks passed)",
     "frontend": "N/A"
   },
-  "seed_data_creation": "None.",
+  "seed_data_creation": "None. Used existing preview admin/founder credentials from /app/memory/test_credentials.md. No third-party API was MOCKED; file-selector tests/probe used a MOCKED repo graph to reproduce the reported keyword-collision shape.",
   "retest_needed": false,
-  "should_main_agent_self_test": true,
-  "context_for_next_testing_agent": "Targeted command: 7/7 passed. Target files command: 20/20 passed. Quality-gate keyword subset: 3 failed, 361 passed, 4 skipped, 2 errors; failures/errors were Stripe fake key and login rate-limit/state pollution, not loop engine fixture-shape regressions. No relevant testing skill found.",
-  "rca_of_the_issue": "The original failures were fixture-shape failures: tests exercised state-machine outcomes but allowed infrastructure-heavy execute/ship/verify paths to run without real BINContext/GitHub/Parliament setup, producing LoopState.FAILED. The fix stubs phase methods in the relevant tests only and updates stale timestamp/mocked self-heal path to match current engine behavior. Production loop_engine.py behavior was not changed."
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Commands run: PYTHONPATH=/app/backend pytest -q /app/backend/tests/test_iter311_file_selector_scope_drift_repro.py => 6 passed; python iter311_file_selector_probe.py => no extras, total_scored=3, top_n=2 proper subset; python iter311_scope_drift_audit_probe.py => unauth 401, authed 200, required fields present, DB count deltas {}. Git inspection: latest commit f357541 contains backend/services/file_selector.py; backend/routers/admin.py has the new uncommitted endpoint diff in this workspace.",
+  "rca_of_the_issue": "Before Fix C, select_relevant_files scored all graph nodes for planner sets of exactly 3+ files, so unrelated paths with colliding tokens like health/detailed/endpoint could outrank planner picks and expand execute scope. The verified fix narrows scoring/ranking to planner_set only, preserving trim/rank behavior while structurally preventing external candidate introduction."
 }

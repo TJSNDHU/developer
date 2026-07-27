@@ -1,0 +1,11 @@
+{
+  "email": "test@aurem.dev",
+  "is_admin": true,
+  "is_unlimited": true,
+  "name": "Test Admin",
+  "ok": true,
+  "tier": "founder",
+  "token": "<redacted-present>",
+  "tokens_remaining": 988975,
+  "user_id": "test_admin_001"
+}

@@ -4456,3 +4456,90 @@ async def speed_diagnostic(
         window_days=max(1, min(int(window_days or 30), 180)),
         sample_target=max(1, min(int(sample or 20), 100)),
     )
+
+
+
+# ────────────────────────────────────────────────────────────────────
+# Iter 311 · Fix C — Scope-drift audit endpoint.
+# Read-only aggregation over loop_events.kind == "scope_drift" so the
+# founder can answer "did any other recent loops show unrelated file
+# expansions?" without hand-inspecting each loop_id. Same pattern as
+# /admin/speed-diagnostic. Admin-only, zero writes.
+# ────────────────────────────────────────────────────────────────────
+@router.get("/scope-drift-audit")
+async def scope_drift_audit(
+    days: int = 30,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+):
+    await _require_admin(authorization)
+    db = require_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(int(days or 30), 180)))
+    cap = max(1, min(int(limit or 50), 500))
+
+    # loop_events.ts is stored as ISO string in most call sites; we
+    # match both string and datetime for defensive compatibility.
+    query = {"kind": "scope_drift"}
+    cursor = db.loop_events.find(query, {"_id": 0}).sort([("ts", -1)]).limit(cap)
+    rows: list[dict] = []
+    async for ev in cursor:
+        ts = ev.get("ts")
+        # Best-effort in-window filter (ISO strings sort lexically).
+        if isinstance(ts, str):
+            try:
+                ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if ts_dt < cutoff:
+                    continue
+            except Exception:
+                pass
+        elif isinstance(ts, datetime):
+            if ts < cutoff:
+                continue
+        rows.append(ev)
+
+    # Aggregate patterns
+    from collections import Counter
+    extras_counter: Counter = Counter()
+    per_loop: dict[str, dict] = {}
+    total_extras = 0
+    for r in rows:
+        extras = r.get("extras") or []
+        total_extras += len(extras)
+        for e in extras:
+            extras_counter[e] += 1
+        lid = r.get("loop_id")
+        if lid and lid not in per_loop:
+            per_loop[lid] = {
+                "loop_id":      lid,
+                "ts":           r.get("ts"),
+                "frozen_count": len(r.get("frozen") or []),
+                "extras_count": len(extras),
+                "extras":       extras[:20],
+            }
+
+    return {
+        "ok":                    True,
+        "generated_at":          datetime.now(timezone.utc).isoformat(),
+        "window_days":           days,
+        "limit":                 cap,
+        "total_drift_events":    len(rows),
+        "distinct_loops":        len(per_loop),
+        "avg_extras_per_drift":  round(total_extras / len(rows), 2) if rows else 0,
+        "most_frequent_extra_paths": [
+            {"path": p, "seen_in_loops": n}
+            for p, n in extras_counter.most_common(15)
+        ],
+        "samples": list(per_loop.values())[:20],
+        "notes": [
+            "Iter 311 · Fix C ships a structural invariant: candidates ⊆ "
+            "planner_set. Once deployed, NEW scope_drift events with "
+            "file_selector-sourced extras should stop appearing. "
+            "Extras seen AFTER this fix's deploy timestamp indicate "
+            "planner-side bloat (a different failure mode) rather than "
+            "file_selector expansion.",
+            "loop_events.kind='scope_drift' rows are ONLY written when "
+            "extras were detected (loop_engine.py:1093). Absence of an "
+            "audit row does NOT mean the loop was clean — it means no "
+            "drift was flagged.",
+        ],
+    }
