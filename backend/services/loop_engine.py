@@ -435,6 +435,15 @@ class LoopEngine:
         # detect a phase coroutine that is technically "running" but
         # not emitting any progress.
         self._last_event_at: float = time.time()
+        # ── Iter 328 · Deploy 2 — in-memory pre-execution content cache.
+        # Populated during EXECUTE from the `current` file body fetched
+        # for the parliament prompt. Used by _do_ship to compute the
+        # per-file line-diff summary that ShipPendingCard renders
+        # BEFORE the founder approves the ship. NOT persisted to Mongo
+        # (context row bloat + PAT-adjacent data hygiene) — falls back
+        # to `original_bytes_by_path` byte-delta after cross-worker
+        # rehydration.
+        self._orig_content_cache: dict[str, str] = {}
 
     # ── Public API ────────────────────────────────────────────────────
     async def start(self) -> AsyncIterator[dict]:
@@ -1222,6 +1231,11 @@ class LoopEngine:
                                 "original_bytes_by_path", {},
                             )
                             obp[path] = len(current or "")
+                            # ── Iter 328 · Deploy 2 — cache pre-exec
+                            # content so _do_ship can build the per-file
+                            # line-diff for ShipPendingCard. In-memory
+                            # only (never persisted to Mongo).
+                            self._orig_content_cache[path] = current or ""
                         except Exception:
                             pass
                         task_text = (
@@ -2627,13 +2641,43 @@ class LoopEngine:
         # triggered by POST /loop/{loop_id}/confirm-ship.
         # Iter 212m-117 — L3 trust-level users SKIP the manual gate
         # (auto-ship). L1 never reaches here. L2 is the safe default.
+        # ── Iter 328 · Deploy 2 — build the per-file line-diff + surface
+        # the Iter 318 integrity-guard verdict so ShipPendingCard can
+        # show WHAT is about to ship + WHETHER it passed the safety
+        # gate. Fail-open: any diff-compute error just drops the pill
+        # (blind-ship remains the pre-Iter-328 default UX, we don't
+        # regress it).
+        _files_diff: list[dict] = []
+        try:
+            from services.loop_ship_diff import compute_files_diff
+            _files_diff = compute_files_diff(
+                orig_contents=self._orig_content_cache,
+                new_contents=files_dict,
+                orig_bytes_by_path=self.context.get(
+                    "original_bytes_by_path") or {},
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug(
+                "[loop %s] files_diff compute skipped: %r",
+                self.loop_id, e,
+            )
+            _files_diff = []
+        # Integrity verdict — we only reach here if Rule 1/2/3 passed
+        # (the guard above sets state=FAILED on any violation and
+        # returns), so verdict is "clean". If the guard was somehow
+        # bypassed (feature flag OFF, etc.), fall back to "unknown".
+        _guard_ran = bool(self.context.get("original_bytes_by_path"))
+        _integrity_verdict = "clean" if _guard_ran else "unknown"
+
         self.context["ship_pending"] = {
-            "owner":          owner,
-            "repo":           repo,
-            "branch":         branch,
-            "token":          token,
-            "files":          files_dict,
-            "commit_message": commit_message,
+            "owner":             owner,
+            "repo":              repo,
+            "branch":            branch,
+            "token":             token,
+            "files":             files_dict,
+            "commit_message":    commit_message,
+            "files_diff":        _files_diff,
+            "integrity_verdict": _integrity_verdict,
         }
         if self.context.get("trust_level") == "L3":
             logger.info("[loop %s] L3 auto-ship — skipping manual gate",
@@ -2643,22 +2687,25 @@ class LoopEngine:
         self.state = LoopState.PAUSED_FOR_USER
         await _persist_session(self.db, self._doc())
         logger.info("[loop %s] SHIP PAUSED for manual confirmation — "
-                    "%s/%s@%s with %d file(s)",
-                    self.loop_id, owner, repo, branch, len(files_dict))
+                    "%s/%s@%s with %d file(s) · integrity=%s · diff_rows=%d",
+                    self.loop_id, owner, repo, branch, len(files_dict),
+                    _integrity_verdict, len(_files_diff))
         await self._emit(
             LoopState.PAUSED_FOR_USER, "ship",
             step=5, total_steps=5,
             message=f"Ready to ship {len(files_dict)} file(s) to "
                     f"{owner}/{repo}@{branch}. Click 'Ship to GitHub' to commit.",
             data={
-                "kind":           "awaiting_ship",
-                "reason":         "awaiting_ship_confirmation",
-                "owner":          owner,
-                "repo":           repo,
-                "branch":         branch,
-                "files":          list(files_dict.keys()),
-                "file_count":     len(files_dict),
-                "commit_message": commit_message,
+                "kind":              "awaiting_ship",
+                "reason":            "awaiting_ship_confirmation",
+                "owner":             owner,
+                "repo":              repo,
+                "branch":            branch,
+                "files":             list(files_dict.keys()),
+                "file_count":        len(files_dict),
+                "commit_message":    commit_message,
+                "files_diff":        _files_diff,
+                "integrity_verdict": _integrity_verdict,
             },
             requires_user_action=True,
         )
