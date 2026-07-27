@@ -4,6 +4,16 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 00:19 UTC — Iter 311 · file_selector Fix C — DEPLOYED TO PRODUCTION
+
+**Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, ecu_charge_acknowledged=true).
+**Deployer verdict:** ✅ `Deployment completed. Live at: https://auremcto.com`
+**Commit at deploy:** `34e9731265cf` — **VERIFIED** by main-agent curl `GET https://auremcto.com/api/aurem-dev/version` returning `{"commit_sha":"34e9731265cf","built_at":"2026-07-27T00:19:12.412011+00:00","environment":"production"}`. `/version` matches this CHANGELOG entry.
+**Post-deploy smoke curl:** `/health` → 200 `{"ok":true,"env":"production","db":true,"uptime_s":43.44}`. Pod restarted cleanly.
+**Environment:** production (`auremcto.com`)
+
+**Status:** DEPLOYED. Unit + repro-test + bug_testing_agent verified. **Prod live-verification of the /admin/scope-drift-audit endpoint still pending founder's post-deploy hit.**
+
 ## 2026-07-26 23:15 UTC — Iter 311 · file_selector Fix C — UNIT-VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Status:** Code-complete. **Unit + repro-test verified.** **NOT deployed. Prod live-verification pending founder's post-deploy audit-endpoint hit.**
