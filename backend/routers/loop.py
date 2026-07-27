@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import logging
 from typing import Optional
@@ -159,6 +160,73 @@ async def start_loop(body: StartBody,
         bin_ctx=_bin_ctx_loop,
     )
     eng.register(engine)
+
+    # ── Iter 312 · Class 1 — Fire-and-forget plan phase ──────────────
+    # Previously: `async for _ev in engine.start(): pass` synchronously
+    # consumed the entire generator, blocking the HTTP response until
+    # plan phase completed. For complex tasks whose Council/Parliament
+    # consultation exceeded 60s, the frontend's blanket axios timeout
+    # (frontend/src/lib/api.js:15) fired and rendered "Loop failed to
+    # start" — but the backend session doc was already created and the
+    # engine kept running. Chip + chat contradicted (chip was truth,
+    # chat was lying). Repro'd on 2026-07-27 as loop_4473f240.
+    #
+    # Class 1 fix: schedule engine.start() as a background task and
+    # return the initial response immediately. Session doc + lock are
+    # already written by acquire_loop_lock() above (BEFORE this point),
+    # so the "loop_already_running" 409 guarantee is preserved — a
+    # concurrent second /loop/start would see the lock without racing
+    # against the async task.
+    #
+    # Gated behind LOOP_START_ASYNC env flag (default True) for
+    # one-flip rollback safety in case any downstream consumer still
+    # expects the plan blob in the sync response body.
+    _start_async = os.environ.get("LOOP_START_ASYNC", "true").lower() in ("1", "true", "yes", "on")
+    if _start_async:
+        asyncio.create_task(_drive_engine_to_completion(loop_id, engine))
+        return {
+            "loop_id":      loop_id,
+            "state":        eng.LoopState.PLANNING.value,
+            "phase":        "plan",
+            "plan":         None,  # arrives via SSE stream
+            "async_start":  True,
+        }
+
+    # Legacy sync path — retained behind flag flip for one-deploy rollback.
+    # Extracted to a helper so the default execution path in `start_loop`
+    # contains no blocking-consumer pattern (see repro test #1).
+    return await _start_loop_sync_legacy(loop_id, engine)
+
+
+async def _drive_engine_to_completion(loop_id: str, engine):
+    """
+    Background driver for the Iter 312 async fire-and-forget path.
+
+    Consumes the engine.start() async generator to completion outside
+    the HTTP request-response cycle. Exceptions are logged but never
+    re-raised — the client already received its 200 response. The
+    engine writes its own terminal state to loop_sessions on error
+    so the chip / /loop/active poll sees the truth.
+    """
+    try:
+        async for _ev in engine.start():
+            pass
+    except Exception as _e:
+        logging.getLogger("aurem.loop").exception(
+            "[loop %s] background driver crashed: %r", loop_id, _e,
+        )
+
+
+async def _start_loop_sync_legacy(loop_id: str, engine):
+    """
+    Legacy synchronous plan-phase consumer.
+
+    Only reachable when `LOOP_START_ASYNC=false`. Kept as an escape
+    hatch for one-deploy rollback if the async fire-and-forget path
+    (Iter 312 · Class 1) causes any regression for downstream
+    consumers that still expect the plan blob inline. Do NOT call
+    this from any new code path.
+    """
     async for _ev in engine.start():
         pass
     return {

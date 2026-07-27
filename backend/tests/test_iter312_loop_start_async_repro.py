@@ -38,6 +38,52 @@ import pytest
 _ROUTER_SRC = Path("/app/backend/routers/loop.py").read_text()
 
 
+def _strip_py_comments(src: str) -> str:
+    """
+    Strip Python `#`-comments (but not `#` inside string literals) so
+    the static-regex checks below don't false-match on the exact
+    blocking pattern mentioned in a documentation comment. Simple
+    line-by-line scanner — good enough for router source (no exotic
+    raw strings with embedded #).
+    """
+    out_lines = []
+    for line in src.splitlines():
+        in_str = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if in_str:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                # Handle triple-quotes minimally
+                if line[i:i+3] in ("'''", '"""'):
+                    # Skip triple-quoted spans on the same line if any
+                    end = line.find(line[i:i+3], i+3)
+                    if end == -1:
+                        i = len(line)
+                    else:
+                        i = end + 3
+                    continue
+                in_str = ch
+                i += 1
+                continue
+            if ch == "#":
+                line = line[:i]
+                break
+            i += 1
+        out_lines.append(line)
+    return "\n".join(out_lines)
+
+
+_ROUTER_SRC_NOCOMMENT = _strip_py_comments(_ROUTER_SRC)
+
+
 # ── 1. REPRO — start_loop currently blocks through engine.start() ───
 def test_repro_start_loop_blocks_through_plan_phase():
     """
@@ -50,10 +96,12 @@ def test_repro_start_loop_blocks_through_plan_phase():
     exists). MUST PASS after Class 1 (blocking consumer removed,
     replaced by asyncio.create_task).
     """
-    # Locate the start_loop function source
+    # Locate the start_loop function source (comment-stripped so a
+    # documentation comment mentioning the old pattern does not
+    # false-fail the invariant).
     start_fn_match = re.search(
         r"async def start_loop\([^)]*\).*?(?=\n(?:@router|async def |def ))",
-        _ROUTER_SRC, re.DOTALL,
+        _ROUTER_SRC_NOCOMMENT, re.DOTALL,
     )
     assert start_fn_match, "start_loop function not found in loop.py"
     start_fn_src = start_fn_match.group(0)

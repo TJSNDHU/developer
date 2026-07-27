@@ -2233,6 +2233,56 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         msg = msg?.message
           || (() => { try { return JSON.stringify(msg); } catch { return String(msg); } })();
       }
+
+      // ── Iter 312 · Class 3 — Timeout-recovery reconciliation ──────
+      // If axios raised a client-side timeout (60s cap in api.js),
+      // the backend session was almost certainly created (lock write
+      // happens BEFORE any long LLM/Council work in /loop/start).
+      // Poll /loop/active to confirm — if we find our own session in
+      // a non-terminal state, bind SSE to it and show a "still
+      // working" indicator instead of a hard failure.
+      const isTimeout =
+        e?.code === "ECONNABORTED" ||
+        (typeof e?.message === "string" && /timeout of \d+ms exceeded/i.test(e.message));
+      if (isTimeout) {
+        try {
+          const { getActiveLoop } = await import("../lib/loopApi");
+          const activeResp = await getActiveLoop(activeProject?.project_id || null);
+          const active = activeResp?.active;
+          if (active?.loop_id) {
+            // Recovery path — the loop DID start server-side, HTTP
+            // just took too long to return. Bind ChatPanel to it and
+            // let SSE take over from here (the plan blob will arrive
+            // via a phase-transition event once planning finishes).
+            setLoopId(active.loop_id);
+            setLoopPhase(String(active.phase || active.state || "planning").toLowerCase());
+            setMessages((m) => {
+              const out = m.slice();
+              for (let i = out.length - 1; i >= 0; i--) {
+                if (out[i].role === "assistant" && out[i].loopPending) {
+                  out[i] = {
+                    role: "assistant",
+                    streaming: true,
+                    content: "**Plan taking longer than expected — still working…**\n\n" +
+                             "The initial HTTP request timed out but the loop is running " +
+                             `server-side (loop \`${active.loop_id.slice(-8)}\`). ` +
+                             "The plan will appear here as soon as it's ready.",
+                    loopPending: true,
+                  };
+                  break;
+                }
+              }
+              return out;
+            });
+            return;   // recovery successful, do NOT render the failure
+          }
+        } catch (_recoveryErr) {
+          // Recovery poll itself failed — fall through to the
+          // original failure rendering below. Not adding a second
+          // error message; the original one is truthful in this case.
+        }
+      }
+
       setMessages((m) => {
         const out = m.slice();
         for (let i = out.length - 1; i >= 0; i--) {
