@@ -252,6 +252,20 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
     }
   }, [active?.loop_id]);
 
+  // ── Iter 329 · Task 2 — "Done" click clears terminal grace ──
+  // Founder wants an inline dismissal affordance next to the SHIPPED
+  // label instead of relying on the 30s auto-timeout. Clicking Done
+  // clears the snapshot + timer so the chip unmounts immediately.
+  const onDoneClick = useCallback(() => {
+    if (terminalTimerRef.current) {
+      clearTimeout(terminalTimerRef.current);
+      terminalTimerRef.current = null;
+    }
+    setTerminalSnapshot(null);
+    // lastActiveRef stays set — a fresh loop kickoff will re-trigger
+    // the running-then-null transition; no need to reset here.
+  }, []);
+
   // ── Iter 323 · Bug B — clean up terminal grace timer on unmount ──
   useEffect(() => () => {
     if (terminalTimerRef.current) {
@@ -417,6 +431,40 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
               }}
             >
               {stopLabel}
+            </button>
+          )}
+          {/*
+            Iter 329 · Task 2 — inline "Done" affordance during the
+            terminal-success grace window. Replaces the dark-overlay
+            ship modal's "Close" button. Clicking dismisses the chip
+            immediately by clearing the terminal snapshot + grace
+            timer (chip unmounts via the `!active && !terminalSnapshot`
+            gate at line 278). Not rendered on terminal-failure —
+            failures still show the (already amber/red) label until
+            the grace expires so the user can see what went wrong.
+          */}
+          {isTerminal && !isTerminalFailure && (
+            <button
+              type="button"
+              data-testid="loop-status-chip-done"
+              aria-label="Dismiss shipped loop status"
+              onClick={onDoneClick}
+              style={{
+                appearance: "none",
+                background: "transparent",
+                color: C.green,
+                border: `1px solid ${C.green}88`,
+                borderRadius: 6,
+                padding: "3px 10px",
+                fontFamily: C.mono,
+                fontSize: 11,
+                letterSpacing: "0.06em",
+                cursor: "pointer",
+                textTransform: "uppercase",
+                transition: "background 120ms ease",
+              }}
+            >
+              Done
             </button>
           )}
         </>

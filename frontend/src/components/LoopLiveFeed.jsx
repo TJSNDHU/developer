@@ -576,6 +576,8 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
     () => resolvePendingOnTerminal(folded, terminal, terminalTone),
     [folded, terminal, terminalTone],
   );
+  // Iter 329 · Task 2 — extract ship info for the inline Shipped row.
+  const shipInfo = useMemo(() => extractShipInfo(events), [events]);
   const hasLines = displayLines.length > 0;
 
   // Auto-scroll to latest whenever a new narration lands.
@@ -663,6 +665,13 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
           >
             {emptyLine}
           </div>
+        )}
+        {/* Iter 329 · Task 2 — persistent inline Shipped row on
+            terminal-success. Renders "Shipped {sha7} · View on
+            GitHub · Rollback" — replaces the dark-overlay ship
+            modal (kind='shipped' dispatch removed in ChatPanel). */}
+        {shipInfo && terminal && (
+          <ShippedRow loopId={loopId} ship={shipInfo} />
         )}
       </div>
 

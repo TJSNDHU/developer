@@ -599,7 +599,23 @@ async def _persist_turn(user_id: str, session_id: str, user_prompt: str,
                             {"role": "user", "content": user_prompt, "ts": now},
                             assistant_turn,
                         ],
-                        "$slice": -40,
+                        # Iter 329 · Chat-history B3 fix — write cap
+                        # bumped -40 → -200. GET /chat/history reads
+                        # last 100 turns, but the old write cap held
+                        # only 40, so any long-running project or
+                        # loop-heavy session (loop emits 8-15 turns
+                        # per run) hit the ceiling in 3-5 runs and
+                        # older turns silently vanished. Real repro
+                        # confirmed via founder's live inspection:
+                        # messages.length was EXACTLY 40 (the cap
+                        # value). Cap now comfortably exceeds the
+                        # read window; storage impact at ~500B/turn
+                        # × 200 = ~100KB/session doc, safe under the
+                        # 16MB Mongo doc limit at any realistic
+                        # usage. Read slice stays at 100 (chat.py
+                        # line 2940) so we hold headroom without
+                        # rendering everything.
+                        "$slice": -200,
                     }
                 },
             },

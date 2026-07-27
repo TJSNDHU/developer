@@ -37,6 +37,24 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: Cog, testid: "nav-settings" },
 ];
 
+// ── Iter 329 · Chat-history B1-race — pure deferral predicate ─────
+// Exported for tests. Returns true when we should DEFER minting a
+// fresh session id because useActiveProject (TabBar.jsx) is about
+// to dispatch aurem:project-changed with a real pid — indicated by
+// (a) activeProjectId being null right now AND (b) the projects
+// cache in localStorage showing the user has at least one project.
+// Callers must still enforce the founder-mandated fallback timer
+// so a stuck auto-seed never wedges the chat permanently.
+export function shouldDeferSessionMint(activeProjectId, projectsCacheJson) {
+  if (activeProjectId) return false;
+  if (!projectsCacheJson) return false;
+  try {
+    const list = JSON.parse(projectsCacheJson);
+    if (!Array.isArray(list) || list.length === 0) return false;
+    return true;
+  } catch { return false; }
+}
+
 const SESSION_KEY = "aurem_active_session";
 const COLLAPSED_KEY = "aurem_sidebar_collapsed";
 
@@ -108,6 +126,26 @@ export default function Shell({ children, requireAuth, chromeless = false }) {
   // auth token) and adopt it. Only mint a fresh id if the server has
   // none. The localStorage cache stays authoritative for same-device
   // continuity once it's populated.
+  //
+  // Iter 329 · Chat-history B1-race fix — defer mint on fresh tab.
+  // Previous behaviour: on a fresh tab where `aurem_active_project`
+  // was empty at first render, this effect fired with
+  // activeProjectId=null → sessionKeyFor(null) resolved to
+  // "aurem_session_home" → we minted a phantom home-session UUID
+  // before useActiveProject (TabBar.jsx) had finished its
+  // /cto/projects/list auto-seed. Then the auto-seed dispatched
+  // aurem:project-changed and this effect re-fired with the real
+  // pid — but the ChatPanel had already rendered a WELCOME-only view
+  // for the phantom home session for a visible flash.
+  //
+  // Now: if activeProjectId is null AND the cached projects list
+  // shows the user HAS projects, we skip the mint and wait for the
+  // auto-seed dispatch to re-trigger this effect. Founder-required
+  // safety net: if the auto-seed hasn't resolved within
+  // AUTO_SEED_FALLBACK_MS, fall back to today's mint-anyway
+  // behaviour so a network failure never leaves the chat permanently
+  // blank (worst-case = today's transient flicker, not a permanent
+  // wedge).
   useEffect(() => {
     const key = sessionKeyFor(activeProjectId);
     const cached = localStorage.getItem(key);
@@ -115,8 +153,21 @@ export default function Shell({ children, requireAuth, chromeless = false }) {
       setSessionIdState(cached);
       return;
     }
+    // Iter 329 B1-race — detect "auto-seed will populate a project
+    // shortly" state and defer mint. Signal: activeProjectId is null
+    // BUT the projects cache shows we have projects. useActiveProject
+    // populates aurem_projects_cache on mount when it fetches
+    // /cto/projects/list; if that cache has wired projects, we know
+    // the auto-seed dispatch is imminent.
     let cancelled = false;
-    (async () => {
+    let fallbackTimer = null;
+    const shouldDeferMint = shouldDeferSessionMint(
+      activeProjectId,
+      (() => { try { return localStorage.getItem("aurem_projects_cache"); }
+               catch { return null; } })(),
+    );
+
+    const doAdoptOrMint = async () => {
       let adopted = null;
       if (token) {
         try {
@@ -134,8 +185,26 @@ export default function Shell({ children, requireAuth, chromeless = false }) {
       const next = adopted || newSessionId();
       localStorage.setItem(key, next);
       setSessionIdState(next);
-    })();
-    return () => { cancelled = true; };
+    };
+
+    if (shouldDeferMint) {
+      // Founder-required fallback: 3s hard cap. If auto-seed hasn't
+      // dispatched aurem:project-changed by then, we mint anyway so
+      // worst case matches pre-fix behaviour (transient blank flash
+      // that self-heals) rather than a permanent stuck-blank.
+      const AUTO_SEED_FALLBACK_MS = 3_000;
+      fallbackTimer = setTimeout(() => {
+        if (cancelled) return;
+        doAdoptOrMint();
+      }, AUTO_SEED_FALLBACK_MS);
+    } else {
+      doAdoptOrMint();
+    }
+
+    return () => {
+      cancelled = true;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    };
   }, [activeProjectId, sessionKeyFor, token]);
 
   const toggleCollapsed = useCallback(() => {

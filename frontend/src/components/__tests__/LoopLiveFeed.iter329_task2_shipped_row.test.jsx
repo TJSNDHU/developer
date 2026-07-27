@@ -1,0 +1,223 @@
+/**
+ * LoopLiveFeed.iter329_task2_shipped_row.test.jsx
+ *
+ * Iter 329 · Task 2 — inline Shipped row (replaces dark-overlay
+ * ShipConfirmModal for loop-mode ships).
+ *
+ * Locks in:
+ *   1. extractShipInfo pure helper — extracts commit_sha / html_url /
+ *      files from the terminal state=completed · phase=ship event.
+ *   2. ShippedRow renders "Shipped {sha7} · View on GitHub · Rollback"
+ *      when terminal=true and the event stream contains a ship event.
+ *   3. Rollback flow: idle → confirming (2-click safety) → queued →
+ *      running (poll) → done (renders revert sha + link).
+ *   4. Rollback error surface.
+ *   5. Non-terminal / no-ship-event states DO NOT render the row.
+ */
+import React from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, act, waitFor } from "@testing-library/react";
+
+vi.mock("../../lib/loopApi", () => ({
+  rollbackLoop:  vi.fn(),
+  getLoopStatus: vi.fn(),
+}));
+
+import LoopLiveFeed, { extractShipInfo } from "../LoopLiveFeed.jsx";
+import * as loopApi from "../../lib/loopApi";
+
+
+function shipEvent({ commit_sha = "abcdef123", full_sha, html_url, files, commit_message } = {}) {
+  return {
+    state: "completed",
+    phase: "ship",
+    data: {
+      type: "state",
+      commit_sha,
+      full_sha: full_sha || commit_sha,
+      html_url: html_url || `https://github.com/tj/repo/commit/${commit_sha}`,
+      files_changed: files || ["ROLLBACKTEST.md"],
+      commit_message: commit_message || "auto-commit",
+    },
+  };
+}
+function narrationEvent(text, corr, tsEpoch, tone = "pending", state) {
+  return {
+    state,
+    data: {
+      type: "narration", tone,
+      narration_step: "execute",
+      narration_text: text,
+      correlation_id: corr,
+      ts_epoch: tsEpoch,
+    },
+  };
+}
+
+// Same 2-effect mount race workaround used by Fix B tests — mount
+// with event=null so the loopId-reset effect commits first, then
+// rerender in a rerender-stream.
+function feedMount(props) {
+  const { event, ...rest } = props;
+  let handle;
+  act(() => { handle = render(<LoopLiveFeed {...rest} event={null} />); });
+  if (event) {
+    act(() => { handle.rerender(<LoopLiveFeed {...rest} event={event} />); });
+  }
+  return handle;
+}
+function feedRerender(handle, props) {
+  act(() => { handle.rerender(<LoopLiveFeed {...props} />); });
+}
+
+
+describe("Iter 329 · Task 2 — extractShipInfo helper", () => {
+  it("returns null when events is empty", () => {
+    expect(extractShipInfo([])).toBeNull();
+  });
+
+  it("returns null when no ship event present", () => {
+    const events = [narrationEvent("Planning…", "c1", 100)];
+    expect(extractShipInfo(events)).toBeNull();
+  });
+
+  it("returns null on completed non-ship phase", () => {
+    const events = [{ state: "completed", phase: "verify",
+                      data: { commit_sha: "x", type: "state" } }];
+    expect(extractShipInfo(events)).toBeNull();
+  });
+
+  it("returns null on ship phase but non-terminal state", () => {
+    const events = [{ state: "shipping", phase: "ship",
+                      data: { commit_sha: "x", type: "state" } }];
+    expect(extractShipInfo(events)).toBeNull();
+  });
+
+  it("extracts on completed+ship with commit_sha (canonical shape)", () => {
+    const events = [shipEvent({ commit_sha: "1f70444abcd", html_url: "https://github.com/x/y/commit/1f70444abcd" })];
+    const info = extractShipInfo(events);
+    expect(info).not.toBeNull();
+    expect(info.commitSha).toBe("1f70444abcd");
+    expect(info.shortSha).toBe("1f70444");
+    expect(info.htmlUrl).toBe("https://github.com/x/y/commit/1f70444abcd");
+    expect(info.files).toEqual(["ROLLBACKTEST.md"]);
+  });
+
+  it("returns latest ship event when multiple exist (newest wins)", () => {
+    const events = [
+      shipEvent({ commit_sha: "old_sha_1234567" }),
+      shipEvent({ commit_sha: "new_sha_7654321" }),
+    ];
+    const info = extractShipInfo(events);
+    expect(info.commitSha).toBe("new_sha_7654321");
+  });
+});
+
+
+describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+  afterEach(() => { vi.clearAllMocks(); });
+
+  it("Non-terminal + ship-event present → row is NOT rendered", () => {
+    // Loop is still running (terminal=false) even though a ship event
+    // has been folded in. Guard against premature rendering.
+    feedMount({
+      loopId: "loop_task2_a",
+      event: shipEvent({ commit_sha: "abcdef1234" }),
+      terminal: false,
+    });
+    expect(screen.queryByTestId(/loop-shipped-row-/)).toBeNull();
+  });
+
+  it("Terminal + no ship-event → row is NOT rendered", () => {
+    // e.g. aborted or failed loop — no shipped row should appear.
+    feedMount({
+      loopId: "loop_task2_b",
+      event: { state: "aborted", data: { type: "state" } },
+      terminal: true,
+    });
+    expect(screen.queryByTestId(/loop-shipped-row-/)).toBeNull();
+  });
+
+  it("Terminal + ship-event → row renders with sha7, GitHub link, Rollback button", () => {
+    feedMount({
+      loopId: "loop_task2_c",
+      event: shipEvent({ commit_sha: "5d939a4abcd" }),
+      terminal: true,
+    });
+    const row = screen.getByTestId("loop-shipped-row-5d939a4");
+    expect(row).toBeInTheDocument();
+    expect(row.getAttribute("data-rollback-phase")).toBe("idle");
+    expect(screen.getByTestId("loop-shipped-label-5d939a4"))
+      .toHaveTextContent(/Shipped\s+5d939a4/);
+    const link = screen.getByTestId("loop-shipped-github-5d939a4");
+    expect(link.getAttribute("href")).toContain("5d939a4");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(screen.getByTestId("loop-shipped-rollback-btn-5d939a4"))
+      .toHaveTextContent(/Rollback/i);
+  });
+
+  it("Rollback flow: idle → confirming → queued → running → done", async () => {
+    loopApi.rollbackLoop.mockResolvedValue({
+      ok: true, loop_id: "loop_task2_d",
+      rollback_status: "queued", commit_sha: "5d939a4abcd",
+    });
+    loopApi.getLoopStatus.mockResolvedValueOnce({
+      rollback_status: "running",
+    }).mockResolvedValueOnce({
+      rollback_status: "done",
+      rollback_sha: "ea3ebcf987654",
+      rollback_html_url: "https://github.com/tj/repo/commit/ea3ebcf987654",
+    });
+
+    feedMount({
+      loopId: "loop_task2_d",
+      event: shipEvent({ commit_sha: "5d939a4abcd" }),
+      terminal: true,
+    });
+    const btn = screen.getByTestId("loop-shipped-rollback-btn-5d939a4");
+
+    // First click → confirming
+    await act(async () => { btn.click(); });
+    expect(screen.getByTestId("loop-shipped-row-5d939a4")
+      .getAttribute("data-rollback-phase")).toBe("confirming");
+    expect(btn).toHaveTextContent(/Confirm rollback/i);
+
+    // Second click → kicks the actual rollback
+    await act(async () => { btn.click(); });
+    expect(loopApi.rollbackLoop).toHaveBeenCalledWith("loop_task2_d");
+    // After the POST resolves, phase becomes running.
+    await waitFor(() => {
+      expect(screen.getByTestId("loop-shipped-row-5d939a4")
+        .getAttribute("data-rollback-phase")).toBe("running");
+    });
+    // Poll cycle 1 → still running. Poll cycle 2 → done.
+    await waitFor(() => {
+      expect(screen.getByTestId("loop-shipped-row-5d939a4")
+        .getAttribute("data-rollback-phase")).toBe("done");
+    }, { timeout: 5000 });
+    // Reverted link renders with the revert sha.
+    expect(screen.getByTestId("loop-shipped-rolled-back-link"))
+      .toHaveTextContent(/ea3ebcf/);
+  });
+
+  it("Rollback POST rejects → phase=failed + error text surfaces", async () => {
+    loopApi.rollbackLoop.mockRejectedValue(
+      new Error("Only completed loops can be rolled back (current: aborted)"),
+    );
+    feedMount({
+      loopId: "loop_task2_e",
+      event: shipEvent({ commit_sha: "abcdef1234" }),
+      terminal: true,
+    });
+    const btn = screen.getByTestId("loop-shipped-rollback-btn-abcdef1");
+    await act(async () => { btn.click(); });   // confirming
+    await act(async () => { btn.click(); });   // fire
+    await waitFor(() => {
+      expect(screen.getByTestId("loop-shipped-row-abcdef1")
+        .getAttribute("data-rollback-phase")).toBe("failed");
+    });
+    expect(screen.getByTestId("loop-shipped-rollback-error"))
+      .toHaveTextContent(/Only completed loops/);
+  });
+});
