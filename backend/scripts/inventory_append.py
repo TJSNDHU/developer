@@ -38,78 +38,101 @@ def _already_present(inventory_text: str, marker: str) -> bool:
     return marker in inventory_text
 
 
+def _marker_key(change: dict) -> str:
+    """Stable idempotence key per change. Written into the entry as an
+    HTML comment so `_already_present` can exact-match it. Iter-agnostic
+    so appending the same envvar again in a later iteration is a no-op."""
+    kind = change.get("kind", "")
+    if kind == "router":
+        return f"router:{change.get('path','')}"
+    if kind == "envvar":
+        return f"envvar:{change.get('name','')}"
+    if kind == "collection":
+        return f"collection:{change.get('name','')}"
+    if kind == "loop_run_log_kind":
+        return f"loop_run_log_kind:{change.get('value','')}"
+    if kind == "frontend_route":
+        return f"frontend_route:{change.get('path','')}"
+    if kind == "service":
+        return f"service:{change.get('path','')}"
+    if kind == "bg_job":
+        return f"bg_job:{change.get('name','')}"
+    return f"unknown:{json.dumps(change, sort_keys=True)}"
+
+
 def _format_entry(change: dict, iter_num: int) -> tuple[str, str]:
-    """Return (marker, formatted_entry) tuple. Marker is what we grep
-    to check idempotence; entry is what we actually append."""
+    """Return (marker, formatted_entry). Marker is an HTML-comment
+    idempotence key that we embed into every entry so re-runs are
+    exact-string matches."""
     kind = change.get("kind", "")
     ts = _iso_utc()
+    key = _marker_key(change)
+    marker = f"<!-- inv:{key} -->"
     if kind == "router":
         path = change["path"]
         prefix = change.get("prefix", "(none)")
         routes = change.get("routes", "?")
         purpose = change.get("purpose", "")
-        return (
-            f"`{path}`",
+        entry = (
             f"| `{path}` | `{prefix}` | {routes} | {purpose} "
-            f"(Iter {iter_num}, {ts}) |",
+            f"(Iter {iter_num}, {ts}) | {marker}"
         )
+        return marker, entry
     if kind == "envvar":
         name = change["name"]
         purpose = change.get("purpose", "")
         default = change.get("default", "unset")
-        return (
-            f"`{name}` gate",
+        entry = (
             f"- `{name}` — {purpose} (default: {default}) "
-            f"[Iter {iter_num}, {ts}]",
+            f"[Iter {iter_num}, {ts}] {marker}"
         )
+        return marker, entry
     if kind == "collection":
         name = change["name"]
         purpose = change.get("purpose", "")
-        return (
-            f"`{name}`",
-            f"- `{name}` — {purpose} [Iter {iter_num}, {ts}]",
-        )
+        entry = f"- `{name}` — {purpose} [Iter {iter_num}, {ts}] {marker}"
+        return marker, entry
     if kind == "loop_run_log_kind":
         val = change["value"]
         purpose = change.get("purpose", "")
-        return (
-            f"loop_run_log kind='{val}'",
+        entry = (
             f"- `loop_run_log kind='{val}'` — {purpose} "
-            f"[Iter {iter_num}, {ts}]",
+            f"[Iter {iter_num}, {ts}] {marker}"
         )
+        return marker, entry
     if kind == "frontend_route":
         path = change["path"]
         component = change.get("component", "")
         purpose = change.get("purpose", "")
-        return (
-            f"`{path}` → `{component}`",
+        entry = (
             f"- `{path}` → `{component}` — {purpose} "
-            f"[Iter {iter_num}, {ts}]",
+            f"[Iter {iter_num}, {ts}] {marker}"
         )
+        return marker, entry
     if kind == "service":
         path = change["path"]
         purpose = change.get("purpose", "")
         status = change.get("status", "wired")
-        return (
-            f"`{path}`",
+        entry = (
             f"- `{path}` — {purpose} · status={status} "
-            f"[Iter {iter_num}, {ts}]",
+            f"[Iter {iter_num}, {ts}] {marker}"
         )
+        return marker, entry
     if kind == "bg_job":
         name = change["name"]
         purpose = change.get("purpose", "")
         cadence = change.get("cadence", "?")
         gate = change.get("gate", "always on")
-        return (
-            f"`{name}` bg job",
+        entry = (
             f"| `{name}` | {purpose} | {cadence} | {gate} · "
-            f"[Iter {iter_num}, {ts}] |",
+            f"[Iter {iter_num}, {ts}] | {marker}"
         )
-    return (
-        f"unknown kind: {kind}",
+        return marker, entry
+    entry = (
         f"- (UNKNOWN kind={kind}) {json.dumps(change)} "
-        f"[Iter {iter_num}, {ts}]",
+        f"[Iter {iter_num}, {ts}] {marker}"
     )
+    return marker, entry
 
 
 def append(changes: list[dict], iter_num: int) -> dict:
