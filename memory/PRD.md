@@ -1,7 +1,19 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-07-27 — Iter 312 (`/loop/start`
+> **Latest closed iterations:** 2026-07-27 — Iter 318 (data-loss
+> prevention bundle · elision-marker ban + pre-ship guard +
+> verify-skip integrity re-sweep after self-heal), Iter 319
+> (scan-phase `_scan_text` NameError restored + fail-closed on any
+> scan exception), Iter 320 (reload rehydration for
+> `paused_for_user + ship_pending` + LoopStepBar sync), Iter 321
+> (`console.clear()` opt-in default OFF), Iter 322 (plan-phase
+> latency profiling into `loop_run_log`). 67/67 pytest across 5
+> iters + regression, bug_testing_agent verdict **fixed** after
+> one hardening iteration (see `/app/memory/CHANGELOG.md` under
+> `2026-07-27 06:15 UTC`).
+>
+> **Previous baseline:** Iter 312 (`/loop/start`
 > async fire-and-forget + full frontend recovery chain — 4/4 unit
 > tests + 12/12 bug_testing_agent Playwright checks PASS. Awaiting
 > founder standalone deploy authorization. Iter 311 (file_selector

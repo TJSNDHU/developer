@@ -4,6 +4,37 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 06:15 UTC — Iter 318+319+320+321+322 · Data-loss bundle + scan fail-closed + rehydration + console.clear opt-in + plan latency profile · SHIPPED (all 67 tests green, bug_testing_agent verdict FIXED after one hardening iteration)
+
+**Iter 318 — Data-Loss Prevention Bundle (P0):**
+- New module `services/loop_integrity_guard.py` — 7 elision-marker regex patterns (bracket_rest_of, ellipsis_unchanged, html_comment_snip, double_slash_ellipsis, hash_ellipsis, block_comment_snip, handlebars_placeholder), `_DELETION_INTENT` regex, `size_delta_violation()` (Rule 2 + Rule 3 with 30 % floor), combined `check_file_integrity()`.
+- Bug 1a — Executor prompt ban: `services/loop_execute.py::sys_msg` AND `services/loop_engine.py::_gen_via_parliament::task_text` both carry `"STRICT: No elision. No placeholders. Never emit '[Rest of ... unchanged]', ... If a line is not being modified, INCLUDE THE LINE VERBATIM."`
+- Bug 1a — Post-emission guard: `_gen_via_parliament` calls `find_elision_markers()` on the LLM output BEFORE it lands in `submitted_files`. Marker hit → file rejected (returns `None`), logged to `loop_run_log` under `kind='executor_elision_rejected'`, EXECUTING frame narrated with `sub_step='elision_rejected'`.
+- Bug 1a — Original-bytes capture: `_do_execute` records `self.context['original_bytes_by_path'][path] = len(current)` per fetched file (drives the size-delta gate later).
+- Bug 1b — Pre-ship gate: `_do_ship` runs `check_file_integrity` per file BEFORE writing `ship_pending`. Any violation → `state=FAILED`, `data.kind='integrity_guard_rejected'`, error blob attaches `offending_path` + `rule_fired` + `submitted_bytes` + `repo_bytes` + `shrink_ratio` + `action`. Guard-implementation crash also fails closed (`integrity_guard_error:<Type>`).
+- Bug 2 — Verify skip ≠ pass: `_do_verify` calls new helper `_apply_integrity_guard_to_report(report, file_objs)` after the initial `verify_files()` AND again after each subset reverify merge inside the self-heal loop. Downgrades `.md → linter:skip` rows carrying elision markers to `ok:False`, attaches `integrity_guard` reason to `stderr`, recomputes `report.ok`. Error lines deduped across re-applies for idempotence.
+- **Hardening iteration:** first bug_testing_agent pass returned `not_fixed` with a sharp RCA — the initial inline guard was undone by the self-heal reverify merge (a `.md skip` row flipped back to `ok:true` post-heal). Fix: extracted guard into a helper method and re-invoked after every merge. Retest: verdict `fixed` with runtime proof (`final_row_ok=false, integrity_rule=elision_marker`, final state `paused_for_user/verify`).
+
+**Iter 319 — Scan-phase fail-closed (P0):**
+- Restored missing `from routers.security_scan import _scan_text` inside both `_run_security_scan` and `_run_diff_security_scan` (root cause of the `NameError: name '_scan_text' is not defined` in `loop_678eea28436c4e`).
+- `_do_scan` except block now transitions `state=FAILED`, calls `release_loop_lock` + `record_loop_failure`, emits `kind='scan_exception'` with `error_type` + `error_repr`. The old "log and return" path was the exact wrong default for a security scanner.
+
+**Iter 320 — Reload rehydration + stepper sync:**
+- `ChatPanel.jsx` mount-time `/loop/active` ship-hydrate branch now mirrors the Iter 316 Fix B pattern: `setLoopPhase("ship")` + `openLoopStream(active.loop_id)` + `setShipPending(...)`. On reload, the stepper paints SHIP and SSE frames land here.
+- Stepper sync: source-inspection confirms `<LoopStepBar phase={loopPhase} .../>` — same source that ChatPanel + ShipPendingCard consume. No secondary state store.
+
+**Iter 321 — Console.clear opt-IN default OFF:**
+- Rewrote `lib/useAutoClearConsole.js`: `console.clear()` now gated behind `window.__AUREM_ENABLE_AUTO_CLEAR_CONSOLE === true` (opt-IN). Previous `__AUREM_DISABLE_AUTO_CLEAR_CONSOLE` opt-out inverted flag removed. Default behaviour is now **never clear** — DevTools survives live debugging sessions.
+
+**Iter 322 — Plan-phase latency profiling (RCA close-out for 21.6s plan):**
+- `_generate_plan` builds a `_profile` dict with per-segment `time.monotonic()` wall-clock: `graph_refresh_s`, `repo_map_read_s`, `llm_call_s`, `json_parse_s`, `total_s` + `graph_refreshed` + `repo_map_present` flags.
+- `_do_plan` strips `_profile` from the plan (frontend approval card stays clean) and persists to `loop_run_log` under `kind='plan_latency_profile'` — speed-diagnostic dashboard can now attribute wall-clock.
+
+**Testing:** 67 pytest tests across 5 iters + Iter 312/313/315 regression, all green. `bug_testing_agent` retest verdict **FIXED** (100 % focused checks passed, action items empty).
+
+**Deployment authorization:** founder gave standing auth ("deploy automaticaly after each step completing") — dispatching to deployer immediately after this changelog write.
+
+
 ## 2026-07-27 05:12 UTC — Iter 318+ · Data-loss / ship-integrity spec handoff (context boundary)
 
 Founder live-inspection of `loop_678eea28436c4e` post-Iter-316 surfaced 5 bugs, priority-ordered:
