@@ -17,7 +17,8 @@ Language: **Hinglish** — main agent responds in Hinglish.
 ## What's implemented (chronological, most recent first)
 
 ### Iter 328 (2026-07-27) — Multi-item bundle
-- **Deploy 2 hotfix v3**: extracted `shipPendingMappers.js` — single source of truth for the shipPending state shape at both ingress paths (`/loop/active` rehydrate + SSE `awaiting_ship`). Component-level test + mapper unit tests + wire→render integration test. Structurally regression-proof.
+- **Deploy 2 hotfix v3** [DEPLOYED-UNVERIFIED — founder confirming prod fiber trace later]: extracted `shipPendingMappers.js` — single source of truth for the shipPending state shape at both ingress paths (`/loop/active` rehydrate + SSE `awaiting_ship`).
+- **Bundle 1 · #1 wire→render integration test** [DEPLOYED-UNVERIFIED]: chains real wire shape → mapper → real ShipPendingCard render. Closes the "component-passes-but-real-app-drops" gap. 3 tests.
 - **`/feature-window` auth gate** (Item #4): 401 anonymous → login redirect, 403 non-founder → /dashboard, founder → system map.
 - **Periodic integration_health cron** (Item #5): `services/integration_health_cron.py` runs `run_all_probes()` every 600s (env-gated). Live-verified in backend logs.
 - **Iter 329 rollback backend** (Item #2, HELD): `services/loop_rollback.py` + `POST /api/aurem-dev/loop/{loop_id}/rollback`. 4 tests pass. NOT deployed until real revert commit proven on GitHub.
