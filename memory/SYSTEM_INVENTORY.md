@@ -624,3 +624,4 @@ History claimed these shipped ~Iter 114-115. Live-codebase evidence
 | Branch-per-fix mode | **EXISTS-ORPHANED** | Only a User-Agent string in `services/finding_fix_applier.py:54`; no `aurem-fix/*` branch code, no draft-PR toggle, no settings gate |
 | L1/L2/L3 trust levels | **EXISTS-WIRED** | `loop_engine.py:681-703` reads trust level; enforcement at L1 block gate + L3 auto-ship (line 2682) |
 
+- `FEATURE_FLAG_integration_health_cron` — Iter 328 · #11 · runtime pause of integration_health_cron via /admin/feature-flags. Env ENABLE_INTEGRATION_HEALTH_CRON is boot-time gate; feature flag is runtime kill-switch. Both must allow for probes to fire. (default: true (seeded in feature_flags collection)) [Iter 328, 2026-07-27T19:21:53.886060Z] <!-- inv:envvar:FEATURE_FLAG_integration_health_cron -->

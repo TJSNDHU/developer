@@ -49,6 +49,31 @@ def _is_enabled() -> bool:
     return v not in ("0", "false", "off", "no")
 
 
+async def _is_paused_by_flag() -> bool:
+    """Iter 328 · #11 — feature-flag runtime kill-switch.
+
+    Returns True ONLY when the flag doc exists AND explicitly
+    `enabled=False`. Missing/absent flag → allow (default ON so
+    behavior matches the env-only gate for anyone who hasn't seeded
+    the flag yet). Fail-open on any error — never trips the cron off
+    by accident.
+
+    Contract: env `ENABLE_INTEGRATION_HEALTH_CRON` is the boot-time
+    kill-switch. This flag is the runtime kill-switch. Both must
+    allow for a probe to run.
+    """
+    try:
+        from services.feature_flags import _load_flags
+        flags = await _load_flags()
+        doc = flags.get("integration_health_cron")
+        if not doc:
+            return False   # missing → don't pause
+        return not doc.get("enabled", True)
+    except Exception as e:                                  # noqa: BLE001
+        logger.debug("feature_flag check failed, defaulting to allow: %r", e)
+        return False
+
+
 async def _probe_and_persist_once(db) -> Optional[dict]:
     """Single probe cycle. Returns the snapshot dict on success, None
     on failure. Never raises."""
@@ -96,10 +121,18 @@ async def schedule_integration_health_cron() -> None:
 
     while True:
         try:
-            from cto_services.db import get_db
-            db = get_db()
-            if db is not None:
-                await _probe_and_persist_once(db)
+            # Iter 328 · #11 — runtime kill-switch via feature flag.
+            # If founder toggles integration_health_cron OFF in
+            # /admin/feature-flags, this branch skips the probe.
+            # Admin toggle invalidates the flag cache so pause takes
+            # effect within one cycle.
+            if await _is_paused_by_flag():
+                logger.debug("integration_health cron paused by feature flag")
+            else:
+                from cto_services.db import get_db
+                db = get_db()
+                if db is not None:
+                    await _probe_and_persist_once(db)
         except Exception as e:                              # noqa: BLE001
             logger.warning("integration_health cron tick failed: %r", e)
         await asyncio.sleep(interval)

@@ -95,3 +95,64 @@ async def test_probe_persist_fails_open(monkeypatch):
     # Must NOT have persisted anything on probe failure.
     db.integration_health.update_one.assert_not_awaited()
     db.integration_health_history.insert_one.assert_not_awaited()
+
+
+# ── Iter 328 · #11 — feature-flag runtime kill-switch tests ─────────
+
+@pytest.mark.asyncio
+async def test_paused_when_flag_disabled(monkeypatch):
+    """Flag doc exists with enabled=False → pause."""
+    from services import integration_health_cron as m
+    from services import feature_flags as ff
+    async def _fake_load():
+        return {
+            "integration_health_cron": {
+                "flag": "integration_health_cron",
+                "enabled": False,
+                "tier_allowlist": [],
+                "user_allowlist": [],
+                "description": "Runtime pause for periodic probe",
+            }
+        }
+    monkeypatch.setattr(ff, "_load_flags", _fake_load)
+    assert await m._is_paused_by_flag() is True
+
+
+@pytest.mark.asyncio
+async def test_not_paused_when_flag_enabled(monkeypatch):
+    """Flag doc exists with enabled=True → do NOT pause."""
+    from services import integration_health_cron as m
+    from services import feature_flags as ff
+    async def _fake_load():
+        return {
+            "integration_health_cron": {
+                "flag": "integration_health_cron", "enabled": True,
+                "tier_allowlist": [], "user_allowlist": [],
+                "description": "",
+            }
+        }
+    monkeypatch.setattr(ff, "_load_flags", _fake_load)
+    assert await m._is_paused_by_flag() is False
+
+
+@pytest.mark.asyncio
+async def test_not_paused_when_flag_missing(monkeypatch):
+    """Flag doc absent → default allow (don't pause). Backward-compat
+    for anyone who hasn't seeded the flag yet."""
+    from services import integration_health_cron as m
+    from services import feature_flags as ff
+    async def _fake_load():
+        return {}   # no flag
+    monkeypatch.setattr(ff, "_load_flags", _fake_load)
+    assert await m._is_paused_by_flag() is False
+
+
+@pytest.mark.asyncio
+async def test_flag_load_failure_defaults_to_allow(monkeypatch):
+    """Fail-open — a broken flag load must NOT pause the cron."""
+    from services import integration_health_cron as m
+    from services import feature_flags as ff
+    async def _boom():
+        raise RuntimeError("mongo unreachable")
+    monkeypatch.setattr(ff, "_load_flags", _boom)
+    assert await m._is_paused_by_flag() is False
