@@ -4,6 +4,24 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 05:12 UTC — Iter 318+ · Data-loss / ship-integrity spec handoff (context boundary)
+
+Founder live-inspection of `loop_678eea28436c4e` post-Iter-316 surfaced 5 bugs, priority-ordered:
+1. **Bug 1a + 1b + 2 (Iter 318 · data-integrity, BLOCKING P0):** Executor emitted `[Rest of existing README content remains unchanged...]` as literal file content. README would have dropped >90% of bytes on ship. Only `awaiting_confirmation_timeout` prevented data loss. Fix requires BOTH executor emission ban (1a — closes the actual defect) AND pre-ship guard (1b — safety net) AND verify-phase skip-must-not-equal-pass (2). Founder mandate: 1a is NOT stretch, PR shipping only 1b/2 must be rejected. Size-delta threshold: flag any shrink >70% (30% floor) without explicit deletion intent in `original_request` — derived from this run's data, not to be re-invented downstream.
+2. **Bug 3 (Iter 319 · scan-phase fail-closed):** `scan_results = NameError("name '_scan_text' is not defined")` at `loop_engine.py:2908/3030`. Main-agent noted this earlier as "pre-existing, unrelated" — that was wrong; it is a real production bug. Loop treated scan crash as non-fatal and proceeded to ship-gate. Fix: define `_scan_text` OR fix broken reference + wrap `_do_scan` in fail-closed try/except halting ship on any exception.
+3. **Bug 4 (Iter 320 · reload rehydration):** Reload during `state=paused_for_user, ship_pending=set` wipes chat + ship card + commit message from UI. Backend has record; no UI path back to it. Hypothesis (VERIFY, don't assume): Iter 316 Fix B added hydrate-branch for `awaiting_confirmation + plan` only, missing the `paused_for_user + ship_pending` variant. Fresh agent must confirm before fixing.
+4. **Bug 5 (Iter 321 · console.clear hygiene):** `console.clear()` fires app-wide every 30s (`:29:59, :30:00, :30:31, :31:00, :31:30 ...`) wiping DevTools. Confirm intentional (likely F12 error-capture pipe) then add `DISABLE_CONSOLE_CLEAR` env flag, or remove if not intentional.
+5. **Iter 317 SSE re-validation (WATCH, not an iter):** Failed run (04:30) predates Iter 317 deploy (05:04). Next same-class loop's console log settles gzip-vs-transport definitively — if `[iter316] FALLBACK-POLL delivered plan ... (SSE path did NOT deliver first)` line reappears with elapsedMs ≈ same-as-actual-plan-latency-plus-poll-cadence, gzip was wrong and transport bug is still open.
+
+**Full spec:** `/app/memory/ITER_318_DATA_LOSS_SPEC.md` (BLOCKING preconditions, concrete test invariants, evidence-derived thresholds, verification steps for hypotheses vs asserted diagnoses, iter-numbering sequence).
+
+**Also parked/tracked:** Item 1 continuation (21.6s plan-phase latency for one-line README edit — profile after Iter 318+319+320 land), ShipPendingCard width mismatch with chat composer (cosmetic, Iter 322 or later, founder Path B choice preserved).
+
+**No code changed in this entry.** Main-agent chose Path A per founder direction: persist findings, hand off clean, next-context agent picks up Iter 318 with test-first discipline and full coverage. Path B (rushed partial fix) explicitly rejected — founder rationale: "a partial guard here is worse than no guard, because it's the kind of fix that makes the next person trust the ship button more, not less."
+
+Context capacity at handoff: ~53k tokens remaining. Sufficient for next-context agent to load the spec + resume; insufficient here for full Iter 318 discipline.
+
+
 ## 2026-07-27 04:35 UTC — Iter 309 Part 2 · Visual QA spec captured (NOT built, gated behind SSE test)
 
 Founder-provided screenshot marked up 2026-07-27 confirming the LoopStepBar ECG-strip requirement: each of the 5 phase labels (PLAN/EXECUTE/VERIFY/SCAN/SHIP) must have its own ECG-pulse strip directly beneath it, width-aligned per-label (NOT one continuous strip spanning the row).
