@@ -153,6 +153,27 @@ def buffer_stats() -> dict:
     return stats
 
 
+def buffer_events(loop_id: str, max_events: int = 200) -> list:
+    """Iter 316 · Fix D — raw replay-buffer events for a single loop.
+
+    Powers `/admin/loop-inspect/{loop_id}` — used to diagnose the
+    SSE-delivery gap that produced founder's simple-task stall on
+    2026-07-27 (chip said AWAITING APPROVAL, chat stuck on
+    "Generating plan…"). Read-only, redacts nothing (this is admin-
+    scoped inspection; the replay contents are exactly what the
+    frontend would have received).
+
+    Returns newest-first, capped at `max_events` (default 200).
+    """
+    buf = _BUFFERS.get(loop_id)
+    if buf is None:
+        return []
+    # events is a list of (seq, event) tuples, oldest first. Take last N.
+    tail = list(buf.events)[-max(1, min(max_events, 1000)):]
+    # Newest first for readability, with seq inlined for grep-audit.
+    return [{"seq": s, "event": ev} for (s, ev) in reversed(tail)]
+
+
 def _reset_for_tests() -> None:
     """Test-only helper.  Not exported at module top-level to signal
     intent, but importable when a test needs a clean slate."""

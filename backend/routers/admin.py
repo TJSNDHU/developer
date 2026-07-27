@@ -4416,11 +4416,19 @@ async def loop_inspect(
     # so the endpoint still degrades gracefully if the module or its
     # helper are absent (e.g. rollback scenario).
     sse_entry: dict | None = None
+    sse_events_raw: list = []
     try:
         from services import sse_replay_buffer as _sse_buf
         # buffer_stats() returns { loop_id: {next_seq, buffered, last_touched, ended_at}, ... }
         all_stats = _sse_buf.buffer_stats() if hasattr(_sse_buf, "buffer_stats") else {}
         sse_entry = (all_stats or {}).get(loop_id)
+        # Iter 316 · Fix D — also return raw replay events for this
+        # loop_id so the founder can see EXACTLY what the SSE client
+        # would replay on connect (was the plan-ready event actually
+        # in the buffer? or was the drain-by-driver race a fiction?).
+        # Zero mutation; read-only.
+        if hasattr(_sse_buf, "buffer_events"):
+            sse_events_raw = _sse_buf.buffer_events(loop_id, max_events=200)
     except Exception as _e:
         sse_entry = {"__error": f"sse_replay_buffer inspect failed: {_e!r}"}
 
@@ -4430,6 +4438,7 @@ async def loop_inspect(
         "session":       session,
         "events_tail":   events,   # newest-first
         "sse_buffer":    sse_entry,
+        "sse_buffer_events": sse_events_raw,   # Iter 316 · Fix D
         "generated_at":  datetime.now(timezone.utc).isoformat(),
     }
 

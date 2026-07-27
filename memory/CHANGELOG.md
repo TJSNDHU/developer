@@ -4,6 +4,44 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 04:15 UTC — Iter 316 · SSE-plan-delivery hardening (fallback poll + hydrate SSE bind + telemetry + replay-buffer inspection) — REGRESSION-VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Trigger:** Founder ran a genuinely simple task (Path A sanity check, "add one-line comment to README.md") post-Iter-315 deploy to verify the diagnostic write-through. Chip correctly showed `LOOP · AWAITING APPROVAL` but ChatPanel stayed stuck on "Generating plan… 66.8s" with zero plan text and zero approval button in the DOM (verified via full page-source dump). Founder correctly reframed this as potentially the shared root cause behind both the earlier 171s timeout AND today's simple-task stall — same underlying SSE-delivery gap, different visible symptom.
+
+**Investigation (25 min, no code touched):** Traced the plan-ready flow end-to-end. Confirmed backend emits `{state:"awaiting_confirmation", phase:"plan", data:{plan}}` correctly at `loop_engine.py:621-627`. Confirmed frontend `handleLoopEvent` block at `ChatPanel.jsx:2511-2531` correctly absorbs matching frames. Confirmed `openLoopStream(lid)` fires on the async-start path. Multi-worker Mongo `last_event` fallback exists in the SSE endpoint. Cannot definitively identify which suspect fires on prod without live browser-console telemetry — reported hidden depth per standing rule.
+
+**Fix (single class of change — SSE-plan-delivery hardening):**
+
+Backend:
+- `backend/services/sse_replay_buffer.py` — new `buffer_events(loop_id, max_events=200)` helper returning raw replay events (newest-first, with seq inline). Read-only. Powers Fix D below.
+- `backend/routers/admin.py` — `/admin/loop-inspect/{loop_id}` extended with `sse_buffer_events` field (Fix D). Read-only, same auth gate as before. Founder can now see EXACTLY what the SSE client would replay on connect for a given loop — proves or refutes the multi-worker race hypothesis definitively.
+
+Frontend:
+- `frontend/src/components/ChatPanel.jsx` — new `loopFallbackPollRef` (Fix A): while showing "Generating plan…" pending bubble on async-start path, poll `/loop/active` every 3s. If it returns `state=awaiting_confirmation && plan`, synthesize a virtual SSE frame and drive the same `handleLoopEvent` absorption block — SSE-independent safety net. Poll auto-clears on plan absorption OR user cancel OR terminal event. Zero code duplication (fallback funnels into the same handler).
+- `frontend/src/components/ChatPanel.jsx` — hydrate branch at line 507 (Fix B): the awaiting_confirmation-on-reload path now also calls `setLoopPhase("plan_pending")` and `openLoopStream(active.loop_id)`. Previously it set only `loopId + loopPlan`, meaning post-reload the approval card never rendered (showPlanCard gate requires plan_pending phase) — this was a real gap producing identical symptoms.
+- `frontend/src/components/ChatPanel.jsx` — three `console.debug` telemetry points (Fix C): `[iter316] async-start branch — openLoopStream fired`, `[iter316] SSE PLAN-READY FRAME arrived`, `[iter316] PLAN-READY absorbed path=SSE|FALLBACK-POLL`. Founder's next real run will show definitively which path delivered the plan (or if both fired, which fired first).
+
+**Verification:**
+- Backend regression: 15/15 tests PASS (Iter 312 + 313 + 315 all green).
+- `buffer_events` module-level test: returns `[]` for unknown loop_id ✓.
+- Admin endpoint auth gate: HTTP 401 without JWT ✓ intact.
+- Lint (my changed files): both python files clean; ChatPanel warnings are pre-existing unused-eslint-disable directives from earlier iterations, not introduced by Iter 316.
+- Screenshot smoke skipped — no behavior change visible pre-loop-run; the three telemetry points and fallback poll only fire during a real loop.
+
+**Priority reframe from founder:** may be the shared root cause behind both the 171s timeout AND today's stall — same SSE gap, different visible symptom. Fix C's telemetry will confirm this on the next real run: if founder sees `[iter316] FALLBACK-POLL delivered plan` in the console, we know SSE has been broken silently for at least Iter 312-315.
+
+**Files touched:**
+- `backend/services/sse_replay_buffer.py` (buffer_events helper)
+- `backend/routers/admin.py` (loop-inspect extension with sse_buffer_events)
+- `frontend/src/components/ChatPanel.jsx` (Fix A + B + C)
+
+**What Iter 316 does NOT touch:**
+- No changes to `_emit()`, engine flow, SSE endpoint routing, or session lifecycle. Fixes are strictly additive-and-defensive.
+- No changes to auth, no changes to admin page wrappers (Iter 314 pattern still holds).
+- Iter 317 (Deploy Sync SHA-match chip) still queued.
+- Item 1 (171s RCA fix) still awaiting the next-run diagnostic data — Fix C's telemetry will feed directly into that RCA.
+
+
 ## 2026-07-27 03:40 UTC — Iter 315 · Diagnostic-honesty class (loop_events phase-transition write + avg_calls unit fix + sample_loop_ids + frontend 3-state visual disambiguation) — UNIT + SMOKE VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Trigger:** Founder pulled real speed-diagnostic JSON from prod after Iter 314 deployed. Report showed `phase_wall_clock` = `n:0, avg_s:null` for every phase across 10 sampled loops, AND `llm_calls_by_phase` = `n:10, avg_s:0` — the two together made it impossible to confirm/refute the 171s RCA hypothesis. Founder correctly diagnosed this as a data-write bug blocking the RCA and requested code-level investigation before any RCA conclusions.

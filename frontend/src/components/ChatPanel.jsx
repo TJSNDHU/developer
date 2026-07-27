@@ -472,6 +472,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [shipPending, setShipPending] = useState(null);
   const [shipBusy, setShipBusy] = useState(false);
   const loopAbortRef = useRef(null);
+  // Iter 316 · Fix A — handle for the /loop/active fallback-poll
+  // interval so we can clearInterval when SSE wins the race OR when
+  // the plan is absorbed OR when the loop is cancelled.
+  const loopFallbackPollRef = useRef(null);
 
   // Iter 284 — visible queue indicator.  When a user submits during
   // busy state, the message auto-queues via the 409 flow.  This
@@ -505,8 +509,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             message:        "Loop resumed — ready to ship.",
           });
         } else if (active.state === "awaiting_confirmation" && active.plan) {
+          // Iter 316 · Fix B — hydrate path was missing SSE bind +
+          // loopPhase remap. On browser reload into an awaiting-
+          // confirmation loop, we set loopId+loopPlan but forgot to
+          // (a) set loopPhase="plan_pending" (showPlanCard gate) and
+          // (b) openLoopStream so ship-gate / execute-phase events
+          // land after the user approves. Result before the fix:
+          // approval card never rendered post-reload, exact same
+          // symptom as the founder-reported simple-task stall.
           setLoopId(active.loop_id);
           setLoopPlan(active.plan);
+          setLoopPhase("plan_pending");
+          openLoopStream(active.loop_id);
+          // eslint-disable-next-line no-console
+          console.debug("[iter316] hydrate — awaiting_confirmation branch bound SSE",
+            "loop_id=", active.loop_id);
         } else if (active.state === "paused_for_user") {
           // Iter 308 v2 — Reaper-rescued execute/verify/scan sessions
           // land here (state=paused_for_user, phase=execute|verify|...).
@@ -2148,6 +2165,53 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // formatted plan the moment the engine emits.
       if (resp?.async_start === true || !resp?.plan) {
         if (lid) openLoopStream(lid);
+        // eslint-disable-next-line no-console
+        console.debug("[iter316] async-start branch — openLoopStream fired at", new Date().toISOString(), "loop_id=", lid);
+        // ── Iter 316 · Fix A — proactive /loop/active fallback poll ─
+        // Belt-and-braces reconciliation. If the SSE plan-ready event
+        // fails to land (multi-worker race, dropped stream, whatever),
+        // this poll picks it up from Mongo's loop_sessions.context.plan
+        // and drives the same handleLoopEvent path. Whichever wins,
+        // wins — the OTHER will no-op harmlessly.
+        //
+        // Console logs (Fix C) tell us on every real run which path
+        // actually delivered the plan (SSE / poll / neither), so we
+        // can retire this fallback once SSE is proven reliable OR
+        // keep it as permanent belt-and-braces if the race is real.
+        if (lid && !loopFallbackPollRef.current) {
+          const pollStartedAt = Date.now();
+          const timer = setInterval(async () => {
+            try {
+              const { getActiveLoop } = await import("../lib/loopApi");
+              const activeResp = await getActiveLoop(activeProject?.project_id || null);
+              const active = activeResp?.active;
+              if (active?.loop_id === lid
+                  && active?.state === "awaiting_confirmation"
+                  && active?.plan) {
+                const elapsedMs = Date.now() - pollStartedAt;
+                // eslint-disable-next-line no-console
+                console.debug("[iter316] FALLBACK-POLL delivered plan at",
+                  new Date().toISOString(),
+                  "elapsedMs=", elapsedMs,
+                  "(SSE path did NOT deliver first — investigate)");
+                // Synthesize the same shape SSE would have delivered
+                // so handleLoopEvent's plan-absorption block fires
+                // identically to the SSE path. Zero code duplication.
+                handleLoopEvent({
+                  loop_id: lid,
+                  state:   "awaiting_confirmation",
+                  phase:   "plan",
+                  data:    { plan: active.plan },
+                  message: "Plan ready — awaiting your approval. (via /loop/active fallback)",
+                  requires_user_action: true,
+                });
+                clearInterval(timer);
+                loopFallbackPollRef.current = null;
+              }
+            } catch { /* poll failure is silent — SSE may still succeed */ }
+          }, 3000);
+          loopFallbackPollRef.current = timer;
+        }
         setMessages((m) => {
           const out = m.slice();
           for (let i = out.length - 1; i >= 0; i--) {
@@ -2509,6 +2573,25 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // "still working" pending bubble with a formatted plan markdown
     // preview (same UX as the pre-Iter-312 sync path had inline).
     if (state === "awaiting_confirmation" && phase === "plan" && data && data.plan) {
+      // ── Iter 316 · Fix C — telemetry ────────────────────────────
+      // Log WHICH path delivered the plan-ready event so we can
+      // retroactively see (from the browser console) whether SSE
+      // is working reliably in prod or whether Fix A's fallback
+      // poll is doing the real work. Message-suffix tag comes from
+      // the synthetic event Fix A crafts.
+      const viaFallback = /via \/loop\/active fallback/.test(ev.message || "");
+      // eslint-disable-next-line no-console
+      console.debug("[iter316] PLAN-READY absorbed at",
+        new Date().toISOString(),
+        "path=", viaFallback ? "FALLBACK-POLL" : "SSE",
+        "loop_id=", ev.loop_id);
+      // Cancel the fallback poll if it's still running — SSE won
+      // (or we're firing from the fallback itself and this is the
+      // last iteration). Idempotent.
+      if (loopFallbackPollRef.current) {
+        try { clearInterval(loopFallbackPollRef.current); } catch { /* swallow */ }
+        loopFallbackPollRef.current = null;
+      }
       setLoopPlan(data.plan);
       const planMd = formatPlanMarkdown(data.plan);
       const lid = ev.loop_id || null;
@@ -2712,6 +2795,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           "keepalive=", !!ev?.data?.keepalive,
           "msg=", (ev?.message || "").slice(0, 120),
           "full=", ev);
+        // Iter 316 · Fix C — narrow-flag plan-ready frames on SSE
+        // so the console log stream is greppable for "did SSE
+        // actually deliver the plan?" without wading through every
+        // heartbeat/narration line.
+        if (ev?.state === "awaiting_confirmation" && ev?.phase === "plan"
+            && ev?.data?.plan) {
+          // eslint-disable-next-line no-console
+          console.debug("[iter316] SSE PLAN-READY FRAME arrived at",
+            new Date().toISOString(),
+            "loop_id=", ev.loop_id);
+        }
         handleLoopEvent(ev);
       },
       onTerminal: () => {
@@ -2820,6 +2914,11 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     if (loopAbortRef.current) {
       try { loopAbortRef.current.abort(); } catch { /* swallow */ }
       loopAbortRef.current = null;
+    }
+    // Iter 316 · Fix A — cancel fallback poll on user cancel.
+    if (loopFallbackPollRef.current) {
+      try { clearInterval(loopFallbackPollRef.current); } catch { /* swallow */ }
+      loopFallbackPollRef.current = null;
     }
     setLoopPhase("idle");
     setLoopId(null);
