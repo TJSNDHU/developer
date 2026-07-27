@@ -1,0 +1,63 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Live loop_678eea28436c4e nearly wiped the entire README because the AI executor emitted the literal placeholder text `[Rest of existing README content remains unchanged...]` as file content (>90% file shrink). The `.md \u2192 linter: skip` verify branch reported ok:true, and the ship gate opened with the truncated content \u2014 only `awaiting_confirmation_timeout` prevented the commit. Separately, `scan_results = NameError(\"name '_scan_text' is not defined\")` \u2014 scan phase hard-crashed but the loop treated it as non-fatal and proceeded to ship. On reload, loops in `state=paused_for_user + phase=ship + ship_pending` disappeared from the UI (chat, ship panel, commit message all wiped). Top LoopStepper showed EXECUTE-orange while ChatPanel showed 5/5 ready-to-ship (two separate state sources). Also `console.clear()` fired every ~30s wiping DevTools. Also plan generation took 21.6s for a one-line README edit with no visibility into what took the time.",
+  "summary": "No relevant testing skill found. Focused verification reran Iter 318-322 tests (46 passed), Iter 312 async tests (4 passed), preview /loop/start API smoke (passed), synthetic pre-ship guard (passed), scan fail-closed runtime (passed), and ship hydration API (passed). However, a targeted runtime probe found _do_verify can still finish with report.ok=true for a .md file containing `[Rest of existing README content remains unchanged...]` after a no-op/escalated self-heal, because the integrity guard is not re-run after subset reverify; verdict is not_fixed.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "LoopEngine._do_verify",
+        "issue": "Integrity guard is applied only to the initial verify report. If the guard downgrades a .md skip row, then self-heal returns no replacement/escalates, subset reverify calls verify_files again and overwrites the row back to ok:true/linter:skip while the submitted file still contains the elision marker. This reopens the `.md skip == pass` part of the incident, though the pre-ship guard later blocks commit.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "backend/tests Iter 318-322 suite",
+        "issue": "Main-agent note claimed 61 iter-specific tests, but the actual target files collected 46 tests. Existing tests are mostly source-inspection and missed the self-heal/reverify runtime regression. Initial run from /app also failed import resolution; correct cwd is /app/backend."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter318_preship_guard_integration.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter319_scan_fail_closed_runtime.py",
+    "/app/test_reports/bug_verification_artifacts/iter320_ship_hydration_api_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter312_loop_start_api_probe.py"
+  ],
+  "action_items": [
+    "Fix _do_verify so check_file_integrity is run after every self-heal/subset reverify merge before recomputing report.ok, and fail/pause if the guard still fires.",
+    "Add a runtime regression test where verify_files returns .md linter skip ok:true, integrity guard downgrades, healer returns no output/escalates, and final verification_results.ok must remain false.",
+    "Re-run the full Iter 318-322 + Iter 312 regression suite and a synthetic pre-ship guard probe after the fix."
+  ],
+  "critical_code_review_comments": [
+    "_do_ship pre-ship integrity guard is correctly placed before ship_pending and synthetic placeholder README content transitions to state=failed with data.kind=integrity_guard_rejected; ship_pending is not written.",
+    "_do_scan imports _scan_text in both scan helpers and runtime scanner exception transitions to FAILED with kind=scan_exception, fail_closed=true, and no ship progression.",
+    "ChatPanel ship hydrate branch sets loopPhase('ship'), openLoopStream(active.loop_id), and setShipPending; /loop/active returns paused_for_user/phase=ship ship_pending with token scrubbed. Browser UI was not run because request said backend-only, but source/API evidence supports the rehydration fix.",
+    "useAutoClearConsole is opt-in via window.__AUREM_ENABLE_AUTO_CLEAR_CONSOLE and default-off by source/tests.",
+    "_generate_plan records _profile and _do_plan persists kind=plan_latency_profile by source/tests."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_322.json",
+    "/app/test_reports/iteration_322.json",
+    "/app/test_reports/bug_verification_artifacts/iter318_preship_guard_integration.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_runtime.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter319_scan_fail_closed_runtime.py",
+    "/app/test_reports/bug_verification_artifacts/iter320_ship_hydration_api_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter312_loop_start_api_probe.py"
+  ],
+  "success_rate": {
+    "backend": "83%",
+    "frontend": "source/API checks passed; browser E2E not run"
+  },
+  "seed_data_creation": "Inserted and removed one synthetic loop_sessions document for /loop/active ship hydration. Other runtime probes used MOCKED FakeDB/patches for isolated engine behavior and did not persist app data.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Start by rerunning /app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe.py. It should stop printing NOT_FIXED_EVIDENCE after _do_verify re-applies the guard after self-heal/subset reverify. Then run pytest from /app/backend, not /app.",
+  "rca_of_the_issue": "The implemented verify guard mutates the initial verify report, but the self-heal loop later replaces failing rows with subset_report results from verify_files and recomputes ok from linter results only. For .md files, verify_files returns skip/ok:true without inspecting content, so a no-op/escalated healer can convert an integrity failure back to ok:true while placeholder content remains. Pre-ship defense-in-depth still blocks the commit, but the verify-skip contract remains broken."
+}

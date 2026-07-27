@@ -498,7 +498,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         if (cancelled || !active) return;
         if (active.state === "paused_for_user" && active.phase === "ship"
             && active.ship_pending) {
+          // ── Iter 320 · Bug 4 — mirror the Iter 316 Fix B pattern ──
+          // Previously this branch only set loopId + shipPending and
+          // dropped the SSE bind + loopPhase remap, so on reload the
+          // stepper stayed pinned to its initial phase (EXECUTE-orange
+          // was the observed live symptom) and any subsequent state
+          // transitions never reached this tab. Now: same shape as
+          // the awaiting_confirmation branch — setLoopPhase +
+          // openLoopStream, so the stepper paints SHIP and confirm-
+          // ship / integrity_guard_rejected frames land here.
           setLoopId(active.loop_id);
+          setLoopPhase("ship");
+          openLoopStream(active.loop_id);
           setShipPending({
             owner:          active.ship_pending.owner,
             repo:           active.ship_pending.repo,
@@ -508,6 +519,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             commit_message: active.ship_pending.commit_message,
             message:        "Loop resumed — ready to ship.",
           });
+          // eslint-disable-next-line no-console
+          console.debug("[iter320] hydrate — ship-gate branch bound SSE",
+            "loop_id=", active.loop_id);
         } else if (active.state === "awaiting_confirmation" && active.plan) {
           // Iter 316 · Fix B — hydrate path was missing SSE bind +
           // loopPhase remap. On browser reload into an awaiting-

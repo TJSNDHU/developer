@@ -258,7 +258,20 @@ async def _generate_one_inner(
         "explicitly change. If the file is empty (new file), produce "
         "a sensible initial version. When a DIAGNOSE-FIRST "
         "LOCALIZATION block is provided, focus your edits on the "
-        "indicated function/line — keep the rest byte-identical."
+        "indicated function/line — keep the rest byte-identical.\n\n"
+        # ── Iter 318 · Bug 1a — explicit placeholder / elision ban ──
+        # Live incident loop_678eea28436c4e: the LLM interpreted "keep "
+        # "the rest byte-identical" as permission to emit "
+        # "`[Rest of existing README content remains unchanged...]` "
+        # "as the actual file body, wiping >90% of the README. "
+        # "The ban must be stated in the LLM's own vocabulary."
+        "STRICT: No elision. No placeholders. Do not use "
+        "'[Rest of ... unchanged]', '... unchanged', '<!-- snip -->', "
+        "'// ... unchanged', '# ...', or ANY marker meaning "
+        "'skipped for brevity'. If you do not intend to modify a "
+        "line, INCLUDE THE LINE VERBATIM. The output MUST be the "
+        "complete final file body ready to write to disk — never "
+        "a diff, never a summary, never a placeholder."
     )
     # Iter 212m-190 (Directive Session 1 · Part A) — inject the
     # generation-time safety rules manifest so the model sees exactly

@@ -515,6 +515,32 @@ class LoopEngine:
             self.user_id, self.project_id, self.user_message,
         )
 
+        # ── Iter 322 — Plan-phase latency profile persistence ──────
+        # `_generate_plan` attaches `_profile` with per-segment
+        # wall-clock (graph refresh vs repo map read vs LLM call).
+        # Persist to loop_run_log so the speed-diagnostic dashboard
+        # can identify where the 21s went in loop_678eea28436c4e-
+        # class incidents. Stripped from `plan` before shipping to
+        # the frontend so the approval card stays clean.
+        try:
+            _prof = None
+            if isinstance(plan, dict):
+                _prof = plan.pop("_profile", None)
+            if _prof:
+                await self.db.loop_run_log.insert_one({
+                    "loop_id":     self.loop_id,
+                    "user_id":     self.user_id,
+                    "project_id":  self.project_id,
+                    "kind":        "plan_latency_profile",
+                    "profile":     _prof,
+                    "ts":          _iso(),
+                })
+        except Exception as e:                          # noqa: BLE001
+            logger.debug(
+                "[loop %s] plan latency profile persistence "
+                "skipped (non-fatal): %r", self.loop_id, e,
+            )
+
         # ── Iter 289 — Plan-phase path grounding diagnostic ─────────
         # The plan prompt says "Do NOT invent paths" but nothing
         # ENFORCES it. If loop_1f8/loop_bff class of failures had the
@@ -1188,6 +1214,16 @@ class LoopEngine:
                                 "%r (treating as new file)", path, e,
                             )
                             current = ""
+                        # ── Iter 318 · Bug 1b — capture repo bytes ──
+                        # _do_ship + _do_verify use this to enforce the
+                        # size-delta rule without a second GitHub fetch.
+                        try:
+                            obp = self.context.setdefault(
+                                "original_bytes_by_path", {},
+                            )
+                            obp[path] = len(current or "")
+                        except Exception:
+                            pass
                         task_text = (
                             f"USER REQUEST:\n{self.user_message}\n\n"
                             f"APPROVED PLAN:\n{plan_title}\n{plan_bullets}\n\n"
@@ -1196,7 +1232,20 @@ class LoopEngine:
                             f"{current}\n"
                             f"--- END CURRENT CONTENT ---\n\n"
                             "Return the complete new content for this file. "
-                            "No fences. No commentary. Just the file content."
+                            "No fences. No commentary. Just the file content.\n\n"
+                            # ── Iter 318 · Bug 1a — placeholder/elision ban ──
+                            # Live incident: LLM emitted "
+                            # "`[Rest of existing README content remains "
+                            # "unchanged...]` as the file body. The ban must "
+                            # "be repeated in the task text (system prompt is "
+                            # "not always honoured by every council member)."
+                            "STRICT: No elision. No placeholders. Never emit "
+                            "'[Rest of ... unchanged]', '... unchanged', "
+                            "'<!-- snip -->', '// ... unchanged', '# ...', "
+                            "or any marker meaning 'skipped for brevity'. "
+                            "If a line is not being modified, INCLUDE THE "
+                            "LINE VERBATIM. Output MUST be the complete "
+                            "final file body — not a diff, not a summary."
                         )
                         try:
                             # Iter 309 · Batch-2 Item 5 — the per-file
@@ -1272,6 +1321,59 @@ class LoopEngine:
                             )
                             return None
                         if result.get("status") == "success" and result.get("output"):
+                            # ── Iter 318 · Bug 1a — post-emission ban ──
+                            # Even after the strict prompt, an LLM may
+                            # still emit placeholders. Grep the content
+                            # before letting it land in submitted_files;
+                            # a marker hit means REGENERATE (return None
+                            # so the file is skipped and surfaced in
+                            # per_file_diag as skipped_or_error).
+                            try:
+                                from services.loop_integrity_guard import (
+                                    find_elision_markers,
+                                )
+                                _hits = find_elision_markers(
+                                    result.get("output") or "",
+                                )
+                            except Exception:
+                                _hits = []
+                            if _hits:
+                                logger.error(
+                                    "[loop %s] EXECUTE — %s emitted "
+                                    "elision marker %s (%s...) — REJECTED "
+                                    "at post-emission guard; file will "
+                                    "not enter submitted_files.",
+                                    self.loop_id, path,
+                                    _hits[0]["pattern"],
+                                    _hits[0]["match"][:60],
+                                )
+                                try:
+                                    await self.db.loop_run_log.insert_one({
+                                        "loop_id":     self.loop_id,
+                                        "user_id":     self.user_id,
+                                        "project_id": self.project_id,
+                                        "kind":        "executor_elision_rejected",
+                                        "path":        path,
+                                        "pattern":     _hits[0]["pattern"],
+                                        "marker_text": _hits[0]["match"],
+                                        "ts":          _iso(),
+                                    })
+                                except Exception:
+                                    pass
+                                await self._emit(
+                                    LoopState.EXECUTING, "execute",
+                                    step=2, total_steps=5,
+                                    message=(
+                                        f"Rejected placeholder output "
+                                        f"for {path} — regenerate needed"
+                                    ),
+                                    data={
+                                        "file":     path,
+                                        "sub_step": "elision_rejected",
+                                        "pattern":  _hits[0]["pattern"],
+                                    },
+                                )
+                                return None
                             return {"path": path, "content": result["output"]}
                         # manual_review or fail → skip this file; verify
                         # phase will surface anything else that breaks.
@@ -1426,6 +1528,63 @@ class LoopEngine:
 
         # Initial verify pass.
         report = await verify_files(file_objs)
+
+        # ═══════════════════════════════════════════════════════════
+        # Iter 318 · Bug 2 — Skip-linter ≠ pass
+        # Run elision + size-delta guard on EVERY submitted file,
+        # regardless of whether the linter ran or skipped. Live
+        # incident: `.md → linter: skip` returned ok=true so the
+        # ship gate opened with placeholder content. Now the guard
+        # is the authoritative integrity check for skipped rows
+        # AND an additional check for lint-passed rows.
+        # ═══════════════════════════════════════════════════════════
+        try:
+            from services.loop_integrity_guard import check_file_integrity
+            _orig_bytes = self.context.get("original_bytes_by_path") or {}
+            _content_by_path = {
+                f["path"]: (f.get("content") or "") for f in file_objs
+            }
+            for _row in report.get("results", []):
+                _path = _row.get("path")
+                _v = check_file_integrity(
+                    path=_path,
+                    submitted_content=_content_by_path.get(_path, ""),
+                    repo_bytes=int(_orig_bytes.get(_path) or 0),
+                    original_request=self.user_message or "",
+                    action="edit",
+                )
+                if not _v:
+                    continue
+                # Downgrade the row — skip-linter can no longer
+                # masquerade as pass. Attach the guard reason so
+                # self-heal + audit see it.
+                _row["ok"] = False
+                _row["integrity_guard"] = _v
+                _reason = _v.get("rule_fired") or "integrity_guard"
+                _row["stderr"] = (_row.get("stderr") or "") + (
+                    f"\nintegrity_guard: {_reason} "
+                    f"(path={_v.get('offending_path')})"
+                )
+                report.setdefault("errors", []).append(
+                    f"{_path}: integrity_guard:{_reason}"
+                )
+            # Recompute overall ok now that guard verdicts have
+            # been merged in.
+            report["ok"] = all(
+                r.get("ok") for r in report.get("results", [])
+            )
+        except Exception as _ig_err:                          # noqa: BLE001
+            # Guard-implementation failures must NOT allow a
+            # silent pass. Force ok=false with a distinct reason.
+            logger.exception(
+                "[loop %s] VERIFY integrity guard crashed: %r",
+                self.loop_id, _ig_err,
+            )
+            report["ok"] = False
+            report.setdefault("errors", []).append(
+                f"integrity_guard_error: {type(_ig_err).__name__}"
+            )
+
         self.context["verification_results"] = report
         if report["ok"]:
             # Iter 309 · Narration — SUCCESS resolves pending line green.
@@ -1730,8 +1889,74 @@ class LoopEngine:
             if self.state != LoopState.PAUSED_FOR_USER and submitted_files:
                 await self._run_full_scan_pass(submitted_files)
         except Exception as e:                          # noqa: BLE001
+            # ── Iter 319 · Bug 3 — FAIL-CLOSED on any scan exception ──
+            # Live incident: _scan_text NameError crashed the scan
+            # but the previous handler wrote scan_results={'error':
+            # repr(e)} and RETURNED, letting the state machine
+            # proceed to Ship as if the scan had passed. That is
+            # the exact wrong default for a security scanner. Now:
+            # any exception halts the loop at FAILED with a distinct
+            # kind='scan_exception' marker.
+            logger.exception(
+                "[loop %s] SCAN CRASHED — fail-closed: %r",
+                self.loop_id, e,
+            )
             await _log_error(self.db, self.loop_id, "scan", repr(e))
-            self.context["scan_results"] = {"error": repr(e)}
+            self.context["scan_results"] = {
+                "error":       repr(e),
+                "fail_closed": True,
+            }
+            self.context["errors_encountered"].append({
+                "phase": "scan",
+                "error": f"scan_exception: {type(e).__name__}: {e!r}",
+                "ts":    _iso(),
+            })
+            # Narrate the failure so the ECG ends red on this step.
+            try:
+                await self._narrate(
+                    step="scan", tone="danger",
+                    text=f"Scan crashed: {type(e).__name__}",
+                    correlation_id="scan:vanguard",
+                )
+            except Exception:
+                pass
+            self.state = LoopState.FAILED
+            self.phase = "scan"
+            await _persist_session(self.db, self._doc())
+            try:
+                from services.loop_safety import (
+                    record_loop_failure, release_loop_lock,
+                )
+                proj_key = self.project_id or "_no_project"
+                await record_loop_failure(
+                    self.db, proj_key, self.user_id,
+                    "scan", f"scan_exception: {type(e).__name__}",
+                )
+                await release_loop_lock(
+                    self.db, proj_key, self.user_id, self.loop_id,
+                )
+            except Exception as _safe_err:               # noqa: BLE001
+                logger.debug(
+                    "[loop %s] scan fail-closed safety hooks: %r",
+                    self.loop_id, _safe_err,
+                )
+            await self._emit(
+                LoopState.FAILED, "scan",
+                step=4, total_steps=5,
+                message=(
+                    f"Scan crashed ({type(e).__name__}) — ship "
+                    f"blocked. This is fail-closed by design: a "
+                    f"broken security scan MUST NOT let the loop "
+                    f"reach the ship gate."
+                ),
+                data={
+                    "kind":       "scan_exception",
+                    "error_type": type(e).__name__,
+                    "error_repr": repr(e)[:400],
+                },
+                requires_user_action=True,
+            )
+            return
 
     async def _run_full_scan_pass(self, submitted_files: list[dict]) -> None:
         """Run the Full-Scan orchestrator on the just-generated files,
@@ -2103,6 +2328,111 @@ class LoopEngine:
             return
 
         commit_message = _commit_message(self.user_message)
+
+        # ═══════════════════════════════════════════════════════════
+        # Iter 318 · Bug 1b — PRE-SHIP INTEGRITY GUARD
+        # Sweep every file body for (1) elision markers and (2)
+        # >70 % size shrink (unless the founder's original prompt
+        # explicitly asked for a delete/wipe). A hit halts the ship
+        # at `FAILED` with kind='integrity_guard_rejected' so the
+        # founder sees WHY the ship was blocked — not the generic
+        # "verify failed". Live incident loop_678eea28436c4e would
+        # have committed placeholder text with no user-visible
+        # rejection reason without this gate.
+        # ═══════════════════════════════════════════════════════════
+        try:
+            from services.loop_integrity_guard import check_file_integrity
+            _orig_bytes = self.context.get("original_bytes_by_path") or {}
+            _violations: list[dict] = []
+            for _p, _c in files_dict.items():
+                _v = check_file_integrity(
+                    path=_p,
+                    submitted_content=_c or "",
+                    repo_bytes=int(_orig_bytes.get(_p) or 0),
+                    original_request=self.user_message or "",
+                    action="edit",
+                )
+                if _v:
+                    _violations.append(_v)
+            if _violations:
+                _first = _violations[0]
+                logger.error(
+                    "[loop %s] SHIP BLOCKED — integrity guard: %d "
+                    "violation(s). First: %s",
+                    self.loop_id, len(_violations), _first,
+                )
+                self.context["integrity_guard"] = {
+                    "violations": _violations,
+                    "blocked_at": _iso(),
+                }
+                self.context.pop("ship_pending", None)
+                try:
+                    from services import loop_audit_log as _lal
+                    await _lal.log(
+                        self.db, loop_id=self.loop_id, phase="ship",
+                        kind=_lal.KIND_SHIP_GATE,
+                        verdict=_lal.VERDICT_FAIL,
+                        detail={
+                            "blocker":    "integrity_guard_rejected",
+                            "rule_fired": _first.get("rule_fired"),
+                            "path":       _first.get("offending_path"),
+                            "count":      len(_violations),
+                        },
+                    )
+                except Exception:
+                    pass
+                self.state = LoopState.FAILED
+                self.phase = "ship"
+                self.context["errors_encountered"].append({
+                    "phase": "ship",
+                    "error": (
+                        f"integrity_guard_rejected: "
+                        f"{_first.get('rule_fired')} in "
+                        f"{_first.get('offending_path')}"
+                    ),
+                    "ts":    _iso(),
+                })
+                await _log_error(
+                    self.db, self.loop_id, "ship",
+                    f"integrity_guard_rejected: {_first}",
+                    context=self.context,
+                )
+                await _persist_session(self.db, self._doc())
+                try:
+                    from services.loop_safety import release_loop_lock
+                    await release_loop_lock(
+                        self.db, self.project_id or "_no_project",
+                        self.user_id, self.loop_id,
+                    )
+                except Exception:
+                    pass
+                await self._emit(
+                    LoopState.FAILED, "ship",
+                    step=5, total_steps=5,
+                    message=(
+                        f"Ship blocked: {_first.get('rule_fired')} in "
+                        f"{_first.get('offending_path')} — refusing to "
+                        f"commit potentially destructive content."
+                    ),
+                    data={
+                        "kind":       "integrity_guard_rejected",
+                        "violations": _violations,
+                        "first":      _first,
+                    },
+                    requires_user_action=True,
+                )
+                return
+        except Exception as _ig_err:                          # noqa: BLE001
+            # A guard-implementation crash MUST NOT silently allow
+            # a ship — fail closed with a distinct error.
+            logger.exception(
+                "[loop %s] SHIP integrity guard crashed: %r",
+                self.loop_id, _ig_err,
+            )
+            await self._fail_ship(
+                f"integrity_guard_error: {type(_ig_err).__name__}"
+            )
+            return
 
         # ═══════════════════════════════════════════════════════════
         # Iter 272 — HELD-OUT VERIFICATION GATE
@@ -2736,8 +3066,28 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
     imports per file, no raw content) into the planner system prompt
     when a graph exists. Reduces planner token cost ~60% on
     repo-aware projects without losing the signal needed to pick the
-    right files."""
+    right files.
+
+    Iter 322 — Latency profiling. Live incident loop_678eea28436c4e
+    took 21.6s to plan a one-line README edit. Record per-segment
+    timings (graph refresh vs repo map read vs LLM call) so the
+    speed-diagnostic dashboard can identify where the wall-clock
+    actually goes. Returned as `plan['_profile']` — callers stash
+    it into loop_run_log under kind='plan_latency_profile'.
+    """
+    import time as _time
     from services.llm import call_llm_with_meta
+
+    _t0 = _time.monotonic()
+    _profile: dict = {
+        "graph_refresh_s":  0.0,
+        "repo_map_read_s":  0.0,
+        "llm_call_s":       0.0,
+        "json_parse_s":     0.0,
+        "total_s":          0.0,
+        "graph_refreshed":  False,
+        "repo_map_present": False,
+    }
 
     # Inject the compact repo map if available (cheap — single DB read).
     # Iter 212m-117 — Auto-refresh stale graphs (>30 min old) before
@@ -2781,6 +3131,7 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
                                 "[plan] graph stale (age=%.0fs) — rebuilding silently",
                                 age if age != float("inf") else -1,
                             )
+                            _t_gr0 = _time.monotonic()
                             await build_graph(
                                 db=db, project_id=project_id, user_id=user_id,
                                 gh_token=tok,
@@ -2788,9 +3139,17 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
                                 gh_repo=proj["github_repo"],
                                 branch=proj.get("github_branch") or "main",
                             )
+                            _profile["graph_refresh_s"] = round(
+                                _time.monotonic() - _t_gr0, 3,
+                            )
+                            _profile["graph_refreshed"] = True
             except Exception as e:                          # noqa: BLE001
                 logger.debug("[plan] silent graph refresh skipped: %r", e)
+        _t_rm0 = _time.monotonic()
         rm = await build_repo_map(db, project_id, user_id)
+        _profile["repo_map_read_s"] = round(
+            _time.monotonic() - _t_rm0, 3,
+        )
         if rm.get("has_map"):
             repo_map_block = (
                 "\n\n--- COMPACT REPO MAP ({n} files, {c} chars) ---\n"
@@ -2799,6 +3158,7 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
                 "{m}\n"
                 "--- END REPO MAP ---\n"
             ).format(n=rm["file_count"], c=rm["char_count"], m=rm["map_text"])
+            _profile["repo_map_present"] = True
             logger.info(
                 "[plan] injected repo map: %d files, %d chars",
                 rm["file_count"], rm["char_count"],
@@ -2821,6 +3181,10 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
     meta = await call_llm_with_meta(sys_msg, user_message,
                                     review_mode="pro",
                                     mode="loop_plan")
+    _profile["llm_call_s"] = round(
+        _time.monotonic() - _t0 - _profile["graph_refresh_s"]
+        - _profile["repo_map_read_s"], 3,
+    )
     content = (meta or {}).get("content", "").strip()
     # Tolerate a stray ```json fence.
     if content.startswith("```"):
@@ -2828,16 +3192,34 @@ async def _generate_plan(user_id: str, project_id: Optional[str],
         content = content[first_nl + 1:]
         if content.endswith("```"):
             content = content[:-3].rstrip()
+    _t_jp0 = _time.monotonic()
     try:
-        return json.loads(content)
+        plan = json.loads(content)
     except (json.JSONDecodeError, TypeError):
-        return {
+        plan = {
             "title": "Plan",
             "files_to_change": [],
             "bullets": [content[:500] or "Unable to parse plan."],
             "estimated_time": "?",
             "raw": content[:2000],
         }
+    _profile["json_parse_s"] = round(
+        _time.monotonic() - _t_jp0, 3,
+    )
+    _profile["total_s"] = round(_time.monotonic() - _t0, 3)
+    # Attach the profile so the caller (`_do_plan`) can persist it.
+    if isinstance(plan, dict):
+        plan["_profile"] = _profile
+    logger.info(
+        "[plan] LATENCY PROFILE — total=%.2fs · graph=%.2fs · "
+        "repo_map=%.2fs · llm=%.2fs · json=%.2fs · "
+        "refreshed=%s · map_present=%s",
+        _profile["total_s"], _profile["graph_refresh_s"],
+        _profile["repo_map_read_s"], _profile["llm_call_s"],
+        _profile["json_parse_s"], _profile["graph_refreshed"],
+        _profile["repo_map_present"],
+    )
+    return plan
 
 
 async def _run_security_scan(user_id: str,
@@ -2856,7 +3238,12 @@ async def _run_security_scan(user_id: str,
     # Pull the project's encrypted PAT + repo coords and reuse the
     # scanner's lower-level helpers so we don't need a JWT.
     from cto_services.db import get_db
-    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix, _scan_text  # noqa
+    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix
+    # Iter 319 · Bug 3 — restore the missing `_scan_text` import.
+    # This function references `_scan_text(...)` at the scan_one
+    # inner call site; the import block that once carried it was
+    # truncated, producing NameError in every scan on every loop.
+    from routers.security_scan import _scan_text
     import httpx, asyncio as _asyncio
     db = get_db()
     if db is None:
@@ -2988,7 +3375,10 @@ async def _run_diff_security_scan(
                 "findings": [], "diff_mode": True,
                 "skipped_reason": "no_project_doc"}
 
-    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix, _scan_text
+    from services.pat_vault import decrypt_pat as _decrypt_pat  # iter 212m-225 boundary fix
+    # Iter 319 · Bug 3 — restore the missing `_scan_text` import
+    # for the diff-only scan path. Same defect as `_run_security_scan`.
+    from routers.security_scan import _scan_text
     from services.github_api_writer import fetch_file as gh_fetch
     from services.vanguard_verify_agent import (
         changed_lines_for_file, filter_findings_to_changed_lines,
