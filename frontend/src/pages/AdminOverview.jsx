@@ -269,6 +269,37 @@ export default function AdminOverview() {
               cursor: "pointer", textDecoration: "none",
             }}
           >⌨️ Ops recipes →</a>
+          {/* Iter 314 — universal admin-inspect wrappers. Founder
+              flagged that raw admin GET URLs hit the JWT wall from
+              direct nav (JWT lives in localStorage, not cookies).
+              These two links route through the shared api axios
+              instance which attaches the token automatically. */}
+          <a
+            data-testid="goto-speed-diag"
+            href="/admin/inspect-speed-diagnostic"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >⏱️ Speed Diagnostic →</a>
+          <a
+            data-testid="goto-scope-drift"
+            href="/admin/inspect-scope-drift"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--accent, #ff8a2a)",
+              border: "1px solid var(--accent, #ff8a2a)",
+              borderRadius: 5,
+              cursor: "pointer", textDecoration: "none",
+            }}
+          >🔬 Scope-drift Audit →</a>
           {/* Iter 303 — /admin/qa QA Health dashboard */}
           <a
             data-testid="goto-qa"
