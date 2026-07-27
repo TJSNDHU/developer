@@ -357,11 +357,49 @@ class TestBug2VerifySkipNotPass:
         assert m, "_do_verify not found in loop_engine.py"
         body = m.group(0)
         assert (
-            "check_file_integrity" in body
+            "_apply_integrity_guard_to_report" in body
+            or "check_file_integrity" in body
             or "find_elision_markers" in body
         ), (
-            "Bug 2: _do_verify must run check_file_integrity against "
+            "Bug 2: _do_verify must run the integrity guard against "
             "each submitted file — especially when the linter row "
             "shows linter='skip'. Currently skip masquerades as pass "
             "and the ship gate opens with placeholder content."
+        )
+
+    def test_apply_integrity_guard_helper_exists(self):
+        """bug_testing_agent regression: the guard must be a callable
+        helper so it can be re-applied AFTER every subset reverify
+        merge inside the self-heal loop. Otherwise `verify_files` on
+        a healed subset overwrites the earlier downgrade back to
+        ok:true (with linter='skip') and reopens the incident."""
+        assert "def _apply_integrity_guard_to_report" in _ENGINE_SRC, (
+            "Iter 318 hardening: the integrity guard must be a "
+            "method on LoopEngine (e.g. "
+            "_apply_integrity_guard_to_report) so it can be re-run "
+            "after each subset reverify. The bug_testing_agent RCA "
+            "showed that inline-only guard code is silently undone "
+            "by the self-heal reverify merge."
+        )
+
+    def test_guard_reapplied_after_subset_reverify_merge(self):
+        """The self-heal loop rebuilds `report` from subset results
+        (line ~1731). The guard MUST be re-applied on that fresh
+        report — otherwise a `.md skip → ok:true` row overwrites
+        the earlier downgrade."""
+        m = re.search(
+            r"async def _do_verify\(.*?(?=\n    async def |\n    def )",
+            _ENGINE_SRC, re.DOTALL,
+        )
+        assert m, "_do_verify not found"
+        body = m.group(0)
+        # Count the guard-helper invocations inside the function
+        # body — at least 2 (initial pass + post-heal re-sweep).
+        count = body.count("_apply_integrity_guard_to_report")
+        assert count >= 2, (
+            "Iter 318 hardening: _do_verify must call "
+            "_apply_integrity_guard_to_report BOTH after the initial "
+            "verify_files() AND after each subset reverify merge "
+            f"(found only {count} call(s)). bug_testing_agent showed "
+            "the single-call path lets .md skip rows escape."
         )

@@ -1,0 +1,59 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Re-verify Iter 318 hardening after your previous RCA identified that `_do_verify` re-runs `verify_files` on healed subsets and merges rows back — which silently overwrote the integrity-guard downgrade for `.md → linter:skip` rows, letting the exact `[Rest of README unchanged]` scenario flip back to ok:true post-heal. Pre-ship guard still stopped commit but verify contract was broken.",
+  "summary": "No relevant testing skill found. Focused backend verification confirms the fix: LoopEngine now has `_apply_integrity_guard_to_report`, `_do_verify` calls it after the initial verify pass and again after subset reverify merge, and runtime probes keep `.md` linter-skip rows with `[Rest of README unchanged]` downgraded to ok:false after no-op/escalated self-heal. The exact previous negative probe no longer prints NOT_FIXED_EVIDENCE; it exits with its old assertion because the regression could not be reproduced. Full requested Iter 318/319/320/321/322 + prior regression pytest command passed: 67/67.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "test_reports/bug_verification_artifacts/iter318_verify_skip_guard_runtime.py",
+        "issue": "Legacy isolated artifact still logs OPENROUTER_API_KEY not set because it patches the old loop_verify.self_heal path, while current _do_verify uses Parliament. This did not affect the focused assertions, and the positive postfix probe patches Parliament directly. No production API/integration flow was mocked or validated here."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe_rerun.log",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_postfix_positive_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_postfix_positive_probe.log",
+    "/app/test_reports/pytest/bug_verify_iter318_runtime_regression.log",
+    "/app/test_reports/pytest/bug_verify_iter318_322_full_regression.log",
+    "/app/test_reports/bug_verification_artifacts/iter318_preship_guard_integration.py",
+    "/app/test_reports/bug_verification_artifacts/iter319_scan_fail_closed_runtime.py",
+    "/app/test_reports/bug_verification_artifacts/iter320_ship_hydration_api_probe.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Source inspection: `/app/backend/services/loop_engine.py` defines `def _apply_integrity_guard_to_report` at line 1475 and `_do_verify` calls it at lines 1602 and 1773, covering initial verify and post-subset-reverify merge.",
+    "Runtime proof: positive postfix probe ends with final_report_ok=false, final_row_ok=false, linter=skip, integrity_rule=elision_marker, submitted file still containing the marker, and final state paused_for_user/verify.",
+    "Idempotence/no-false-positive proof: `tests/test_iter318_verify_skip_runtime_regression.py` passed all 4 tests, including double-apply dedupe and clean well-sized README pass-through.",
+    "Previously validated behavior still passed: pre-ship guard blocks placeholder content before ship_pending, scan exceptions fail closed, /loop/active rehydrates paused ship state with token scrubbed, console.clear default-off test passed, and plan latency profiling tests passed."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_323.json",
+    "/app/test_reports/iteration_323.json",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_postfix_positive_probe.py",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_postfix_positive_probe.log",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_regression_probe_rerun.log",
+    "/app/test_reports/bug_verification_artifacts/iter318_verify_skip_guard_runtime_rerun.log",
+    "/app/test_reports/bug_verification_artifacts/iter318_preship_guard_integration_rerun.log",
+    "/app/test_reports/bug_verification_artifacts/iter319_scan_fail_closed_runtime_rerun.log",
+    "/app/test_reports/bug_verification_artifacts/iter320_ship_hydration_api_probe_rerun.log",
+    "/app/test_reports/pytest/bug_verify_iter318_runtime_regression.log",
+    "/app/test_reports/pytest/bug_verify_iter318_322_full_regression.log"
+  ],
+  "success_rate": {
+    "backend": "100% focused checks passed",
+    "frontend": "not run (backend-only request; frontend-related regressions covered by existing source/API tests in the 67-test command)"
+  },
+  "seed_data_creation": "Preview ship hydration API probe inserted and removed one synthetic `loop_sessions` document. Other LoopEngine runtime probes used MOCKED FakeDB plus patched verify_files/Parliament to deterministically exercise the self-heal/reverify path; no persistent app data was created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "No relevant testing skill found. If retesting, run from /app/backend. The old regression probe is intentionally a negative repro script; fixed behavior is no NOT_FIXED_EVIDENCE plus final_report_ok:false, followed by the script raising its old 'Expected to reproduce' AssertionError.",
+  "rca_of_the_issue": "Previous failure was caused by `_do_verify` applying the integrity guard only to the initial verify report. The self-heal loop then replaced failing rows with subset `verify_files()` results, which for `.md` returned linter=skip/ok=true without inspecting content. The fix extracts the guard to `_apply_integrity_guard_to_report` and reapplies it after each subset merge, so placeholder content cannot flip back to ok:true."
+}

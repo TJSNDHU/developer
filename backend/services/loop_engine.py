@@ -1472,6 +1472,71 @@ class LoopEngine:
                     self.loop_id, len(generated))
 
     # ── Phase 3 — Verify (Phase C: real ruff/eslint + self-heal) ────
+    def _apply_integrity_guard_to_report(
+        self, report: dict, file_objs: list[dict],
+    ) -> None:
+        """Iter 318 · Bug 2 (hardened after bug_testing_agent RCA).
+
+        In-place mutation of a verify_files() report so that:
+          1. Every row is re-scanned for elision markers + size-delta
+             regardless of linter status (skip / pass / fail).
+          2. A guard hit downgrades the row to ok=false, attaches
+             `integrity_guard` metadata, and appends a distinct
+             `integrity_guard:<rule>` line to `report["errors"]`.
+          3. `report["ok"]` is recomputed from the mutated results.
+
+        Why this had to be extracted from `_do_verify`:
+        the self-heal loop calls `verify_files()` again on a subset
+        and merges those rows BACK into `report["results"]`. Without
+        this helper being re-invoked after that merge, a fresh row
+        with linter='skip' + ok:true silently overwrote the earlier
+        downgrade, restoring the exact `.md skip == pass` incident
+        the guard was meant to prevent (bug_testing_agent, Iter 318).
+        """
+        try:
+            from services.loop_integrity_guard import check_file_integrity
+            _orig_bytes = self.context.get("original_bytes_by_path") or {}
+            _content_by_path = {
+                f["path"]: (f.get("content") or "") for f in file_objs
+            }
+            for _row in report.get("results", []):
+                _path = _row.get("path")
+                _v = check_file_integrity(
+                    path=_path,
+                    submitted_content=_content_by_path.get(_path, ""),
+                    repo_bytes=int(_orig_bytes.get(_path) or 0),
+                    original_request=self.user_message or "",
+                    action="edit",
+                )
+                if not _v:
+                    continue
+                _row["ok"] = False
+                _row["integrity_guard"] = _v
+                _reason = _v.get("rule_fired") or "integrity_guard"
+                _row["stderr"] = (_row.get("stderr") or "") + (
+                    f"\nintegrity_guard: {_reason} "
+                    f"(path={_v.get('offending_path')})"
+                )
+                # Dedupe error lines so repeated sweeps don't grow
+                # the error list unboundedly.
+                _err_line = f"{_path}: integrity_guard:{_reason}"
+                _errors = report.setdefault("errors", [])
+                if _err_line not in _errors:
+                    _errors.append(_err_line)
+            report["ok"] = all(
+                r.get("ok") for r in report.get("results", [])
+            )
+        except Exception as _ig_err:                          # noqa: BLE001
+            logger.exception(
+                "[loop %s] VERIFY integrity guard crashed: %r",
+                self.loop_id, _ig_err,
+            )
+            report["ok"] = False
+            _errors = report.setdefault("errors", [])
+            _err_line = f"integrity_guard_error: {type(_ig_err).__name__}"
+            if _err_line not in _errors:
+                _errors.append(_err_line)
+
     async def _do_verify(self) -> None:
         """Iter 212m-131 — Rewritten to kill the verify-storm bug.
 
@@ -1530,60 +1595,11 @@ class LoopEngine:
         report = await verify_files(file_objs)
 
         # ═══════════════════════════════════════════════════════════
-        # Iter 318 · Bug 2 — Skip-linter ≠ pass
-        # Run elision + size-delta guard on EVERY submitted file,
-        # regardless of whether the linter ran or skipped. Live
-        # incident: `.md → linter: skip` returned ok=true so the
-        # ship gate opened with placeholder content. Now the guard
-        # is the authoritative integrity check for skipped rows
-        # AND an additional check for lint-passed rows.
+        # Iter 318 · Bug 2 — Skip-linter ≠ pass  (INITIAL sweep)
+        # Re-applied after every subset reverify inside the self-heal
+        # loop below — see `_apply_integrity_guard_to_report`.
         # ═══════════════════════════════════════════════════════════
-        try:
-            from services.loop_integrity_guard import check_file_integrity
-            _orig_bytes = self.context.get("original_bytes_by_path") or {}
-            _content_by_path = {
-                f["path"]: (f.get("content") or "") for f in file_objs
-            }
-            for _row in report.get("results", []):
-                _path = _row.get("path")
-                _v = check_file_integrity(
-                    path=_path,
-                    submitted_content=_content_by_path.get(_path, ""),
-                    repo_bytes=int(_orig_bytes.get(_path) or 0),
-                    original_request=self.user_message or "",
-                    action="edit",
-                )
-                if not _v:
-                    continue
-                # Downgrade the row — skip-linter can no longer
-                # masquerade as pass. Attach the guard reason so
-                # self-heal + audit see it.
-                _row["ok"] = False
-                _row["integrity_guard"] = _v
-                _reason = _v.get("rule_fired") or "integrity_guard"
-                _row["stderr"] = (_row.get("stderr") or "") + (
-                    f"\nintegrity_guard: {_reason} "
-                    f"(path={_v.get('offending_path')})"
-                )
-                report.setdefault("errors", []).append(
-                    f"{_path}: integrity_guard:{_reason}"
-                )
-            # Recompute overall ok now that guard verdicts have
-            # been merged in.
-            report["ok"] = all(
-                r.get("ok") for r in report.get("results", [])
-            )
-        except Exception as _ig_err:                          # noqa: BLE001
-            # Guard-implementation failures must NOT allow a
-            # silent pass. Force ok=false with a distinct reason.
-            logger.exception(
-                "[loop %s] VERIFY integrity guard crashed: %r",
-                self.loop_id, _ig_err,
-            )
-            report["ok"] = False
-            report.setdefault("errors", []).append(
-                f"integrity_guard_error: {type(_ig_err).__name__}"
-            )
+        self._apply_integrity_guard_to_report(report, file_objs)
 
         self.context["verification_results"] = report
         if report["ok"]:
@@ -1745,6 +1761,16 @@ class LoopEngine:
                 "results": results,
                 "errors":  errors,
             }
+            # ── Iter 318 · Bug 2 (post-heal re-sweep) ─────────────
+            # bug_testing_agent RCA: `verify_files` on a subset
+            # doesn't know about the integrity guard. Without this
+            # re-sweep, a `.md → linter: skip` row could flip back
+            # to ok:true while the healer either did nothing or
+            # escalated, silently reopening the exact incident the
+            # guard was built to close. Pre-ship still catches it,
+            # but the verify contract must NOT report ok:true for
+            # a body that still carries an elision marker.
+            self._apply_integrity_guard_to_report(report, file_objs)
             self.context["verification_results"] = report
             self.state = LoopState.VERIFYING
             await _persist_session(self.db, self._doc())
