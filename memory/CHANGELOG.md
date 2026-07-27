@@ -4,6 +4,56 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 01:20 UTC — Iter 312 · /loop/start async fire-and-forget + full recovery chain — UNIT + BUG-TESTING VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Trigger:** Founder reported `loop_4473f240` on 2026-07-27 in a stuck / contradictory state — ChatPanel top said **"Loop failed to start"** while LoopStatusChip in the header simultaneously said **"LOOP · PLANNING"**. Chip was truth; chat was lying.
+
+**Root cause (single class):** `POST /api/aurem-dev/loop/start` synchronously drained the plan-phase generator (`async for _ev in engine.start(): pass` at loop.py:162) before returning the HTTP response. Any plan whose Council/Parliament consultation exceeded the frontend's blanket 60s axios timeout (`frontend/src/lib/api.js:15 → timeout: 60000`) fired ECONNABORTED client-side. The backend session was already created (acquire_loop_lock happens BEFORE the plan work) and the engine kept running; chip polled `/loop/active` and saw truth. But ChatPanel rendered the failure card from the raw axios error, so chip + chat contradicted.
+
+**Fix (three layers, all shipping together in one iteration — no partial deploys):**
+
+### Backend (Class 1)
+- `backend/routers/loop.py` — `start_loop()` refactored to a fire-and-forget shape behind `LOOP_START_ASYNC=true` (default): schedule `asyncio.create_task(_drive_engine_to_completion(loop_id, engine))` and return `{loop_id, state:'planning', phase:'plan', plan:null, async_start:true}` immediately. Legacy sync consumer extracted to module-level `_start_loop_sync_legacy()` for one-flip rollback safety. `acquire_loop_lock` still runs SYNCHRONOUSLY before any return — the 409 `loop_already_running` guarantee is preserved (no race).
+- `backend/routers/loop.py` — `get_active_loop()` state filter now includes `'planning'` so the timeout-recovery poll can actually see an in-progress plan. Prior filter excluded it, breaking the entire recovery chain.
+- `backend/routers/loop.py` — added `import os` (referenced by the feature flag; would have 500'd at runtime on first hit).
+- `_drive_engine_to_completion` catches and logs exceptions but never re-raises — the client has already returned, the engine writes its own terminal state, chip's poll sees truth.
+
+### Frontend (Class 3)
+- `frontend/src/components/ChatPanel.jsx` — `startLoop()` happy path now branches on `resp.async_start`: if true, bind SSE via `openLoopStream(lid)` and keep a **"Generating plan…"** pending bubble; if false (legacy), render plan blob inline as before.
+- `frontend/src/components/ChatPanel.jsx` — `handleLoopEvent()` now (a) remaps `state='awaiting_confirmation' + phase='plan'` → `loopPhase='plan_pending'` so `PlanApprovalCard`'s `showPlanCard` gate flips true, (b) absorbs `data.plan` from the SSE frame and swaps the pending bubble for the formatted plan markdown.
+- `frontend/src/components/ChatPanel.jsx` — timeout-recovery block (triggered on `e.code === 'ECONNABORTED'` OR `/timeout of \d+ms exceeded/`): polls `/loop/active`, finds active loop, binds SSE via `openLoopStream(active.loop_id)`, absorbs `active.plan` if already present, and shows **"Plan taking longer than expected — still working…"** banner in place of the failure card. If `active.state='awaiting_confirmation'`, jumps straight to `plan_pending`.
+- `frontend/src/components/ChatPanel.jsx` — `formatPlanMarkdown()` now supports BOTH the legacy plan schema (`bullets`, `files_to_change`) AND the engine's actual `AWAITING_CONFIRMATION` payload (`description`, `steps`, `files:[{path,action,reason}]`). Prior formatter silently dropped SSE-delivered plans.
+- `frontend/src/components/LoopStatusChip.jsx` — `phaseText()` is now state-first for approval-gate variants (`awaiting_confirmation` → "AWAITING APPROVAL", `paused_for_user` → "PAUSED · YOUR INPUT"). Prior implementation preferred phase over state, so `{state:'awaiting_confirmation', phase:'plan'}` displayed "LOOP · PLANNING" while chat was asking for approval — chip↔chat contradiction.
+- `frontend/src/components/LoopStatusChip.jsx` — `onPhaseUpdate(phase, state)` now passes both, and ChatPanel's callback applies the same `awaiting_confirmation + plan → plan_pending` remap so the 10s chip poll never clobbers the client's `plan_pending` back to raw `plan`.
+
+### Tests
+- `backend/tests/test_iter312_loop_start_async_repro.py` (4-panel, all PASS):
+  - `test_repro_start_loop_blocks_through_plan_phase` — invariant that `start_loop`'s default execution path contains no blocking-consumer pattern (via comment-stripped regex against the source). FAIL → PASS after Class 1.
+  - `test_regression_d_lock_write_synchronous_before_response` — `acquire_loop_lock` runs before first return and is NOT wrapped in `create_task`/`ensure_future`/`gather`. Stayed PASS.
+  - `test_regression_a_start_response_shape_preserved` — return dict retains `loop_id`, `state`, `phase`. Stayed PASS.
+  - `test_feature_flag_rollback_safety_present` — `LOOP_START_ASYNC` reference in source. Stayed PASS.
+- `bug_testing_agent` runs (iterations 317 → 318 → 319 → 320 → 321):
+  - **321 final verdict: `fixed`. 12/12 focused Playwright checks pass** with MOCKED `/loop/start`, `/loop/active`, `/loop/{loop_id}/stream`.
+  - Recovery banner appears on timeout; approval card renders after recovery SSE (this was the specific gap the founder flagged from the previous attempt); async happy path renders full plan markdown; chip + chat agreement holds throughout (chip shows "LOOP · AWAITING APPROVAL" while approval card is visible).
+  - Backend verified via real curl in iteration_318: async 200 in ~55ms, 409 lock invariant, `/loop/active` returns `state='planning'` immediately after start.
+
+### Honest deviations from initial plan
+- Handoff summary implied the code was already applied but tests were pending. On first pytest run, test #1 correctly failed because (a) `os` was never imported, (b) the legacy sync path retained the exact blocking pattern the regex was scanning for, (c) the test regex was also matching a documentation comment. All three surfaced during unit verification (not later) and were fixed before invoking `bug_testing_agent`.
+- `bug_testing_agent` iterations 317-320 surfaced FIVE distinct additional gaps that the unit test panel could not catch: `/loop/active` state filter, ChatPanel recovery not binding SSE, `handleLoopEvent` not absorbing `data.plan`, `showPlanCard` gate incompatibility with recovery phase, `formatPlanMarkdown` schema mismatch, `LoopStatusChip` phaseText preferring phase over state, `onPhaseUpdate` clobbering the client remap. Each fix is documented above.
+- No production deploys triggered. Preview only. Awaiting founder's explicit standalone deploy authorization — Iter 309 (Live Narration / ECG / LoopStatusChip additions) remains completely unbundled and undeployed, per prior discipline.
+
+### Files touched
+- `backend/routers/loop.py`
+- `backend/tests/test_iter312_loop_start_async_repro.py`
+- `frontend/src/components/ChatPanel.jsx`
+- `frontend/src/components/LoopStatusChip.jsx`
+
+### What's next
+- Founder standalone deploy authorization for Iter 312 (this iteration only).
+- Iter 309 deploy remains blocked on founder's 25-min live SSE reconnect test on current prod.
+- Then unblock Chip Smart Visibility spec and Speed Diagnostic Part 2 (both P2, blocked).
+
+
 ## 2026-07-27 00:19 UTC — Iter 311 · file_selector Fix C — DEPLOYED TO PRODUCTION
 
 **Deploy trigger:** Founder-authorized via `emergent__send_to_deployer` (intent=deploy, ecu_charge_acknowledged=true).

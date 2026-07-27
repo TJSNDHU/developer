@@ -1,12 +1,14 @@
 # AUREM Dev / Aurem CTO — PRD
 
 
-> **Latest closed iteration:** 2026-02 — Iter 295 (Frontend Layer 1
-> Batch 1 **COMPLETE**: LoopStepBar (iter294), AgentStatusBar (this
-> iter, extracted from ChatPanel), LoopLiveFeed (this iter) — 9
-> RTL behavioural state-sync tests, all 9 classifier-verified as
-> BEHAVIOURAL. Batch 2 next: IntentTierIndicator +
-> SelfHealIndicator + PlanApprovalCard, same template).
+> **Latest closed iteration:** 2026-07-27 — Iter 312 (`/loop/start`
+> async fire-and-forget + full frontend recovery chain — 4/4 unit
+> tests + 12/12 bug_testing_agent Playwright checks PASS. Awaiting
+> founder standalone deploy authorization. Iter 311 (file_selector
+> Fix C) DEPLOYED to production 2026-07-27 00:19 UTC. Iter 309
+> (Live Narration + ECG + LoopStatusChip) code-complete, still
+> awaiting founder's 25-min live SSE reconnect test on current
+> prod as the deploy gate).
 
 
 
