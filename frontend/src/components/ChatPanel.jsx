@@ -2156,7 +2156,15 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       : userText;
 
     setMessages((m) => [
-      ...m,
+      // ── Iter 324 · Fix A — purge stale `loopPending` bubbles ──
+      // Live evidence (founder screenshot): a "**Generating plan…**"
+      // bubble with a 337s counter persisted alongside the real
+      // plan bubble because a previous loop-start attempt died
+      // before its bubble could be replaced (session reload,
+      // failed HTTP, aborted loop). Strip every stale pending
+      // bubble BEFORE inserting the new one so at most ONE
+      // "Generating plan…" placeholder exists at any moment.
+      ...m.filter((row) => !(row.role === "assistant" && row.loopPending)),
       ...(opts?.skipUserBubble ? [] : [{ role: "user", content: displayContent }]),
       { role: "assistant", content: "", streaming: true, loopPending: true },
     ]);
@@ -2610,17 +2618,32 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       const planMd = formatPlanMarkdown(data.plan);
       const lid = ev.loop_id || null;
       setMessages((m) => {
-        const out = m.slice();
-        for (let i = out.length - 1; i >= 0; i--) {
-          if (out[i].role === "assistant" && (out[i].loopPending || out[i].loopLive)) {
-            out[i] = {
+        // ── Iter 324 · Fix A2 — plan lands → replace the FIRST
+        // (most recent) pending bubble, then purge any OTHER
+        // stale pending bubbles left over from earlier failed
+        // attempts. Prevents the "Generating plan… 337s" ghost
+        // from lingering next to the real plan.
+        let replaced = false;
+        const out = [];
+        for (let i = m.length - 1; i >= 0; i--) {
+          const row = m[i];
+          if (!replaced && row.role === "assistant"
+              && (row.loopPending || row.loopLive)) {
+            out.unshift({
               role: "assistant",
               streaming: false,
               content: planMd,
               loopPlan: true,
               loop_id: lid,
-            };
-            break;
+            });
+            replaced = true;
+          } else if (row.role === "assistant"
+                     && (row.loopPending || row.loopLive)) {
+            // stale pending / live bubble left from a prior
+            // aborted attempt — drop it entirely.
+            continue;
+          } else {
+            out.unshift(row);
           }
         }
         return out;
@@ -3530,56 +3553,20 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       {/* Iter 212m-36 — composer status bar + token banner moved
           OUTSIDE the form so they sit ABOVE the founder-offer banner
           (per the user-locked layout: status updates → offer →
-          composer, all flowing visually into each other). */}
-      <TokenBanner usage={usage} />
+          composer, all flowing visually into each other).
 
-      <div className="composer-status-bar" data-testid="composer-status-bar">
-        <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
-        <F12Badge
-          errorCount={f12.errorCount}
-          hasErrors={f12.hasErrors}
-          onCopyPayload={() => {
-            // Iter 309 · Batch-2 aftermath — read-only inspection
-            // path. Never sends a chat turn, never mutates loop
-            // state. User can paste the JSON into a note/issue
-            // tracker for out-of-band diagnosis.
-            const payload = f12.flush();
-            try {
-              navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-            } catch { /* ignore */ }
-          }}
-          onSendToORA={() => {
-            // Iter 212m-109 — was auto-firing form.requestSubmit() which
-            // sent the canned diagnostic message without user consent
-            // (user reported clicking the badge unexpectedly hijacked
-            // their conversation). Now: ask for confirmation and only
-            // submit if the user explicitly opts in. Cancel → just
-            // copies the JSON payload to the clipboard so they can
-            // paste it manually if they want.
-            const payload = f12.flush();
-            const cc = payload?.console_errors?.length || 0;
-            const nc = payload?.network_errors?.length || 0;
-            const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
-            const ok = window.confirm(
-              `Send the captured F12 errors to ORA for analysis?\n\n` +
-              `${cc} console error(s), ${nc} network error(s)\n\n` +
-              `OK → send to ORA\nCancel → copy payload to clipboard instead`
-            );
-            if (!ok) {
-              try {
-                navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-              } catch { /* ignore */ }
-              return;
-            }
-            setInput(msg);
-            lastF12PayloadRef.current = payload;
-            setTimeout(() => {
-              const form = taRef.current && taRef.current.form;
-              if (form) form.requestSubmit();
-            }, 50);
-          }}
-        />
-      </div>
+          Iter 324 · Fix B — the F12 status bar previously rendered
+          BETWEEN the chat scroll and the LoopStepBar, which put a
+          "1 console error / SEND TO ORA" chip visually STRANDED at
+          the bottom-left with no anchor. Founder screenshot marked
+          it as misplaced. Fix: keep TokenBanner here (it's a wallet
+          notice that logically belongs above operations) but MOVE
+          the composer-status-bar (F12Badge + ModePill) further
+          down, past the LoopStepBar, so it hugs the composer input
+          on the same row block. Rendered below just before the
+          composer form opens.
+      */}
+      <TokenBanner usage={usage} />
 
       {/* Iter 212m-163 — Loop mode pill is now rendered INSIDE the
           composer toolbar (next to the IntentTierIndicator), driven
@@ -3669,6 +3656,50 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           onConfirm={(approved) => approved ? handleShipConfirm() : handleShipCancel()}
         />
       )}
+
+      {/* Iter 324 · Fix B — composer-status-bar RELOCATED below the
+          operational surface (LoopStepBar / LoopLiveFeed / SelfHeal /
+          UserAction / ShipPending) so the F12 chip + ModePill visually
+          hug the composer input instead of floating orphaned in the
+          upper-left corner (founder screenshot Marker #2). Empty state
+          collapses via `.composer-status-bar:empty { display:none }`
+          so idle sessions don't get a blank spacer row. */}
+      <div className="composer-status-bar" data-testid="composer-status-bar">
+        <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
+        <F12Badge
+          errorCount={f12.errorCount}
+          hasErrors={f12.hasErrors}
+          onCopyPayload={() => {
+            const payload = f12.flush();
+            try {
+              navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+            } catch { /* ignore */ }
+          }}
+          onSendToORA={() => {
+            const payload = f12.flush();
+            const cc = payload?.console_errors?.length || 0;
+            const nc = payload?.network_errors?.length || 0;
+            const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+            const ok = window.confirm(
+              `Send the captured F12 errors to ORA for analysis?\n\n` +
+              `${cc} console error(s), ${nc} network error(s)\n\n` +
+              `OK → send to ORA\nCancel → copy payload to clipboard instead`
+            );
+            if (!ok) {
+              try {
+                navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+              } catch { /* ignore */ }
+              return;
+            }
+            setInput(msg);
+            lastF12PayloadRef.current = payload;
+            setTimeout(() => {
+              const form = taRef.current && taRef.current.form;
+              if (form) form.requestSubmit();
+            }, 50);
+          }}
+        />
+      </div>
 
       {/* Iter 212m-35 — Founder Offer attached to the TOP of the
           composer. Rounded top corners flow visually into the form

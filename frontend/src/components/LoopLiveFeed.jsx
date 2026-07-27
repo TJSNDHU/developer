@@ -142,10 +142,24 @@ function NarrationLine({ line, nowEpoch }) {
     ? Math.max(0, nowEpoch - line.tsEpoch)
     : 0;
 
+  // ── Iter 324 · Fix C — stalled-narration indicator ──────────
+  // Founder screenshot: two "Writing X" narrations stayed at
+  // "23s · 23s" because the SUCCESS resolve frames never landed
+  // (SSE gap OR backend never emitted the correlation_id-matching
+  // "wrote X" narration). Now: when a pending narration exceeds
+  // STALL_THRESHOLD_S (60 s), swap the icon colour to grey/red
+  // hint + append "(stalled)" so the founder sees the pipeline
+  // is not "still working" — it's stuck.
+  const STALL_THRESHOLD_S = 60;
+  const isStalled = showTimer && elapsedSec > STALL_THRESHOLD_S;
+  const iconColor = isStalled ? "#ef4444" : style.color;
+  const timerColor = isStalled ? "#ef4444" : "#9aa0a8";
+
   return (
     <div
       data-testid={`loop-narration-line-${line.key}`}
       data-tone={line.tone}
+      data-stalled={isStalled ? "true" : "false"}
       style={{
         display: "flex", alignItems: "center", gap: 8,
         padding: "3px 0", lineHeight: 1.5,
@@ -156,9 +170,9 @@ function NarrationLine({ line, nowEpoch }) {
         size={12}
         strokeWidth={2.5}
         style={{
-          color: style.color,
+          color: iconColor,
           flexShrink: 0,
-          animation: style.spin ? "narration-spin 1s linear infinite" : "none",
+          animation: style.spin && !isStalled ? "narration-spin 1s linear infinite" : "none",
         }}
       />
       <span
@@ -166,6 +180,14 @@ function NarrationLine({ line, nowEpoch }) {
         style={{ flex: 1, color: line.tone === "pending" ? "#c9cbcf" : "#e6ebf3" }}
       >
         {line.text}
+        {isStalled && (
+          <span
+            data-testid={`loop-narration-stalled-${line.key}`}
+            style={{ marginLeft: 6, color: "#ef4444", fontSize: 10 }}
+          >
+            (stalled)
+          </span>
+        )}
       </span>
       {showTimer && (
         <span
@@ -173,7 +195,7 @@ function NarrationLine({ line, nowEpoch }) {
           style={{
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 10.5,
-            color: "#9aa0a8",
+            color: timerColor,
             minWidth: 42,
             textAlign: "right",
           }}

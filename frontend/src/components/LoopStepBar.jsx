@@ -51,7 +51,7 @@ const PHASE_TO_STEP = {
   executing: 2, self_healing: 2, paused_for_user: 2,
   verifying: 3,
   security: 4, scanning: 4,
-  shipping: 5, done: 5, completed: 5,
+  shipping: 5, done: 5, completed: 5, shipped: 5,
   error: 0, failed: 0, aborted: 0, expired: 0,
 };
 
@@ -172,7 +172,7 @@ export default function LoopStepBar({
 }) {
   if (!phase) return null;
 
-  const isDone   = phase === "done" || phase === "completed";
+  const isDone   = phase === "done" || phase === "completed" || phase === "shipped";
   const isError  = phase === "error" || phase === "failed"
                 || phase === "aborted" || phase === "expired";
   const active   = isError ? errorStep : (PHASE_TO_STEP[phase] || 0);
@@ -180,6 +180,17 @@ export default function LoopStepBar({
 
   // Derive per-step ECG variant from real narration tones.
   // Priority (highest wins):
+  //   0. ── Iter 323 · Bug A frontend — terminal-success OVERRIDE ──
+  //      When the loop reaches a terminal-success phase
+  //      (`completed` / `done` / `shipped`), force step 5 (SHIP) to
+  //      "success" regardless of any stale narration tone. Live
+  //      incident (commit 7bb304d): the ship-success narration was
+  //      lost when SSE closed on the terminal frame, so
+  //      stepTones.ship stayed "pending" and the SHIP ECG stayed
+  //      orange forever. Backend fix (Iter 323 Bug A backend)
+  //      reorders narration to precede terminal emit; this front-
+  //      end override is defence-in-depth against any future
+  //      variant of the same lost-narration race.
   //   1. If stepTones[key] === "success" → resolved green.
   //   2. If stepTones[key] === "danger" → resolved red.
   //   3. If stepTones[key] === "warning" → resolved green (warning
@@ -189,6 +200,8 @@ export default function LoopStepBar({
   //      backend hasn't emitted narration for that step yet or the
   //      loop is running on a stale build without narration).
   function ecgVariant(step) {
+    // Rule 0 (highest): terminal-success phase forces step 5 green.
+    if (isDone && step.id === 5) return "success";
     const key = step.narrationKey || step.key;
     const tone = stepTones[key];
     if (tone === "success" || tone === "warning") return "success";

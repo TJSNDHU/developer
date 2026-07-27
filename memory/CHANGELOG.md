@@ -4,6 +4,37 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 07:15 UTC — Iter 309 SSE 25-min reconnect · VALIDATED · PASS · plus Iter 324 UI polish + Iter 325 chip failure-state fix (preview only, awaiting deploy authorization)
+
+**Iter 309 · SSE 25-min reconnect harness — VERDICT: PASS**
+- New router `backend/routers/dev_sse_probe.py` (test-only, gated by `AUREM_ENABLE_SSE_PROBE=1` env var — safe by default in prod). Emits synthetic 15 s heartbeats through the SAME replay-buffer + STREAM_MAX_S cap semantics as the real `/loop/{id}/stream`.
+- New harness `backend/scripts/iter309_sse_reconnect_harness.py` — async httpx client that opens the probe stream, records every frame to JSONL, records every disconnect/reconnect pair with reason + gap + Last-Event-ID resume, runs for 26+ min, asserts monotonic seq + no dup + no missing seq + gap ≤ 10 s.
+- **Raw evidence** (report_fc88973ff285.json, run 06:43:45Z – 07:13:46Z, 1801.1 s total):
+    • **Attempt 1**: 06:43:45.826Z → 07:03:45.879Z (**1200.053 s = exactly 20:00**), reason `stream_capped` (natural server cap fired).
+    • **Settle**: 1.003 s.
+    • **Attempt 2**: 07:03:46.883Z → 07:13:46.922Z (600.04 s), reason `terminal:completed` (probe hit its 30-min auto-terminate).
+    • **Events**: 121 received, **0 duplicates**, **0 missing seq** (seq_range 1–121), longest gap **1.0 s** (well under 10 s threshold).
+    • **Verdict**: PASS — reconnects recovered cleanly, no dup / no gap, 1 natural 20-min cap exercised.
+- **Conclusion**: Iter 317 SSE-gzip-exclusion + ring-buffer replay + Last-Event-ID resume are validated end-to-end. Transport thread CLOSED.
+
+**Iter 324 · UI polish from founder screenshot markers (preview only):**
+- **Marker #1 (Duplicate "Generating plan…" bubble)**: `ChatPanel.jsx` now purges stale `loopPending: true` bubbles before inserting a new one at loop-start, and again at plan-arrival keeps only the newest pending bubble. Prevents the 337 s ghost counter beside the real plan.
+- **Marker #2 (Orphan F12 chip at bottom-left)**: moved `.composer-status-bar` (F12Badge + ModePill) from ABOVE LoopStepBar to BELOW ShipPendingCard, right before FounderOfferCard — chip now visually anchors to the composer input row.
+- **Marker #3 (Stale "23s" pending narration)**: `LoopLiveFeed.NarrationLine` now flags any pending narration older than 60 s as `data-stalled="true"`, swaps icon + timer to red, appends `(stalled)` label so a stuck pending line is not mistaken for "still working."
+
+**Iter 325 · LoopStatusChip failure-state fix (preview only, closes Iter 323 gap):**
+- Iter 323's initial chip terminal-snapshot forced `state="completed", phase="shipped"` unconditionally on active → null — a **FAILED** loop was silently rendered as SHIPPED. Founder screenshot: "Failed" plan bubble but chip showed green, reading as "still running."
+- New `getLoopStatus(loopId)` helper in `lib/loopApi.js` hits `/loop/{id}/status` (returns terminal doc). Chip poll now fetches the actual terminal state before setting `terminalSnapshot`, populating `state` (`failed` / `aborted` / `expired` / `completed`) and `phase` from the real doc.
+- New `PHASE_LABEL` entries for `failed` / `aborted` / `expired` → readable pill labels ("FAILED", "ABORTED", "EXPIRED").
+- New `isTerminalFailure` computed variable → drives red border + red dot + red phase text so a failed loop is unmistakable. `data-terminal-outcome="failure"|"success"|"running"` exposed for tests + external observability.
+
+**Chat-history vanishing bug — RCA written, no patch applied:**
+- File `/app/memory/CHAT_HISTORY_RCA.md`. Investigation ruled OUT both hypotheses in the founder's brief. Fetch layer is correct, render layer field-name is correct, backend persistence works on preview. The dual localStorage keys ARE real but benign — the generic `aurem.chat.sessionId` is created by a `useState` initializer in `hooks/useChatSession.js` when the sessionId prop is briefly falsy at ChatPanel mount; the value sits unused for both reads and writes (verified via `grep`). Remaining unknown: whether the specific production `/chat/history` response for `d4bbcbd4…` actually has messages or is empty. Founder request open: paste the full response body + `aurem_active_project` value from a fresh production reload — 15-min fix once we know which of the three surfaced hypotheses actually applies.
+
+**Testing:** 73/73 pytest across 6 iters + regression, all green. Harness JSONL + report saved under `/app/test_reports/iter309_reconnect/`.
+**Deploy authorization pending** from founder ("dekh ke deploy karunga" applies to Iter 324 + Iter 325 UI changes; Iter 309 is validation-only, no code ships).
+
+
 ## 2026-07-27 06:15 UTC — Iter 318+319+320+321+322 · Data-loss bundle + scan fail-closed + rehydration + console.clear opt-in + plan latency profile · SHIPPED (all 67 tests green, bug_testing_agent verdict FIXED after one hardening iteration)
 
 **Iter 318 — Data-Loss Prevention Bundle (P0):**

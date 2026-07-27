@@ -1799,6 +1799,19 @@ app.include_router(notify_interest_router, prefix="/api/aurem-dev")
 from routers.integrity_log import router as integrity_log_router
 app.include_router(integrity_log_router, prefix="/api/aurem-dev")
 app.include_router(loop_router,           prefix="/api/aurem-dev")  # Iter 212m-60 Loop Mode engine
+
+# ── Iter 309 · SSE 25-min reconnect validation harness ──────────────
+# TEST-ONLY router. Refuses all requests with 404 unless the server
+# was started with AUREM_ENABLE_SSE_PROBE=1 in the environment. Safe
+# to leave included in prod as long as the env var is off.
+try:
+    from routers.dev_sse_probe import router as _iter309_probe_router
+    app.include_router(_iter309_probe_router, prefix="/api")
+except Exception as _e:  # noqa: BLE001
+    import logging as _log
+    _log.getLogger(__name__).warning(
+        "[iter309-probe] router not mounted: %r", _e,
+    )
 # Iter 212m-117 — User trust-level (L1/L2/L3) for Loop Mode + Fix.
 from routers.trust_level import router as trust_level_router
 app.include_router(trust_level_router)

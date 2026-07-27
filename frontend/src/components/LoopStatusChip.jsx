@@ -34,10 +34,18 @@
  *     lock).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { getActiveLoop, cancelLoop } from "../lib/loopApi";
+import { getActiveLoop, getLoopStatus, cancelLoop } from "../lib/loopApi";
 
 const POLL_MS = 10_000;
 const CONFIRM_WINDOW_MS = 4_000;
+// ── Iter 323 · Bug B — post-terminal grace window ───────────────
+// When getActiveLoop() transitions active → null (backend filters
+// terminal loops out of /loop/active), keep the last-known snapshot
+// on screen for this long so the founder sees a "SHIPPED · <sha>"
+// terminal state before the chip unmounts. Live incident: the chip
+// vanished the instant the loop went COMPLETED, leaving no top-of-
+// panel confirmation.
+const TERMINAL_GRACE_MS = 30_000;
 
 const C = {
   bg:      "#111827",
@@ -66,6 +74,24 @@ const PHASE_LABEL = {
   ship:                  "SHIPPING",
   paused_for_user:       "PAUSED · YOUR INPUT",
   self_healing:          "SELF-HEALING",
+  // ── Iter 323 · Bug B — terminal labels ─────────────────────
+  // Renders as the visible pill during the TERMINAL_GRACE_MS
+  // grace window after a loop completes. Without these entries
+  // the chip would fall through to the raw enum uppercased
+  // ("COMPLETED" / "DONE") which the founder called out as
+  // ambiguous ("shipped" is the user's mental model here).
+  completed:             "SHIPPED",
+  done:                  "SHIPPED",
+  shipped:               "SHIPPED",
+  // ── Iter 325 · terminal FAILURE labels ────────────────────
+  // Failed / aborted / expired loops must show the FAILURE
+  // reason at the top of the pane, NOT be silently labelled
+  // SHIPPED (Iter 323's initial fix's bug). Founder screenshot:
+  // a failed EXECUTE was visually rendered as "still running"
+  // because the chip either vanished or wore the wrong label.
+  failed:                "FAILED",
+  aborted:               "ABORTED",
+  expired:               "EXPIRED",
 };
 
 function phaseText(active) {
@@ -92,6 +118,15 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
   const [active, setActive] = useState(null);
   const [err, setErr]       = useState(null);
   const [busy, setBusy]     = useState(false);
+  // ── Iter 323 · Bug B — post-terminal grace window ─────────────
+  // `terminalSnapshot` holds the last non-terminal `active` value
+  // that was on screen when the poll returned null. The chip
+  // renders this snapshot (with phase re-labelled to SHIPPED) for
+  // TERMINAL_GRACE_MS before finally unmounting. Prevents the
+  // vanish-the-instant-you-ship UX (live incident: commit 7bb304d).
+  const [terminalSnapshot, setTerminalSnapshot] = useState(null);
+  const lastActiveRef = useRef(null);
+  const terminalTimerRef = useRef(null);
   // Confirm-again state: "idle" | "confirming" | "stopping" | "stopped"
   const [stopState, setStopState] = useState("idle");
   const confirmTimerRef = useRef(null);
@@ -100,6 +135,55 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
     try {
       const data = await getActiveLoop(projectId);
       const nextActive = data?.active || null;
+      // ── Iter 325 · Terminal snapshot with ACTUAL state ───────
+      // Iter 323 first pass set every terminal snapshot to
+      // {state:"completed", phase:"shipped"} — wrong for FAILED /
+      // ABORTED loops (chip rendered SHIPPED for a failed run).
+      // Now: on active → null, fetch /loop/{id}/status to learn
+      // the true terminal state, then set snapshot accordingly.
+      // The fetch is best-effort — if it fails, fall back to the
+      // "generic terminal" label so the chip still stays mounted.
+      if (!nextActive && lastActiveRef.current) {
+        const prev = lastActiveRef.current;
+        const snap = { ...prev };
+        let terminalKind = "shipped";        // default
+        try {
+          const term = await getLoopStatus(prev.loop_id);
+          const trueState = String(term?.state || "").toLowerCase();
+          if (trueState === "failed")   terminalKind = "failed";
+          if (trueState === "aborted")  terminalKind = "aborted";
+          if (trueState === "expired")  terminalKind = "expired";
+          // completed → default "shipped"
+          snap.state = trueState || "completed";
+          // Keep the phase from the terminal doc when present so
+          // the chip can show where it died (e.g. FAILED · EXECUTE).
+          if (term?.phase) snap.phase = String(term.phase).toLowerCase();
+          else             snap.phase = terminalKind;
+          snap.commit = term?.context?.commit || null;
+        } catch {
+          // Best-effort — if status probe fails, treat as generic
+          // terminal (defaults to shipped) rather than blocking UI.
+          snap.state = "completed";
+          snap.phase = "shipped";
+        }
+        setTerminalSnapshot(snap);
+        if (terminalTimerRef.current) clearTimeout(terminalTimerRef.current);
+        terminalTimerRef.current = setTimeout(() => {
+          setTerminalSnapshot(null);
+          terminalTimerRef.current = null;
+        }, TERMINAL_GRACE_MS);
+      } else if (nextActive) {
+        // A new (or same) active loop is running — clear any
+        // lingering terminal snapshot so the pill can update.
+        if (terminalSnapshot) {
+          if (terminalTimerRef.current) {
+            clearTimeout(terminalTimerRef.current);
+            terminalTimerRef.current = null;
+          }
+          setTerminalSnapshot(null);
+        }
+      }
+      lastActiveRef.current = nextActive;
       setActive(nextActive);
       setErr(null);
       // ── Iter 309 · Item E — chip-wins reconciliation ──────────
@@ -111,15 +195,6 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
       // truth. Documented as a subtle invariant so future editors
       // don't remove it thinking it's redundant with SSE.
       if (typeof onPhaseUpdate === "function" && nextActive) {
-        // Iter 312 · Class 3 companion — pass BOTH state and phase so
-        // the parent can apply the same plan-variant remap it uses in
-        // handleLoopEvent (awaiting_confirmation + phase=plan →
-        // plan_pending so PlanApprovalCard's showPlanCard gate
-        // remains true). Previously we sent only `phase` which caused
-        // the parent to overwrite loopPhase='plan_pending' with the
-        // raw 'plan', suppressing the recovered approval card. Kept
-        // second-arg optional so any other caller passing just `p`
-        // still gets the legacy behavior via string signature.
         const p = nextActive.phase || nextActive.state || "";
         const s = nextActive.state || "";
         if (p) onPhaseUpdate(String(p).toLowerCase(), String(s).toLowerCase());
@@ -127,7 +202,7 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "loop status fetch failed");
     }
-  }, [projectId, onPhaseUpdate]);
+  }, [projectId, onPhaseUpdate, terminalSnapshot]);
 
   // Poll on mount + interval + on tab-focus (users often alt-tab
   // during a 20-min loop; refreshing the chip immediately when they
@@ -153,6 +228,14 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
       confirmTimerRef.current = null;
     }
   }, [active?.loop_id]);
+
+  // ── Iter 323 · Bug B — clean up terminal grace timer on unmount ──
+  useEffect(() => () => {
+    if (terminalTimerRef.current) {
+      clearTimeout(terminalTimerRef.current);
+      terminalTimerRef.current = null;
+    }
+  }, []);
 
   const onStopClick = useCallback(async () => {
     if (!active?.loop_id) return;
@@ -186,7 +269,18 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
     }
   }, [active, busy, stopState, poll]);
 
-  if (!active && !err) return null;
+  // ── Iter 323 · Bug B — relaxed unmount guard ────────────────
+  // Chip must stay mounted through the terminal grace window so
+  // the founder sees the SHIPPED confirmation pill. Prior guard
+  // (`if (!active && !err) return null`) vanished the chip the
+  // instant the loop went COMPLETED because /loop/active filters
+  // terminal loops.
+  if (!active && !err && !terminalSnapshot) return null;
+
+  // The chip's display source is either the live active loop or —
+  // during the grace window — the terminal snapshot we captured.
+  const displayLoop = active || terminalSnapshot;
+  const isTerminal = !active && !!terminalSnapshot;
 
   const stopLabel =
     stopState === "confirming" ? "Confirm stop"
@@ -194,16 +288,42 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
     : stopState === "stopped"  ? "Stopped"
     : "Stop loop";
 
+  // ── Iter 325 · Terminal failure styling ─────────────────────────
+  // A failed / aborted / expired terminal must render RED, not the
+  // green "SHIPPED" styling that suits a completed run. Founder
+  // screenshot: "Failed" plan bubble but chip visually missing or
+  // painted green — reads as "still running". Now the chip
+  // explicitly detects failure states and switches the border /
+  // dot / label colours to red so the founder can't miss it.
+  const terminalStateLc = String(displayLoop?.state || "").toLowerCase();
+  const isTerminalFailure = isTerminal && (
+    terminalStateLc === "failed"
+    || terminalStateLc === "aborted"
+    || terminalStateLc === "expired"
+  );
+  const accentColor = err || isTerminalFailure
+    ? C.red
+    : (active ? C.green + "55" : (isTerminal ? C.green + "88" : C.border));
+  const dotColor = err || isTerminalFailure
+    ? C.red
+    : (displayLoop ? C.green : C.dim);
+  const phaseColor = err || isTerminalFailure ? C.red : C.green;
+
   return (
     <div
       data-testid="loop-status-chip"
+      data-terminal={isTerminal ? "true" : "false"}
+      data-terminal-outcome={
+        isTerminalFailure ? "failure"
+          : (isTerminal ? "success" : "running")
+      }
       style={{
         position: "sticky", top: 0, zIndex: 20,
         display: "flex", alignItems: "center", gap: 10,
         padding: "6px 10px",
         margin: "0 0 6px 0",
         background: C.bg,
-        border: `1px solid ${err ? C.red : (active ? C.green + "55" : C.border)}`,
+        border: `1px solid ${accentColor}`,
         borderRadius: 8,
         fontFamily: C.mono,
         fontSize: 12,
@@ -211,13 +331,15 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
         boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
       }}
     >
-      {/* Pulsing status dot */}
+      {/* Pulsing status dot — solid green during grace, no pulse */}
       <span
         aria-hidden
         style={{
           width: 8, height: 8, borderRadius: "50%",
-          background: err ? C.red : (active ? C.green : C.dim),
-          boxShadow: active && !err ? `0 0 8px ${C.green}` : "none",
+          background: dotColor,
+          boxShadow: (active && !err) || (isTerminal && !isTerminalFailure)
+            ? `0 0 8px ${C.green}`
+            : (isTerminalFailure ? `0 0 8px ${C.red}` : "none"),
           animation: active && !err ? "loopChipPulse 1.4s ease-in-out infinite" : "none",
           flex: "0 0 auto",
         }}
@@ -229,50 +351,51 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
         </span>
       ) : (
         <>
-          <span data-testid="loop-status-chip-phase" style={{ color: C.green, letterSpacing: "0.06em" }}>
-            LOOP · {phaseText(active)}
+          <span data-testid="loop-status-chip-phase" style={{ color: phaseColor, letterSpacing: "0.06em" }}>
+            LOOP · {phaseText(displayLoop)}
           </span>
           <span
             data-testid="loop-status-chip-id"
-            title={active.loop_id}
+            title={displayLoop?.loop_id || ""}
             style={{ color: C.dim, marginLeft: 2 }}
           >
-            id · <span style={{ color: C.text }}>{(active.loop_id || "").slice(-8)}</span>
+            id · <span style={{ color: C.text }}>{(displayLoop?.loop_id || "").slice(-8)}</span>
           </span>
 
           <span style={{ flex: 1 }} />
 
           {/*
-            Stop button — deliberately styled as an OBVIOUS action
-            control (outlined red, action-tone label). Distinct in
-            colour + shape from any diagnostic/info badge nearby.
-            Uses a 4-s click-again-to-confirm pattern so a single
-            stray click can never abort a 20-min loop.
+            Stop button — only rendered when the loop is genuinely
+            active. During the terminal grace window (Iter 323 Bug B)
+            the loop is already done, so hiding the Stop CTA avoids
+            a confusing "Stop a shipped loop" affordance.
           */}
-          <button
-            type="button"
-            data-testid="loop-status-chip-stop"
-            aria-label={stopState === "confirming" ? "Confirm stop loop" : "Stop loop"}
-            aria-pressed={stopState === "confirming"}
-            onClick={onStopClick}
-            disabled={busy && stopState !== "confirming"}
-            style={{
-              appearance: "none",
-              background: stopState === "confirming" ? C.red : "transparent",
-              color: stopState === "confirming" ? "#000" : C.red,
-              border: `1px solid ${C.red}`,
-              borderRadius: 6,
-              padding: "3px 10px",
-              fontFamily: C.mono,
-              fontSize: 11,
-              letterSpacing: "0.06em",
-              cursor: busy ? "wait" : "pointer",
-              textTransform: "uppercase",
-              transition: "background 120ms ease, color 120ms ease",
-            }}
-          >
-            {stopLabel}
-          </button>
+          {active && !isTerminal && (
+            <button
+              type="button"
+              data-testid="loop-status-chip-stop"
+              aria-label={stopState === "confirming" ? "Confirm stop loop" : "Stop loop"}
+              aria-pressed={stopState === "confirming"}
+              onClick={onStopClick}
+              disabled={busy && stopState !== "confirming"}
+              style={{
+                appearance: "none",
+                background: stopState === "confirming" ? C.red : "transparent",
+                color: stopState === "confirming" ? "#000" : C.red,
+                border: `1px solid ${C.red}`,
+                borderRadius: 6,
+                padding: "3px 10px",
+                fontFamily: C.mono,
+                fontSize: 11,
+                letterSpacing: "0.06em",
+                cursor: busy ? "wait" : "pointer",
+                textTransform: "uppercase",
+                transition: "background 120ms ease, color 120ms ease",
+              }}
+            >
+              {stopLabel}
+            </button>
+          )}
         </>
       )}
 

@@ -59,6 +59,18 @@ export async function getActiveLoop(projectId) {
   return r?.data || r;
 }
 
+// ── Iter 325 · Terminal-snapshot resolver ─────────────────────────
+// `/loop/active` filters out terminal loops (COMPLETED/FAILED/ABORTED)
+// so LoopStatusChip cannot see WHY a loop ended just by polling. When
+// the chip detects an active→null transition, it needs to fetch the
+// actual terminal state so it can render "SHIPPED" for completed
+// loops and "FAILED" for failed ones (Iter 323's initial fix
+// unconditionally labelled everything as SHIPPED — wrong).
+export async function getLoopStatus(loopId) {
+  const r = await api.get(`/loop/${encodeURIComponent(loopId)}/status`);
+  return r?.data || r;
+}
+
 export async function getLoopInspect(loopId, tail = 20) {
   const r = await api.get(`/admin/loop-inspect/${loopId}?tail=${tail}`);
   return r?.data || r;

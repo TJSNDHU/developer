@@ -2833,6 +2833,19 @@ class LoopEngine:
             )
         except Exception as e:                              # noqa: BLE001
             logger.debug("release_loop_lock on COMPLETED failed: %r", e)
+        # ── Iter 323 · Bug A backend — narrate BEFORE terminal emit ──
+        # Live incident (commit 7bb304d): the ship-success narration
+        # was emitted AFTER the state=COMPLETED terminal frame. SSE
+        # streams typically close on the terminal frame, so the
+        # trailing narration was lost — stepTones.ship stayed
+        # "pending" and the LoopStepBar SHIP node stayed orange
+        # forever. Reorder: narrate green FIRST, then emit terminal.
+        await self._narrate(
+            step="ship", tone="success",
+            text=f"Shipped {short_sha}",
+            correlation_id="ship:commit_1",
+            extra={"commit_sha": short_sha, "html_url": html_url},
+        )
         await self._emit(LoopState.COMPLETED, "ship",
                          step=5, total_steps=5,
                          message=f"Shipped {short_sha} → {owner}/{repo}@{branch}",
@@ -2844,14 +2857,6 @@ class LoopEngine:
                              "files_changed":  list(files_dict.keys()),
                              "scan_results":   self.context.get("scan_results"),
                          })
-        # Iter 309 · Narration — SUCCESS resolves commit-start green
-        # with the short sha inline (founder Part 1.2 spec).
-        await self._narrate(
-            step="ship", tone="success",
-            text=f"Shipped {short_sha}",
-            correlation_id="ship:commit_1",
-            extra={"commit_sha": short_sha, "html_url": html_url},
-        )
 
     async def _fail_ship(self, reason: str) -> None:
         """Helper: persist + emit a clean ship-phase failure event."""

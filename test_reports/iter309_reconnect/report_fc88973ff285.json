@@ -1,0 +1,45 @@
+{
+  "run_id": "fc88973ff285",
+  "started_at": "2026-07-27T06:43:45.826272Z",
+  "finished_at": "2026-07-27T07:13:46.952657Z",
+  "run_duration_s": 1801.1,
+  "target_s": 1560,
+  "gap_max_s": 10.0,
+  "loop_id": "iter309probe_0e67b04abeca",
+  "events_received": 121,
+  "duplicate_deliveries": 0,
+  "missing_seq": [],
+  "seq_range": [
+    1,
+    121
+  ],
+  "reconnect_count": 2,
+  "natural_caps": 1,
+  "other_disconnects": 0,
+  "reconnects": [
+    {
+      "attempt": 1,
+      "connect_ts": "2026-07-27T06:43:45.826371Z",
+      "disconnect_ts": "2026-07-27T07:03:45.879419Z",
+      "duration_s": 1200.053,
+      "reason": "stream_capped",
+      "last_event_id": "iter309probe_0e67b04abeca:79",
+      "settle_s": 1.0
+    },
+    {
+      "attempt": 2,
+      "connect_ts": "2026-07-27T07:03:46.882922Z",
+      "disconnect_ts": "2026-07-27T07:13:46.922464Z",
+      "duration_s": 600.04,
+      "reason": "terminal:completed",
+      "last_event_id": "iter309probe_0e67b04abeca:120"
+    }
+  ],
+  "longest_gap_s": 1.0,
+  "verdict": "PASS",
+  "verdict_details": [
+    "PASS: all reconnects recovered cleanly, no dup / no gap, 1 natural 20-min cap(s) exercised."
+  ],
+  "events_path": "/app/test_reports/iter309_reconnect/events_fc88973ff285.jsonl",
+  "reconnects_path": "/app/test_reports/iter309_reconnect/reconnects_fc88973ff285.jsonl"
+}

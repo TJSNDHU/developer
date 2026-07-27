@@ -1,0 +1,2 @@
+{"attempt": 1, "connect_ts": "2026-07-27T06:43:45.826371Z", "disconnect_ts": "2026-07-27T07:03:45.879419Z", "duration_s": 1200.053, "reason": "stream_capped", "last_event_id": "iter309probe_0e67b04abeca:79", "settle_s": 1.0}
+{"attempt": 2, "connect_ts": "2026-07-27T07:03:46.882922Z", "disconnect_ts": "2026-07-27T07:13:46.922464Z", "duration_s": 600.04, "reason": "terminal:completed", "last_event_id": "iter309probe_0e67b04abeca:120"}
