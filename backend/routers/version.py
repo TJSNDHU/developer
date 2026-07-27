@@ -55,6 +55,43 @@ from cto_services.db import require_db
 
 
 # ── One-time build-info capture ────────────────────────────────────
+#
+# Iter 313 — the BUILD_INFO.txt marker path + emergent.yml candidate
+# list are hoisted to module-level tuples so tests can monkeypatch
+# them independently of the production filesystem. Do not inline
+# these back into `_read_commit()` — the test panel relies on the
+# indirection to simulate the .git-stripped prod container shape.
+_BUILD_INFO_MARKER = (
+    Path(__file__).resolve().parent.parent / "BUILD_INFO.txt"
+)
+_EMERGENT_YAML_CANDIDATES = (
+    Path("/app/.emergent/emergent.yml"),
+    Path("/app/.emergent/emergent.json"),
+)
+
+
+def _write_build_info_marker(sha: str) -> None:
+    """Iter 313 — persist the git-derived SHA to disk so it survives
+    Emergent's `.git`-strip during the deploy snapshot. Called ONLY
+    from the git-success branch of `_read_commit()`. Silent on any
+    IO error — the marker is a diagnostic aid, never a critical path.
+    """
+    try:
+        _BUILD_INFO_MARKER.write_text(sha.strip())
+    except Exception:
+        # Never let a marker-write failure crash version.py import.
+        # Worst case: prod falls back to emergent.yml job_id as
+        # before Iter 313. Log-only.
+        try:
+            import logging
+            logging.getLogger("aurem.version").warning(
+                "iter313: BUILD_INFO.txt write failed for sha=%s at %s",
+                sha, _BUILD_INFO_MARKER,
+            )
+        except Exception:
+            pass
+
+
 def _read_commit() -> str:
     # (1) Explicit env var wins — set this in prod if you have a
     # cleaner value (e.g. from CI).  Never blocked; if missing we
@@ -68,14 +105,55 @@ def _read_commit() -> str:
     if env:
         return env.strip().replace("-", "")[:12]
 
-    # (2) Iter 309-b — /app/.emergent/emergent.yml holds a stable
-    # per-deploy identifier that survives even when .git is stripped
-    # from the container.  Prefer this over "unknown" so prod's
-    # Deploy Sync card can actually show something meaningful.
-    for candidate in (
-        Path("/app/.emergent/emergent.yml"),
-        Path("/app/.emergent/emergent.json"),
-    ):
+    # (2) Iter 313 — try cascade step (4) `git rev-parse HEAD`
+    # BEFORE the emergent.yml / BUILD_INFO.txt fallbacks. Rationale:
+    # in preview containers `.git` still exists and is the freshest
+    # truth. Reading it now (a) gets us the real deploy-differentiating
+    # SHA, and (b) lets us WRITE that SHA into BUILD_INFO.txt so the
+    # marker travels with the deploy snapshot for prod's later use.
+    # Prior order (git last, marker before it) meant prod always
+    # landed on the stable-per-job emergent.yml job_id, which is
+    # what produced the founder-reported "same SHA across two
+    # deploys" bug on 2026-07-27.
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            timeout=2,
+            stderr=subprocess.DEVNULL,
+        )
+        sha = out.decode().strip()[:12]
+        if sha:
+            # Iter 313 — write-through so prod (which will boot
+            # without .git) can read the same SHA from the marker
+            # via cascade step (3) below.
+            _write_build_info_marker(sha)
+            return sha
+    except Exception:
+        pass
+
+    # (3) Iter 309-c / Iter 313 — static build marker written at
+    # commit time (Iter 313 turned this from dead code into a real
+    # fallback by adding the git-success write-through above). This
+    # is the primary prod path: `.git` is stripped by Emergent's
+    # deploy, so step (2) fails, and we read the SHA the preview
+    # container wrote here on its last backend restart.
+    try:
+        if _BUILD_INFO_MARKER.exists():
+            raw = _BUILD_INFO_MARKER.read_text().strip()
+            if raw:
+                return raw.replace("-", "")[:12]
+    except Exception:
+        pass
+
+    # (4) Iter 309-b — /app/.emergent/emergent.yml holds a stable
+    # per-JOB identifier that survives even when .git is stripped
+    # from the container. This is the LAST resort now (Iter 313
+    # demoted it below BUILD_INFO.txt) because job_id does not
+    # change between deploys of the same job — only when the job
+    # is recreated. Kept as a legitimate fallback for containers
+    # where BUILD_INFO.txt somehow didn't ship.
+    for candidate in _EMERGENT_YAML_CANDIDATES:
         try:
             if candidate.exists():
                 raw = candidate.read_text()
@@ -86,30 +164,7 @@ def _read_commit() -> str:
         except Exception:
             continue
 
-    # (3) Iter 309-c — static build marker written at code time.
-    # This ships with the backend folder so prod's file-system
-    # strip of .emergent/ + .git/ still leaves a usable sha.
-    try:
-        marker = Path(__file__).resolve().parent.parent / "BUILD_INFO.txt"
-        if marker.exists():
-            raw = marker.read_text().strip()
-            if raw:
-                return raw.replace("-", "")[:12]
-    except Exception:
-        pass
-
-    # (4) Local dev / preview containers that ship .git — this is
-    # the historical path and still authoritative in preview.
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            timeout=2,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()[:12]
-    except Exception:
-        return "unknown"
+    return "unknown"
 
 
 def _read_built_at() -> str:

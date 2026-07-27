@@ -4,6 +4,44 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 02:35 UTC — Iter 313 · /version SHA cascade write-through — UNIT VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Trigger:** Founder observed on 2026-07-27 02:20 UTC that `GET /api/aurem-dev/version` returned the SAME `commit_sha` ("34e9731265cf") across two distinct deploys (Iter 311 at 00:19 UTC, Iter 312 at 01:52 UTC), even though `built_at` legitimately changed. This makes deploy-verification timestamp-only — meaningful, but every future "did the code change on prod?" check is untrustworthy without a real SHA. Founder flagged it as small-but-critical dev-infra hygiene before proceeding to Speed Diagnostic Part 2.
+
+**Root cause:** `routers/version.py::_read_commit()` cascaded through: (1) explicit env vars → (2) `.emergent/emergent.yml` `job_id` → (3) `backend/BUILD_INFO.txt` → (4) `git rev-parse HEAD`. Emergent's deploy pipeline strips `.git` from the prod container, so cascade step (4) always fails in prod. Cascade step (3) — the `BUILD_INFO.txt` static marker — was documented as the intended escape hatch, but nothing in the codebase ever wrote it. Dead code. So prod always landed on step (2), which is `emergent.yml`'s `job_id` — a per-JOB identifier stable across deploys of the same Emergent job (only rotates when the job itself is recreated). Result: same SHA reported deploy after deploy.
+
+**Fix (single class, single file):**
+- `backend/routers/version.py` — cascade reordered so step (4) `git rev-parse HEAD` now runs BEFORE step (3) `BUILD_INFO.txt`. When git succeeds (preview containers ship `.git`), side-effect write the real SHA to `backend/BUILD_INFO.txt` via new `_write_build_info_marker(sha)` helper. Emergent's deploy pipeline bundles `backend/` into the prod snapshot, so the freshly-written marker travels with the deploy. When prod boots without `.git`, cascade step (4) fails but step (3) now returns the SHA captured on the last preview backend restart — which IS the SHA being deployed, because backend hot-reload re-imports `version.py` on every code change relevant to the module, and `_COMMIT_SHA = _read_commit()` runs at import time. `emergent.yml` job_id demoted to last-resort fallback.
+- Module-level `_BUILD_INFO_MARKER` and `_EMERGENT_YAML_CANDIDATES` constants hoisted out of `_read_commit()` so tests can monkeypatch them cleanly. Not a refactor for its own sake — the test panel enforces the write invariant via these hooks.
+- Marker write failure is silent (log-only, never raises). Worst case: prod falls back to `emergent.yml` job_id as before — no regression risk.
+
+**Tests (`backend/tests/test_iter313_version_sha_write_through.py`, 4-panel, all PASS):**
+- `test_repro_build_info_txt_not_written_by_current_code` — grep-invariant that the code contains a write path. Flipped FAIL→PASS after the fix.
+- `test_git_read_writes_build_info_marker` — when `_read_commit` succeeds via git, marker file contains the exact SHA.
+- `test_no_git_falls_through_to_build_info_marker` — prod-shape simulation (no .git, no env vars, marker present). Read returns marker content.
+- `test_env_var_still_wins_and_no_marker_write` — regression: explicit `AUREM_COMMIT_SHA` short-circuits AND doesn't touch the marker.
+
+**Self-verification on preview:**
+- Backend restart triggered `_read_commit()` at import time.
+- `/app/backend/BUILD_INFO.txt` created with content `edf80547e1dd` (12 chars).
+- Real `git rev-parse HEAD` = `edf80547e1dd0122c977c6c9935b0e4503d3a5a5` — first 12 chars match.
+- `curl $REACT_APP_BACKEND_URL/api/aurem-dev/version` returns `{"commit_sha":"edf80547e1dd", ...}` — matches real SHA (previously would have shown emergent.yml job_id).
+
+**Honest deviations:**
+- Test 3's initial run failed because I was monkeypatching module constants BEFORE calling `_reload_version_module()` — `importlib.reload` re-runs top-level statements, wiping my patches. Fix: reload first, then patch, then call. Documented in the test itself.
+- Iter 313 does not touch the `built_at` field which has a minor cosmetic bug (`+00:00Z` suffix — has both offset AND `Z`). That's a data-side quirk in `emergent.yml`'s `created_at` string, not a code issue. Left for backlog.
+
+**Files touched:**
+- `backend/routers/version.py`
+- `backend/tests/test_iter313_version_sha_write_through.py`
+- `backend/BUILD_INFO.txt` (auto-generated at runtime, not committed by main-agent — Emergent's deploy pipeline captures it in the snapshot)
+
+**What's next:**
+- Awaiting founder standalone deploy authorization for Iter 313.
+- Post-deploy verification: hit `/api/aurem-dev/version` on prod, confirm `commit_sha` changes across future deploys.
+- Founder's parallel testing continues: Iter 312 complex-task retry, Speed Diagnostic Part 2 endpoint hit, 25-min SSE reconnect test.
+
+
 ## 2026-07-27 01:20 UTC — Iter 312 · /loop/start async fire-and-forget + full recovery chain — UNIT + BUG-TESTING VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
 
 **Trigger:** Founder reported `loop_4473f240` on 2026-07-27 in a stuck / contradictory state — ChatPanel top said **"Loop failed to start"** while LoopStatusChip in the header simultaneously said **"LOOP · PLANNING"**. Chip was truth; chat was lying.
