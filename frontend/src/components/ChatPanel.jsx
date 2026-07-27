@@ -4364,14 +4364,3 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     </div>
   );
 }
-
-ject.github_repo}`
-            : activeProject?.name
-        }
-        open={scanOpen}
-        onClose={() => setScanOpen(false)}
-      />
-    </div>
-  );
-}
-
