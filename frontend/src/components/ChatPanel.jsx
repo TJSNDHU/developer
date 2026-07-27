@@ -2135,28 +2135,57 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         projectId: activeProject?.project_id || null,
         userMessage: composed,
       });
-      const plan = resp?.plan || {};
       const lid  = resp?.loop_id;
       setLoopId(lid);
-      setLoopPlan(plan);
-      // Replace the pending assistant bubble with a rendered plan.
-      const planMd = formatPlanMarkdown(plan);
-      setMessages((m) => {
-        const out = m.slice();
-        for (let i = out.length - 1; i >= 0; i--) {
-          if (out[i].role === "assistant" && out[i].loopPending) {
-            out[i] = {
-              role: "assistant",
-              streaming: false,
-              content: planMd,
-              loopPlan: true,
-              loop_id: lid,
-            };
-            break;
+
+      // ── Iter 312 · Class 1 companion (frontend) ─────────────────
+      // With LOOP_START_ASYNC=true (default), /loop/start now returns
+      // {plan:null, async_start:true} immediately — the plan blob
+      // arrives later via SSE `{state:'awaiting_confirmation',
+      // phase:'plan', data:{plan}}`. Bind the stream NOW so we don't
+      // miss that emission, and keep the "generating plan…" pending
+      // bubble in place. handleLoopEvent will swap it for the
+      // formatted plan the moment the engine emits.
+      if (resp?.async_start === true || !resp?.plan) {
+        if (lid) openLoopStream(lid);
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].loopPending) {
+              out[i] = {
+                ...out[i],
+                content: "**Generating plan…**\n\n"
+                       + "The engine is consulting Council + Parliament. "
+                       + "The plan will appear here as soon as it's ready.",
+              };
+              break;
+            }
           }
-        }
-        return out;
-      });
+          return out;
+        });
+      } else {
+        // Legacy sync path (LOOP_START_ASYNC=false) — plan blob is
+        // inline in the response, render it immediately.
+        const plan = resp.plan || {};
+        setLoopPlan(plan);
+        const planMd = formatPlanMarkdown(plan);
+        setMessages((m) => {
+          const out = m.slice();
+          for (let i = out.length - 1; i >= 0; i--) {
+            if (out[i].role === "assistant" && out[i].loopPending) {
+              out[i] = {
+                role: "assistant",
+                streaming: false,
+                content: planMd,
+                loopPlan: true,
+                loop_id: lid,
+              };
+              break;
+            }
+          }
+          return out;
+        });
+      }
     } catch (e) {
       // Iter 212m-176 — FastAPI can return `detail` as an object/array
       // (422 validation, structured 409 lock info). Template-string on
@@ -2255,20 +2284,53 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             // let SSE take over from here (the plan blob will arrive
             // via a phase-transition event once planning finishes).
             setLoopId(active.loop_id);
-            setLoopPhase(String(active.phase || active.state || "planning").toLowerCase());
+            // Iter 312 · Class 3 — remap phase for gate compatibility:
+            // active.state='awaiting_confirmation' + phase='plan' means
+            // the plan is ALREADY ready → jump straight to plan_pending
+            // so PlanApprovalCard renders. Otherwise stay in planning.
+            if (active.state === "awaiting_confirmation" && active.phase === "plan") {
+              setLoopPhase("plan_pending");
+            } else {
+              setLoopPhase(String(active.phase || active.state || "planning").toLowerCase());
+            }
+            // If /loop/active already carries the plan (engine finished
+            // planning during the axios timeout window), absorb it now
+            // so PlanApprovalCard has data on first render — no waiting
+            // for the SSE re-emit.
+            if (active.plan) {
+              setLoopPlan(active.plan);
+            }
+            // CRITICAL: bind the SSE stream so subsequent phase events
+            // (plan_ready emission if plan not yet arrived, execute /
+            // verify / ship transitions after approve) land here. The
+            // previous Class 3 patch mutated local state only and left
+            // the stream unbound — that's why the founder never saw
+            // the approval card during the last attempt.
+            openLoopStream(active.loop_id);
             setMessages((m) => {
               const out = m.slice();
               for (let i = out.length - 1; i >= 0; i--) {
                 if (out[i].role === "assistant" && out[i].loopPending) {
-                  out[i] = {
-                    role: "assistant",
-                    streaming: true,
-                    content: "**Plan taking longer than expected — still working…**\n\n" +
-                             "The initial HTTP request timed out but the loop is running " +
-                             `server-side (loop \`${active.loop_id.slice(-8)}\`). ` +
-                             "The plan will appear here as soon as it's ready.",
-                    loopPending: true,
-                  };
+                  // If plan is already available, render it now.
+                  if (active.plan) {
+                    out[i] = {
+                      role: "assistant",
+                      streaming: false,
+                      content: formatPlanMarkdown(active.plan),
+                      loopPlan: true,
+                      loop_id: active.loop_id,
+                    };
+                  } else {
+                    out[i] = {
+                      role: "assistant",
+                      streaming: true,
+                      content: "**Plan taking longer than expected — still working…**\n\n" +
+                               "The initial HTTP request timed out but the loop is running " +
+                               `server-side (loop \`${active.loop_id.slice(-8)}\`). ` +
+                               "The plan will appear here as soon as it's ready.",
+                      loopPending: true,
+                    };
+                  }
                   break;
                 }
               }
@@ -2383,7 +2445,18 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     // the visual doesn't lie about a still-live loop.
     if      (state === "idle")                  setLoopPhase("idle");
     else if (state === "planning")              setLoopPhase("planning");
-    else if (state === "awaiting_confirmation") setLoopPhase("awaiting_confirmation");
+    else if (state === "awaiting_confirmation") {
+      // Iter 312 · Class 3 companion — when the async-start engine
+      // finishes its plan phase, the engine emits
+      // {state:'awaiting_confirmation', phase:'plan', data:{plan}}.
+      // The PlanApprovalCard is gated on loopPhase === 'plan_pending'
+      // (see showPlanCard below), so route the plan-confirmation
+      // variant to 'plan_pending' instead of the raw state value.
+      // Non-plan awaiting_confirmation variants (e.g., ship gate) keep
+      // the raw state — those have their own dedicated cards.
+      if (phase === "plan") setLoopPhase("plan_pending");
+      else                  setLoopPhase("awaiting_confirmation");
+    }
     else if (state === "executing")             setLoopPhase("executing");
     else if (state === "self_healing")          setLoopPhase("self_healing");
     else if (state === "paused_for_user")       setLoopPhase("paused_for_user");
@@ -2394,6 +2467,36 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
     else if (state === "failed")                setLoopPhase("failed");
     else if (state === "aborted")               setLoopPhase("aborted");
     else if (state === "expired")               setLoopPhase("expired");
+
+    // ── Iter 312 · Class 3 companion — absorb plan blob from SSE ─
+    // In the async-start world, the plan no longer arrives in the
+    // /loop/start HTTP response body — it arrives here, on the
+    // engine's first AWAITING_CONFIRMATION emission (loop_engine.py
+    // ~line 625: `data={"plan": plan}`). Capture it so
+    // PlanApprovalCard has something to render, and replace the
+    // "still working" pending bubble with a formatted plan markdown
+    // preview (same UX as the pre-Iter-312 sync path had inline).
+    if (state === "awaiting_confirmation" && phase === "plan" && data && data.plan) {
+      setLoopPlan(data.plan);
+      const planMd = formatPlanMarkdown(data.plan);
+      const lid = ev.loop_id || null;
+      setMessages((m) => {
+        const out = m.slice();
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].role === "assistant" && (out[i].loopPending || out[i].loopLive)) {
+            out[i] = {
+              role: "assistant",
+              streaming: false,
+              content: planMd,
+              loopPlan: true,
+              loop_id: lid,
+            };
+            break;
+          }
+        }
+        return out;
+      });
+    }
 
     // Iter 288 — the terminal-frame's own `phase` field tells us WHERE
     // the loop died. Remember it so LoopStepBar can paint the right

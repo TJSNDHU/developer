@@ -1,0 +1,60 @@
+mock/iter312 · main · checking
+Developer tools
+TA
+mock/iter312
+main
+Swift
+Pro
+Maxx
+New run
+Chat
+Preview
+Graph
+⚠
+3 projects point to deleted or unreachable repos — click to clean up
+Open →
+LOOP · PLANNING
+id · recovery
+STOP LOOP
+Clear chat
+I'm ORA — developers choice, by Aurem CTO — your sovereign engineering co-pilot. Ask me to plan a feature, write code, or debug an error. What are we shipping today?
+add a comment to README
+**Plan taking longer than expected — still working…**
+
+The initial HTTP request timed out but the loop is running server-side (loop recovery). The plan will appear here as soon as it's ready.
+▎
+Mode C · Code task
+6 console errors
+SEND TO ORA →
+COPY
+LOOP
+PLAN
+—
+EXECUTE
+—
+VERIFY
+—
+SCAN
+—
+SHIP
+LOOP LOOP_FAK · LIVE FEED
+~ Opening plan stream…
+ORA · Vanguard reviews every change before it ships.
+AGENTIC
+LOOP ON
+ADVISOR
+
+Ask Advisor
+
+ORA copilot · online
+
+Morning brief
+
+loading live signals…
+
+Diagnose failed run
+Summarize open PRs
+Token breakdown
+Hi — I'm the ORA Advisor. Ask anything about your repo, failed runs, PRs, or token usage. I'll respond live.
+
+Advisor sees your screen.

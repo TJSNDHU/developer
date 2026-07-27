@@ -1,0 +1,69 @@
+ORA
+
+by Aurem CTO
+
+REPOSITORIES (1)
+
+mock/iter312
+
+main
+
+Add Repository
+
+TOOLS
+
+Developer tools
+TA
+
+Test Admin
+
+founder
+
+mock/iter312
+main
+Swift
+Pro
+Maxx
+--
+HEALTH
+Scan…
+New run
+Chat
+Preview
+Graph
+I'm ORA — developers choice, by Aurem CTO — your sovereign engineering co-pilot. Ask me to plan a feature, write code, or debug an error. What are we shipping today?
+LOOP
+PLAN
+—
+EXECUTE
+—
+VERIFY
+—
+SCAN
+—
+SHIP
+ORA · Vanguard reviews every change before it ships.
+CASUAL
+LOOP ON
+ADVISOR
+
+Ask Advisor
+
+ORA copilot · online
+
+Morning brief
+
+loading live signals…
+
+Diagnose failed run
+Summarize open PRs
+Token breakdown
+Hi — I'm the ORA Advisor. Ask anything about your repo, failed runs, PRs, or token usage. I'll respond live.
+
+Advisor sees your screen.
+
+We use cookies to improve your experience
+Strictly-necessary cookies keep you logged in. With your permission, we also use analytics and marketing cookies to measure conversions. Read our Cookie Policy · Privacy Policy.
+Manage preferences
+Reject non-essential
+Accept all

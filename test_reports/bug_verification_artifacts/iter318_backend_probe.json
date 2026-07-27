@@ -1,0 +1,217 @@
+{
+  "base_url": "https://launch-pad-237.preview.emergentagent.com",
+  "project_id": null,
+  "checks": {
+    "login_status": 200,
+    "backend_1": {
+      "status": 400,
+      "elapsed_s": 0.053274676960427314,
+      "body": {
+        "detail": "No project selected. Please select a project from the sidebar before running this action."
+      }
+    },
+    "backend_2": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "error": "loop_already_running",
+          "existing_loop_id": "loop_20b3a53bfebd43",
+          "message": "Another loop is already running for this project. Wait for it to finish or cancel it."
+        }
+      }
+    },
+    "backend_3_immediate_active": {
+      "status": 200,
+      "body": {
+        "ok": true,
+        "active": null
+      }
+    },
+    "backend_4_poll": {
+      "reached": null,
+      "history": [
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        },
+        {
+          "state": null,
+          "phase": null,
+          "has_plan": false
+        }
+      ]
+    }
+  },
+  "observations": []
+}

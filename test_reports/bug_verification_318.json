@@ -1,0 +1,80 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Loop 4473f240 on 2026-07-27: ChatPanel showed 'Loop failed to start' while LoopStatusChip showed 'LOOP \u00b7 PLANNING' \u2014 chip and chat contradicted. Root cause: sync /loop/start blocked past 60s axios timeout. Fix (Iter 312) has TWO halves already coded and mostly verified: Class 1 (backend fire-and-forget + planning visible in /loop/active) confirmed passing in iteration_318 via real curl. Class 3 (frontend timeout recovery + SSE bind + plan absorption + approval card render) is coded but not yet runtime-verified in browser.",
+  "summary": "No relevant testing skill found. Focused browser-only Playwright verification with MOCKED loop APIs showed the timeout recovery banner appears and the recovery branch opens SSE, but the recovered plan does not render the required approval card and formatted files/steps are missing. Async happy path opens SSE and shows the approval card, but still omits files/steps from plan markdown. Verdict is not_fixed because founder criteria (plan approval card after recovery + formatted plan details) are not met end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "backend skipped",
+        "issue": "Backend re-verification intentionally skipped per request; this run used Playwright MOCKED POST /loop/start, GET /loop/active, and GET /loop/{id}/stream."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ChatPanel.jsx / PlanApprovalCard",
+        "issue": "PLAYWRIGHT-3 failed: after simulated axios timeout recovery and SSE plan-ready frame, [data-testid='plan-approval-card'], approve, and cancel buttons were absent (card=0 approve=0 cancel=0).",
+        "selector": "[data-testid='plan-approval-card'], [data-testid='plan-approve-btn'], [data-testid='plan-cancel-btn']",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "ChatPanel.jsx",
+        "issue": "Formatted plan markdown only displayed repeated '### Test Plan' title lines; README.md and steps ('Read README', 'Add comment at top', 'Save') from the SSE plan were not shown in recovery or happy path.",
+        "selector": "chat messages / MessageBubble",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Timeout recovery: axios timeout -> /loop/active -> openLoopStream -> SSE awaiting_confirmation -> approval card",
+        "issue": "Recovery banner appeared and GET /loop/loop_fake_iter312_recovery/stream was observed, but after the SSE landed the approval gate did not render. The chip remained 'LOOP \u00b7 PLANNING' and the chat showed plan text fragments instead of the approval card.",
+        "affected_selectors": [
+          "[data-testid='loop-status-chip']",
+          "[data-testid='plan-approval-card']",
+          "[data-testid='chat-messages']"
+        ]
+      },
+      {
+        "flow": "Async happy path: /loop/start async_start -> SSE awaiting_confirmation -> approval card",
+        "issue": "Happy path partially passed (Generating plan bubble, SSE open, approval card/buttons, no failure card), but failed the required formatted plan markdown assertion because files/steps from data.plan were ignored.",
+        "affected_selectors": [
+          "[data-testid='chat-messages']",
+          "[data-testid='plan-approval-card']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/bug_verification_artifacts/iter319_delayed_browser/checks.json",
+    "/app/test_reports/bug_verification_artifacts/iter319_delayed_browser/requests.json",
+    "/app/test_reports/bug_verification_artifacts/iter319_delayed_browser/console_messages.json",
+    "/app/test_reports/bug_verification_artifacts/iter319_playwright_loop_recovery.py"
+  ],
+  "action_items": [
+    "Fix recovery SSE-to-card rendering: prevent LoopStatusChip/onPhaseUpdate from overwriting loopPhase='plan_pending' with raw phase='plan' after awaiting_confirmation plan SSE; remap plan-ready active/chip state to plan_pending or pass full active state to the parent.",
+    "Update formatPlanMarkdown to support the SSE plan schema used in the founder criteria: data.plan.files [{path, action, reason}], data.plan.steps, and description, in addition to legacy bullets/files_to_change.",
+    "Re-run the same mocked Playwright flow and require: recovery banner, recovery SSE request, recovery approval card/buttons, title + README.md + step bullets, happy-path card/buttons, no 'Loop failed to start'."
+  ],
+  "critical_code_review_comments": [
+    "ChatPanel showPlanCard requires loopPhase === 'plan_pending' and !!loopPlan, but LoopStatusChip onPhaseUpdate currently sets raw chipPhase directly. Because LoopStatusChip prefers active.phase='plan', a poll can overwrite plan_pending with 'plan' and suppress the recovered approval card.",
+    "ChatPanel formatPlanMarkdown only reads plan.bullets and plan.files_to_change; the tested SSE payload contains plan.files and plan.steps, so required file/step details are dropped from chat markdown.",
+    "Console evidence confirms openLoopStream and handleLoopEvent fired for recovery SSE, so the remaining issue is render/state reconciliation and plan formatting, not absence of SSE binding."
+  ],
+  "updated_files": [
+    "/app/test_reports/bug_verification_artifacts/iter319_playwright_loop_recovery.py",
+    "/app/test_reports/bug_verification_318.json",
+    "/app/test_reports/iteration_318.json"
+  ],
+  "success_rate": {
+    "backend": "N/A (skipped per request)",
+    "frontend": "~64% (7/11 focused checks passed; critical recovery card/markdown checks failed)"
+  },
+  "seed_data_creation": "No backend seed data created. Browser localStorage was seeded with a MOCKED founder/admin user and synthetic project p_iter312_mock; loop APIs were MOCKED via Playwright routes.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use preview creds test@aurem.dev / AuremTest2026!. Backend may remain skipped if requested; route MOCKED APIs at **/api/aurem-dev/loop/start, **/api/aurem-dev/loop/active**, and **/api/aurem-dev/loop/*/stream. Hold the SSE route until after asserting the timeout recovery banner, then release an awaiting_confirmation/phase=plan SSE with data.plan.files and data.plan.steps. Verify approval card/buttons and markdown details.",
+  "rca_of_the_issue": "Runtime evidence: POST /loop/start timedout abort triggered recovery; /loop/active returned planning; ChatPanel showed 'Plan taking longer than expected \u2014 still working\u2026' and opened GET /loop/loop_fake_iter312_recovery/stream. After releasing an awaiting_confirmation plan SSE, the chat consumed events but did not show the recovery approval card. Likely cause is raw chip phase reconciliation ('plan') overriding the special 'plan_pending' phase required by showPlanCard. Separately, formatPlanMarkdown ignores the founder-specified plan.files/plan.steps shape, causing missing README.md and step bullets even on the happy path where the card does render."
+}

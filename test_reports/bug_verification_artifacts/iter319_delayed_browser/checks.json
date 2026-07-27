@@ -1,0 +1,62 @@
+[
+  {
+    "name": "login",
+    "passed": true,
+    "details": "https://launch-pad-237.preview.emergentagent.com/dashboard"
+  },
+  {
+    "name": "dashboard loop mode ready",
+    "passed": true,
+    "details": ""
+  },
+  {
+    "name": "PLAYWRIGHT-1 recovery banner",
+    "passed": true,
+    "details": "banner appeared; failure card absent=True"
+  },
+  {
+    "name": "PLAYWRIGHT-2 recovery SSE opened",
+    "passed": true,
+    "details": "GET /loop/loop_fake_iter312_recovery/stream observed"
+  },
+  {
+    "name": "PLAYWRIGHT-3 approval card/buttons",
+    "passed": false,
+    "details": "card=0 approve=0 cancel=0"
+  },
+  {
+    "name": "PLAYWRIGHT-3 formatted markdown",
+    "passed": false,
+    "details": "missing=[\"README.md\", \"Read README\", \"Add comment at top\", \"Save\"]"
+  },
+  {
+    "name": "PLAYWRIGHT-4 no chip/chat contradiction",
+    "passed": true,
+    "details": "chip='LOOP \u00b7 PLANNING\\nid \u00b7 recovery\\nSTOP LOOP', has_failed=False, card=0"
+  },
+  {
+    "name": "PLAYWRIGHT-5 pending bubble",
+    "passed": true,
+    "details": ""
+  },
+  {
+    "name": "PLAYWRIGHT-5 happy SSE opened",
+    "passed": true,
+    "details": ""
+  },
+  {
+    "name": "PLAYWRIGHT-5 happy card/buttons",
+    "passed": true,
+    "details": "card=1 approve=1 cancel=1"
+  },
+  {
+    "name": "PLAYWRIGHT-5 happy markdown",
+    "passed": false,
+    "details": "missing=[\"README.md\", \"Read README\", \"Add comment at top\", \"Save\"]"
+  },
+  {
+    "name": "PLAYWRIGHT-5 no failure card",
+    "passed": true,
+    "details": ""
+  }
+]

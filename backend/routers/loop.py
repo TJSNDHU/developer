@@ -256,6 +256,15 @@ async def get_active_loop(
     q = {
         "user_id":  user["user_id"],
         "state":    {"$in": [
+            # Iter 312 · Class 1 — `planning` MUST be included so that
+            # the ChatPanel timeout-recovery poll (recovery of the
+            # founder-reported loop_4473f240 desync) can see an
+            # in-progress plan phase while the async background driver
+            # is still consulting Council/Parliament. Excluding it
+            # here re-opens the exact bug that Class 3 was supposed to
+            # close: chip shows PLANNING, chat says failed, /loop/active
+            # returns null so the frontend can't reconcile.
+            "planning",
             "awaiting_confirmation", "executing", "verifying",
             "scanning", "shipping", "paused_for_user", "self_healing",
         ]},
