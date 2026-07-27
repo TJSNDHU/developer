@@ -4,6 +4,57 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-26 23:15 UTC — Iter 311 · file_selector Fix C — UNIT-VERIFIED, AWAITING FOUNDER DEPLOY AUTHORIZATION
+
+**Status:** Code-complete. **Unit + repro-test verified.** **NOT deployed. Prod live-verification pending founder's post-deploy audit-endpoint hit.**
+
+**Root cause (from 2026-07-26 22:50 UTC investigation of `loop_511cdd848b5945`):**
+Execute-phase scope-drift finding — agent tried to expand from 3 planner-picked files (`backend/routers/health.py`, `backend/services/health_service.py`, `backend/tests/test_health_detailed.py`) to 12 candidates, adding 9 unrelated production routers (`admin_financials_router.py`, `campaign_health_router.py`, `case_study_router.py`, `aurem_llm_proxy_router.py`, `aurem_redis_router.py`, `autonomous_repair_router.py`, `action_engine_router.py`, `evolver_router.py` in `_archive/`, `db.py`).
+
+Scope-drift SAFETY GATE at `loop_engine.py:1082` correctly caught it and paused for user approval — the gate did its job. **But the underlying file-selection logic pulled these files in the first place**, which is the actual code-execution safety concern: if a founder had bulk-approved the expansion, unrelated production routers would have been touched by the LLM.
+
+**Mechanism (code-verified):**
+`file_selector.select_relevant_files` (`backend/services/file_selector.py`) was scoring EVERY node in the repo graph and letting keyword-collision winners (`health` token matched `campaign_health_router.py` basename +80, `endpoint` matched many router descriptions, etc.) rank above and displace planner picks in top-N. Trust-verbatim guard only covered `planner_set <= 2` files — with exactly 3 planner files, the naive keyword sweep ran and pulled unrelated routers into `plan.files_to_change`.
+
+**Fix C — Narrow Scope (chosen after founder rejected Fix A "just moves the cliff" and deferred Fix B "no evidence graph-proximity needed yet"):**
+- `backend/services/file_selector.py:138-176` — sweep now iterates ONLY `planner_set`, never all graph nodes. Files outside `planner_set` **cannot appear in candidates by construction** — this is a structural invariant, not a runtime check. Bug class is now impossible, not merely patched.
+- Trim behaviour preserved: if planner over-specifies (15 files, top_n=8), sweep still ranks planner files by task-relevance and keeps top-N — Iter 212m-116's original legitimate purpose is intact.
+- Trust-verbatim path (`planner_set <= 2`) untouched.
+- Defensive fallback: if scoring produces zero valid entries, returns `planner_set` unchanged rather than empty list.
+
+**New read-only audit endpoint:**
+- `GET /api/aurem-dev/admin/scope-drift-audit?days=30&limit=50` — admin-gated, zero writes. Aggregates `loop_events.kind == "scope_drift"` in a window; returns `total_drift_events`, `distinct_loops`, `avg_extras_per_drift`, `most_frequent_extra_paths` (top 15), and up to 20 per-loop samples with `frozen_count/extras_count/extras`. Same pattern as `/admin/speed-diagnostic`.
+
+**Verification (honest breakdown):**
+- ✅ **Unit-verified — 6/6 tests pass** (`backend/tests/test_iter311_file_selector_scope_drift_repro.py`):
+  - Repro test written FIRST, confirmed FAILING against unpatched code (7 unrelated files added, mirroring the exact prod symptom), then PASSING after Fix C
+  - Regression (a) `trim_over_specified_planner` — also flipped green after Fix C (proved bug class extended beyond the 3-file case)
+  - Regression (b) `trust_verbatim_two_files` — preserved
+  - Regression (c) `no_graph_returns_planner_set` — preserved
+  - Regression (d) `scope_drift_gate_still_fires_for_planner_bloat` — preserved (Fix C boundary is file_selector only; scope-drift gate arithmetic unaffected)
+  - Regression (e) `defensive_fallback_when_all_score_zero` — preserved (+200 planner boost still applies)
+- ✅ **`bug_testing_agent` iter 311 verdict: `fixed`** — success_rate backend 100%, zero critical, zero minor. Confirmed structural invariant via code review; confirmed audit endpoint 401→200 auth flow, zero DB write deltas around authed GET, read-only pure-find query shape.
+- ✅ **Endpoint registration** confirmed via preview `curl` — HTTP 401 without auth token = `require_admin` gate active.
+- ✅ **Lint clean** — no new warnings in `file_selector.py` or `admin.py` diff.
+- ❌ **Prod live-verification PENDING** — founder to hit `GET https://auremcto.com/api/aurem-dev/admin/scope-drift-audit?days=30` from an admin-authenticated session AFTER deploy, and confirm the cross-loop finding (any other recent loops showing similar unrelated-expansion patterns).
+- ❌ **Not yet deployed** — awaiting founder's explicit deploy authorization per standing hard rule.
+
+**Standalone deploy discipline (per founder directive):**
+- Ships on its OWN deploy, ahead of Iter 309, not bundled with Iter 309 narration/ECG changes
+- Safety > cosmetic (same precedent as 2FA/JWT-revocation vs new features)
+- Zero touch to `loop_engine.py` phase-transition or state-machine logic
+- Zero touch to `_do_ship` / commit path
+- Zero touch to scope-drift gate itself (regression-(d) proves this)
+
+**Files touched:**
+- `backend/services/file_selector.py` (Fix C — sweep now iterates planner_set only, ~40 lines changed)
+- `backend/routers/admin.py` (+80 lines: `/scope-drift-audit` endpoint)
+- `backend/tests/test_iter311_file_selector_scope_drift_repro.py` (NEW — 6-test panel, repro-first discipline)
+
+**Relation to prior clusters:** Different class from Cluster 1 (loop_1f8/loop_bff: planner emitted non-existent paths). This is the INVERSE — planner picked correctly; execute's file_selector inflated the scope with existent-but-unrelated paths. Cluster 1's `plan_ungrounded_paths` audit at `loop_engine.py:550` doesn't catch this class (it only checks for non-existent paths).
+
+**Hard rule reminder (founder-set):** No "deployed" or "verified in prod" language without an actual deploy-log entry + founder personal confirmation. This entry deliberately says "unit-verified, prod live-verification pending" — do not upgrade language until both conditions met.
+
 ## 2026-07-26 22:17 UTC — Iter 309 · Speed Diagnostic Part 1 — Tool Built + Preview Ran (thin data)
 
 **Status:** Tool is code-complete and lint-clean. Ran on preview → sample too small for statistical significance (1 real completed loop in 90 days, 0 loop_events retained). **Requires prod run to produce a meaningful Part 2 report.**
