@@ -125,12 +125,29 @@ async def _probe_stripe() -> dict:
         stripe.api_key = key
         acct = stripe.Account.retrieve()
         prices = stripe.Price.list(active=True, limit=5)
-        price_ids = [
-            os.environ.get("STRIPE_STARTER_PRICE_ID"),
-            os.environ.get("STRIPE_PRO_PRICE_ID"),
-            os.environ.get("STRIPE_TEAM_PRICE_ID"),
+        # ── Iter 326 B · Per-price .recurring verification ──────────
+        # Live evidence: founder's monthly checkout returned 400/502
+        # ("needs valid recurring price IDs") because
+        # /admin/architecture only verified the env var was SET, not
+        # that each price actually had type=recurring. A monthly
+        # price minted as type=one_time silently passed health and
+        # only crashed at real user checkout time. Now: retrieve
+        # each of the 6 configured price IDs and warn per-ID if
+        # `.recurring` is missing or `.type != "recurring"`. Names
+        # the offending env var in the warning so ops knows exactly
+        # which one to rotate.
+        price_env_names = [
+            "STRIPE_STARTER_PRICE_ID",
+            "STRIPE_PRO_PRICE_ID",
+            "STRIPE_TEAM_PRICE_ID",
+            "STRIPE_STARTER_ANNUAL_PRICE_ID",
+            "STRIPE_PRO_ANNUAL_PRICE_ID",
+            "STRIPE_TEAM_ANNUAL_PRICE_ID",
         ]
-        missing_prices = [p for p in price_ids if not p]
+        env_price_map = {
+            n: (os.environ.get(n) or "").strip() for n in price_env_names
+        }
+        missing_prices = [n for n, v in env_price_map.items() if not v]
         # Detect mode
         mode = "live" if key.startswith("sk_live_") else "test"
         summary = f"{mode.upper()} mode • {acct.business_profile.name if acct.business_profile else acct.id}"
@@ -142,11 +159,38 @@ async def _probe_stripe() -> dict:
         if missing_prices:
             return _result("stripe", "Stripe", "warn",
                            summary=summary,
-                           detail=f"{len(missing_prices)}/3 price IDs missing in env",
-                           fix_hint="Set STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID, STRIPE_TEAM_PRICE_ID")
+                           detail=f"{len(missing_prices)}/6 price env vars missing: {', '.join(missing_prices)}",
+                           fix_hint="Set the missing STRIPE_*_PRICE_ID env vars")
+        # Verify each configured price is truly `recurring`.
+        one_time_offenders: list[str] = []
+        retrieval_errors: list[str] = []
+        for env_name, pid in env_price_map.items():
+            try:
+                p = stripe.Price.retrieve(pid)
+                p_type = getattr(p, "type", None) or (p.get("type") if hasattr(p, "get") else None)
+                p_recurring = getattr(p, "recurring", None) or (p.get("recurring") if hasattr(p, "get") else None)
+                if p_type != "recurring" or not p_recurring:
+                    one_time_offenders.append(f"{env_name}={pid} (type={p_type or 'unknown'})")
+            except stripe.error.StripeError as se:
+                retrieval_errors.append(f"{env_name}={pid} ({getattr(se, 'user_message', None) or str(se)[:60]})")
+        if retrieval_errors:
+            return _result("stripe", "Stripe", "broken",
+                           summary=summary,
+                           detail=f"Stripe rejected {len(retrieval_errors)}/6 price IDs: "
+                                  + " | ".join(retrieval_errors),
+                           fix_hint="Rotate the failing STRIPE_*_PRICE_ID env vars")
+        if one_time_offenders:
+            return _result("stripe", "Stripe", "warn",
+                           summary=summary + f" — {len(one_time_offenders)}/6 price(s) are one_time not recurring",
+                           detail="Subscription checkout will 400 on these: "
+                                  + " | ".join(one_time_offenders),
+                           fix_hint="Recreate the offending price(s) as recurring "
+                                    "(dashboard.stripe.com → Products → New price → "
+                                    "toggle 'Recurring'), then update the env var to the new price_id")
         return _result("stripe", "Stripe", "ok",
                        summary=summary,
-                       detail=f"acct={acct.id} • charges & payouts enabled • {len(prices.data)} active prices")
+                       detail=f"acct={acct.id} • charges enabled • {len(prices.data)} active prices • "
+                              f"all 6 configured price IDs verified recurring")
     except Exception as e:
         return _result("stripe", "Stripe", "broken",
                        summary="Stripe API rejected the key",
@@ -209,7 +253,15 @@ async def _probe_tavily() -> dict:
                            summary="Invalid API key",
                            detail=r.text[:200],
                            fix_hint="Rotate TAVILY_API_KEY at app.tavily.com")
-        if r.status_code in (402, 429):
+        if r.status_code in (402, 429, 432):
+            # ── Iter 326 A · Tavily 432 → warn (not broken) ─────────
+            # HTTP 432 is Tavily's documented "plan usage limit
+            # exceeded" code. Live evidence: `tvly-dev-*` free-tier
+            # key returned {'detail':{'error':'This request exceeds
+            # your plan's set usage limit.'}} — a soft top-up
+            # prompt, not a critical outage. Classifier previously
+            # only checked 402/429 so 432 fell through to `broken`
+            # and painted /admin/architecture red.
             return _result("tavily", "Tavily Search", "warn",
                            summary=f"Credits exhausted or rate-limited ({r.status_code})",
                            detail=r.text[:200],

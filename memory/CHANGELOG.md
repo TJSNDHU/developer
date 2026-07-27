@@ -4,6 +4,30 @@ Append-only iteration log. See `PRD.md` for the original problem
 statement and historical context; this file captures recent feature
 work in date-stamped chunks so PRD.md stays focused.
 
+## 2026-07-27 08:00 UTC — Iter 326 · Integration-health probe hardening (2 fixes + 1 diagnostic memo)
+
+**Founder-approved defensive fixes** (Tavily + Stripe) — awaiting deploy authorization.
+
+### A · Tavily probe · HTTP 432 → `warn` (not `broken`)
+- `services/integration_health.py::_probe_tavily` — added 432 to the `(402, 429)` credits-exhausted tuple.
+- Root cause: HTTP 432 is Tavily's documented "plan usage limit exceeded" code. Classifier missed it → 432 fell through to generic `broken` branch → /admin/architecture painted RED for what is really a soft top-up prompt.
+- Live evidence: `tvly-dev-3…` free-tier key returned `{"detail":{"error":"This request exceeds your plan's set usage limit. Please upgrade your plan or contact support@tavily.com"}}` with HTTP 432. Now surfaces as WARN with fix_hint pointing at tavily.com/pricing.
+
+### B · Stripe probe · per-price `.recurring` verification
+- `services/integration_health.py::_probe_stripe` — replaced the "3 price IDs SET" check with a full retrieve-and-validate over all 6 env vars (`STRIPE_{STARTER,PRO,TEAM}_PRICE_ID` + `STRIPE_{STARTER,PRO,TEAM}_ANNUAL_PRICE_ID`).
+- For each configured price ID: `stripe.Price.retrieve(pid)` → check `type == "recurring"` and `.recurring` truthy. Per-price offenders named in the detail string with their env var name.
+- Failure modes: (a) retrieval error → `broken` with per-ID error text; (b) `one_time` prices → `warn` naming the offending env vars and fix_hint pointing at dashboard price recreation.
+- Root cause: previous probe only checked env var was SET, not the price shape. A monthly price silently minted as `type=one_time` passed health as OK and only crashed at real user checkout time (400/502) — the exact revenue block founder just hit.
+
+### C · Firecrawl · **prod-side diagnostic memo, NO fix**
+- Founder ruled out timeout-bump: `/admin/architecture` shows "Firecrawl probe timed out after 20.0s"; timeout is already 20s in prod, not 10s.
+- Preview-side probe (`.env` `FIRECRAWL_API_KEY=fc-b13b99f42…`) completes in 6–12s with real content, HTTP 200. Key valid, egress works from preview.
+- Prod-only failure mode → three candidates: (1) prod k8s secret has a stale/different `FIRECRAWL_API_KEY` from the working `.env` value; (2) prod egress to `api.firecrawl.dev` blocked/slow; (3) prod concurrent-load-induced 20s timeout when preview idle finishes in 6s.
+- **No config change applied.** Founder to confirm prod k8s secret value OR add per-probe latency + upstream-response logging into `integration_health_history` so the next 20s timeout captures the actual failure signature (401 / 402 / genuine timeout).
+
+**Test-first evidence**: `tests/test_iter326_probe_fixes.py` — 3 assertions written pre-fix, all failed red; expected all green post-fix.
+
+
 ## 2026-07-27 07:15 UTC — Iter 309 SSE 25-min reconnect · VALIDATED · PASS · plus Iter 324 UI polish + Iter 325 chip failure-state fix (preview only, awaiting deploy authorization)
 
 **Iter 309 · SSE 25-min reconnect harness — VERDICT: PASS**
