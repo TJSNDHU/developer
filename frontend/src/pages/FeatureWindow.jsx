@@ -40,6 +40,10 @@ export default function FeatureWindow() {
       setData(r?.data || r);
     } catch (e) {
       const code = e?.response?.status;
+      // Iter 328 · #4 — gate anonymous access too. Backend already
+      // returns 401 for missing auth, 403 for non-founders. Redirect
+      // both cases: anonymous → login, non-founder → dashboard.
+      if (code === 401) { navigate("/"); return; }
       if (code === 403) { navigate("/dashboard"); return; }
       setErr(e?.response?.data?.detail || e?.message || "Failed to load");
     } finally {

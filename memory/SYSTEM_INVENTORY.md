@@ -600,3 +600,27 @@ orphaned Supabase projects. Gated OFF by default.
 - `loop_run_log kind='loop_run_log_kind'` — auto-detected in backend/services/inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934412Z] <!-- inv:loop_run_log_kind:loop_run_log_kind -->
 - `BRAND_NEW_ENV_VAR` — auto-detected in backend/tests/test_inventory_service.py (verify) (default: unset) [Iter 0, 2026-07-27T16:41:09.934420Z] <!-- inv:envvar:BRAND_NEW_ENV_VAR -->
 - `loop_run_log kind='iter328_new_kind'` — auto-detected in backend/tests/test_inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934433Z] <!-- inv:loop_run_log_kind:iter328_new_kind -->
+
+### Iter 328 · 2026-07-27
+
+- `services/loop_ship_diff.py` — Iter 328 · Deploy 2 · compute_files_diff — per-file line/byte diff for ShipPendingCard safety pill · status=wired [Iter 328, 2026-07-27T18:41:30.225558Z] <!-- inv:service:services/loop_ship_diff.py -->
+- `services/loop_rollback.py` — Iter 329 · real GitHub revert of a shipped loop commit via github_api_writer.revert_commit (non-force-push); persistence to loop_sessions.rollback_* · status=wired-dark [Iter 328, 2026-07-27T18:41:30.225570Z] <!-- inv:service:services/loop_rollback.py -->
+- `services/integration_health_cron.py` — Iter 328 · #5 · periodic integration_health probe (INTEGRATION_HEALTH_INTERVAL_SEC default 600s) — writes latest + history; env ENABLE_INTEGRATION_HEALTH_CRON default ON · status=wired [Iter 328, 2026-07-27T18:41:30.225580Z] <!-- inv:service:services/integration_health_cron.py -->
+- `ENABLE_INTEGRATION_HEALTH_CRON` — Iter 328 · #5 · gate periodic integration_health cron (default: 1) [Iter 328, 2026-07-27T18:41:30.225590Z] <!-- inv:envvar:ENABLE_INTEGRATION_HEALTH_CRON -->
+- `INTEGRATION_HEALTH_INTERVAL_SEC` — Iter 328 · #5 · seconds between periodic integration_health probes (min 60, default 600) (default: 600) [Iter 328, 2026-07-27T18:41:30.225600Z] <!-- inv:envvar:INTEGRATION_HEALTH_INTERVAL_SEC -->
+- `loop_run_log kind='loop_rollback_step'` — Iter 329 · loop_rollback background worker step audit trail [Iter 328, 2026-07-27T18:41:30.225608Z] <!-- inv:loop_run_log_kind:loop_rollback_step -->
+
+---
+
+## 🔍 Tier 3 discrepancy verification (Iter 328 · #12)
+
+History claimed these shipped ~Iter 114-115. Live-codebase evidence
+(Iter 328):
+
+| Feature | Verdict | Evidence |
+|---|---|---|
+| Loop Readiness Score (`/loop/audit`) | **NOT-FOUND** | Zero backend refs for `loop_readiness`, `/loop/audit`, `readiness_score` |
+| Pattern templates (Daily Triage / Dep Sweeper / Changelog Drafter) | **NOT-FOUND** | Zero backend refs |
+| Branch-per-fix mode | **EXISTS-ORPHANED** | Only a User-Agent string in `services/finding_fix_applier.py:54`; no `aurem-fix/*` branch code, no draft-PR toggle, no settings gate |
+| L1/L2/L3 trust levels | **EXISTS-WIRED** | `loop_engine.py:681-703` reads trust level; enforcement at L1 block gate + L3 auto-ship (line 2682) |
+

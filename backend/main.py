@@ -74,6 +74,8 @@ from routers.diagram       import router as diagram_router          # Iter 212m-
 from routers.feature_window import router as feature_window_router  # Iter 212m-64 system map
 from services.codebase_indexer import router as codebase_router
 from services.daily_digest import schedule_daily_digest
+# Iter 328 · #5 — periodic integration_health probe cron
+from services.integration_health_cron import schedule_integration_health_cron
 
 
 
@@ -284,6 +286,13 @@ async def lifespan(app: FastAPI):
 
     # Iter 25 — daily digest scheduler (runs forever, fires at DIGEST_HOUR_UTC)
     app.state.digest_task = _asyncio.create_task(schedule_daily_digest())
+    # Iter 328 · #5 — periodic integration_health cron. Runs every
+    # INTEGRATION_HEALTH_INTERVAL_SEC (default 600s) so breakages
+    # (Stripe/Tavily/Firecrawl/DeepSeek) surface within ~10 min, not
+    # 24h. Env-gated ENABLE_INTEGRATION_HEALTH_CRON default ON.
+    app.state.integration_health_cron_task = _asyncio.create_task(
+        schedule_integration_health_cron()
+    )
 
     # Iter 309 · Phase 0.1 — Merged housekeeping loop.
     # Previously two independent `while True` background tasks:
