@@ -2710,13 +2710,19 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       // — NOT the generic retry/skip/abort UserActionCard.
       if (data && data.kind === "awaiting_ship") {
         setShipPending({
-          owner:           data.owner,
-          repo:            data.repo,
-          branch:          data.branch,
-          files:           data.files || [],
-          file_count:      data.file_count || (data.files || []).length,
-          commit_message:  data.commit_message || "",
-          message:         ev.message || "Ready to ship.",
+          owner:             data.owner,
+          repo:              data.repo,
+          branch:            data.branch,
+          files:             data.files || [],
+          file_count:        data.file_count || (data.files || []).length,
+          commit_message:    data.commit_message || "",
+          // ── Iter 328 · Deploy 2 hotfix ── SSE-event branch parity
+          // with the /loop/active rehydrate branch. Both must forward
+          // files_diff + integrity_verdict or the ShipPendingCard's
+          // safety pill + per-file diff chips render empty.
+          files_diff:        data.files_diff || [],
+          integrity_verdict: data.integrity_verdict || null,
+          message:           ev.message || "Ready to ship.",
         });
         setUserAction(null);
       } else {
@@ -4350,6 +4356,16 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         projectLabel={
           activeProject?.github_owner && activeProject?.github_repo
             ? `${activeProject.github_owner}/${activeProject.github_repo}`
+            : activeProject?.name
+        }
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+      />
+    </div>
+  );
+}
+
+ject.github_repo}`
             : activeProject?.name
         }
         open={scanOpen}
