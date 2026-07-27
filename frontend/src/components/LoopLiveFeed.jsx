@@ -85,6 +85,74 @@ export function extractNarration(ev) {
   };
 }
 
+// ── Iter 329 · Fix B — terminal-tone resolver ───────────────────────
+// Bug (confirmed live on ship commit 1f70444): when a loop reaches a
+// terminal state — COMPLETED for ship-success OR aborted/cancelled/
+// expired/failed — any narration line that was still `tone=pending`
+// at that moment kept spinning + the elapsed timer kept ticking (or
+// worse: crossed the 60s stall threshold and lit up "(stalled)" in
+// red) because the backend never emitted the correlation_id-matching
+// resolver frame for that intermediate line. The founder shipped
+// successfully at the top-level status but the feed still visually
+// showed "Writing… (stalled)" / "Running scan… (stalled)".
+//
+// Root cause class: SSE gap OR backend narration omission. This is
+// NOT reliably fixable by "just emit the missing frame" from the
+// backend — every phase in loop_engine would need audit + the SSE
+// gap window can drop late frames anyway. The correct place to fix
+// is here at the RENDER layer: once the loop is terminal, we know
+// with certainty that no line is legitimately still in-progress, so
+// every pending line MUST be flipped to a resolved tone.
+//
+// Resolution rule:
+//   • Loop ended in `completed`  → pending → success (green tick)
+//   • Loop ended in `failed`/`error` → pending → danger (red)
+//   • Everything else terminal (`aborted`/`cancelled`/`expired`/
+//     `paused_for_user` that never resumed) → pending → warning
+//     (amber). We do NOT know if the phase was actually done — just
+//     that it will never resolve for the user's current session.
+//
+// Fallback: if terminal=true but no event carries a recognisable
+// `state`, we conservatively resolve to `success` — the least-worst
+// UI choice; the alternative is leaving a stalled spinner up forever.
+
+const TERMINAL_TONE_BY_STATE = {
+  completed: "success",
+  done:      "success",
+  failed:    "danger",
+  error:     "danger",
+  aborted:   "warning",
+  cancelled: "warning",
+  canceled:  "warning",
+  expired:   "warning",
+  paused_for_user: "warning",
+};
+
+export function resolveTerminalTone(events) {
+  // Walk newest → oldest, find the first event that carries a
+  // meaningful `state` field. This is the loop's terminal verdict.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const s = events[i] && events[i].state;
+    if (!s) continue;
+    return TERMINAL_TONE_BY_STATE[String(s).toLowerCase()] || "success";
+  }
+  return "success";
+}
+
+// Transform a folded narration list. If `terminal` is true, every
+// still-pending line is rewritten to `terminalTone`. Pure — safe to
+// call in a memo. The `__resolvedOnTerminal` marker is exported for
+// test assertions + optional visual differentiation.
+export function resolvePendingOnTerminal(folded, terminal, terminalTone) {
+  if (!terminal) return folded;
+  const tone = terminalTone || "success";
+  return folded.map((line) => (
+    line.tone === "pending"
+      ? { ...line, tone, __resolvedOnTerminal: true }
+      : line
+  ));
+}
+
 // Fold a list of narration events into an ordered, deduplicated list.
 // Later events on the same correlation_id RESOLVE the earlier pending
 // one (i.e., we keep exactly one entry per correlation_id — the latest
@@ -240,14 +308,22 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
   }, [terminal]);
 
   const folded = useMemo(() => foldNarrations(events), [events]);
-  const hasLines = folded.length > 0;
+  // Iter 329 · Fix B — resolve any still-pending narration lines when
+  // the loop reaches a terminal state. See resolvePendingOnTerminal
+  // above for the rule table + rationale.
+  const terminalTone = useMemo(() => resolveTerminalTone(events), [events]);
+  const displayLines = useMemo(
+    () => resolvePendingOnTerminal(folded, terminal, terminalTone),
+    [folded, terminal, terminalTone],
+  );
+  const hasLines = displayLines.length > 0;
 
   // Auto-scroll to latest whenever a new narration lands.
   const scrollToBottom = useCallback(() => {
     const el = scrollerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
-  useEffect(() => { scrollToBottom(); }, [folded.length, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [displayLines.length, scrollToBottom]);
 
   if (!loopId) return null;
 
@@ -302,7 +378,7 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
         Loop {String(loopId).slice(0, 8)}  ·  live feed
         {hasLines && (
           <span style={{ marginLeft: "auto", color: "#94a3b8" }}>
-            {folded.length} event{folded.length === 1 ? "" : "s"}
+            {displayLines.length} event{displayLines.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
@@ -314,7 +390,7 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
           flex: 1, overflowY: "auto", minHeight: 24, maxHeight: 175,
         }}
       >
-        {hasLines ? folded.map((line) => (
+        {hasLines ? displayLines.map((line) => (
           <NarrationLine
             key={line.key}
             line={line}
