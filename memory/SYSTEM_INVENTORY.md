@@ -589,3 +589,14 @@ orphaned Supabase projects. Gated OFF by default.
 ### Iter 326 · 2026-07-27
 
 - `services/integration_health.py` — Iter 326 A · Tavily 432 reclassify (broken→warn, credits-exhausted is soft top-up prompt, not outage). Iter 326 B · Stripe probe now retrieves each of 6 STRIPE_*_PRICE_ID and verifies .type==recurring (was: presence-check only, monthly one_time priceIDs silently passed). Iter 327 · Firecrawl probe adds prod-only WARN diagnostic logging (status + latency + resp head; no behavior change). · status=updated [Iter 326-327, 2026-07-27T08:38:33.137424Z] <!-- inv:service:services/integration_health.py -->
+
+### Iter 0 · 2026-07-27
+
+- `AUREM_ITER_NUM` — auto-detected in backend/main.py (verify) (default: unset) [Iter 0, 2026-07-27T16:41:09.934338Z] <!-- inv:envvar:AUREM_ITER_NUM -->
+- `services/inventory_service.py` — auto-detected new service (verify) · status=wired [Iter 0, 2026-07-27T16:41:09.934365Z] <!-- inv:service:services/inventory_service.py -->
+- `loop_run_log kind='router'` — auto-detected in backend/services/inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934377Z] <!-- inv:loop_run_log_kind:router -->
+- `loop_run_log kind='service'` — auto-detected in backend/services/inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934389Z] <!-- inv:loop_run_log_kind:service -->
+- `loop_run_log kind='envvar'` — auto-detected in backend/services/inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934401Z] <!-- inv:loop_run_log_kind:envvar -->
+- `loop_run_log kind='loop_run_log_kind'` — auto-detected in backend/services/inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934412Z] <!-- inv:loop_run_log_kind:loop_run_log_kind -->
+- `BRAND_NEW_ENV_VAR` — auto-detected in backend/tests/test_inventory_service.py (verify) (default: unset) [Iter 0, 2026-07-27T16:41:09.934420Z] <!-- inv:envvar:BRAND_NEW_ENV_VAR -->
+- `loop_run_log kind='iter328_new_kind'` — auto-detected in backend/tests/test_inventory_service.py (verify) [Iter 0, 2026-07-27T16:41:09.934433Z] <!-- inv:loop_run_log_kind:iter328_new_kind -->
