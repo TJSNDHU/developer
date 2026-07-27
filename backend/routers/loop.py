@@ -28,7 +28,7 @@ import time
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -770,6 +770,131 @@ async def force_release_lock(
         user.get("user_id"), body.project_id, deleted_loop_id,
     )
     return {"ok": True, "released_loop_id": deleted_loop_id}
+
+
+# ── Iter 329 · Deploy 3-A — Loop Rollback ───────────────────────────
+#
+# Give loop-mode a REAL, non-force-push, history-preserving revert of
+# the shipped commit. Pre-Iter-329 the ShipConfirmModal's Rollback
+# button called `/cto/tasks/{task_id}/rollback` — but loop mode never
+# creates cto_tasks rows, so `taskId` stayed null and the button
+# silently did nothing for every loop-mode ship. This endpoint fixes
+# that by operating directly off `loop_sessions.context.commit`.
+#
+# Contract:
+#   • Only the loop's owner may roll back.
+#   • Loop must be in COMPLETED state with a `context.commit.full_sha`.
+#   • Client must echo `confirm="ROLLBACK"` — same double-safety as
+#     the legacy `/cto/tasks/{id}/rollback` endpoint.
+#   • Persistence: writes `rollback_status="queued"|"running"|"done"
+#     |"failed"`, `rollback_sha`, `rollback_html_url`, `rollback_error`,
+#     `rollback_started_at`, `rollback_completed_at`, `rollback_steps[]`
+#     onto the `loop_sessions` doc so the LiveFeed can poll it.
+#   • Uses `services.loop_rollback.run_rollback` (background task) →
+#     reuses `github_api_writer.revert_commit` — same workhorse
+#     `_run_rollback_via_api` uses for cto_tasks path. Zero divergence.
+
+class LoopRollbackBody(BaseModel):
+    """Client must echo 'ROLLBACK' to confirm intent server-side too."""
+    confirm: str = Field(..., min_length=8, max_length=16)
+
+
+@router.post("/{loop_id}/rollback")
+async def rollback_loop(
+    loop_id: str,
+    body: LoopRollbackBody,
+    bg: BackgroundTasks,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Iter 329 · revert a loop's shipped GitHub commit via a NEW
+    revert commit on the branch. Non-force-push, history preserved.
+
+    Returns {ok, loop_id, rollback_status, commit_sha}. Progress is
+    persisted on the `loop_sessions` doc for polling."""
+    user = await current_dev(authorization)
+    if (body.confirm or "").strip().upper() != "ROLLBACK":
+        raise HTTPException(400, "Must confirm with 'ROLLBACK'")
+
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB unavailable")
+
+    sess = await db.loop_sessions.find_one(
+        {"loop_id": loop_id, "user_id": user["user_id"]},
+    )
+    if not sess:
+        raise HTTPException(404, "Loop not found")
+
+    state = sess.get("state")
+    if state != "completed":
+        raise HTTPException(
+            400,
+            f"Only completed loops can be rolled back (current: {state})",
+        )
+    commit = (sess.get("context") or {}).get("commit") or {}
+    full_sha = commit.get("full_sha") or commit.get("sha")
+    if not full_sha:
+        raise HTTPException(400, "Loop has no shipped commit to revert")
+    # Idempotence — refuse if already rolled back or in flight.
+    rb_status = sess.get("rollback_status")
+    if sess.get("rollback_sha"):
+        raise HTTPException(409, "Loop already rolled back")
+    if rb_status in ("queued", "running"):
+        raise HTTPException(409, "Rollback already in progress")
+    if rb_status == "failed":
+        raise HTTPException(
+            409, "Previous rollback failed — manual intervention required",
+        )
+
+    project_id = sess.get("project_id")
+    if not project_id:
+        raise HTTPException(
+            400, "Loop is not linked to a project — cannot resolve repo/PAT",
+        )
+    # Fetch project + PAT via the same path cto_tasks rollback uses so
+    # we get identical scoping + encryption semantics.
+    proj = await db.cto_projects.find_one(
+        {"project_id": project_id, "user_id": user["user_id"]},
+        {"_id": 0, "repo_index_summary": 0, "brain_text": 0,
+         "repo_index_blocks": 0, "last_commit_diff": 0},
+    )
+    if not proj:
+        raise HTTPException(404, "Parent project not found")
+
+    # Reuse the cto_projects PAT decrypt helper so we don't create a
+    # second key-derivation path (single source of truth for HKDF).
+    from routers.cto_projects import _decrypt_pat, _user_gh_token
+    user_token = await _decrypt_pat(user["user_id"], proj.get("github_token")) \
+        or await _user_gh_token(user["user_id"])
+    if not user_token:
+        raise HTTPException(
+            400,
+            "No PAT on file for this project — open Projects → Edit and "
+            "add one.",
+        )
+
+    await db.loop_sessions.update_one(
+        {"loop_id": loop_id},
+        {"$set": {
+            "rollback_status":     "queued",
+            "rollback_started_at": time.time(),
+            "rollback_commit_sha": full_sha,
+        }},
+    )
+
+    from services.loop_rollback import run_rollback
+    bg.add_task(
+        run_rollback,
+        db=db, loop_id=loop_id, project=proj,
+        commit_sha=full_sha, user_token=user_token,
+    )
+
+    return {
+        "ok":              True,
+        "loop_id":         loop_id,
+        "rollback_status": "queued",
+        "commit_sha":      full_sha,
+    }
 
 
 # ── Iter 282 — deploy-verification diagnostics endpoint ─────────────
