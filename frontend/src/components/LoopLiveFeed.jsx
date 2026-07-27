@@ -1,3 +1,262 @@
+// ── Iter 329 · Task 2 — Ship info extractor ────────────────────────
+// Walks the raw event stream newest → oldest for a terminal
+// state=completed · phase=ship frame carrying `data.commit_sha` (that
+// is the exact shape the loop_engine emits for a successful ship,
+// verified by the modal-dispatch site that used to consume it at
+// ChatPanel.jsx line ~2673 pre-Task-2). Returns null when the loop
+// isn't done or wasn't a ship. Kept pure/exported so tests can lock
+// in the extraction contract without mounting the full component.
+export function extractShipInfo(events) {
+  if (!Array.isArray(events)) return null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (!ev) continue;
+    const state = String(ev.state || "").toLowerCase();
+    const phase = String(ev.phase || "").toLowerCase();
+    const d = ev.data || {};
+    if ((state === "completed" || state === "done")
+        && phase === "ship"
+        && d.commit_sha) {
+      const fullSha = d.full_sha || d.commit_sha;
+      const shortSha = String(d.commit_sha).slice(0, 7);
+      return {
+        commitSha:   String(d.commit_sha),
+        fullSha:     String(fullSha),
+        shortSha,
+        htmlUrl:     d.html_url || null,
+        files:       d.files_changed || [],
+        commitMsg:   d.commit_message || null,
+      };
+    }
+  }
+  return null;
+}
+
+// ── Iter 329 · Task 2 — inline Shipped row ─────────────────────────
+// Renders "Shipped {sha7} · View on GitHub · Rollback" as a
+// persistent line at the bottom of the feed on terminal-success.
+// Replaces the dark-overlay ShipConfirmModal that previously fired
+// via `aurem:open-ship-modal` on every loop-mode ship.
+//
+// Rollback wiring: calls the PROVEN POST /loop/{id}/rollback
+// (Iter 329 Deploy 3-A · production-verified with commit 5d939a4 →
+// revert ea3ebcf on 2026-07-27). Two-click safety: first click sets
+// state="confirming" with a 4s auto-timeout back to idle; second
+// click within the window kicks the real revert. Progress updates
+// via a lightweight poll of /loop/{id}/status until
+// rollback_status ∈ {done, failed}. Zero force-push semantics
+// because the backend uses github_api_writer.revert_commit which
+// produces a new revert commit (history preserved).
+const ROLLBACK_CONFIRM_MS = 4_000;
+const ROLLBACK_POLL_MS    = 1_500;
+
+function ShippedRow({ loopId, ship, onDone }) {
+  const [phase, setPhase] = useState("idle");
+  // idle | confirming | queued | running | done | failed
+  const [error, setError] = useState(null);
+  const [rollbackSha, setRollbackSha] = useState(null);
+  const [rollbackHtmlUrl, setRollbackHtmlUrl] = useState(null);
+  const confirmTimerRef = useRef(null);
+  const pollTimerRef    = useRef(null);
+
+  const clearConfirmTimer = useCallback(() => {
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
+  }, []);
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => () => {
+    clearConfirmTimer();
+    clearPollTimer();
+  }, [clearConfirmTimer, clearPollTimer]);
+
+  const pollRollback = useCallback(async () => {
+    try {
+      const r = await getLoopStatus(loopId);
+      const s = String(r?.rollback_status || "").toLowerCase();
+      if (s === "done") {
+        setPhase("done");
+        setRollbackSha(r?.rollback_sha || null);
+        setRollbackHtmlUrl(r?.rollback_html_url || null);
+        clearPollTimer();
+        if (typeof onDone === "function") onDone(r);
+        return;
+      }
+      if (s === "failed") {
+        setPhase("failed");
+        setError(r?.rollback_error || "Rollback failed");
+        clearPollTimer();
+        return;
+      }
+      // queued / running — keep polling
+      pollTimerRef.current = setTimeout(pollRollback, ROLLBACK_POLL_MS);
+    } catch (e) {
+      setPhase("failed");
+      setError(e?.response?.data?.detail || e?.message || "Poll failed");
+      clearPollTimer();
+    }
+  }, [loopId, clearPollTimer, onDone]);
+
+  const onRollbackClick = useCallback(async () => {
+    if (phase === "idle") {
+      setPhase("confirming");
+      confirmTimerRef.current = setTimeout(() => {
+        setPhase("idle");
+        confirmTimerRef.current = null;
+      }, ROLLBACK_CONFIRM_MS);
+      return;
+    }
+    if (phase === "confirming") {
+      clearConfirmTimer();
+      setPhase("queued");
+      setError(null);
+      try {
+        const r = await rollbackLoop(loopId);
+        const st = String(r?.rollback_status || "").toLowerCase();
+        if (st === "queued" || st === "running") {
+          setPhase("running");
+          pollTimerRef.current = setTimeout(
+            pollRollback, ROLLBACK_POLL_MS,
+          );
+        } else if (st === "done") {
+          setPhase("done");
+          setRollbackSha(r?.rollback_sha || null);
+          setRollbackHtmlUrl(r?.rollback_html_url || null);
+        } else {
+          setPhase("failed");
+          setError(r?.rollback_error || "Unexpected response");
+        }
+      } catch (e) {
+        setPhase("failed");
+        setError(
+          e?.response?.data?.detail || e?.message || "Rollback failed",
+        );
+      }
+    }
+  }, [phase, loopId, clearConfirmTimer, pollRollback]);
+
+  const rollbackLabel =
+    phase === "confirming" ? "Confirm rollback"
+    : phase === "queued"   ? "Rolling back…"
+    : phase === "running"  ? "Rolling back…"
+    : phase === "done"     ? "Rolled back"
+    : phase === "failed"   ? "Retry rollback"
+    : "Rollback";
+
+  return (
+    <div
+      data-testid={`loop-shipped-row-${ship.shortSha}`}
+      data-rollback-phase={phase}
+      style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "6px 0 3px 0",
+        borderTop: "1px dashed #ffffff1a",
+        marginTop: 6,
+      }}
+    >
+      <Check
+        size={12}
+        strokeWidth={2.5}
+        style={{ color: "#22C55E", flexShrink: 0 }}
+      />
+      <span
+        data-testid={`loop-shipped-label-${ship.shortSha}`}
+        style={{ color: "#e6ebf3" }}
+      >
+        Shipped{" "}
+        <span style={{
+          color: "#22C55E",
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        }}>
+          {ship.shortSha}
+        </span>
+      </span>
+      {ship.htmlUrl && (
+        <a
+          data-testid={`loop-shipped-github-${ship.shortSha}`}
+          href={ship.htmlUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: "#9aa0a8", textDecoration: "none",
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: 11,
+          }}
+        >
+          View on GitHub <ExternalLink size={10} strokeWidth={2.5} />
+        </a>
+      )}
+      <span style={{ flex: 1 }} />
+      {phase === "done" && rollbackSha ? (
+        <span
+          data-testid="loop-shipped-rolled-back"
+          style={{ color: "#f5a524", fontSize: 11 }}
+        >
+          Reverted →{" "}
+          {rollbackHtmlUrl ? (
+            <a
+              data-testid="loop-shipped-rolled-back-link"
+              href={rollbackHtmlUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#f5a524", textDecoration: "underline" }}
+            >
+              {String(rollbackSha).slice(0, 7)}
+            </a>
+          ) : (
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+              {String(rollbackSha).slice(0, 7)}
+            </span>
+          )}
+        </span>
+      ) : (
+        <button
+          type="button"
+          data-testid={`loop-shipped-rollback-btn-${ship.shortSha}`}
+          aria-label={phase === "confirming" ? "Confirm rollback" : "Rollback loop"}
+          aria-pressed={phase === "confirming"}
+          disabled={phase === "queued" || phase === "running"}
+          onClick={onRollbackClick}
+          style={{
+            appearance: "none",
+            background: phase === "confirming" ? "#EF4444" : "transparent",
+            color:      phase === "confirming" ? "#000" : "#f87171",
+            border:     "1px solid #EF4444",
+            borderRadius: 6,
+            padding: "3px 10px",
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10.5,
+            letterSpacing: "0.04em",
+            cursor: (phase === "queued" || phase === "running")
+              ? "wait" : "pointer",
+            display: "inline-flex", alignItems: "center", gap: 4,
+            textTransform: "uppercase",
+            transition: "background 120ms ease, color 120ms ease",
+          }}
+        >
+          <RotateCcw size={9} strokeWidth={2.5} />
+          {rollbackLabel}
+        </button>
+      )}
+      {phase === "failed" && error && (
+        <span
+          data-testid="loop-shipped-rollback-error"
+          style={{ color: "#f87171", fontSize: 10 }}
+          title={error}
+        >
+          {String(error).slice(0, 40)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
  * LoopLiveFeed — Iter 309 · Live Narration rewrite
  *
@@ -38,8 +297,9 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import {
-  Check, AlertTriangle, AlertOctagon, Loader2,
+  Check, AlertTriangle, AlertOctagon, Loader2, ExternalLink, RotateCcw,
 } from "lucide-react";
+import { rollbackLoop, getLoopStatus } from "../lib/loopApi";
 
 // ── Tone → icon + colour ────────────────────────────────────────────
 const TONE_STYLES = {

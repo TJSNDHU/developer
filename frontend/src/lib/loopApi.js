@@ -71,6 +71,20 @@ export async function getLoopStatus(loopId) {
   return r?.data || r;
 }
 
+// ── Iter 329 · Task 2 — Loop Rollback ────────────────────────────
+// Wires POST /loop/{id}/rollback (Iter 329 Deploy 3-A). Backend requires
+// confirm="ROLLBACK" body — enforced here so the button click always
+// carries the correct payload. Returns {ok, loop_id, rollback_status,
+// commit_sha}; rollback runs as a background task, caller polls
+// /loop/{id}/status for rollback_status/rollback_sha updates.
+export async function rollbackLoop(loopId) {
+  const r = await api.post(
+    `/loop/${encodeURIComponent(loopId)}/rollback`,
+    { confirm: "ROLLBACK" },
+  );
+  return r?.data || r;
+}
+
 export async function getLoopInspect(loopId, tail = 20) {
   const r = await api.get(`/admin/loop-inspect/${loopId}?tail=${tail}`);
   return r?.data || r;

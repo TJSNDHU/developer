@@ -2664,27 +2664,27 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       setLoopTerminal(true);    // stop the heartbeat / gap-fallback line
     }
 
-    // Iter 212m-106 — Ship modal wiring. The engine emits the final
-    // ship event with state="completed", phase="ship", and `data`
-    // carrying the REAL commit_sha + html_url + files_changed from
-    // GitHub's API response. Forward this to the dashboard's
-    // ShipConfirmModal so the user sees the commit confirmation
-    // (or a failure card if the push failed).
-    if (state === "completed" && phase === "ship" && data && data.commit_sha) {
-      try {
-        window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
-          detail: {
-            kind: "shipped",
-            commit_sha:  data.commit_sha,
-            full_sha:    data.full_sha,
-            html_url:    data.html_url,
-            files:       data.files_changed || [],
-            scan:        data.scan_results || null,
-            commit_msg:  data.commit_message,
-          },
-        }));
-      } catch { /* event dispatch never throws but be defensive */ }
-    } else if (state === "failed" && phase === "ship") {
+    // Iter 212m-106 → Iter 329 · Task 2 — Ship modal suppression.
+    // Previously this branch dispatched `aurem:open-ship-modal` with
+    // kind="shipped" on every loop-mode COMPLETED · phase=ship frame.
+    // That fired the dark-overlay ShipConfirmModal in loop-mode even
+    // though the operational surface (LoopStepBar / LoopStatusChip /
+    // LoopLiveFeed) already communicates ship-completion cleanly, AND
+    // its "Rollback" button was silently dead in loop-mode (targeted
+    // /cto/tasks/{id}/rollback which loop-mode never creates). Iter
+    // 329 Deploy 3-A gave loop-mode a REAL rollback route (proven
+    // live on production commit 5d939a4 → revert ea3ebcf) and this
+    // deploy replaces the modal with inline surfaces:
+    //   • LoopLiveFeed renders a persistent "Shipped {sha7} · View
+    //     on GitHub · Rollback" line (extracts from the same
+    //     terminal event this branch used to consume).
+    //   • LoopStatusChip renders a "Done" affordance next to the
+    //     SHIPPED label during the terminal grace window.
+    // The kind="failed" branch below stays — there's no inline
+    // failure UX yet, so the modal remains for failed loop-ships.
+    // The legacy MessageBubble.jsx dispatch (manual-ship path,
+    // NOT loop-mode) is untouched.
+    if (state === "failed" && phase === "ship") {
       try {
         window.dispatchEvent(new CustomEvent("aurem:open-ship-modal", {
           detail: {
