@@ -997,15 +997,38 @@ class LoopEngine:
                             "Plan approved — execution started.")
 
         if not files:
-            logger.warning("[loop %s] EXECUTE — plan has no files_to_change, failing",
-                           self.loop_id)
-            # Iter 212m-131 — bug #6 fix: previously this returned
-            # silently, letting Verify → Scan → Ship all progress with
-            # no files; user saw "Ship complete" without any commit.
-            # Now we _fail() so the user sees a real reason.
-            await self._fail(
-                "execute",
-                "Plan has no files_to_change — refine the plan and retry.",
+            # Iter 331 · read-only loop fix (founder-reported, prod loop
+            # 6de15d4c): "list files"/"explain X" style tasks produce a
+            # valid plan with ZERO files_to_change. Failing here punished
+            # the most common query use-case. A plan with no file edits
+            # is a REPORT — terminate the loop COMPLETED with the plan as
+            # the deliverable. The iter212m-131 bug #6 concern (silent
+            # progression to a fake "Ship complete") does not apply:
+            # state=COMPLETED is terminal, so _should_stop() halts the
+            # pipeline and Verify/Scan/Ship never run.
+            logger.info("[loop %s] EXECUTE — plan has no files_to_change; "
+                        "completing as read-only report", self.loop_id)
+            await self._narrate("execute", "success",
+                                "No code changes required — read-only task; "
+                                "the plan itself is the deliverable.")
+            self.state = LoopState.COMPLETED
+            self.phase = "execute"
+            await _persist_session(self.db, self._doc())
+            try:
+                from services.loop_safety import release_loop_lock
+                await release_loop_lock(
+                    self.db, self.project_id or "_no_project",
+                    self.user_id, self.loop_id,
+                )
+            except Exception:
+                pass
+            await self._emit(
+                LoopState.COMPLETED, "execute",
+                step=2, total_steps=5,
+                message="Task complete — no code changes required. "
+                        "This was a read-only/report task; nothing to ship.",
+                data={"read_only": True,
+                      "plan": self.context.get("plan")},
             )
             return
 

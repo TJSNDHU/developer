@@ -313,14 +313,22 @@ def test_verify_files_uses_semaphore_parallelism():
 # ──────────────────────────────────────────────────────────────────
 # Bug #6 — Execute on empty plan must _fail, not silently progress
 # ──────────────────────────────────────────────────────────────────
-def test_execute_empty_files_fails_loudly(monkeypatch):
+def test_execute_empty_files_completes_as_readonly_report(monkeypatch):
+    """Iter 331 — design change (founder-reported prod loop 6de15d4c).
+
+    Old behaviour (iter212m-131 bug #6): empty files_to_change →
+    _fail("execute"). That punished read-only/query loops ("list my
+    repo files", "explain X") — the most common ask. New behaviour:
+    the loop terminates COMPLETED as a read-only report, _fail is
+    NEVER called, and the terminal state stops the pipeline so the
+    original bug #6 concern (fake "Ship complete") still can't happen.
+    """
     from services import loop_engine as le
 
     eng = _make_engine()
     eng.context["plan"] = {
         "title": "t", "bullets": ["b1"], "files_to_change": [],
     }
-    # Patch _fail to spy on the call (no real Mongo).
     fail_calls = []
     orig_fail = eng._fail
     async def spy_fail(phase, message):
@@ -332,13 +340,9 @@ def test_execute_empty_files_fails_loudly(monkeypatch):
         await eng._do_execute()
 
     asyncio.run(go())
-    # Bug #6 fix — _do_execute exits via _fail when files list empty,
-    # BEFORE the GitHub project lookup is even attempted.
-    assert len(fail_calls) == 1
-    phase, msg = fail_calls[0]
-    assert phase == "execute"
-    assert "files_to_change" in msg.lower() or "no files" in msg.lower()
-    assert eng.state == le.LoopState.FAILED
+    assert fail_calls == [], "read-only plan must not fail the loop"
+    assert eng.state == le.LoopState.COMPLETED
+    assert eng._should_stop(), "terminal state must halt the pipeline"
 
 
 # ──────────────────────────────────────────────────────────────────
