@@ -391,12 +391,17 @@ class LoopEngine:
 
     def __init__(self, db, loop_id: str, user_id: str,
                  project_id: Optional[str], user_message: str,
-                 bin_ctx=None):
+                 bin_ctx=None, session_id: Optional[str] = None):
         self.db = db
         self.loop_id = loop_id
         self.user_id = user_id
         self.project_id = project_id
         self.user_message = user_message
+        # Iter 339d — chat session this loop belongs to. At terminal we
+        # persist a compact user+assistant turn pair into
+        # db.chat_sessions so loop runs survive a page reload.
+        self.session_id = session_id
+        self._chat_turns_saved = False
         # Iter 212m-169 — BINContext is the single source of truth for
         # this loop's user + project + PAT + is_founder flag.  Built
         # ONCE at the router entry point (see routers/loop.py) and
@@ -3140,6 +3145,54 @@ class LoopEngine:
         await _persist_session(self.db, self._doc())
 
     # ── Helpers ──────────────────────────────────────────────────────
+    async def _persist_chat_turns(self, state, ev: dict) -> None:
+        """Iter 339d — write the loop's user prompt + a compact result
+        summary as a turn pair into db.chat_sessions (mirrors chat.py's
+        _persist_turn shape, $slice -200). Fire-once, fire-and-forget:
+        a Mongo failure must never break the SSE loop."""
+        if self._chat_turns_saved or not self.session_id:
+            return
+        self._chat_turns_saved = True
+        now = time.time()
+        commit = (self.context or {}).get("commit") or {}
+        sha7 = (commit.get("sha") or commit.get("full_sha") or "")[:7]
+        msg = (ev.get("message") or "").strip()
+        if state == LoopState.COMPLETED and sha7:
+            reply = f"🚀 **Loop run complete — shipped `{sha7}`.**"
+            if commit.get("html_url"):
+                reply += f"\n\n[View commit]({commit['html_url']})"
+        elif state == LoopState.COMPLETED:
+            reply = f"✅ **Loop run complete.** {msg}".strip()
+        elif state == LoopState.ABORTED:
+            reply = f"⏹️ **Loop cancelled** at {self.phase or '?'} phase."
+        else:
+            reply = (f"❌ **Loop failed** at {self.phase or '?'} phase — "
+                     f"{msg[:300]}")
+        try:
+            await self.db.chat_sessions.update_one(
+                {"session_id": self.session_id, "user_id": self.user_id},
+                {
+                    "$setOnInsert": {
+                        "session_id": self.session_id,
+                        "user_id":    self.user_id,
+                        "created_at": now,
+                        "project_id": self.project_id,
+                    },
+                    "$set": {"updated_at": now,
+                             "last_message": reply[:120]},
+                    "$push": {"turns": {"$each": [
+                        {"role": "user", "content": self.user_message,
+                         "ts": now, "loop_id": self.loop_id},
+                        {"role": "assistant", "content": reply, "ts": now,
+                         "provider": "loop", "loop_id": self.loop_id},
+                    ], "$slice": -200}},
+                },
+                upsert=True,
+            )
+        except Exception as e:                            # noqa: BLE001
+            logger.warning("[loop %s] chat turn persist failed (non-fatal): %r",
+                           self.loop_id, e)
+
     async def _emit(self, state: LoopState, phase: str, **kw) -> None:
         self.state = state
         self.phase = phase
@@ -3156,6 +3209,10 @@ class LoopEngine:
             pass
         await self.queue.put(ev)
         await _persist_session(self.db, self._doc(extra={"last_event": ev}))
+        # Iter 339d — at terminal, persist the loop's turn pair into
+        # chat_sessions ONCE so the run survives a page reload.
+        if state in _TERMINAL:
+            await self._persist_chat_turns(state, ev)
         # ── Iter 315 · Fix 1 — persist phase-transition to loop_events ──
         # Diagnostic aggregator (`services/loop_speed_diagnostic.py::
         # _phase_durations_from_events`) reads `db.loop_events` grouped

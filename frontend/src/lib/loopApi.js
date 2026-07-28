@@ -18,10 +18,11 @@
  */
 import { api, API_BASE } from "./api";
 
-export async function startLoop({ projectId, userMessage }) {
+export async function startLoop({ projectId, userMessage, sessionId }) {
   const r = await api.post("/loop/start", {
     project_id:   projectId || null,
     user_message: userMessage,
+    session_id:   sessionId || null,
   });
   return r?.data || r;
 }

@@ -258,3 +258,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Bug: 20+ history rows spilling out of LiveFeed card (maxHeight 220 overflow) — overlapping step bar/composer/human-review card; expand/collapse unreliable due to overlap.
 - Fixes: (1) OperationHistory list now bounded — header "OPS HISTORY · N", shows 5 recent, "Show all (N)" toggle, 190px scroll pane. (2) LoopLiveFeed root maxHeight removed (narration scroller keeps own 175px cap). (3) Expand keyed by loop_id::op_type (ship/rollback no longer co-expand); row click toggles expand/collapse.
 - Tested: Playwright E2E (standalone + demo feed) PASS, 230/230 vitest PASS. Deploy pending.
+
+## Iter 339d · 2026-07-29 — Loop chat persistence + collapsible replies
+- ROOT CAUSE (founder: "50 runs, prod pe older chats nahi dikhte"): loop-mode turns were NEVER written to chat_sessions — loop engine only wrote loop_sessions; _persist_turn only fires on normal chat streaming. After reload /chat/history had nothing.
+- FIX: /loop/start now accepts session_id (frontend passes it); LoopEngine._persist_chat_turns writes a compact user+assistant turn pair (shipped/failed/aborted variants, provider:"loop", loop_id tagged, $slice -200, idempotent one-shot) into chat_sessions at every terminal state via _emit hook.
+- NEW FEATURE: CollapsibleReply.jsx — older long assistant replies (>280 chars or >6 lines) collapse to one-line preview + "N lines"; click to expand/collapse. Last assistant reply always stays expanded. Wired via MessageBubble collapseDefault prop from ChatPanel (lastAssistantIdx).
+- Tested: backend unit (persist ship/fail/idempotent) PASS, pytest iter332/333 32 passed, Playwright E2E (8-turn seeded session: 2 collapsed, loop turn visible, expand/collapse toggle) PASS, 230/230 vitest PASS. Deploy pending.

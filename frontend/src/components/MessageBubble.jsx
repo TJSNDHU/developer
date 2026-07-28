@@ -26,6 +26,7 @@ import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
 import LoopProgressBubble, { isLoopProgressContent } from "./LoopProgressBubble"; // Iter 331
+import CollapsibleReply, { isCollapsibleReply } from "./CollapsibleReply"; // Iter 339d
 import MermaidBlock from "./MermaidBlock";       // Iter 212m-61 /diagram
 import PatRequiredCTA from "./PatRequiredCTA";
 import SystemSignalBanner from "./SystemSignalBanner";
@@ -348,7 +349,7 @@ function WatchdogPanel({ idx, wd, onRegenerate }) {
 export default function MessageBubble({
   idx, dbTurnIndex, m, onRegenerate, sessionId,
   activeProject, exhausted, onTaskCompleted,
-  onOpenDeployTab,
+  onOpenDeployTab, collapseDefault = false,
 }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState(m.feedback?.vote || null);
@@ -663,6 +664,13 @@ export default function MessageBubble({
               <LoopProgressBubble text={m.content} streaming={!!m.streaming}>
                 <RenderedMessage text={m.content} />
               </LoopProgressBubble>
+            ) : (collapseDefault && !m.streaming && !m.error
+                 && isCollapsibleReply(m.content)) ? (
+              /* Iter 339d — older long replies collapse to a one-line
+                 preview; click to expand / collapse. */
+              <CollapsibleReply text={m.content}>
+                <RenderedMessage text={m.content} />
+              </CollapsibleReply>
             ) : (
               <RenderedMessage text={m.content} />
             )

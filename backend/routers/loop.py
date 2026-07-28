@@ -62,6 +62,10 @@ _TTL_MANAGED_COLLECTIONS = (
 class StartBody(BaseModel):
     project_id:   Optional[str] = None
     user_message: str            = Field(..., min_length=1, max_length=8000)
+    # Iter 339d — chat session to persist the loop's turn pair into at
+    # terminal, so loop runs survive a page reload (founder report:
+    # "50 runs, chat empty after reload on prod").
+    session_id:   Optional[str] = Field(None, max_length=64)
 
 
 class ConfirmBody(BaseModel):
@@ -159,6 +163,7 @@ async def start_loop(body: StartBody,
         project_id=body.project_id,
         user_message=body.user_message,
         bin_ctx=_bin_ctx_loop,
+        session_id=body.session_id,
     )
     eng.register(engine)
 
