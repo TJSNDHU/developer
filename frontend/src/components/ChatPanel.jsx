@@ -3573,6 +3573,22 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           variant.  The actual JSX lives in the composer-toolbar block
           below (search the toolbar for the LoopModeToggle tag). */}
 
+      {/* Iter 330 · position swap — Founder request: LiveFeed above,
+          StepBar below. LiveFeed is the primary "what's happening
+          right now" surface; step tools act as a persistent
+          progress footer. */}
+      {loopId && (
+        <div className="chat-inline-card">
+          <LoopLiveFeed
+            loopId={loopId}
+            event={loopFeedEvent}
+            terminal={loopTerminal}
+            phase={loopPhase}
+            projectId={activeProject?.project_id}
+          />
+        </div>
+      )}
+
       {/* Iter 212m-58 — 5-step progress bar.  Renders only when the
           loop pipeline is active.  Wires into `loopPhase` set by
           send() and onDone above.
@@ -3586,20 +3602,10 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         <LoopStepBar
           phase={loopPhase}
           retryCount={loopRetryCount}
-          // Iter 288 — paint the ACTUAL failed step red, not always
-          // step 2 (EXECUTE). loopErrorPhase is set from the failed
-          // SSE frame's `phase` field inside handleLoopEvent. When
-          // absent (loop still running or aborted with no phase), we
-          // pass 0 so LoopStepBar renders nothing as errored.
           errorStep={loopPhase === "error"
             ? ({plan:1, execute:2, verify:3, security:4, scan:4, ship:5}[
                 (loopErrorPhase || "").toLowerCase()] || 2)
             : 0}
-          // Iter 309 · Live Narration — real per-step tones sourced
-          // from backend narration events. Drives the ECG strip's
-          // active/success/danger variants. Empty object = every step
-          // uses legacy phase-based fallback (backward compat with
-          // loops from stale backends that don't emit narration).
           stepTones={loopStepTones}
         />
       )}
@@ -3612,24 +3618,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           <PlanApprovalCard
             onApprove={handleApprovePlan}
             onCancel={handleCancelPlan}
-          />
-        </div>
-      )}
-
-      {/* Iter 212m-65 — Phase D wiring: live self-heal strip + paused
-          user-action card driven by the /loop/{id}/stream SSE feed. */}
-      {/* Iter 275 — compact live-feed panel: last 4-5 real SSE events
-          from loop_engine.py phase transitions. Fallback line during
-          real silences is contextual (uses last known phase), not
-          canned. Hidden until the first event lands. */}
-      {loopId && (
-        <div className="chat-inline-card">
-          <LoopLiveFeed
-            loopId={loopId}
-            event={loopFeedEvent}
-            terminal={loopTerminal}
-            phase={loopPhase}
-            projectId={activeProject?.project_id}
           />
         </div>
       )}
