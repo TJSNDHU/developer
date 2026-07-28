@@ -628,10 +628,28 @@ _PROBES: list[tuple[str, str, Callable[[], Awaitable[dict]]]] = [
 
 async def run_all_probes() -> list[dict]:
     """Run every probe concurrently. Returns a list of result dicts in
-    the same order as _PROBES."""
+    the same order as _PROBES. Used by the on-demand admin endpoint
+    where latency matters."""
     coros = [_run(fn(), id_, name) for id_, name, fn in _PROBES]
     results = await asyncio.gather(*coros, return_exceptions=False)
     return list(results)
+
+
+async def run_all_probes_serial(gap_s: float = 1.5) -> list[dict]:
+    """Iter 336b — probes ONE at a time with a yield gap between each.
+
+    The concurrent 11-probe burst (TLS ×11 + LiteLLM tokenizer init +
+    e2b sandbox + Stripe) starved the event loop past nginx's 1 s
+    /health proxy timeout on the 500m-CPU prod pod — EVERY cron fire
+    (10 min) flapped readiness, and the post-deploy health check hit
+    that window and failed the deployment. Serializing spreads the CPU
+    over ~30 s, keeping /health <1 s throughout. The cron (600 s
+    interval) doesn't care about probe-cycle latency."""
+    results = []
+    for id_, name, fn in _PROBES:
+        results.append(await _run(fn(), id_, name))
+        await asyncio.sleep(gap_s)
+    return results
 
 
 def summary_counts(results: list[dict]) -> dict:

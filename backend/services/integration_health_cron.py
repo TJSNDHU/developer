@@ -78,8 +78,11 @@ async def _probe_and_persist_once(db) -> Optional[dict]:
     """Single probe cycle. Returns the snapshot dict on success, None
     on failure. Never raises."""
     try:
-        from services.integration_health import run_all_probes, summary_counts
-        results = await run_all_probes()
+        from services.integration_health import (
+            run_all_probes_serial, summary_counts)
+        # Iter 336b — serial probes: the concurrent burst starved the
+        # event loop past nginx's 1 s /health timeout on prod.
+        results = await run_all_probes_serial()
         snap = {
             "results":      results,
             "summary":      summary_counts(results),

@@ -890,23 +890,30 @@ async def lifespan(app: FastAPI):
                 install_errors.append(f"ruff: {_e!r}")
 
         if "eslint" in missing_before:
-            try:
-                proc = await _asyncio.wait_for(
-                    _asyncio.to_thread(
-                        subprocess.run,
-                        ["npm", "install", "-g", "--silent", "eslint@8"],
-                        capture_output=True, text=True,
-                    ),
-                    timeout=90.0,
-                )
-                if proc.returncode == 0 and shutil.which("eslint"):
-                    installed.append("eslint")
-                else:
-                    install_errors.append(
-                        f"eslint: rc={proc.returncode} stderr={proc.stderr[:200]}"
+            # Iter 336b — prod base image has no `npm` binary at all
+            # (subprocess raised FileNotFoundError every boot). Guard
+            # instead of erroring; Verify soft-skips JS lint.
+            if not shutil.which("npm"):
+                install_errors.append(
+                    "eslint: skipped — npm not present on base image")
+            else:
+                try:
+                    proc = await _asyncio.wait_for(
+                        _asyncio.to_thread(
+                            subprocess.run,
+                            ["npm", "install", "-g", "--silent", "eslint@8"],
+                            capture_output=True, text=True,
+                        ),
+                        timeout=90.0,
                     )
-            except Exception as _e:
-                install_errors.append(f"eslint: {_e!r}")
+                    if proc.returncode == 0 and shutil.which("eslint"):
+                        installed.append("eslint")
+                    else:
+                        install_errors.append(
+                            f"eslint: rc={proc.returncode} stderr={proc.stderr[:200]}"
+                        )
+                except Exception as _e:
+                    install_errors.append(f"eslint: {_e!r}")
 
         # Re-probe after install attempt so the /health flag reflects reality.
         still_missing = [b for b in ("ruff", "eslint") if not shutil.which(b)]
