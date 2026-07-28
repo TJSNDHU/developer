@@ -32,6 +32,7 @@ import CookieConsentBanner from "./components/CookieConsentBanner";
 import Landing from "./pages/Landing";
 import Both from "./pages/Both";
 import LoopLiveFeedDemo from "./pages/LoopLiveFeedDemo";
+import ShippedRowHarness from "./pages/ShippedRowHarness";
 import VisualFixtures from "./pages/VisualFixtures";
 import AdminQADashboard from "./pages/AdminQADashboard";
 import Login from "./pages/Login";
@@ -191,6 +192,7 @@ export default function App() {
           <Route path="/"                element={<Landing />} />
           <Route path="/both"            element={<Both />} />
           <Route path="/dev/loop-live-feed" element={<LoopLiveFeedDemo />} />
+          <Route path="/dev/shipped-row-harness" element={<ShippedRowHarness />} />
           {/* Iter 302 — Frontend QA Charter Layer 2 Batch 2 —
               fixture-driven state isolation for Playwright visual
               regression. See docs/visual_regression.md. */}

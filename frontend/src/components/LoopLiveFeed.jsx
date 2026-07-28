@@ -66,7 +66,7 @@ export function extractShipInfo(events) {
 const ROLLBACK_CONFIRM_MS = 10_000;
 const ROLLBACK_POLL_MS    = 1_500;
 
-function ShippedRow({ loopId, ship, onDone }) {
+export function ShippedRow({ loopId, ship, onDone }) {
   const [phase, setPhase] = useState("idle");
   // idle | confirming | queued | running | done | failed
   const [error, setError] = useState(null);
