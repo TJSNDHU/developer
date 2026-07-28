@@ -4937,3 +4937,20 @@ Evidence (pasted from real run):
   26/26 green). No new test file either.
 
 Ships to prod on next redeploy (CI/QA tooling — no prod runtime change).
+
+## Iter 338b — Section 0 wiring (founder-blocked creation) (Jun 28 2026) ⚠️
+
+Founder asked to create Section 0 (qa-bot account, sandbox repo, tokens).
+HONEST outcome: all 5 steps require GitHub write / auremcto.com email /
+prod DB / prod JWT secret — none of which the coding agent has. So the
+agent did the HALF it can:
+- Wired `_run_secret_leak_scan` to prefer `QA_BOT_SESSION_TOKEN` (Bearer,
+  no login) and fall back to QA_SCAN_EMAIL/PASSWORD login, else honest
+  INCONCLUSIVE. Both paths proven live (login + token) → PASS on real
+  /auth/me + /auth/tokens.
+- Wrote `docs/SECTION_0_QA_SANDBOX_SETUP.md` with EXACT names/config the
+  code expects (qa-bot@auremcto.com, TJSNDHU/aurem-qa-sandbox,
+  tests/qa_sandbox_marker.py baseline content, the 2 GitHub secrets).
+- 26/26 iter334 tests still green.
+FOUNDER TODO (only they can): create qa-bot acct + sandbox repo + link +
+QA_BOT_SESSION_TOKEN secret + QA_REPORT_COMMIT_TOKEN PAT. Code is ready.

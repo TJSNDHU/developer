@@ -639,3 +639,6 @@ History claimed these shipped ~Iter 114-115. Live-codebase evidence
 - `MONGO_URL` — auto-detected in backend/tests/test_iter333_correction_rules.py (verify) (default: unset) [Iter 0, 2026-07-28T18:04:46.543926Z] <!-- inv:envvar:MONGO_URL -->
 - `QA_SMOKE_URL` — auto-detected in backend/services/qa_matrix.py (verify) (default: unset) [Iter 0, 2026-07-28T18:20:46.641614Z] <!-- inv:envvar:QA_SMOKE_URL -->
 - `QA_UI_BASE_URL` — auto-detected in backend/services/qa_matrix.py (verify) (default: unset) [Iter 0, 2026-07-28T18:20:46.641642Z] <!-- inv:envvar:QA_UI_BASE_URL -->
+- `QA_API_BASE` — auto-detected in backend/services/qa_matrix.py (verify) (default: unset) [Iter 0, 2026-07-28T21:25:14.787237Z] <!-- inv:envvar:QA_API_BASE -->
+- `QA_SCAN_EMAIL` — auto-detected in backend/services/qa_matrix.py (verify) (default: unset) [Iter 0, 2026-07-28T21:25:14.787271Z] <!-- inv:envvar:QA_SCAN_EMAIL -->
+- `QA_SCAN_PASSWORD` — auto-detected in backend/services/qa_matrix.py (verify) (default: unset) [Iter 0, 2026-07-28T21:25:14.787292Z] <!-- inv:envvar:QA_SCAN_PASSWORD -->

@@ -619,27 +619,41 @@ async def _run_smoke_baseline() -> list:
 
 
 async def _run_secret_leak_scan() -> list:
-    """Iter 338 — log into the REAL running backend and scan the JSON
-    responses of credential-bearing endpoints for sensitive keys via
-    verify_pass_is_real (which self-logs a regression on any leak).
-    Born from the iter337 /auth/me incident. Uses the preview test
-    account (env-overridable) so it never touches founder data."""
+    """Iter 338 — scan credential-bearing endpoints' JSON responses for
+    sensitive keys via verify_pass_is_real (self-logs a regression on
+    any leak). Born from the iter337 /auth/me incident.
+
+    Auth resolution (Section 0 ready, Iter 338b):
+      1. If QA_BOT_SESSION_TOKEN is set → use it directly as the Bearer
+         (prod-CI path: the dedicated qa-bot session, no password in CI).
+      2. Else log in with QA_SCAN_EMAIL / QA_SCAN_PASSWORD (defaults to
+         the seeded preview admin `test@aurem.dev` — a SEPARATE synthetic
+         account, user_id test_admin_001, never the human founder's).
+    Never touches the founder's real account/session either way."""
     import httpx as _hx
     base = os.environ.get("QA_API_BASE",
                           "http://localhost:8001/api/aurem-dev")
+    bot_token = os.environ.get("QA_BOT_SESSION_TOKEN", "").strip()
     email = os.environ.get("QA_SCAN_EMAIL", "test@aurem.dev")
     pw = os.environ.get("QA_SCAN_PASSWORD", "AuremTest2026!")
     rows = []
     try:
         async with _hx.AsyncClient(timeout=25.0) as c:
-            login = await c.post(f"{base}/auth/login",
-                                 json={"email": email, "password": pw})
-            if login.status_code != 200 or not login.json().get("token"):
-                return [{"variant": "login", "result": "INCONCLUSIVE",
-                          "detail": f"scan account login failed "
-                                    f"({login.status_code}) — cannot scan "
-                                    f"authed endpoints"}]
-            tok = login.json()["token"]
+            if bot_token:
+                tok = bot_token
+                auth_via = "QA_BOT_SESSION_TOKEN"
+            else:
+                login = await c.post(f"{base}/auth/login",
+                                     json={"email": email, "password": pw})
+                if login.status_code != 200 or not login.json().get("token"):
+                    return [{"variant": "login", "result": "INCONCLUSIVE",
+                              "detail": f"no QA_BOT_SESSION_TOKEN and scan "
+                                        f"account login failed "
+                                        f"({login.status_code}) — set "
+                                        f"QA_BOT_SESSION_TOKEN (Section 0) "
+                                        f"for reliable prod-CI scans"}]
+                tok = login.json()["token"]
+                auth_via = f"login:{email}"
             hdr = {"Authorization": f"Bearer {tok}"}
             # Endpoints that historically carried or could carry stored
             # credentials in their response body.
@@ -660,15 +674,16 @@ async def _run_secret_leak_scan() -> list:
                 rows.append({
                     "variant": path,
                     "result":  "PASS" if v["checks"].get("no_secret_leak") else "FAIL",
-                    "detail":  ("no sensitive keys in response ✓"
+                    "detail":  ((f"[{auth_via}] no sensitive keys in response ✓")
                                 if not leaked
-                                else f"LEAKED: {sorted(set(p.split('.')[-1] for p in leaked))} "
+                                else f"[{auth_via}] LEAKED: {sorted(set(p.split('.')[-1] for p in leaked))} "
                                      f"→ regression auto-logged"),
                 })
     except Exception as e:                                  # noqa: BLE001
         return [{"variant": "scan", "result": "INCONCLUSIVE",
                   "detail": f"backend unreachable: {e!r}"[:200]}]
     return rows
+
 
 
 
