@@ -4830,3 +4830,31 @@ integration_health probe burst 30 → 150 s. All consumers of
 Locks: `tests/test_iter336_boot_stagger.py` (5 tests pin the delays +
 /health handler triviality). Verified: /health responds 3-48 ms
 immediately post-boot; 59/59 iter332-335b regression green.
+
+---
+
+## Iter 336b — Serial probes + npm guard (Jun 28 2026) ✅
+
+New prod deploy logs (19:34) PROVED the iter336 stagger deployed and
+worked as designed (linter probe at t≈124 s ✓, first cron at t≈150 s
+✓) — BUT /health flapped EXACTLY during the cron's concurrent
+11-probe burst. Under the 500m CPU cap the burst (TLS ×11 + LiteLLM
+tokenizer init + e2b + Stripe) starves the loop past nginx's 1 s
+timeout — every 600 s cron fire, not just boot.
+
+Fixes:
+1. `integration_health.run_all_probes_serial(gap_s=1.5)` — probes one
+   at a time with yield gaps; cron switched to it (concurrent variant
+   kept for the on-demand admin endpoint).
+2. `main.py` — eslint install now guards `shutil.which("npm")`: prod
+   base image has NO npm, subprocess raised FileNotFoundError every
+   boot; now a clean skip note.
+
+Tests: test_iter336b_serial_probes.py (4: overlap=1 assertion via
+fake probes, cron source lock, npm guard) + iter336 locks → 9/9
+green. /health 3-49 ms post-restart. deployment_agent re-scan: PASS
+(no blockers, compilation ok).
+
+Stripe "No such price" lines in these logs = integration_health
+probing the STALE prod env IDs (expected until founder rotates env;
+checkout itself self-heals per iter335b).
