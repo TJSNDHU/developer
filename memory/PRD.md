@@ -16,6 +16,19 @@ Language: **Hinglish** — main agent responds in Hinglish.
 
 ## What's implemented (chronological, most recent first)
 
+### Iter 331-C · PROD /health starvation + Stripe 404 diagnosis (2026-07-28)
+- **Fixed — event-loop starvation**: `_probe_stripe` (8 sequential sync Stripe HTTP calls) and
+  `_probe_e2b` (sync 15s sandbox boot, `e2b.api.client_sync`) ran directly on the event loop →
+  nginx `GET /health` upstream timeouts (110) + "No response returned" in PROD logs, timestamps
+  matching the probe windows exactly. Both probes now offload via `asyncio.to_thread`.
+  Proof: heartbeat harness — ZERO loop stalls >200ms during real probes (stripe ok 1.3s, e2b ok 0.6s).
+  Lock: `test_iter331_health_probe_offload.py` (3 tests).
+- **Diagnosed — PROD-env-only**: 3 monthly Stripe price IDs in prod env
+  (`price_1TfXGf/TfXHp/TfXE1…2XYZ7cJIy2…`) belong to an OLD Stripe account → 404 → cron "1 broken"
+  + monthly checkout at risk. FOUNDER ACTION: update prod env vars STRIPE_STARTER_PRICE_ID,
+  STRIPE_PRO_PRICE_ID, STRIPE_TEAM_PRICE_ID with live-mode recurring price IDs from the CURRENT
+  account (annual 3 already correct, `0Exg9gU93t` prefix).
+
 ### Iter 331-B · Items 4-7 closure (2026-07-28, post-deploy)
 - **P0 FOUND & FIXED — `tool_executor.py` restored**: an earlier session deleted it as "approved
   dead code" but it's lazy-imported inside `invoke_local_tool` — EVERY chat tool-call crashed at

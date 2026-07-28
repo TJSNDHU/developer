@@ -120,7 +120,13 @@ async def _probe_stripe() -> dict:
         return _result("stripe", "Stripe", "missing",
                        summary="STRIPE_SECRET_KEY not configured",
                        fix_hint="Add real sk_live_… key from dashboard.stripe.com/apikeys to .env")
-    try:
+    # Iter 331 — the Stripe SDK is fully synchronous. Running these 8
+    # sequential HTTP calls (Account.retrieve + Price.list + 6×
+    # Price.retrieve) directly on the event loop froze the whole app
+    # for seconds — PROD logs showed nginx `/health` upstream timeouts
+    # (110) exactly during this probe. All sync work now runs in a
+    # worker thread via asyncio.to_thread.
+    def _sync_probe() -> dict:
         import stripe
         stripe.api_key = key
         acct = stripe.Account.retrieve()
@@ -191,6 +197,9 @@ async def _probe_stripe() -> dict:
                        summary=summary,
                        detail=f"acct={acct.id} • charges enabled • {len(prices.data)} active prices • "
                               f"all 6 configured price IDs verified recurring")
+
+    try:
+        return await asyncio.to_thread(_sync_probe)
     except Exception as e:
         return _result("stripe", "Stripe", "broken",
                        summary="Stripe API rejected the key",
@@ -386,19 +395,34 @@ async def _probe_e2b() -> dict:
         return _result("e2b", "E2B Sandbox", "broken",
                        summary="e2b-code-interpreter SDK not installed",
                        fix_hint="pip install e2b-code-interpreter")
-    sbx = None
+    # Iter 331 — the e2b SDK is synchronous (`e2b.api.client_sync` in
+    # prod logs): a sandbox boot + run + kill (up to 15s+) directly on
+    # the event loop blocked `/health` (prod nginx 110 timeouts at
+    # 05:55:11→12 exactly during Sandbox.create). Sync work now runs
+    # in a worker thread via asyncio.to_thread.
+    def _sync_probe() -> dict:
+        sbx = None
+        try:
+            sbx = Sandbox.create(api_key=key, timeout=15)
+            ex = sbx.run_code("print(2+2)")
+            logs = getattr(ex, "logs", None)
+            out = ("".join(getattr(logs, "stdout", None) or [])).strip()
+            if "4" not in out:
+                return _result("e2b", "E2B Sandbox", "warn",
+                               summary="Sandbox ran but output unexpected",
+                               detail=f"stdout={out!r}")
+            return _result("e2b", "E2B Sandbox", "ok",
+                           summary=f"Live • sandbox {sbx.sandbox_id} executed Python",
+                           detail="Real code execution operational")
+        finally:
+            if sbx is not None:
+                try:
+                    sbx.kill()
+                except Exception:
+                    pass
+
     try:
-        sbx = Sandbox.create(api_key=key, timeout=15)
-        ex = sbx.run_code("print(2+2)")
-        logs = getattr(ex, "logs", None)
-        out = ("".join(getattr(logs, "stdout", None) or [])).strip()
-        if "4" not in out:
-            return _result("e2b", "E2B Sandbox", "warn",
-                           summary="Sandbox ran but output unexpected",
-                           detail=f"stdout={out!r}")
-        return _result("e2b", "E2B Sandbox", "ok",
-                       summary=f"Live • sandbox {sbx.sandbox_id} executed Python",
-                       detail="Real code execution operational")
+        return await asyncio.to_thread(_sync_probe)
     except Exception as e:
         msg = str(e)
         if "401" in msg or "Invalid" in msg.lower() or "auth" in msg.lower():
@@ -414,12 +438,6 @@ async def _probe_e2b() -> dict:
         return _result("e2b", "E2B Sandbox", "broken",
                        summary=f"Sandbox error: {type(e).__name__}",
                        detail=msg[:300])
-    finally:
-        if sbx is not None:
-            try:
-                sbx.kill()
-            except Exception:
-                pass
 
 
 async def _probe_sentry() -> dict:
