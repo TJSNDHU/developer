@@ -71,13 +71,15 @@ def test_loop_ship_has_attempt_and_result_logs():
     assert "SHIP RESULT" in src
 
 
-def test_chat_history_returns_last_100_not_20():
+def test_chat_history_returns_last_200_not_100_or_20():
     src = _read_be("routers/chat.py")
-    # The actual line is `turns = ((doc or {}).get("turns") or [])[-100:]`
-    # so we assert the slice token directly, not "turns[-100:]".
-    assert "[-100:]" in src
-    # The old slice must be gone so a future merge can't silently
+    # Iter 330 chat-vanish fix bumped the read slice 100 → 200. The
+    # actual line is `turns = ((doc or {}).get("turns") or [])[-200:]`
+    # so we assert the slice token directly.
+    assert "[-200:]" in src
+    # Older slices must be gone so a future merge can't silently
     # regress the limit.
+    assert "[-100:]" not in src
     assert "[-20:]" not in src
 
 

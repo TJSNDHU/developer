@@ -987,6 +987,15 @@ class LoopEngine:
                          message=f"Executing — {total} file(s) planned…",
                          data={"total_files": total})
 
+        # Iter 331 · Bug 1 fix — the engine never emitted a step="plan"
+        # narration, so LoopStepBar's stepTones.plan stayed unset and
+        # raw-phase hydration paths rendered PLAN gray during EXECUTE.
+        # Emitted HERE (after state=EXECUTING) — emitting inside
+        # confirm() would carry state=awaiting_confirmation and flip
+        # ChatPanel back to plan_pending (PlanApprovalCard regression).
+        await self._narrate("plan", "success",
+                            "Plan approved — execution started.")
+
         if not files:
             logger.warning("[loop %s] EXECUTE — plan has no files_to_change, failing",
                            self.loop_id)

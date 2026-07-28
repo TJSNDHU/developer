@@ -2755,8 +2755,10 @@ async def chat_stream(
                     project_id=body.project_id,
                     session_id=body.session_id,
                 ))
-        except Exception:
-            pass
+        except Exception as e:
+            # Iter 331 — fail-open stays, but silently no more.
+            logger.warning(
+                "ORA shadow-learning (session patterns) skipped — fail-open: %r", e)
 
         # ORA council log (Mode A/B only) + project brain update.
         # Fire-and-forget; never blocks user reply.
@@ -2790,8 +2792,10 @@ async def chat_stream(
                             ora_reply=content or "",
                             mode=council_mode,
                         ))
-            except Exception:
-                pass
+            except Exception as e:
+                # Iter 331 — fail-open stays, but silently no more.
+                logger.warning(
+                    "ORA shadow-learning (council log / brain update) skipped — fail-open: %r", e)
 
         if body.session_id:
             asyncio.create_task(

@@ -1,6 +1,6 @@
 # AUREM CTO — Product Requirements Document (living)
 
-**Last updated**: 2026-07-27 (Iter 329 · Task 2 Deploy A-Recovery)
+**Last updated**: 2026-07-28 (Iter 331 · Systematic Closure)
 **Live**: https://auremcto.com
 
 ## Original problem statement
@@ -15,6 +15,43 @@ Loop engine stuck bugs (Phase 0), then build the next 4 competitive differentiat
 Language: **Hinglish** — main agent responds in Hinglish.
 
 ## What's implemented (chronological, most recent first)
+
+### Iter 331 · Systematic Closure (2026-07-28) — tech-debt zeroing before Phase 1
+- **Section A** — 2 red vitest fixed: `LoopLiveFeed.iter329_task2_shipped_row.test.jsx` rewritten
+  for Iter 330 phases (`submitting`/`handed-off`, poll phases removed). Added hand-off assertion:
+  `streamLoopEvents` called with the loopId after POST resolves. **202/202 vitest green.**
+- **Section B** — `OperationHistory.test.jsx` created: 7 regression tests (history hydration,
+  Guard A parent churn → exactly ONE stream, Guard B/C post-terminal no-reopen, live rollback →
+  terminal collapse + abort, (loop_id, op_type) dedupe, fetch fail-open, stream onError non-fatal).
+- **Section C1** — ORA shadow-learning fail-open logging: both bare `except: pass` blocks in
+  `chat.py` (session patterns + council log/brain update) now `logger.warning` with the exception.
+- **Section C2 — DELETE LIST REJECTED WITH EVIDENCE** (founder decision needed):
+  - `tools_bridge.py` → **NOT dead**: `services/orchestrator.py:20` imports it; orchestrator is
+    live in 8 routers (chat.py:22, loop.py, admin.py…). Delete = backend crash.
+  - `VisualFixtures.jsx` (/dev/visual) → **NOT dead**: Playwright Layer 2 fixture page used by
+    `state_fixtures.spec.js` (7 fixtures) + `interaction_latency.spec.js`.
+  - `LoopLiveFeedDemo.jsx` (/dev/loop-live-feed) → **NOT dead**: used by `a11y_journeys.spec.js`
+    + `public_routes.spec.js`.
+- **Section D1 · Bug 1 FIXED (PLAN gray during EXECUTE)** — root cause chain proven by repro:
+  ChatPanel timeout-recovery (`setLoopPhase(active.phase…)` ~line 2478) and ship-gate hydration
+  (`setLoopPhase("ship")` line 591) leak RAW engine phases (`plan/execute/verify/scan/ship/
+  self_heal`) which did not exist in `PHASE_TO_STEP` → `active=0` → PLAN rendered gray "future".
+  Fix (a): raw-phase aliases added to `PHASE_TO_STEP` (LoopStepBar.jsx). Fix (b): engine now emits
+  `_narrate("plan","success")` at EXECUTE start (`loop_engine.py _do_execute`) — placed AFTER
+  `state=EXECUTING` because emitting in `confirm()` would carry `awaiting_confirmation` and
+  re-trigger PlanApprovalCard. Locks: 8 vitest (`LoopStepBar.iter331_raw_phase_alias.test.jsx`)
+  + 3 pytest (`test_iter331_plan_narration.py`).
+- **Section D2 · Bug 2 NO CODE BUG (ECG pulse-wave)** — live browser probe on preview
+  `/dev/visual?state=step-executing`: `animationName=ecg-scroll, playState=running`, transform
+  samples −43.7 → −5.3 → −24.5 over 700ms (**moving=True**), waveform visible in screenshot.
+  Production symptom = stale bundle or Bug 1's phase-mapping class (no step ever "active").
+  Regression lock added; founder re-verifies on prod after next deploy.
+- **Stale test repairs (pre-existing reds, evidence-verified via git)**:
+  `test_chat_history_returns_last_100_not_20` → asserts `[-200:]` (Iter 330 chat-vanish fix);
+  `test_step_bar_forces_ship_success_on_terminal_completed_phase` → Option C regex for the
+  Iter 329 nested Rule 0-a form.
+- **Backend suite regression proof**: failing-file subset run on pre-change vs post-change code —
+  set-diff shows ZERO new failures from Iter 331 (245-246 failures are old iter36-212 era debt).
 
 ### Iter 329 · Task 2 Deploy A-Recovery (2026-07-27) — Rollback UI hardening
 - **Fix A** — Dropped redundant `terminal` gate on `ShippedRow` render (`LoopLiveFeed.jsx`). Server-side invariant (`loop_engine.py:2823-2944`) proves `commit_sha` is never optimistically set; `shipInfo` alone is a sufficient terminal signal. Eliminates Bug X unmount race that destroyed phase state between clicks.
@@ -46,16 +83,22 @@ Language: **Hinglish** — main agent responds in Hinglish.
 
 ## Prioritized backlog (top of queue → bottom)
 
-**P0 — immediately after founder verifies Deploy A-Recovery:**
-- **Bug 1** — PLAN step never turns green during EXECUTE. Root cause: backend never emits `step="plan"` narration (confirmed via enum-scan). Fix: either emit plan-success narration on approval, or extend frontend legacy fallback for PLAN specifically.
-- **Bug 2 / #6** — Iter 309 ECG pulse-wave animation not visible on production. Founder confirmed via SVG scan. Verify deploy status; if not shipped, deploy standalone.
+**P0 — awaiting founder:**
+- **Iter 330+331 prod smoke test** (founder, 2 cycles): real ship → OperationHistory → rollback →
+  SSE progress → collapsed row. Also re-check Bug 1 (PLAN green during EXECUTE) + Bug 2 (ECG wave)
+  on prod AFTER deploying Iter 331.
+- **#14 dead-code delete list** — REJECTED with evidence (see Iter 331 above). Founder must supply
+  a corrected list; all 3 named files are live dependencies.
 
-**P1 — after Bugs 1+2:**
-- **Deploy B** — Chat-history B3 (`chat.py` `$slice: -200`) + B1-race (`Shell.jsx` mint deferral with 3s fallback). Zero file overlap with Deploy A-Recovery.
-- **#3 · ORA learning resurrection** (a→e): fail-open logging → callsite reattach → real Mongo before/after proof → canary/eval flags ON (shadow) → learning-health tile on `/admin/architecture`.
+**P1 — next in queue:**
+- **Deploy B** — Chat-history B1-race (`Shell.jsx` mint deferral with 3s fallback). (B3 `$slice: -200` already shipped.)
+- **#3 · ORA learning resurrection** (b→e): callsite reattach → real Mongo before/after proof → canary/eval flags ON (shadow) → learning-health tile on `/admin/architecture`. (Step (a) fail-open logging DONE in Iter 331.)
 - **Task 1 · ORA Canary + Admin Health Tile** — `ORA_CANARY_ENABLED` + `ENABLE_EVAL_CRON`, tile reads `project_brains.max(updated_at)`, RED if >24h stale.
-- **#14 · dead-code delete list execution** — tool_executor.py (already gone), tools_bridge.py (still on disk), DevVisual/DevLoopLiveFeed (never existed under those names — need founder to confirm the correct filenames).
 - **#17 · Large-plan E2E** — real live loop with 21+ files through PLAN→EXECUTE→SCAN→integrity guard→ship gate.
+- **Backend suite debt** — ~245 pre-existing failures (iter36-212 era source-assertion/env tests) +
+  2 import-dead files (`test_iter138_acceptance_seven.py`, `test_iter209_citation_guard_and_tool_executor.py`
+  import deleted `services.tool_executor`) + `test_iter212m163_aggression_chat.py` needs env at import.
+  Founder call: repair wave vs prune list.
 
 **P2 (batch when free):**
 - #12 Tier 3 discrepancy (Loop Readiness Score, pattern templates, branch-per-fix, trust levels)

@@ -119,6 +119,12 @@ def test_step_bar_forces_ship_success_on_terminal_completed_phase():
         # Option B: any comparable guard that forces terminal→success
         # for step 5 regardless of narration tone.
         or "terminalSuccess" in _STEPBAR_SRC
+        # Option C (Iter 329 A-Recovery form): Rule 0-a nests the same
+        # guard — `if (isDone) { … if (step.id === 5) return "success" }`.
+        or re.search(
+            r"if\s*\(isDone\)\s*\{[\s\S]{0,300}?step\.id\s*===\s*5[\s\S]{0,80}?\"success\"",
+            _STEPBAR_SRC,
+        )
     ), (
         "Iter 323 Bug A frontend: LoopStepBar.ecgVariant must force "
         "step 5 to 'success' when the phase is terminal (completed/"

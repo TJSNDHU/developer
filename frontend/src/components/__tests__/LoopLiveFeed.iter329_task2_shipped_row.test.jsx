@@ -9,8 +9,9 @@
  *      files from the terminal state=completed · phase=ship event.
  *   2. ShippedRow renders "Shipped {sha7} · View on GitHub · Rollback"
  *      when terminal=true and the event stream contains a ship event.
- *   3. Rollback flow: idle → confirming (2-click safety) → queued →
- *      running (poll) → done (renders revert sha + link).
+ *   3. Rollback flow (Iter 330 Path P1): idle → confirming (2-click
+ *      safety) → submitting (POST in flight) → handed-off (SSE
+ *      progress owned by OperationHistory; poll phases removed).
  *   4. Rollback error surface.
  *   5. Non-terminal / no-ship-event states DO NOT render the row.
  */
@@ -21,6 +22,9 @@ import { render, screen, act, waitFor } from "@testing-library/react";
 vi.mock("../../lib/loopApi", () => ({
   rollbackLoop:  vi.fn(),
   getLoopStatus: vi.fn(),
+  // Iter 331 — OperationHistory (mounted when projectId is passed)
+  // opens its own SSE subscription via streamLoopEvents on hand-off.
+  streamLoopEvents: vi.fn(() => ({ abort: vi.fn() })),
 }));
 
 import LoopLiveFeed, { extractShipInfo } from "../LoopLiveFeed.jsx";
@@ -167,21 +171,20 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
       .toHaveTextContent(/Rollback/i);
   });
 
-  it("Rollback flow: idle → confirming → queued → running → done", async () => {
-    loopApi.rollbackLoop.mockResolvedValue({
-      ok: true, loop_id: "loop_task2_d",
-      rollback_status: "queued", commit_sha: "5d939a4abcd",
-    });
-    loopApi.getLoopStatus.mockResolvedValueOnce({
-      rollback_status: "running",
-    }).mockResolvedValueOnce({
-      rollback_status: "done",
-      rollback_sha: "ea3ebcf987654",
-      rollback_html_url: "https://github.com/tj/repo/commit/ea3ebcf987654",
-    });
+  it("Rollback flow: idle → confirming → submitting → handed-off (Iter 330 SSE hand-off)", async () => {
+    // Iter 331 — rewritten for the Iter 330 Path P1 state machine.
+    // Old poll-based phases (queued/running/done via getLoopStatus)
+    // were removed: ShippedRow POSTs /rollback, holds "submitting"
+    // while in flight, then terminal "handed-off" on success and
+    // lifts the loopId into OperationHistory (which owns SSE progress).
+    let resolvePost;
+    loopApi.rollbackLoop.mockImplementation(
+      () => new Promise((res) => { resolvePost = res; }),
+    );
 
     feedMount({
       loopId: "loop_task2_d",
+      projectId: "proj_task2_d",  // mounts OperationHistory for the hand-off assert
       event: shipEvent({ commit_sha: "5d939a4abcd" }),
       terminal: true,
     });
@@ -193,22 +196,33 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
       .getAttribute("data-rollback-phase")).toBe("confirming");
     expect(btn).toHaveTextContent(/Confirm rollback/i);
 
-    // Second click → kicks the actual rollback
+    // Second click → POST fires; while in flight phase = submitting.
     await act(async () => { btn.click(); });
     expect(loopApi.rollbackLoop).toHaveBeenCalledWith("loop_task2_d");
-    // After the POST resolves, phase becomes running.
-    await waitFor(() => {
-      expect(screen.getByTestId("loop-shipped-row-5d939a4")
-        .getAttribute("data-rollback-phase")).toBe("running");
+    expect(screen.getByTestId("loop-shipped-row-5d939a4")
+      .getAttribute("data-rollback-phase")).toBe("submitting");
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent(/Rolling back/);
+
+    // POST resolves → terminal "handed-off"; button stays disabled
+    // and points the user at OperationHistory.
+    await act(async () => {
+      resolvePost({ ok: true, loop_id: "loop_task2_d", rollback_status: "queued" });
     });
-    // Poll cycle 1 → still running. Poll cycle 2 → done.
     await waitFor(() => {
       expect(screen.getByTestId("loop-shipped-row-5d939a4")
-        .getAttribute("data-rollback-phase")).toBe("done");
-    }, { timeout: 5000 });
-    // Reverted link renders with the revert sha.
-    expect(screen.getByTestId("loop-shipped-rolled-back-link"))
-      .toHaveTextContent(/ea3ebcf/);
+        .getAttribute("data-rollback-phase")).toBe("handed-off");
+    });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent(/see history/i);
+
+    // Hand-off proof — LoopLiveFeed lifted the loopId into
+    // OperationHistory, which opened its own /stream subscription.
+    await waitFor(() => {
+      expect(loopApi.streamLoopEvents).toHaveBeenCalledWith(
+        "loop_task2_d", expect.any(Object),
+      );
+    });
   });
 
   it("Rollback POST rejects → phase=failed + error text surfaces", async () => {
@@ -292,11 +306,13 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
     expect(loopApi.rollbackLoop).toHaveBeenCalledTimes(1);
     expect(loopApi.rollbackLoop).toHaveBeenCalledWith("loop_realtimer_test");
 
-    // Phase must have advanced past confirming.
+    // Phase must have advanced past confirming. Iter 331 — the
+    // Iter 330 refactor collapsed the poll-derived queued/running/done
+    // phases into submitting (POST in flight) → handed-off (terminal).
     await waitFor(() => {
       const currentPhase = screen.getByTestId("loop-shipped-row-origina")
         .getAttribute("data-rollback-phase");
-      expect(["queued", "running", "done"]).toContain(currentPhase);
+      expect(["submitting", "handed-off"]).toContain(currentPhase);
     }, { timeout: 3000 });
   });
 

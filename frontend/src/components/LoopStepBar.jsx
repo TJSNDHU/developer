@@ -53,6 +53,14 @@ const PHASE_TO_STEP = {
   security: 4, scanning: 4,
   shipping: 5, done: 5, completed: 5, shipped: 5,
   error: 0, failed: 0, aborted: 0, expired: 0,
+  // Iter 331 · Bug 1 fix — raw ENGINE phase aliases. ChatPanel's
+  // timeout-recovery path (setLoopPhase(active.phase…)) and the
+  // ship-gate hydration branch (setLoopPhase("ship")) leak the DB's
+  // raw engine phases ("plan"/"execute"/"verify"/"scan"/"ship"/
+  // "self_heal") — none of which existed in this map, so `active`
+  // fell to 0 and PLAN rendered gray "future" during a live EXECUTE
+  // (founder-reported Bug 1).
+  plan: 1, execute: 2, self_heal: 2, verify: 3, scan: 4, ship: 5,
 };
 
 // Colours
