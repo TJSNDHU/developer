@@ -445,3 +445,67 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"api_key\":\"$API_KEY\",\"commit\":\"${{ github.sha }}\",\"status\":\"success\",\"repo\":\"${{ github.repository }}\"}" \
             || echo "notify done"
+
+  # ────────────────────────────────────────────────────────────────
+  # Iter 331 — DELETE GATE (see docs/DELETE_GATE.md)
+  # tool_executor.py was deleted 3× as "dead code" while lazy-imported,
+  # crashing every prod chat tool-call. This job blocks undocumented
+  # file deletions:
+  #   • PR: description MUST contain the check-safe-to-delete.sh
+  #     output block ("Script output:").
+  #   • Push (Emergent auto-push has no PR): the same push MUST update
+  #     docs/DELETE_GATE.md's verdict record.
+  # ────────────────────────────────────────────────────────────────
+  delete-gate:
+    name: Delete Gate — dependency-check enforcement
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block undocumented file deletions
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --depth=50 || true
+            RANGE="origin/$BASE_REF...HEAD"
+          else
+            if [ -z "$BEFORE" ] || echo "$BEFORE" | grep -q '^0*$'; then
+              RANGE="HEAD~1..HEAD"
+            else
+              RANGE="$BEFORE..$SHA"
+            fi
+          fi
+          DELETED=$(git diff --diff-filter=D --name-only $RANGE 2>/dev/null \
+            | grep -Ev '^(_deprecated/)' \
+            | grep -Ev '\.(png|jpg|jpeg|svg|log|lock|snap)$' || true)
+          if [ -z "$DELETED" ]; then
+            echo "No source deletions in $RANGE — gate not applicable."
+            exit 0
+          fi
+          echo "⚠️ Deleted files detected in $RANGE:"
+          echo "$DELETED"
+          if [ "$EVENT" = "pull_request" ]; then
+            if printf '%s' "$PR_BODY" | grep -q "Script output:"; then
+              echo "✅ PR carries the mandatory check-safe-to-delete.sh output block."
+              exit 0
+            fi
+            echo "::error::File deletion without ./scripts/check-safe-to-delete.sh output in the PR description. See docs/DELETE_GATE.md."
+            exit 1
+          else
+            if git diff --name-only $RANGE | grep -q "docs/DELETE_GATE.md"; then
+              echo "✅ docs/DELETE_GATE.md verdict record updated in the same push."
+              exit 0
+            fi
+            echo "::error::Push deletes files without updating docs/DELETE_GATE.md verdict record. Run ./scripts/check-safe-to-delete.sh and record the verdict. See docs/DELETE_GATE.md."
+            exit 1
+          fi

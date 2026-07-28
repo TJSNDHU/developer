@@ -16,6 +16,19 @@ Language: **Hinglish** — main agent responds in Hinglish.
 
 ## What's implemented (chronological, most recent first)
 
+### Iter 331-D · DELETE GATE (2026-07-28) — 3-layer file-deletion safety
+- **Layer 1**: `scripts/check-safe-to-delete.sh` — catches lazy/dynamic imports + string-keyed
+  routing refs (the exact class missed 3× with tool_executor.py). Verified: all 4 previously
+  "approved" files flag ❌ (tools_bridge 15 refs, tool_executor 7, VisualFixtures 3,
+  LoopLiveFeedDemo 2); a genuinely dead file flags ✅.
+- **Layer 2**: mandatory approval template in `docs/DELETE_GATE.md` — no script output pasted →
+  delete auto-rejected.
+- **Layer 3**: quarantine-first policy (DeprecationWarning or `_deprecated/` move, 1-2 week prod
+  log watch) before hard delete.
+- **CI**: `delete-gate` job in ci.yml — PR deletions need "Script output:" block in description;
+  pushes (Emergent auto-push) need docs/DELETE_GATE.md updated in the same push. YAML validated.
+- Locks: `test_iter331_delete_gate.py` (3 tests).
+
 ### Iter 331-C · PROD /health starvation + Stripe 404 diagnosis (2026-07-28)
 - **Fixed — event-loop starvation**: `_probe_stripe` (8 sequential sync Stripe HTTP calls) and
   `_probe_e2b` (sync 15s sandbox boot, `e2b.api.client_sync`) ran directly on the event loop →
