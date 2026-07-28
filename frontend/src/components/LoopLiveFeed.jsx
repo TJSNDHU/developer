@@ -64,16 +64,24 @@ export function extractShipInfo(events) {
 //       distinct data-testid suffix so DOM inspection can prove
 //       the confirming state visually landed.
 const ROLLBACK_CONFIRM_MS = 10_000;
-const ROLLBACK_POLL_MS    = 1_500;
 
-export function ShippedRow({ loopId, ship, onDone }) {
+export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
   const [phase, setPhase] = useState("idle");
-  // idle | confirming | queued | running | done | failed
+  // idle | confirming | submitting | handed-off | failed
+  //
+  // Iter 330 · Path P1 · state-machine rewrite:
+  //   • Removed poll-based rollbackSha/rollbackHtmlUrl tracking —
+  //     OperationHistory now owns rollback progress via SSE. On the
+  //     confirm click we fire POST /rollback then call
+  //     onRollbackStarted(loopId) so the parent lifts activeLoopId
+  //     into OperationHistory, which opens the /stream subscription.
+  //   • "queued"/"running"/"done" phases (poll-derived) collapsed
+  //     into a single terminal "handed-off" phase — the UI intent
+  //     is just "button disabled; look at OperationHistory above".
+  //   • Iter 329 · Fix C's phaseRef + 10s confirm window + diagnostic
+  //     events retained verbatim (proven correct via preview harness).
   const [error, setError] = useState(null);
-  const [rollbackSha, setRollbackSha] = useState(null);
-  const [rollbackHtmlUrl, setRollbackHtmlUrl] = useState(null);
   const confirmTimerRef = useRef(null);
-  const pollTimerRef    = useRef(null);
 
   // Iter 329 · Fix C — phaseRef mirrors phase state so the click
   // callback always reads the latest value, immune to stale-closure
@@ -81,49 +89,20 @@ export function ShippedRow({ loopId, ship, onDone }) {
   const phaseRef = useRef("idle");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+  // Iter 330 · Test B guard — in-flight POST ref. Prevents rapid
+  // double-clicks in the "confirming" state from firing multiple
+  // POST /rollback requests OR triggering onRollbackStarted twice.
+  // Ref-based (not state) so the guard is sync-readable in the same
+  // tick as the click, before React commits any state change.
+  const inFlightRef = useRef(false);
+
   const clearConfirmTimer = useCallback(() => {
     if (confirmTimerRef.current) {
       clearTimeout(confirmTimerRef.current);
       confirmTimerRef.current = null;
     }
   }, []);
-  const clearPollTimer = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-  }, []);
-  useEffect(() => () => {
-    clearConfirmTimer();
-    clearPollTimer();
-  }, [clearConfirmTimer, clearPollTimer]);
-
-  const pollRollback = useCallback(async () => {
-    try {
-      const r = await getLoopStatus(loopId);
-      const s = String(r?.rollback_status || "").toLowerCase();
-      if (s === "done") {
-        setPhase("done");
-        setRollbackSha(r?.rollback_sha || null);
-        setRollbackHtmlUrl(r?.rollback_html_url || null);
-        clearPollTimer();
-        if (typeof onDone === "function") onDone(r);
-        return;
-      }
-      if (s === "failed") {
-        setPhase("failed");
-        setError(r?.rollback_error || "Rollback failed");
-        clearPollTimer();
-        return;
-      }
-      // queued / running — keep polling
-      pollTimerRef.current = setTimeout(pollRollback, ROLLBACK_POLL_MS);
-    } catch (e) {
-      setPhase("failed");
-      setError(e?.response?.data?.detail || e?.message || "Poll failed");
-      clearPollTimer();
-    }
-  }, [loopId, clearPollTimer, onDone]);
+  useEffect(() => () => { clearConfirmTimer(); }, [clearConfirmTimer]);
 
   // Iter 329 · Fix C · diagnostic pass — production repro instrumentation
   // (no functional change). Emits two window events the founder can
@@ -148,9 +127,12 @@ export function ShippedRow({ loopId, ship, onDone }) {
     } catch { /* noop */ }
   });
 
-  // Iter 329 · Fix C — callback reads phaseRef, NOT closure. Deps
-  // no longer include `phase`; the ref keeps us fresh across
-  // renders. This eliminates the Bug Y stale-closure class.
+  // Iter 329 · Fix C + Iter 330 · Path P1 — callback reads phaseRef +
+  // inFlightRef, NOT closure `phase`. Deps intentionally omit `phase`
+  // so we don't recreate on every phase transition (which would
+  // reintroduce the stale-closure class of bug). The inFlightRef
+  // guard blocks rapid double-clicks from firing the POST twice
+  // (Test B).
   const onRollbackClick = useCallback(async () => {
     const current = phaseRef.current;
     try {
@@ -162,48 +144,53 @@ export function ShippedRow({ loopId, ship, onDone }) {
           tick: Date.now(),
           loopId,
           shortSha: ship.shortSha,
+          inFlight: inFlightRef.current,
         } },
       ));
     } catch { /* noop */ }
+
+    // Iter 330 · Test B — in-flight guard. Silently drop if a POST
+    // is already in progress. The guard is set BEFORE any await so
+    // React fiber scheduling can never squeeze a second click through.
+    if (inFlightRef.current) return;
+
     if (current === "idle") {
       setPhase("confirming");
       confirmTimerRef.current = setTimeout(() => {
         // Only revert if we're still in confirming (guard against
         // race where user clicked twice fast and phase already moved
-        // to queued).
+        // past confirming).
         if (phaseRef.current === "confirming") setPhase("idle");
         confirmTimerRef.current = null;
       }, ROLLBACK_CONFIRM_MS);
       return;
     }
     if (current === "confirming") {
+      inFlightRef.current = true;
       clearConfirmTimer();
-      setPhase("queued");
+      setPhase("submitting");
       setError(null);
       try {
-        const r = await rollbackLoop(loopId);
-        const st = String(r?.rollback_status || "").toLowerCase();
-        if (st === "queued" || st === "running") {
-          setPhase("running");
-          pollTimerRef.current = setTimeout(
-            pollRollback, ROLLBACK_POLL_MS,
-          );
-        } else if (st === "done") {
-          setPhase("done");
-          setRollbackSha(r?.rollback_sha || null);
-          setRollbackHtmlUrl(r?.rollback_html_url || null);
-        } else {
-          setPhase("failed");
-          setError(r?.rollback_error || "Unexpected response");
+        await rollbackLoop(loopId);
+        // Success → hand off to OperationHistory. The parent lifts
+        // this loopId into activeLoopId which triggers OperationHistory
+        // to open the /stream subscription and render live progress.
+        // Iter 330 · Test B — inFlightRef stays true after successful
+        // POST so any spurious late click cannot re-trigger the flow.
+        setPhase("handed-off");
+        if (typeof onRollbackStarted === "function") {
+          onRollbackStarted(loopId);
         }
       } catch (e) {
+        // POST failed → revert to idle so user can retry.
+        inFlightRef.current = false;
         setPhase("failed");
         setError(
           e?.response?.data?.detail || e?.message || "Rollback failed",
         );
       }
     }
-  }, [loopId, clearConfirmTimer, pollRollback, ship.shortSha]);
+  }, [loopId, clearConfirmTimer, ship.shortSha, onRollbackStarted]);
   // Note: `phase` intentionally omitted from deps — the whole point of
   // phaseRef is to read the freshest value without recreating the
   // callback on every phase change. Keeping `stateAtRead` in the
@@ -213,10 +200,9 @@ export function ShippedRow({ loopId, ship, onDone }) {
 
   const rollbackLabel =
     phase === "confirming" ? "Confirm rollback"
-    : phase === "queued"   ? "Rolling back…"
-    : phase === "running"  ? "Rolling back…"
-    : phase === "done"     ? "Rolled back"
-    : phase === "failed"   ? "Retry rollback"
+    : phase === "submitting"? "Rolling back…"
+    : phase === "handed-off"? "Rolling back — see history"
+    : phase === "failed"    ? "Retry rollback"
     : "Rollback";
 
   return (
@@ -263,67 +249,45 @@ export function ShippedRow({ loopId, ship, onDone }) {
         </a>
       )}
       <span style={{ flex: 1 }} />
-      {phase === "done" && rollbackSha ? (
-        <span
-          data-testid="loop-shipped-rolled-back"
-          style={{ color: "#f5a524", fontSize: 11 }}
-        >
-          Reverted →{" "}
-          {rollbackHtmlUrl ? (
-            <a
-              data-testid="loop-shipped-rolled-back-link"
-              href={rollbackHtmlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#f5a524", textDecoration: "underline" }}
-            >
-              {String(rollbackSha).slice(0, 7)}
-            </a>
-          ) : (
-            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-              {String(rollbackSha).slice(0, 7)}
-            </span>
-          )}
-        </span>
-      ) : (
-        <button
-          type="button"
-          data-testid={
-            phase === "confirming"
-              ? `loop-shipped-rollback-btn-confirming-${ship.shortSha}`
-              : `loop-shipped-rollback-btn-${ship.shortSha}`
-          }
-          aria-label={phase === "confirming" ? "Confirm rollback" : "Rollback loop"}
-          aria-pressed={phase === "confirming"}
-          disabled={phase === "queued" || phase === "running"}
-          onClick={onRollbackClick}
-          style={{
-            appearance: "none",
-            background: phase === "confirming" ? "#EF4444" : "transparent",
-            color:      phase === "confirming" ? "#ffffff" : "#f87171",
-            border:     phase === "confirming"
-              ? "1px solid #FCA5A5"
-              : "1px solid #EF4444",
-            borderRadius: 6,
-            padding: "3px 10px",
-            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-            fontSize: 10.5,
-            fontWeight: phase === "confirming" ? 700 : 500,
-            letterSpacing: "0.04em",
-            cursor: (phase === "queued" || phase === "running")
-              ? "wait" : "pointer",
-            display: "inline-flex", alignItems: "center", gap: 4,
-            textTransform: "uppercase",
-            transition: "background 120ms ease, color 120ms ease, border-color 120ms ease",
-            boxShadow: phase === "confirming"
-              ? "0 0 0 2px rgba(239, 68, 68, 0.35)"
-              : "none",
-          }}
-        >
-          <RotateCcw size={9} strokeWidth={2.5} />
-          {rollbackLabel}
-        </button>
-      )}
+      <button
+        type="button"
+        data-testid={
+          phase === "confirming"
+            ? `loop-shipped-rollback-btn-confirming-${ship.shortSha}`
+            : `loop-shipped-rollback-btn-${ship.shortSha}`
+        }
+        aria-label={phase === "confirming" ? "Confirm rollback" : "Rollback loop"}
+        aria-pressed={phase === "confirming"}
+        disabled={phase === "submitting" || phase === "handed-off"}
+        onClick={onRollbackClick}
+        style={{
+          appearance: "none",
+          background: phase === "confirming" ? "#EF4444" : "transparent",
+          color:      phase === "confirming" ? "#ffffff" : "#f87171",
+          border:     phase === "confirming"
+            ? "1px solid #FCA5A5"
+            : "1px solid #EF4444",
+          borderRadius: 6,
+          padding: "3px 10px",
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 10.5,
+          fontWeight: phase === "confirming" ? 700 : 500,
+          letterSpacing: "0.04em",
+          cursor: (phase === "submitting" || phase === "handed-off")
+            ? "wait" : "pointer",
+          opacity: (phase === "submitting" || phase === "handed-off")
+            ? 0.6 : 1,
+          display: "inline-flex", alignItems: "center", gap: 4,
+          textTransform: "uppercase",
+          transition: "background 120ms ease, color 120ms ease, border-color 120ms ease",
+          boxShadow: phase === "confirming"
+            ? "0 0 0 2px rgba(239, 68, 68, 0.35)"
+            : "none",
+        }}
+      >
+        <RotateCcw size={9} strokeWidth={2.5} />
+        {rollbackLabel}
+      </button>
       {phase === "failed" && error && (
         <span
           data-testid="loop-shipped-rollback-error"
@@ -379,7 +343,8 @@ import React, {
 import {
   Check, AlertTriangle, AlertOctagon, Loader2, ExternalLink, RotateCcw,
 } from "lucide-react";
-import { rollbackLoop, getLoopStatus } from "../lib/loopApi";
+import { rollbackLoop } from "../lib/loopApi";
+import OperationHistory from "./OperationHistory";
 
 // ── Tone → icon + colour ────────────────────────────────────────────
 const TONE_STYLES = {
@@ -616,12 +581,17 @@ function NarrationLine({ line, nowEpoch }) {
 }
 
 // ── Component ───────────────────────────────────────────────────────
-export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
+export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId }) {
   // Full history of raw SSE events we've seen. `foldNarrations` will
   // dedupe by correlation_id, so we can safely keep the full stream —
   // the bound is enforced downstream.
   const [events, setEvents] = useState([]);
   const [nowEpoch, setNowEpoch] = useState(() => Date.now() / 1000);
+  // Iter 330 · Path P1 — activeRollbackLoopId lifts the loopId into
+  // OperationHistory's SSE subscription surface when a rollback POST
+  // succeeds. ShippedRow.onRollbackStarted fires this exactly once
+  // per rollback attempt (guarded by inFlightRef there).
+  const [activeRollbackLoopId, setActiveRollbackLoopId] = useState(null);
   const scrollerRef = useRef(null);
 
   // Append each real event as it arrives.
@@ -760,9 +730,27 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
             (phase="confirming", timers). That was Bug X behind the
             confirm-click never firing on production. */}
         {shipInfo && (
-          <ShippedRow loopId={loopId} ship={shipInfo} />
+          <ShippedRow
+            loopId={loopId}
+            ship={shipInfo}
+            onRollbackStarted={setActiveRollbackLoopId}
+          />
         )}
       </div>
+
+      {/* Iter 330 · Path P1 — OperationHistory renders past + current
+          ship/rollback ops as an auto-collapsing timeline. It opens
+          its own /stream subscription ONLY when activeRollbackLoopId
+          becomes non-null (i.e. after ShippedRow's confirm click has
+          POSTed successfully). Passing projectId enables history
+          hydration; without it the component still functions for the
+          current-op live rollback flow. */}
+      {projectId && (
+        <OperationHistory
+          projectId={projectId}
+          activeLoopId={activeRollbackLoopId}
+        />
+      )}
 
       <style>{`
         @keyframes loop-pulse {

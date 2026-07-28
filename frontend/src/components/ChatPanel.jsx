@@ -3629,6 +3629,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             event={loopFeedEvent}
             terminal={loopTerminal}
             phase={loopPhase}
+            projectId={activeProject?.project_id}
           />
         </div>
       )}
