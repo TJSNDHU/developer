@@ -9,7 +9,7 @@
  *
  * Versioning: bump CACHE_VERSION on shipped changes so old caches purge.
  */
-const CACHE_VERSION = "aurem-v2";
+const CACHE_VERSION = "aurem-v3";
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

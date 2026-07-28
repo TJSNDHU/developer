@@ -149,6 +149,15 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
       ));
     } catch { /* noop */ }
 
+    // Iter 339 — console-visible trace (the CustomEvents above have no
+    // listener on prod; this line is the founder's behavioural proof
+    // that the handler ran and what phase it read).
+    // eslint-disable-next-line no-console
+    console.debug("[rollback] click", {
+      phaseRead: current, inFlight: inFlightRef.current,
+      loopId, sha: ship.shortSha,
+    });
+
     // Iter 330 · Test B — in-flight guard. Silently drop if a POST
     // is already in progress. The guard is set BEFORE any await so
     // React fiber scheduling can never squeeze a second click through.
@@ -171,7 +180,11 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
       setPhase("submitting");
       setError(null);
       try {
+        // eslint-disable-next-line no-console
+        console.debug("[rollback] POST /loop/%s/rollback firing", loopId);
         await rollbackLoop(loopId);
+        // eslint-disable-next-line no-console
+        console.debug("[rollback] POST ok — handed off to OperationHistory");
         // Success → hand off to OperationHistory. The parent lifts
         // this loopId into activeLoopId which triggers OperationHistory
         // to open the /stream subscription and render live progress.
@@ -182,6 +195,8 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
           onRollbackStarted(loopId);
         }
       } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[rollback] POST failed:", e?.response?.data?.detail || e?.message);
         // POST failed → revert to idle so user can retry.
         inFlightRef.current = false;
         setPhase("failed");

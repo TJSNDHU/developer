@@ -30,7 +30,7 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
-import { streamLoopEvents } from "../lib/loopApi";
+import { streamLoopEvents, rollbackLoop } from "../lib/loopApi";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -50,12 +50,14 @@ function opLabel(op) {
   return `${typeLabel} in progress`;
 }
 
-// Collapsed row — click to expand.
-function CollapsedOpRow({ op, onExpand }) {
+// Collapsed row — click to expand. `rb` (optional) wires the Iter 339
+// persistent rollback path for completed ship rows.
+function CollapsedOpRow({ op, onExpand, rb }) {
   const passed = op.all_passed;
+  const lid8 = (op.loop_id || "").slice(0, 8);
   return (
     <div
-      data-testid={`op-history-row-collapsed-${op.op_type}-${(op.loop_id||"").slice(0,8)}`}
+      data-testid={`op-history-row-collapsed-${op.op_type}-${lid8}`}
       data-op-state={op.state}
       onClick={() => onExpand(op.loop_id, op.op_type)}
       style={{
@@ -73,6 +75,47 @@ function CollapsedOpRow({ op, onExpand }) {
         {" | "}{op.step_count} step{op.step_count === 1 ? "" : "s"},
         {" "}{passed ? "all passed" : "failed"}
       </span>
+      {rb && (
+        <>
+          <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            data-testid={rb.phase === "confirming"
+              ? `op-history-rollback-btn-confirming-${lid8}`
+              : `op-history-rollback-btn-${lid8}`}
+            aria-label={rb.phase === "confirming"
+              ? "Confirm rollback" : "Rollback this ship"}
+            disabled={rb.phase === "submitting"}
+            onClick={(e) => { e.stopPropagation(); rb.onClick(op.loop_id); }}
+            style={{
+              appearance: "none",
+              background: rb.phase === "confirming" ? "#EF4444" : "transparent",
+              color:      rb.phase === "confirming" ? "#ffffff" : "#f87171",
+              border:     rb.phase === "confirming"
+                ? "1px solid #FCA5A5" : "1px solid #EF444488",
+              borderRadius: 5, padding: "2px 8px",
+              fontFamily: "inherit", fontSize: 10,
+              textTransform: "uppercase", letterSpacing: ".04em",
+              cursor: rb.phase === "submitting" ? "wait" : "pointer",
+              opacity: rb.phase === "submitting" ? 0.6 : 1,
+            }}
+          >
+            {rb.phase === "confirming" ? "Confirm rollback"
+              : rb.phase === "submitting" ? "Rolling back…"
+              : rb.phase === "failed" ? "Retry rollback"
+              : "Rollback"}
+          </button>
+          {rb.phase === "failed" && rb.error && (
+            <span
+              data-testid={`op-history-rollback-error-${lid8}`}
+              style={{ color: "#f85149", fontSize: 10 }}
+              title={rb.error}
+            >
+              {String(rb.error).slice(0, 40)}
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -137,6 +180,15 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
   const [history, setHistory]         = useState([]);
   const [currentOp, setCurrentOp]     = useState(null);
   const [expandedId, setExpandedId]   = useState(null);
+  // Iter 339 — persistent rollback path. `internalActiveId` lifts a
+  // history-row rollback into the SAME stream subscription surface the
+  // ShippedRow prop-driven flow uses. `rbState` is the two-click
+  // confirm machine for the row buttons.
+  const [internalActiveId, setInternalActiveId] = useState(null);
+  const [rbState, setRbState] = useState(null); // {loopId, phase, error}
+  const rbStateRef = useRef(null);
+  useEffect(() => { rbStateRef.current = rbState; }, [rbState]);
+  const effectiveActiveLoopId = internalActiveId || activeLoopId;
 
   // Guard set — loopIds we have already opened the stream for AND
   // consumed a terminal event on. Never open again for the same id.
@@ -169,8 +221,13 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
     let cancelled = false;
     const url = `${API_BASE}/api/aurem-dev/loop/history`
                 + `?project_id=${encodeURIComponent(projectId)}&limit=20`;
+    // Iter 339 — the authToken prop is never passed by LoopLiveFeed, so
+    // this fetch used to fire WITHOUT Authorization → 401 → history
+    // permanently empty. Fall back to the same localStorage token
+    // streamLoopEvents uses.
+    const tok = authToken || localStorage.getItem("aurem_token") || "";
     fetch(url, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: tok ? { Authorization: `Bearer ${tok}` } : {},
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d) => {
@@ -206,6 +263,10 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
   // sync at entry blocks Test B (double-click race → double-ES) and
   // Test C (post-terminal reopen on parent re-render).
   useEffect(() => {
+    // Iter 339 — shadow the prop: the stream target is either the
+    // prop-driven id (ShippedRow flow) or the internal history-row
+    // rollback id. All guards below apply identically.
+    const activeLoopId = effectiveActiveLoopId;
     if (!activeLoopId) return undefined;
 
     // Guard B/C: already handled → do nothing.
@@ -369,7 +430,7 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
         openStreamRef.current = null;
       }
     };
-  }, [activeLoopId]);
+  }, [effectiveActiveLoopId]);
 
   // Cleanup on unmount — nuke any lingering stream.
   useEffect(() => () => {
@@ -382,7 +443,53 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
   const onExpand   = useCallback((loopId) => setExpandedId(loopId), []);
   const onCollapse = useCallback(() => setExpandedId(null),         []);
 
+  // Iter 339 — history-row rollback (two-click confirm, 10s window).
+  // Stream-independent: fires POST /loop/{id}/rollback directly, then
+  // lifts the id into the shared stream subscription for live progress.
+  const handleRowRollback = useCallback(async (loopId) => {
+    const cur = rbStateRef.current;
+    // eslint-disable-next-line no-console
+    console.debug("[op-history rollback] click", {
+      loopId, phase: (cur && cur.loopId === loopId) ? cur.phase : "idle",
+    });
+    if (cur && cur.loopId === loopId && cur.phase === "submitting") return;
+    if (!cur || cur.loopId !== loopId || cur.phase !== "confirming") {
+      setRbState({ loopId, phase: "confirming" });
+      setTimeout(() => {
+        const s = rbStateRef.current;
+        if (s && s.loopId === loopId && s.phase === "confirming") {
+          setRbState(null);
+        }
+      }, 10_000);
+      return;
+    }
+    setRbState({ loopId, phase: "submitting" });
+    try {
+      await rollbackLoop(loopId);
+      // eslint-disable-next-line no-console
+      console.debug("[op-history rollback] POST ok — opening progress stream", loopId);
+      setRbState(null);
+      setInternalActiveId(loopId);
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "Rollback failed";
+      // eslint-disable-next-line no-console
+      console.warn("[op-history rollback] POST failed:", msg);
+      setRbState({ loopId, phase: "failed", error: msg });
+    }
+  }, []);
+
   const items = useMemo(() => history || [], [history]);
+
+  // Loop ids that already have a rollback op (row or live) — their
+  // ship rows must NOT offer the rollback button.
+  const rolledBackIds = useMemo(() => {
+    const s = new Set();
+    for (const o of (history || [])) {
+      if (o.op_type === "rollback") s.add(o.loop_id);
+    }
+    if (currentOp && currentOp.op_type === "rollback") s.add(currentOp.loop_id);
+    return s;
+  }, [history, currentOp]);
 
   return (
     <div
@@ -402,6 +509,16 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
             key={`${op.loop_id}-${op.op_type}-${i}`}
             op={op}
             onExpand={onExpand}
+            rb={(op.op_type === "ship" && op.state === "completed"
+                 && op.commit_sha && !rolledBackIds.has(op.loop_id))
+              ? {
+                  phase: (rbState && rbState.loopId === op.loop_id)
+                    ? rbState.phase : "idle",
+                  error: (rbState && rbState.loopId === op.loop_id)
+                    ? rbState.error : null,
+                  onClick: handleRowRollback,
+                }
+              : null}
           />
         )
       ))}

@@ -44,6 +44,7 @@ import LoopStepBar from "./LoopStepBar";
 import LoopStatusChip from "./LoopStatusChip";        // Iter 309 · Batch-2 aftermath — sticky loop-status chip
 import AgentStatusBar from "./AgentStatusBar";
 import LoopLiveFeed from "./LoopLiveFeed";
+import OperationHistory from "./OperationHistory";
 import PlanApprovalCard from "./PlanApprovalCard";
 // Iter 212m-65 — Phase D wiring: Self-heal indicator + paused-loop
 // User Action card (powered by the real /loop/* SSE stream).
@@ -3713,6 +3714,22 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             terminal={loopTerminal}
             phase={loopPhase}
             projectId={activeProject?.project_id}
+          />
+        </div>
+      )}
+
+      {/* Iter 339 — persistent ops timeline. Previously OperationHistory
+          only existed INSIDE LoopLiveFeed, so after a reload (loopId
+          null — /loop/active filters terminal loops) there was NO
+          rollback affordance anywhere for a shipped loop. Now the
+          timeline (with its stream-independent Rollback buttons)
+          renders standalone whenever no loop is active. Renders
+          nothing when the project has no ship history. */}
+      {!loopId && activeProject?.project_id && (
+        <div className="chat-inline-card" data-testid="standalone-op-history">
+          <OperationHistory
+            projectId={activeProject.project_id}
+            activeLoopId={null}
           />
         </div>
       )}

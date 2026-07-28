@@ -223,7 +223,10 @@ export function streamLoopEvents(loopId, cb = {}) {
         }
       }
     } finally {
-      try { reader.cancel(); } catch { /* swallow */ }
+      // Iter 339 — await the cancel promise so an abort mid-read does
+      // not surface as an unhandled "BodyStreamBuffer was aborted"
+      // AbortError in the console (founder-observed on prod).
+      try { await reader.cancel(); } catch { /* swallow */ }
     }
   }
 

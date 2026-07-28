@@ -241,3 +241,15 @@ Language: **Hinglish** — main agent responds in Hinglish.
     → both PASS, no sensitive keys. Raw curl double-check also PASS.
 - New credential: qa-scan-bot@aurem.dev (prod synthetic QA account, see test_credentials.md)
 - Next: Section 0 QA sandbox (user manual steps), Phase 2 Risk-Based Routing, Phase 3 Checkpoints/Rollback
+
+## Iter 339b · 2026-07-28 — Post-ship Rollback bug investigation + fixes
+- Founder report (PROD): Rollback button dead post-ship (loop 38d7c242, commit cc60342), 0 network calls, AbortError BodyStreamBuffer in console.
+- Repro attempt (preview, HIGH-fidelity: real ChatPanel + real SSE + post-terminal click via seeded loop): flow WORKS — click1→confirming, click2→POST→rollback ran. Handler is stream-INDEPENDENT (direct axios POST).
+- 3 real defects found & fixed:
+  1. OperationHistory /loop/history fetch fired without Authorization (authToken prop never passed) → 401 → history always empty. Fixed via localStorage token fallback.
+  2. Unhandled AbortError "BodyStreamBuffer was aborted" — floating reader.cancel() promise in streamLoopEvents finally block. Fixed (await + catch).
+  3. sw.js CACHE_VERSION frozen at "aurem-v2" since June 5 across all deploys → stale-bundle hazard (STRONGEST suspect for prod dead button: pre-iter329 cached bundle had ShipConfirmModal with silently-dead rollback `if (!taskId) return` — exact symptom match). Bumped to aurem-v3.
+- NEW: persistent Rollback button on OperationHistory completed-ship rows (two-click confirm, stream-independent POST, live progress via shared stream). Ops timeline now renders STANDALONE in chat when no loop is active → rollback possible even after reload (was impossible before).
+- Console tracing added to ShippedRow + OperationHistory click handlers ([rollback] / [op-history rollback] debug lines) — next prod attempt is diagnosable.
+- Testing: 2 Playwright E2E flows on preview PASS, 226/226 vitest unit tests PASS.
+- NOT YET DEPLOYED — founder must trigger deploy; then rollback cc60342 via history row.
