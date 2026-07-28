@@ -2623,6 +2623,16 @@ async def chat_stream(
                 result = ev["result"]
                 break
 
+        # Iter 331 — founder-reported prod crash on long pasted inputs:
+        # "'NoneType' object has no attribute 'get'" surfaced as the
+        # chat reply. Any pipeline branch that lands a non-dict (None)
+        # result must degrade into the empty-content fallback below,
+        # never crash the stream.
+        if not isinstance(result, dict):
+            logger.warning("chat_stream: pipeline returned %s instead of dict — "
+                           "engaging fallback", type(result).__name__)
+            result = {"content": "", "error": "pipeline returned no result"}
+
         # Iter 51 — SSE Task Progress Streamer.
         # When the worker auto-enqueued a Mode C task (Mode D→C handoff,
         # or any future flow that lands a `task_id` on the result), surface
@@ -2662,7 +2672,7 @@ async def chat_stream(
                 _fb_reasons.append(str(_fb_err)[:160])
             if result.get("tool_calls_run", 0) == 0 and (result.get("iterations", 0) or 0) > 0:
                 _fb_reasons.append("the model decided no tools were needed")
-            _tier_hint = result.get("tier") or result.get("intent", {}).get("tier") or "agentic"
+            _tier_hint = result.get("tier") or (result.get("intent") or {}).get("tier") or "agentic"
             content = (
                 f"_(I wasn't able to produce a reply for this {_tier_hint} request"
                 + (f": {_fb_reasons[0]}" if _fb_reasons else ".")

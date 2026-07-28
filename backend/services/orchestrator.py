@@ -2127,14 +2127,14 @@ async def chat_with_tools(
             # file this turn, append a warning footer so the user (and
             # the Maxx watchdog) know to scrutinise those citations.
             tool_paths_read = {
-                inv.get("args", {}).get("path", "")
+                (inv.get("args") or {}).get("path", "")
                 for inv in invocations
                 if inv.get("tool") in ("read_repo_file",)
             } | {
                 p
                 for inv in invocations
                 if inv.get("tool") in ("read_repo_files",)
-                for p in (inv.get("args", {}).get("paths") or [])
+                for p in ((inv.get("args") or {}).get("paths") or [])
             }
             tool_paths_read.discard("")
             # Iter 212h — surface the verified-paths set in prod logs so
@@ -2477,14 +2477,14 @@ async def chat_with_tools(
     # Same verified_paths computation as the happy path — at max-iters
     # we still want the UI guard to know which files were actually read.
     _max_iter_paths = {
-        inv.get("args", {}).get("path", "")
+        (inv.get("args") or {}).get("path", "")
         for inv in invocations
         if inv.get("tool") in ("read_repo_file",)
     } | {
         p
         for inv in invocations
         if inv.get("tool") in ("read_repo_files",)
-        for p in (inv.get("args", {}).get("paths") or [])
+        for p in ((inv.get("args") or {}).get("paths") or [])
     }
     _max_iter_paths.discard("")
 
