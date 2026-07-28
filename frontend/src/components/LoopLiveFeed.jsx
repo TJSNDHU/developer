@@ -125,11 +125,46 @@ function ShippedRow({ loopId, ship, onDone }) {
     }
   }, [loopId, clearPollTimer, onDone]);
 
+  // Iter 329 · Fix C · diagnostic pass — production repro instrumentation
+  // (no functional change). Emits two window events the founder can
+  // listen on from DevTools to inspect the actual click + render
+  // behaviour on the live production URL.
+  //   • aurem:debug:rollback-click — fires on EVERY click, with the
+  //     phaseRef.current value AND the reactive phase state at read
+  //     time. Distinguishes fiber-inspection-caches vs true state.
+  //   • aurem:debug:shipped-row-render — fires after EVERY ShippedRow
+  //     render, revealing remount vs re-render behaviour + phase
+  //     value at render time.
+  useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent(
+        "aurem:debug:shipped-row-render",
+        { detail: {
+          phase,
+          shortSha: ship.shortSha,
+          timestamp: Date.now(),
+        } },
+      ));
+    } catch { /* noop */ }
+  });
+
   // Iter 329 · Fix C — callback reads phaseRef, NOT closure. Deps
   // no longer include `phase`; the ref keeps us fresh across
   // renders. This eliminates the Bug Y stale-closure class.
   const onRollbackClick = useCallback(async () => {
     const current = phaseRef.current;
+    try {
+      window.dispatchEvent(new CustomEvent(
+        "aurem:debug:rollback-click",
+        { detail: {
+          phaseRefRead: current,
+          stateAtRead:  phase,      // captured from render closure
+          tick: Date.now(),
+          loopId,
+          shortSha: ship.shortSha,
+        } },
+      ));
+    } catch { /* noop */ }
     if (current === "idle") {
       setPhase("confirming");
       confirmTimerRef.current = setTimeout(() => {
@@ -168,7 +203,13 @@ function ShippedRow({ loopId, ship, onDone }) {
         );
       }
     }
-  }, [loopId, clearConfirmTimer, pollRollback]);
+  }, [loopId, clearConfirmTimer, pollRollback, ship.shortSha]);
+  // Note: `phase` intentionally omitted from deps — the whole point of
+  // phaseRef is to read the freshest value without recreating the
+  // callback on every phase change. Keeping `stateAtRead` in the
+  // diagnostic dispatch captures the closure-scoped `phase` (may lag
+  // behind phaseRef.current) which is exactly the data needed to
+  // diagnose stale-closure vs live-render mismatch in production.
 
   const rollbackLabel =
     phase === "confirming" ? "Confirm rollback"
