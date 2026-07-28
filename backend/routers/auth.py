@@ -506,6 +506,15 @@ async def me(authorization: Optional[str] = Header(None)) -> dict:
         ts = user.get("created_at")
         if isinstance(ts, datetime):
             user["created_at"] = ts.isoformat()
+        # Iter 337 — SECURITY: never ship auth secrets to the client.
+        # Found live on prod: /auth/me returned the TOTP `mfa_secret`,
+        # hashed `mfa_backup_codes` and the raw GitHub `access_token`.
+        # The frontend uses none of them (grep-verified).
+        for _secret_field in ("mfa_secret", "mfa_backup_codes"):
+            user.pop(_secret_field, None)
+        gh = user.get("github")
+        if isinstance(gh, dict):
+            gh.pop("access_token", None)
     # Iter 212m-48 — auto-refresh the session token on every /auth/me
     # call. The frontend already hits this on app boot and on focus,
     # so active users glide indefinitely while idle / leaked tokens

@@ -4858,3 +4858,29 @@ green. /health 3-49 ms post-restart. deployment_agent re-scan: PASS
 Stripe "No such price" lines in these logs = integration_health
 probing the STALE prod env IDs (expected until founder rotates env;
 checkout itself self-heals per iter335b).
+
+---
+
+## Iter 337 — PROD live verification (founder session) + /auth/me secret leak fix (Jun 28 2026) ✅
+
+Founder shared TOTP → full authenticated verification ON PRODUCTION:
+- Phase 1 /rule LIVE on prod: add → report → delete all worked
+  (rule 312e8d42e31b created + cleaned up on project p_c2b5b8a916)
+- Chat history save LIVE: 20 sessions, latest 40 messages persisted
+- Stripe monthly checkout: **self-heal PROVEN on prod** — env still
+  has stale old-account IDs yet checkout returned a live URL
+- approve-ship endpoint wired (fake id → "Loop not found")
+- Admin QA report endpoint live (honest empty state — CI not run yet)
+- Dashboard UI loads with repo TJSNDHU/Aurem, HEALTH 100
+- Frontend bundles contain ALL new testids (loop-progress-bubble/
+  toggle, ship-review-gate-card, approve/cancel btns, admin QA report)
+- NOT visually confirmed live: LoopProgressBubble expand/collapse
+  (needs a loop reply in an open session) — component shipped + unit
+  tested; iter336b (serial probes) still needs one more redeploy.
+
+**SECURITY FIX (found live)**: `/auth/me` returned `mfa_secret`,
+`mfa_backup_codes` and raw `github.access_token`. Now stripped
+(frontend uses none — grep-verified). Locked by
+`test_iter337_auth_me_no_secrets.py` (2/2 green vs live backend).
+NOTE: fix is in PREVIEW — prod still leaks until next redeploy.
+Founder creds recorded in memory/test_credentials.md.
