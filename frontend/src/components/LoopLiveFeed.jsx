@@ -444,6 +444,30 @@ export function resolveTerminalTone(events) {
   return "success";
 }
 
+// Iter 331 — mid-run frontier resolver (same class as
+// resolvePendingOnTerminal, but for a LIVE loop). The engine is
+// strictly sequential: a narration from step N proves every step < N
+// finished. Any line still "pending" for an earlier step is a stale
+// spinner (missed SSE resolver frame or backend omission — founder
+// screenshot: "Writing tests/test_smoke.py ↻ 44s" while the loop sat
+// at the SHIP gate). Pure — safe in a memo.
+const NARRATION_STEP_ORDER = { plan: 1, execute: 2, verify: 3, scan: 4, ship: 5 };
+
+export function resolveStalePendingByFrontier(folded) {
+  let frontier = 0;
+  for (const line of folded) {
+    const o = NARRATION_STEP_ORDER[line.step] || 0;
+    if (o > frontier) frontier = o;
+  }
+  if (!frontier) return folded;
+  return folded.map((line) => {
+    const o = NARRATION_STEP_ORDER[line.step] || 0;
+    return (line.tone === "pending" && o && o < frontier)
+      ? { ...line, tone: "success", __resolvedByFrontier: true }
+      : line;
+  });
+}
+
 // Transform a folded narration list. If `terminal` is true, every
 // still-pending line is rewritten to `terminalTone`. Pure — safe to
 // call in a memo. The `__resolvedOnTerminal` marker is exported for
@@ -617,7 +641,10 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId
     return () => clearInterval(iv);
   }, [terminal]);
 
-  const folded = useMemo(() => foldNarrations(events), [events]);
+  const folded = useMemo(
+    () => resolveStalePendingByFrontier(foldNarrations(events)),
+    [events],
+  );
   // Iter 329 · Fix B — resolve any still-pending narration lines when
   // the loop reaches a terminal state. See resolvePendingOnTerminal
   // above for the rule table + rationale.

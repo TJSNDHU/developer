@@ -186,6 +186,18 @@ export default function LoopStepBar({
   const active   = isError ? errorStep : (PHASE_TO_STEP[phase] || 0);
   const isIdle   = phase === "idle";
 
+  // Iter 331 · Rule 0-c precompute — the pipeline FRONTIER: the
+  // furthest step with ANY narration signal, or the phase-derived
+  // active step. The engine is strictly sequential, so a narration
+  // from step N proves every step < N already finished. A "pending"
+  // tone BELOW the frontier is a stale spinner (missed SSE resolver
+  // frame / backend omission) — founder-reported: EXECUTE amber and
+  // SHIP amber spinning TOGETHER at the ship gate.
+  let frontier = active;
+  for (const s of STEPS) {
+    if (stepTones[s.narrationKey || s.key] && s.id > frontier) frontier = s.id;
+  }
+
   // Derive per-step ECG variant from real narration tones.
   // Priority (highest wins):
   //   0. ── Iter 323/329 · terminal-state pending resolver ──
@@ -237,6 +249,10 @@ export default function LoopStepBar({
       if (step.id === errorStep) return "danger";
       if (tone === "pending")    return "future";
     }
+    // Rule 0-c (Iter 331): mid-run monotonic invariant — only ONE
+    // step may spin at a time. A pending tone below the frontier is
+    // provably finished (sequential pipeline) → resolve green.
+    if (tone === "pending" && step.id < frontier) return "success";
     if (tone === "success" || tone === "warning") return "success";
     if (tone === "danger") return "danger";
     if (tone === "pending") return "active";
