@@ -145,6 +145,23 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
   // no re-render triggers when we mutate it.
   const handledLoopIdsRef = useRef(new Set());
   const openStreamRef     = useRef(null); // { loopId, abortCtrl }
+  // Iter 330 · fix — finalizedForLoopIdRef guards against StrictMode
+  // double-mount + updater-double-invoke both racing to schedule
+  // finalize for the same terminal event. Root cause of the 4× dupe:
+  // (a) StrictMode mounts the effect twice → 2 concurrent SSE
+  //     subscriptions → each receives the terminal event once.
+  // (b) React (StrictMode) invokes state updater fns twice to detect
+  //     impure updaters. Our previous updater had a side-effect
+  //     (`Promise.resolve().then(finalize)`) inside it, so each event
+  //     scheduled finalize twice.
+  // 2 (subscriptions) × 2 (StrictMode invocations) = 4 finalize calls.
+  // This ref, set BEFORE scheduling finalize and BEFORE the microtask
+  // fires, blocks all subsequent attempts for the same loopId.
+  const finalizedForLoopIdRef = useRef(null);
+  // Iter 330 · fix — pendingFinalizeMergedRef carries the merged op
+  // synchronously to the finalize call. Mirrors currentOp state so
+  // we don't depend on setCurrentOp's updater fn having run.
+  const currentOpRef = useRef(null);
 
   // Fetch history on mount + projectId change.
   useEffect(() => {
@@ -156,7 +173,28 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => { if (!cancelled) setHistory(d.items || []); })
+      .then((d) => {
+        if (cancelled) return;
+        setHistory(d.items || []);
+        // Iter 330 · diagnostic — expose the raw initial-fetch payload
+        // so the harness can prove hypothesis (1) [stale /loop/history
+        // returning a rollback row] vs (2) [finalize double-push].
+        try {
+          window.dispatchEvent(new CustomEvent("aurem:debug:op-history-initial-fetch", {
+            detail: {
+              count: (d.items || []).length,
+              rollbackCount: (d.items || []).filter((i) => i.op_type === "rollback").length,
+              shipCount:     (d.items || []).filter((i) => i.op_type === "ship").length,
+              items: (d.items || []).map((i) => ({
+                loop_id: (i.loop_id || "").slice(0, 12),
+                op_type: i.op_type,
+                state:   i.state,
+              })),
+              timestamp: Date.now(),
+            },
+          }));
+        } catch { /* noop */ }
+      })
       .catch(() => { /* fail-open — history empty is acceptable */ });
     return () => { cancelled = true; };
   }, [projectId, authToken]);
@@ -200,67 +238,116 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
           && openStreamRef.current.loopId === activeLoopId) {
         openStreamRef.current = null;
       }
-      setHistory((h) => [
-        {
+      // Iter 330 · diagnostic — count every finalize call so the
+      // harness can prove hypothesis (2) [finalize double-push].
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:debug:op-history-finalize", {
+          detail: {
+            loopId: activeLoopId,
+            op_type: finalOp.op_type,
+            state: String(ev?.state).toLowerCase(),
+            timestamp: Date.now(),
+          },
+        }));
+      } catch { /* noop */ }
+      // Iter 330 · polish — dedupe by (loop_id, op_type) so the
+      // initial /loop/history fetch + live finalize can't both
+      // produce a row for the same op. If an existing row matches,
+      // REPLACE it with the fresher finalize payload; otherwise
+      // prepend. Preserves ordering — the replaced row keeps its
+      // original position, matching user expectation that a live op
+      // completing doesn't jump to the top over the seed row.
+      setHistory((h) => {
+        const finalRow = {
           ...finalOp,
           finished_at: ev?.timestamp,
           all_passed:  String(ev?.state).toLowerCase() === "completed",
-        },
-        ...h,
-      ]);
+        };
+        const key = (o) => `${o.loop_id}::${o.op_type}`;
+        const targetKey = key(finalRow);
+        const existingIdx = h.findIndex((o) => key(o) === targetKey);
+        if (existingIdx >= 0) {
+          const next = h.slice();
+          next[existingIdx] = { ...next[existingIdx], ...finalRow };
+          return next;
+        }
+        return [finalRow, ...h];
+      });
       setCurrentOp(null);
+      currentOpRef.current = null;
     };
 
     const abortCtrl = streamLoopEvents(activeLoopId, {
       onEvent: (ev) => {
         const phase = String(ev.phase || "").toLowerCase();
         const state = String(ev.state || "").toLowerCase();
+        // Iter 330 · trace — dispatch EVERY onEvent for diagnosis.
+        try {
+          window.dispatchEvent(new CustomEvent("aurem:debug:op-history-on-event", {
+            detail: { phase, state, step: ev.step, msg: ev.message, timestamp: Date.now() },
+          }));
+        } catch { /* noop */ }
         // Only rollback events feed this timeline; ship events are
         // handled by LoopLiveFeed's parent stream (unchanged flow).
         if (phase !== "rollback") return;
 
-        setCurrentOp((prev) => {
-          const base = (prev && prev.loop_id === activeLoopId)
-            ? prev
-            : {
-                loop_id:    activeLoopId,
-                op_type:    "rollback",
-                started_at: ev.timestamp,
-                steps:      [],
-              };
-          const idx = (base.steps || [])
-            .findIndex((s) => s.index === ev.step);
-          const nextStep = {
-            index:  ev.step,
-            label:  ev.message,
-            status:
-              state === "failed" ? "failed"
-                : state === "completed" ? "done"
-                  : "in_progress",
-          };
-          const nextSteps = [...(base.steps || [])];
-          if (idx >= 0) nextSteps[idx] = nextStep;
-          else          nextSteps.push(nextStep);
-          // Roll prior in-progress steps to done as newer ones arrive.
-          for (let k = 0; k < nextSteps.length - 1; k++) {
-            if (nextSteps[k].status === "in_progress") {
-              nextSteps[k] = { ...nextSteps[k], status: "done" };
-            }
+        const isTerminal =
+          ["completed", "failed", "aborted"].includes(state);
+
+        // Iter 330 · fix — compute merged op SYNCHRONOUSLY off the
+        // ref mirror. Do NOT rely on setCurrentOp's updater running
+        // before the microtask fires (React 18 batches state updates
+        // and microtasks fire in the SAME task before the next
+        // render, so the updater has typically NOT run yet — the
+        // previous attempt read pendingFinalizeMergedRef=null and
+        // silently skipped finalize).
+        const prev = currentOpRef.current;
+        const base = (prev && prev.loop_id === activeLoopId)
+          ? prev
+          : {
+              loop_id:    activeLoopId,
+              op_type:    "rollback",
+              started_at: ev.timestamp,
+              steps:      [],
+            };
+        const idx = (base.steps || [])
+          .findIndex((s) => s.index === ev.step);
+        const nextStep = {
+          index:  ev.step,
+          label:  ev.message,
+          status:
+            state === "failed" ? "failed"
+              : state === "completed" ? "done"
+                : "in_progress",
+        };
+        const nextSteps = [...(base.steps || [])];
+        if (idx >= 0) nextSteps[idx] = nextStep;
+        else          nextSteps.push(nextStep);
+        for (let k = 0; k < nextSteps.length - 1; k++) {
+          if (nextSteps[k].status === "in_progress") {
+            nextSteps[k] = { ...nextSteps[k], status: "done" };
           }
-          const merged = {
-            ...base,
-            state,
-            step_count: ev.total_steps,
-            commit_sha: ev.data?.commit_sha,
-            html_url:   ev.data?.html_url,
-            error:      ev.data?.error,
-            steps:      nextSteps,
-          };
-          if (["completed", "failed", "aborted"].includes(state)) {
-            Promise.resolve().then(() => finalize(merged, ev));
-          }
-          return merged;
-        });
+        }
+        const merged = {
+          ...base,
+          state,
+          step_count: ev.total_steps,
+          commit_sha: ev.data?.commit_sha,
+          html_url:   ev.data?.html_url,
+          error:      ev.data?.error,
+          steps:      nextSteps,
+        };
+        // Update ref SYNC and state (React-async).
+        currentOpRef.current = merged;
+        setCurrentOp(merged);
+
+        if (isTerminal
+            && finalizedForLoopIdRef.current !== activeLoopId) {
+          finalizedForLoopIdRef.current = activeLoopId;
+          // Defer to microtask so React commits the last step visibly
+          // before we collapse the card.
+          Promise.resolve().then(() => finalize(merged, ev));
+        }
       },
       onError: () => {
         try {

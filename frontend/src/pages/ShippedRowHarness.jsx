@@ -108,6 +108,8 @@ export default function ShippedRowHarness() {
   const [esErrorCount, setEsErrorCount] = useState(0);
   const [terminalObservedAt, setTerminalObservedAt] = useState(null);
   const [postTerminalEsOpens, setPostTerminalEsOpens] = useState(0);
+  const [finalizeCount, setFinalizeCount] = useState(0);
+  const [initialFetch, setInitialFetch] = useState(null);
 
   // Refs so listeners don't require re-registration on every render.
   const terminalAtRef = useRef(null);
@@ -144,10 +146,29 @@ export default function ShippedRowHarness() {
         ...p, { type: "harness-post-detected", detail: e.detail, ts: Date.now() },
       ].slice(-50));
     };
+    const onFinalize = (e) => {
+      setFinalizeCount((c) => c + 1);
+      setEvents((p) => [
+        ...p, { type: "op-history-finalize", detail: e.detail, ts: Date.now() },
+      ].slice(-50));
+    };
+    const onInitialFetch = (e) => {
+      setInitialFetch(e.detail);
+      setEvents((p) => [
+        ...p, { type: "op-history-initial-fetch", detail: e.detail, ts: Date.now() },
+      ].slice(-50));
+    };
+    // Also count on-event dispatches from OperationHistory.
+    const onOnEvent = (e) => setEvents((p) => [
+      ...p, { type: "op-history-on-event", detail: e.detail, ts: Date.now() },
+    ].slice(-80));
+    window.addEventListener("aurem:debug:op-history-on-event", onOnEvent);
     window.addEventListener("aurem:debug:rollback-click",       onClick);
     window.addEventListener("aurem:debug:shipped-row-render",   onRender);
     window.addEventListener("aurem:debug:op-history-es-open",   onEsOpen);
     window.addEventListener("aurem:debug:op-history-es-error",  onEsError);
+    window.addEventListener("aurem:debug:op-history-finalize",  onFinalize);
+    window.addEventListener("aurem:debug:op-history-initial-fetch", onInitialFetch);
     window.addEventListener("aurem:debug:harness-fetch-post",   onPost);
     window.addEventListener("aurem:debug:harness-xhr-post",     onPost);
     return () => {
@@ -155,8 +176,11 @@ export default function ShippedRowHarness() {
       window.removeEventListener("aurem:debug:shipped-row-render",  onRender);
       window.removeEventListener("aurem:debug:op-history-es-open",  onEsOpen);
       window.removeEventListener("aurem:debug:op-history-es-error", onEsError);
+      window.removeEventListener("aurem:debug:op-history-finalize", onFinalize);
+      window.removeEventListener("aurem:debug:op-history-initial-fetch", onInitialFetch);
       window.removeEventListener("aurem:debug:harness-fetch-post",  onPost);
       window.removeEventListener("aurem:debug:harness-xhr-post",    onPost);
+      window.removeEventListener("aurem:debug:op-history-on-event", onOnEvent);
     };
   }, []);
 
@@ -206,6 +230,8 @@ export default function ShippedRowHarness() {
     postCount,
     esOpenCount,
     esErrorCount,
+    finalizeCount,
+    initialFetch,
     activeLoopId,
     terminalObservedAt,
     postTerminalEsOpens,
