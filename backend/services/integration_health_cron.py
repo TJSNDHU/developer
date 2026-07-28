@@ -114,10 +114,11 @@ async def schedule_integration_health_cron() -> None:
     interval = _interval_seconds()
     logger.info("🩺 integration_health cron ON · every %ds", interval)
 
-    # First probe: wait a small stagger so the app can finish booting
-    # before we hammer the LLMs. This also lets the daily_digest / cold-
-    # start probe finish first if they were triggered on same boot.
-    await asyncio.sleep(30)
+    # First probe: wait a stagger so the app can finish booting before
+    # we hammer the LLMs. Iter 336 — raised 30 → 150 s so the first
+    # 11-probe burst (Stripe+E2B+LLM) lands AFTER the deferred boot
+    # tasks (linter install at +120 s), not on top of them.
+    await asyncio.sleep(150)
 
     while True:
         try:

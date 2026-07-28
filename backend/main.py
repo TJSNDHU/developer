@@ -438,6 +438,8 @@ async def lifespan(app: FastAPI):
         try:
             if app.state.db is None:
                 return
+            # Iter 336 — boot stagger (update_many scans are CPU+IO).
+            await _asyncio.sleep(60)
             import time as _time
             db = app.state.db
             # Count legacy rows first — cheap indexed queries. If both
@@ -492,6 +494,8 @@ async def lifespan(app: FastAPI):
         try:
             if app.state.db is None:
                 return
+            # Iter 336 — boot stagger.
+            await _asyncio.sleep(75)
             db = app.state.db
             missing = await db.dev_users.count_documents(
                 {"track": {"$exists": False}}, limit=1,
@@ -531,6 +535,8 @@ async def lifespan(app: FastAPI):
         try:
             if app.state.db is None:
                 return
+            # Iter 336 — boot stagger.
+            await _asyncio.sleep(30)
             from services import (
                 loop_task_specs as _lts,
                 loop_independent_verifier as _liv,
@@ -562,6 +568,12 @@ async def lifespan(app: FastAPI):
     # so the first message doesn't pay a ~2 s walk cost.
     async def _warm_codebase_index():
         try:
+            # Iter 336 — boot stagger: the 561-file walk is CPU-heavy
+            # under the prod 500m cap; deferring it keeps /health <1s
+            # during the post-deploy readiness window (the flap that
+            # made deploy health checks fail — nginx 1s upstream
+            # timeout + middleware "No response returned").
+            await _asyncio.sleep(45)
             from services.ora_chat import codebase_index as _cb
             r = await _cb.build_index(force=True)
             logger.info("📁 ORA codebase index warm: %s", r)
@@ -667,6 +679,8 @@ async def lifespan(app: FastAPI):
     # listener. Each step logs its own success/failure so operators can
     # still audit boot health from the log stream.
     async def _bg_bootstrap():
+        # Iter 336 — boot stagger: let /health serve cleanly first.
+        await _asyncio.sleep(10)
         # Verify Mongo connectivity (1 ping). Logged but not fatal.
         if app.state.mongo is not None:
             try:
@@ -839,6 +853,14 @@ async def lifespan(app: FastAPI):
     async def _probe_loop_linters():
         import shutil
         import subprocess
+        # Iter 336 — boot stagger: `npm install -g eslint` on a fresh
+        # prod pod is the single heaviest boot operation (60-90 s of
+        # sustained CPU under the 500m cap) and ran at t=0 on EVERY
+        # boot since the base image lacks eslint. It starved the event
+        # loop past nginx's 1 s /health timeout → readiness flap →
+        # deploy health checks reported failure. Defer it well past
+        # the readiness window; Verify soft-skips lint until then.
+        await _asyncio.sleep(120)
         missing_before: list[str] = []
         for binary in ("ruff", "eslint"):
             if not shutil.which(binary):

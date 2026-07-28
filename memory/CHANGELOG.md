@@ -4802,3 +4802,31 @@ STRIPE_STARTER/PRO/TEAM_PRICE_ID in the prod env store to
 `price_1Tfl6W0Exg9gU93tkDkSLvW6` / `price_1Tfl6W0Exg9gU93tdcE2bVRV` /
 `price_1Tfl6X0Exg9gU93tgN57sGap` — integration_health will keep
 flagging the env as broken until then (checkout works via self-heal).
+
+---
+
+## Iter 336 — Boot stagger: prod /health flap during deploys (Jun 28 2026) ✅
+
+Prod logs: nginx `upstream timed out (1s)` on /health + FastAPI
+middleware `RuntimeError: No response returned` right after boot —
+the platform's post-deploy health check hit this flap window and
+reported the deploy as failing (matches deployer RCA secondary
+finding).
+
+**Root cause**: ~25 background tasks all `create_task`ed at t=0 under
+the 500m prod CPU cap. Worst offender: `npm install -g eslint`
+(60-90 s sustained CPU, runs EVERY prod boot since base image lacks
+eslint) + 561-file codebase-index walk + Mongo backfills + the
+integration_health 11-probe burst at t=30 s — event loop starved past
+nginx's 1 s /health proxy timeout.
+
+**Fix (main.py + integration_health_cron.py)**: staggered starts —
+bg_bootstrap +10 s, iter272 indexes +30 s, codebase-index warm +45 s,
+dev_users backfills +60/+75 s, linter install +120 s, first
+integration_health probe burst 30 → 150 s. All consumers of
+`loop_linters_missing` already use getattr/get_state defaults, so the
+120 s unset window is safe. Root `/health` verified constant-time.
+
+Locks: `tests/test_iter336_boot_stagger.py` (5 tests pin the delays +
+/health handler triviality). Verified: /health responds 3-48 ms
+immediately post-boot; 59/59 iter332-335b regression green.
