@@ -4884,3 +4884,27 @@ Founder shared TOTP → full authenticated verification ON PRODUCTION:
 `test_iter337_auth_me_no_secrets.py` (2/2 green vs live backend).
 NOTE: fix is in PREVIEW — prod still leaks until next redeploy.
 Founder creds recorded in memory/test_credentials.md.
+
+## Iter 337 — CLOSURE: security leak fixed + LIVE on prod (Jun 28 2026) ✅✅
+
+RESOLVED. Founder independently verified on production /auth/me (redacted):
+- user.github → only login/avatar_url/connected_at (access_token GONE ✓)
+- mfa_secret GONE ✓ · mfa_backup_codes GONE ✓ · zero sensitive keys
+iter337 strip fix is LIVE. Founder rotated GitHub token + TOTP + backup
+codes as precaution (leak was live ~from MFA feature ship until this deploy).
+
+**Deploy-pipeline learning (important for future agents):**
+- Emergent deploy = working-tree DUMP of the preview pod (NO .git in the
+  build archive), NOT a git-ref build. So "which commit" = whatever files
+  are on disk at deploy trigger.
+- `/version` commit_sha is read from `backend/BUILD_INFO.txt`, regenerated
+  only on preview backend RESTART (version.py `_read_commit` git-rev-parse
+  write-through). It can lag the real code → showed stale `1abaa3e` twice
+  even though the c95dbea code WAS deployed. commit_sha is a LABEL, not
+  proof of what shipped. Verify features by behavior, not by SHA.
+- Fixed the stamp: restarted backend → BUILD_INFO.txt now c95dbeab2a0b.
+- Founder password redacted from memory/test_credentials.md per policy.
+
+**Deferred (unchanged):** iter336b serial-probes live; Section 0 QA sandbox
+(qa-bot account + GitHub secrets) still needed for Auto-QA CI + future
+prod verification should use sandbox, not founder account.
