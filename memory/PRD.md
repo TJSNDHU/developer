@@ -230,3 +230,14 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Backend: pytest under `backend/tests/` — all iter 328 additions have tests
 - Frontend: vitest + RTL under `src/**/__tests__/` and `src/**/*.test.jsx` — 124/124 passing
 - **NEW HARD RULE (added Iter 328)**: for UI regressions, an integration test that chains real wire shape → mapper → real component render is required. Component-level tests alone are insufficient (the exact gap that broke Deploy 2 three times).
+
+## Iter 339 · 2026-07-28 — Production deploy + dual verification
+- Preview smoke test PASS (login, /auth/me + /auth/tokens leak-scan, /version, /health, frontend load)
+- Deployed working-tree snapshot to prod (includes secret_leak_scan in Auto-QA + BUILD_INFO.txt fix)
+- Post-deploy verification (per founder's correction — SHA is a label, not proof):
+  - SHA check: prod /version = 05b5a310ce0a, matches preview ✓
+  - Behavioral proof: ran `_run_secret_leak_scan` manually against prod
+    (/auth/me + /auth/tokens) via new synthetic account qa-scan-bot@aurem.dev
+    → both PASS, no sensitive keys. Raw curl double-check also PASS.
+- New credential: qa-scan-bot@aurem.dev (prod synthetic QA account, see test_credentials.md)
+- Next: Section 0 QA sandbox (user manual steps), Phase 2 Risk-Based Routing, Phase 3 Checkpoints/Rollback
