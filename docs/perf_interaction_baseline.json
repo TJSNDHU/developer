@@ -38,7 +38,13 @@
       "route": "/dev/visual?state=feed-live-events",
       "value_ms": 16.600000001490116,
       "ts": 1784923958608
+    },
+    {
+      "name": "sse-frame-to-dom-commit",
+      "route": "/dev/visual?state=feed-live-events",
+      "value_ms": 16.69999998807907,
+      "ts": 1785211443346
     }
   ],
-  "_last_run": "2026-07-24T20:12:38.608Z"
+  "_last_run": "2026-07-28T04:04:03.347Z"
 }
