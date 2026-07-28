@@ -713,7 +713,11 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId
         fontFamily: "'JetBrains Mono', ui-monospace, monospace",
         fontSize: 11.5,
         color: "#c9cbcf",
-        maxHeight: 220,
+        /* Iter 339c — maxHeight removed: OperationHistory below the
+           scroller has its own bounded 190px pane; a hard 220px cap
+           here made its rows overflow the card and overlap the step
+           bar / composer (founder's prod screenshot). The narration
+           scroller keeps its own 175px cap. */
         display: "flex", flexDirection: "column",
       }}
     >

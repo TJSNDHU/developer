@@ -440,7 +440,8 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
     }
   }, []);
 
-  const onExpand   = useCallback((loopId) => setExpandedId(loopId), []);
+  const onExpand   = useCallback((key) =>
+    setExpandedId((cur) => (cur === key ? null : key)), []);
   const onCollapse = useCallback(() => setExpandedId(null),         []);
 
   // Iter 339 — history-row rollback (two-click confirm, 10s window).
@@ -480,6 +481,13 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
 
   const items = useMemo(() => history || [], [history]);
 
+  // Iter 339c — bounded, collapsible list. The founder's prod
+  // screenshot showed 20+ rows spilling out of the LiveFeed card and
+  // overlapping the step bar / composer. Default shows the 5 most
+  // recent ops; "Show all" expands within a scrollable 190px pane.
+  const [showAll, setShowAll] = useState(false);
+  const visibleItems = showAll ? items : items.slice(0, 5);
+
   // Loop ids that already have a rollback op (row or live) — their
   // ship rows must NOT offer the rollback button.
   const rolledBackIds = useMemo(() => {
@@ -491,37 +499,75 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
     return s;
   }, [history, currentOp]);
 
+  const opKey = (o) => `${o.loop_id}::${o.op_type}`;
+
   return (
     <div
       data-testid="operation-history-root"
-      style={{ display: "flex", flexDirection: "column" }}
+      style={{ display: "flex", flexDirection: "column", minWidth: 0 }}
     >
-      {items.map((op, i) => (
-        expandedId === op.loop_id ? (
-          <ExpandedOp
-            key={`${op.loop_id}-${op.op_type}-${i}`}
-            op={op}
-            onCollapse={onCollapse}
-            collapsible
-          />
-        ) : (
-          <CollapsedOpRow
-            key={`${op.loop_id}-${op.op_type}-${i}`}
-            op={op}
-            onExpand={onExpand}
-            rb={(op.op_type === "ship" && op.state === "completed"
-                 && op.commit_sha && !rolledBackIds.has(op.loop_id))
-              ? {
-                  phase: (rbState && rbState.loopId === op.loop_id)
-                    ? rbState.phase : "idle",
-                  error: (rbState && rbState.loopId === op.loop_id)
-                    ? rbState.error : null,
-                  onClick: handleRowRollback,
-                }
-              : null}
-          />
-        )
-      ))}
+      {items.length > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "4px 12px 2px 12px",
+          fontSize: 10, letterSpacing: ".08em",
+          color: "#6e7681", textTransform: "uppercase",
+        }}>
+          <span data-testid="op-history-header">
+            Ops history · {items.length}
+          </span>
+          <span style={{ flex: 1 }} />
+          {items.length > 5 && (
+            <button
+              type="button"
+              data-testid="op-history-toggle-show-all"
+              onClick={() => setShowAll((v) => !v)}
+              style={{
+                appearance: "none", background: "transparent",
+                border: "none", color: "#8b949e", cursor: "pointer",
+                fontFamily: "inherit", fontSize: 10,
+                textTransform: "uppercase", letterSpacing: ".06em",
+                padding: 0, textDecoration: "underline",
+              }}
+            >
+              {showAll ? "Show recent" : `Show all (${items.length})`}
+            </button>
+          )}
+        </div>
+      )}
+      {items.length > 0 && (
+        <div
+          data-testid="op-history-scroll-pane"
+          style={{ maxHeight: 190, overflowY: "auto", minWidth: 0 }}
+        >
+        {visibleItems.map((op, i) => (
+          expandedId === opKey(op) ? (
+            <ExpandedOp
+              key={`${op.loop_id}-${op.op_type}-${i}`}
+              op={op}
+              onCollapse={onCollapse}
+              collapsible
+            />
+          ) : (
+            <CollapsedOpRow
+              key={`${op.loop_id}-${op.op_type}-${i}`}
+              op={op}
+              onExpand={() => onExpand(opKey(op))}
+              rb={(op.op_type === "ship" && op.state === "completed"
+                   && op.commit_sha && !rolledBackIds.has(op.loop_id))
+                ? {
+                    phase: (rbState && rbState.loopId === op.loop_id)
+                      ? rbState.phase : "idle",
+                    error: (rbState && rbState.loopId === op.loop_id)
+                      ? rbState.error : null,
+                    onClick: handleRowRollback,
+                  }
+                : null}
+            />
+          )
+        ))}
+        </div>
+      )}
       {currentOp && (
         <ExpandedOp
           op={currentOp}

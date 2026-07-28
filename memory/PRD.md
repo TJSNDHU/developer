@@ -253,3 +253,8 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Console tracing added to ShippedRow + OperationHistory click handlers ([rollback] / [op-history rollback] debug lines) — next prod attempt is diagnosable.
 - Testing: 2 Playwright E2E flows on preview PASS, 226/226 vitest unit tests PASS.
 - NOT YET DEPLOYED — founder must trigger deploy; then rollback cc60342 via history row.
+
+## Iter 339c · 2026-07-29 — Ops timeline layout fix (founder prod screenshot)
+- Bug: 20+ history rows spilling out of LiveFeed card (maxHeight 220 overflow) — overlapping step bar/composer/human-review card; expand/collapse unreliable due to overlap.
+- Fixes: (1) OperationHistory list now bounded — header "OPS HISTORY · N", shows 5 recent, "Show all (N)" toggle, 190px scroll pane. (2) LoopLiveFeed root maxHeight removed (narration scroller keeps own 175px cap). (3) Expand keyed by loop_id::op_type (ship/rollback no longer co-expand); row click toggles expand/collapse.
+- Tested: Playwright E2E (standalone + demo feed) PASS, 230/230 vitest PASS. Deploy pending.
