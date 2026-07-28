@@ -634,3 +634,4 @@ History claimed these shipped ~Iter 114-115. Live-codebase evidence
 - `ENABLE_EVAL_CRON` — auto-detected in backend/routers/admin.py (verify) (default: unset) [Iter 0, 2026-07-28T06:29:25.601105Z] <!-- inv:envvar:ENABLE_EVAL_CRON -->
 - `ORA_LEARNING_DISABLED` — auto-detected in backend/routers/admin.py (verify) (default: unset) [Iter 0, 2026-07-28T06:29:25.601117Z] <!-- inv:envvar:ORA_LEARNING_DISABLED -->
 - `services/tool_executor.py` — auto-detected new service (verify) · status=wired [Iter 0, 2026-07-28T06:29:25.601127Z] <!-- inv:service:services/tool_executor.py -->
+- `loop_run_log kind='skipped_at_ship'` — auto-detected in backend/services/loop_engine.py (verify) [Iter 0, 2026-07-28T17:41:08.528452Z] <!-- inv:loop_run_log_kind:skipped_at_ship -->

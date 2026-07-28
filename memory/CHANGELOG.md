@@ -4645,3 +4645,48 @@ failures confirmed PRE-EXISTING stale tests (eng.db=None vs Iter
 212m-177 claim code; loop_stream missing `request` arg).
 
 > **Deployment note**: PREVIEW only — user must redeploy auremcto.com.
+
+---
+
+## Iter 333 — Phase 1: Persistent Correction Rules, shadow-first (Jun 28 2026) ✅ preview-verified
+
+Locked design honored (binding founder corrections): NO LLM
+correction-detection, manual `/rule` slash command only,
+`applies_to_paths` globs, MAX 10 rules per prompt, per-project enforce
+toggle DEFAULT OFF (= shadow), instrumented metric mandatory.
+
+Shipped:
+- NEW `services/correction_rules.py` — CRUD + `match_rules` (fnmatch,
+  cap 10, oldest-first deterministic) + `build_rules_block` (enforce
+  prompt block) + `record_rule_events` (metric rows +
+  hits/last_hit_at counters) + `rule_report` aggregation +
+  per-project enforce settings (`correction_rule_settings`).
+- `/rule` slash command (add|list|delete|on|off|report) registered in
+  `safety.KNOWN_COMMANDS` + dispatch + /help row (iter298 drift test
+  green). Documented WRITE exception: caller-scoped docs only.
+- `loop_engine._do_execute` hook — loads active rules once per loop,
+  matches against plan paths, writes shadow events + one narration
+  line ("N correction rule(s) matched (shadow)"), and ONLY injects
+  the rules block into per-file executor task_text when enforce is ON.
+  Entire hook fail-open (try/except, never blocks a loop).
+- Collections: correction_rules, correction_rule_settings,
+  correction_rule_events.
+
+Verification:
+- `tests/test_iter333_correction_rules.py` — 22/22 green, REAL local
+  Mongo behavioral tests (founder standing rule) + engine source locks.
+- iter298 slash regression 22/22 green; loop suites (iter332/331/318/
+  309-phase03) 54/54 green.
+- Preview E2E via real JWT login + `/api/aurem-dev/ora-chat/slash`:
+  add → rule_id returned; list → shadow mode shown; on/off toggle;
+  report → counts; delete → cleaned up. Raw JSON captured in session.
+
+**NOT yet live-verified**: shadow narration line during a REAL loop run
+(needs a founder loop on a project with ≥1 rule). Prod deploy pending.
+
+## Iter 332 deploy note (Jun 28 2026): redeploy completed by deployer
+agent (`Live at: https://auremcto.com`) BUT post-deploy smoke found
+/api/* returning Cloudflare 520 (origin down) for 10+ min while the
+static frontend loads. Same code healthy on preview. Deployer debug
+dispatched — RCA pending. Do NOT claim iter332 live until /api/health
+200 + founder ship-gate smoke passes.

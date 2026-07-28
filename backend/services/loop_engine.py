@@ -1213,7 +1213,44 @@ class LoopEngine:
                     self.loop_id,
                 )
                 generated = []
+                _cr, _cr_rules, _cr_mode = None, [], "shadow"
             else:
+                # ── Iter 333 · Phase 1 — Persistent Correction Rules ──
+                # Shadow-first: match founder-set rules against the
+                # plan's file paths, log matches to
+                # correction_rule_events (the instrumented metric) and
+                # ONLY inject into the executor prompt when the
+                # per-project enforce toggle is ON (default OFF).
+                # Fail-open — a rules hiccup must never block a loop.
+                _cr, _cr_rules, _cr_mode = None, [], "shadow"
+                try:
+                    from services import correction_rules as _cr_mod
+                    _cr_rules = await _cr_mod.load_active_rules(
+                        self.db, self.user_id, self.project_id)
+                    if _cr_rules:
+                        _cr = _cr_mod
+                        _cr_mode = ("enforce" if await _cr_mod.get_enforce(
+                            self.db, self.user_id, self.project_id)
+                            else "shadow")
+                        _cr_matches = _cr_mod.match_rules(_cr_rules, paths)
+                        if _cr_matches:
+                            await _cr_mod.record_rule_events(
+                                self.db, loop_id=self.loop_id,
+                                user_id=self.user_id,
+                                project_id=self.project_id,
+                                phase="execute", matches=_cr_matches,
+                                mode=_cr_mode)
+                            await self._narrate(
+                                step="execute", tone="success",
+                                text=(f"{len(_cr_matches)} correction "
+                                      f"rule(s) matched ({_cr_mode})"),
+                                correlation_id="execute:correction_rules",
+                            )
+                except Exception as _cr_err:                  # noqa: BLE001
+                    logger.warning(
+                        "[loop %s] correction rules skipped: %r",
+                        self.loop_id, _cr_err)
+                    _cr, _cr_rules = None, []
                 from services.loop_execute import (
                     MAX_PARALLEL_GENS, PER_FILE_TIMEOUT_S,
                 )
@@ -1276,7 +1313,13 @@ class LoopEngine:
                         task_text = (
                             f"USER REQUEST:\n{self.user_message}\n\n"
                             f"APPROVED PLAN:\n{plan_title}\n{plan_bullets}\n\n"
-                            f"FILE PATH: {path}\n\n"
+                            # Iter 333 · Phase 1 — enforce-mode rules
+                            # block (empty string in shadow mode).
+                            + (_cr.build_rules_block(
+                                   _cr.match_rules(_cr_rules, [path]))
+                               if (_cr is not None
+                                   and _cr_mode == "enforce") else "")
+                            + f"FILE PATH: {path}\n\n"
                             f"--- CURRENT CONTENT ({len(current)} bytes) ---\n"
                             f"{current}\n"
                             f"--- END CURRENT CONTENT ---\n\n"

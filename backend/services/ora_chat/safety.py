@@ -62,6 +62,7 @@ KNOWN_COMMANDS: tuple[str, ...] = (
     "read",
     "defs",
     "loop-stats",
+    "rule",
     "help",
 )
 

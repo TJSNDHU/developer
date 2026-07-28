@@ -156,6 +156,7 @@ async def _help(ctx: dict, _args: str) -> dict:
             {"cmd": "/read <path>",            "desc": "Read a repo file (first 200 lines)"},
             {"cmd": "/defs <name>",            "desc": "Where is a function/class defined?"},
             {"cmd": "/loop-stats [id]",        "desc": "Real per-phase durations for a loop run (defaults to your latest)"},
+            {"cmd": "/rule add|list|delete|on|off|report", "desc": "Persistent correction rules (Phase 1, shadow-first)"},
             {"cmd": "/help",                   "desc": "This list"},
         ],
     }
@@ -333,6 +334,84 @@ async def _loop_stats(ctx: dict, args: str) -> dict:
     }
 
 
+# ─── Persistent Correction Rules (Iter 333 · Phase 1) ────────────
+# WRITE exception to this module's read-only rule: founder-approved
+# Phase 1 design mandates rule management via manual slash command.
+# All writes are scoped to the CALLER's own docs (user_id from the
+# authenticated JWT ctx — never from the command string).
+_RULE_USAGE = [
+    {"cmd": "/rule add <instruction> [paths: src/*, *.py]",
+     "desc": "Add a persistent correction rule"},
+    {"cmd": "/rule list",            "desc": "List your rules for the active project"},
+    {"cmd": "/rule delete <id>",     "desc": "Delete a rule by id"},
+    {"cmd": "/rule on | /rule off",  "desc": "Enforce mode toggle (default OFF = shadow)"},
+    {"cmd": "/rule report",          "desc": "Match metrics (hits, loops affected)"},
+]
+
+
+async def _rule(ctx: dict, args: str) -> dict:
+    from services import correction_rules as cr
+    db = get_db()
+    if db is None:
+        return {"ok": False, "error": "database_unavailable"}
+    user_id = (ctx or {}).get("user_id")
+    if not user_id:
+        return {"ok": False, "error": "unauthenticated"}
+    project_id = await cr.resolve_active_project(db, user_id)
+    sub, _, rest = (args or "").strip().partition(" ")
+    sub, rest = sub.lower(), rest.strip()
+
+    if sub == "add":
+        instruction, globs = cr.parse_add_args(rest)
+        res = await cr.add_rule(db, user_id, project_id, instruction, globs)
+        if not res.get("ok"):
+            return {"ok": False, "command": "rule", **res}
+        r = res["rule"]
+        return {"ok": True, "command": "rule",
+                "metric": "Correction rule added (shadow mode until /rule on)",
+                "value": {"rule_id": r["rule_id"],
+                           "instruction": r["instruction"],
+                           "applies_to_paths": r["applies_to_paths"] or ["<all files>"],
+                           "project_id": project_id}}
+
+    if sub == "list":
+        rules = await cr.list_rules(db, user_id, project_id)
+        enforce = await cr.get_enforce(db, user_id, project_id)
+        return {"ok": True, "command": "rule",
+                "metric": f"Correction rules ({'ENFORCE' if enforce else 'shadow'} mode)",
+                "value": [{"rule_id": r["rule_id"],
+                            "instruction": r["instruction"],
+                            "paths": r.get("applies_to_paths") or ["<all>"],
+                            "hits": r.get("hits", 0)} for r in rules]
+                          or "No rules yet — /rule add <instruction>"}
+
+    if sub == "delete":
+        if not rest:
+            return {"ok": False, "command": "rule", "error": "missing_rule_id",
+                    "hint": "Usage: /rule delete <rule_id>"}
+        deleted = await cr.delete_rule(db, user_id, rest.split()[0])
+        return {"ok": deleted, "command": "rule",
+                "metric": "Rule deleted" if deleted else "Rule not found",
+                "value": rest.split()[0]}
+
+    if sub in ("on", "off"):
+        await cr.set_enforce(db, user_id, project_id, sub == "on")
+        return {"ok": True, "command": "rule",
+                "metric": "Enforce mode " + ("ON — rules now injected into "
+                          "executor prompts (max 10)" if sub == "on"
+                          else "OFF — shadow mode (matches logged only)"),
+                "value": {"enforce": sub == "on", "project_id": project_id}}
+
+    if sub == "report":
+        rep = await cr.rule_report(db, user_id, project_id)
+        return {"ok": True, "command": "rule",
+                "metric": "Correction rule match report", "value": rep}
+
+    return {"ok": True, "command": "rule",
+            "metric": "Usage — persistent correction rules",
+            "value": _RULE_USAGE}
+
+
 # Dispatch registry — every command in `safety.KNOWN_COMMANDS` MUST
 # have an entry here. The API layer enforces the pairing.
 DISPATCH: dict[str, SlashHandler] = {
@@ -347,6 +426,7 @@ DISPATCH: dict[str, SlashHandler] = {
     "read":                   _read,
     "defs":                   _defs,
     "loop-stats":             _loop_stats,
+    "rule":                   _rule,
     "help":                   _help,
 }
 
