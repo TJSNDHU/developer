@@ -178,16 +178,6 @@ export function TopBar({
           </>
         ) : null}
 
-        {/* Iter 330 — F12 + ModePill slot. Sits between health-ring
-            and streak so it's visible in the header without crowding
-            the "New run" button (safe placement per founder ask). */}
-        {statusSlot && (
-          <>
-            {statusSlot}
-            <div className="h-5 w-px bg-border" />
-          </>
-        )}
-
         {streakSlot && (
           <>
             {streakSlot}
@@ -215,6 +205,20 @@ export function TopBar({
             {tab === id && <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />}
           </button>
         ))}
+        {/* Iter 330 — F12 + ModePill slot moved from the header top
+            row (which was already crowded: mode-toggle + health +
+            streak + new-run) into this tabs row, right-aligned.
+            Empty space here is otherwise unused, so this is the
+            safe "not crowding anything else" location per founder
+            correction on the previous placement attempt. */}
+        {statusSlot && (
+          <div
+            className="ml-auto flex items-end pb-[6px] pr-1"
+            data-testid="topbar-status-slot-wrap"
+          >
+            {statusSlot}
+          </div>
+        )}
       </div>
     </header>
   );
