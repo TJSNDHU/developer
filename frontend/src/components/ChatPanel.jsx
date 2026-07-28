@@ -1076,6 +1076,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         if (cancelled) return;
         const turns = r.data?.messages || [];
         if (turns.length === 0) {
+          // Iter 330 root-fix — only paint WELCOME on a CONFIRMED empty
+          // session (server returned OK with no turns). Never on error.
           setMessages([WELCOME]);
         } else {
           setMessages(turns.map((t) => ({
@@ -1105,7 +1107,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           }
         }
       })
-      .catch(() => !cancelled && setMessages([WELCOME]))
+      .catch((err) => {
+        // Iter 330 root-fix — do NOT overwrite messages with [WELCOME]
+        // on API errors. That was the actual "chat vanishing on
+        // refresh" trigger: any transient failure (session-switch
+        // race, 401 during token refresh, aborted fetch when a new
+        // sessionId lands mid-flight, 5xx, ECONNRESET, etc.) blanked
+        // the entire visible chat. Preserve existing messages state
+        // on error — the user sees stale-but-non-blank history
+        // instead of a wipe. A retry can be surfaced via toast; for
+        // now, silent preservation matches the "never lose visible
+        // data on a network hiccup" invariant.
+        if (cancelled) return;
+        // Console-only diagnostic so we can spot this in production
+        // logs if it starts happening. Not user-visible.
+        try {
+          // eslint-disable-next-line no-console
+          console.warn("[chat/history] fetch failed, preserving current messages:",
+                        err?.response?.status, err?.message);
+        } catch { /* ignore */ }
+      })
       .finally(() => !cancelled && setLoadingHistory(false));
     return () => { cancelled = true; };
   }, [sessionId]);

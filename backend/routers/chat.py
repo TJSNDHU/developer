@@ -2940,11 +2940,14 @@ async def chat_history(
     session_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ) -> dict:
-    """Return last 100 turns of a session for the current user.
-    Iter 212m-109 — bumped from 20 → 100. Loop runs emit 8-15 turns each
-    (plan, per-file execute events, verify, scan, ship), so 20 turns
-    truncated after just 2-3 runs and earlier user messages disappeared
-    on reload — user reported it as 'chat history not persisting'."""
+    """Return last 200 turns of a session for the current user.
+    Iter 330 root-fix — bumped 100 → 200 to align with the write-side
+    `$slice: -200` cap (see POST /chat/history). Previously the write
+    kept up to 200 turns in Mongo but this read only returned the last
+    100, so anything between positions -200 and -100 silently vanished
+    on every refresh once the user crossed the 100-turn threshold —
+    which happens after ~7 loop-mode runs at 15 turns/loop. The user
+    reported this as 'older chats disappear after refresh'."""
     user = await current_dev(authorization)
     db = get_db()
     if db is None or not session_id:
@@ -2953,7 +2956,7 @@ async def chat_history(
         {"session_id": session_id, "user_id": user["user_id"]},
         {"_id": 0, "turns": 1, "title": 1},
     )
-    turns = ((doc or {}).get("turns") or [])[-100:]
+    turns = ((doc or {}).get("turns") or [])[-200:]
     return {
         "ok": True,
         "messages": turns,
