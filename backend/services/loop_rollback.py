@@ -1,4 +1,4 @@
-"""services/loop_rollback.py — Iter 329 · Deploy 3-A
+"""services/loop_rollback.py — Iter 329 · Deploy 3-A · Iter 330 · SSE
 
 Real, non-force-push, history-preserving revert of a loop's shipped
 GitHub commit. Wires the same `github_api_writer.revert_commit`
@@ -13,18 +13,119 @@ was dead-clickable for every loop-mode ship (it pointed at
 the new `POST /loop/{loop_id}/rollback` route give loop-mode a REAL
 rollback path for the first time.
 
+Iter 330 · SSE Integration
+--------------------------
+Rollback progress now emits onto the same SSE plumbing ship events
+use — via `sse_replay_buffer.record()` + `loop_sessions.last_event`
+Mongo write. Consumers (frontend `OperationHistory`) reopen the
+existing `GET /loop/{loop_id}/stream` after ship-terminal and the
+engine=None Mongo-poll branch delivers rollback events with
+`phase="rollback"`.
+
+Architectural note (documented after cross-checking loop_engine
+lifecycle): the LoopEngine has already **self-deregistered** from
+`_LIVE` by the time rollback fires (loop is COMPLETED). Therefore
+`eng.lookup(loop_id).queue` is NOT available for rollback — the
+live-queue path is impossible. The record+last_event path IS the
+only viable delivery mechanism, and it's the same fallback the
+existing `/stream` endpoint already uses for cross-worker cases.
+
 Public surface:
     run_rollback(db, loop_id, project, commit_sha, user_token) → None
         Background-task worker. Fire-and-forget; persists progress
-        onto `loop_sessions.rollback_*` fields. Never raises.
+        onto `loop_sessions.rollback_*` fields AND emits SSE events.
+        Never raises.
 """
 from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _emit_rollback_event(
+    db,
+    loop_id: str,
+    step: int,
+    total_steps: int,
+    message: str,
+    data: Optional[dict] = None,
+    state_str: str = "executing",
+) -> None:
+    """Iter 330 · rollback SSE emit.
+
+    Uses the same wire shape as ship events (`_new_event` in
+    loop_engine.py) so frontend consumers can flow both through
+    the same `/loop/{id}/stream` endpoint, differentiating only
+    by `phase == "rollback"`.
+
+    Delivery mechanism (per Iter 330 architecture note above):
+      1. sse_replay_buffer.record() — synchronous ring-buffer store
+         with seq assignment, so reconnecting clients replay any
+         missed rollback events via Last-Event-ID.
+      2. loop_sessions.last_event Mongo write — so the /stream
+         endpoint's engine=None Mongo-poll branch picks up
+         rollback events every ~2s (cross-worker friendly).
+
+    Never raises: rollback correctness must never depend on the
+    telemetry channel being healthy. `pass`-on-exception mirrors
+    the fail-open discipline the engine itself uses.
+    """
+    if db is None:
+        return
+    try:
+        # Import lazily to avoid circular imports (loop_engine imports
+        # things that indirectly touch this module's caller chain).
+        from services.loop_engine import _new_event, LoopState
+        from services import sse_replay_buffer as _sse_buf
+
+        # Map string → LoopState enum member. Fallback keeps us fail-
+        # open if the caller passes an unknown value.
+        state_enum = {
+            "executing": LoopState.EXECUTING,
+            "completed": LoopState.COMPLETED,
+            "failed":    LoopState.FAILED,
+        }.get((state_str or "executing").lower(), LoopState.EXECUTING)
+
+        ev = _new_event(
+            loop_id=loop_id,
+            state=state_enum,
+            phase="rollback",
+            step=step,
+            total_steps=total_steps,
+            message=message,
+            data=data or {},
+        )
+        # (1) replay buffer — sync API returns (seq, id_str); we
+        # don't need the return values here, they're used by the
+        # /stream endpoint when it builds the SSE `id:` line.
+        try:
+            _sse_buf.record(loop_id, ev)
+        except Exception as e:                                  # noqa: BLE001
+            logger.debug("[loop-rollback %s] replay record failed: %r",
+                         loop_id, e)
+
+        # (2) Mongo last_event — same field the ship pipeline writes
+        # via _persist_session; /stream's engine=None poll reads
+        # this every ~2s and streams changes to the client.
+        try:
+            await db.loop_sessions.update_one(
+                {"loop_id": loop_id},
+                {"$set": {"last_event": ev, "updated_at": _iso()}},
+            )
+        except Exception as e:                                  # noqa: BLE001
+            logger.debug("[loop-rollback %s] last_event write failed: %r",
+                         loop_id, e)
+    except Exception as e:                                      # noqa: BLE001
+        # Absolute fail-open: SSE emit must NEVER break rollback.
+        logger.debug("[loop-rollback %s] emit skipped: %r", loop_id, e)
 
 
 async def _set_fields(db, loop_id: str, **fields) -> None:
@@ -91,8 +192,25 @@ async def run_rollback(
         return (s or "").replace(user_token or "", "***PAT***") \
             if user_token else (s or "")
 
+    # Iter 330 · running step counter for SSE emits. Total is unknown
+    # up front (gh_api_revert fires its own progress callbacks) so we
+    # bump `total` to match `step` on every call — frontend sees an
+    # honest running count instead of a fake percentage. The final
+    # terminal emit carries the true final count.
+    _step_ctr = {"n": 0}
+
     async def _prog(step: str, status: str = "info"):
         await _log_step(db, loop_id, step, status)
+        # Iter 330 — mirror onto SSE. Fail-open by design.
+        _step_ctr["n"] += 1
+        n = _step_ctr["n"]
+        await _emit_rollback_event(
+            db=db, loop_id=loop_id,
+            step=n, total_steps=n,
+            message=step,
+            data={"status": status},
+            state_str="executing",
+        )
 
     await _set_fields(
         db, loop_id,
@@ -136,6 +254,22 @@ async def run_rollback(
             rollback_completed_at=time.time(),
         )
         await _prog(f"reverted → {(rb_sha or '')[:7]}", "success")
+        # Iter 330 · terminal SSE emit — carries state="completed"
+        # which the frontend consumer uses to close its OperationHistory
+        # live-op card and add it to the collapsed history stack. Also
+        # carries commit_sha + html_url so the UI can link to the revert.
+        _n = _step_ctr["n"]
+        await _emit_rollback_event(
+            db=db, loop_id=loop_id,
+            step=_n, total_steps=_n,
+            message=f"Rollback finished — reverted to {(rb_sha or '')[:7]}",
+            data={
+                "commit_sha": rb_sha,
+                "html_url":   rb_html_url,
+                "status":     "success",
+            },
+            state_str="completed",
+        )
         logger.info(
             "[loop-rollback %s] SUCCESS · reverted %s → %s",
             loop_id, commit_sha, rb_sha,
@@ -149,4 +283,15 @@ async def run_rollback(
             rollback_status="failed",
             rollback_error=safe,
             rollback_completed_at=time.time(),
+        )
+        # Iter 330 · terminal SSE emit — carries state="failed"
+        # + the scrubbed error string so the frontend can display it
+        # without needing a second Mongo poll.
+        _n = _step_ctr["n"]
+        await _emit_rollback_event(
+            db=db, loop_id=loop_id,
+            step=_n, total_steps=_n,
+            message="Rollback failed",
+            data={"error": safe, "status": "error"},
+            state_str="failed",
         )

@@ -26,6 +26,7 @@ import json
 import os
 import time
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
@@ -554,7 +555,8 @@ async def loop_stream(loop_id: str,
                 # confirm (the mobile "ship button never appeared" bug).
                 doc = await db.loop_sessions.find_one(
                     {"loop_id": loop_id},
-                    {"_id": 0, "last_event": 1, "state": 1})
+                    {"_id": 0, "last_event": 1, "state": 1,
+                     "rollback_status": 1})
                 if not doc:
                     break
                 mev = doc.get("last_event") or {}
@@ -571,6 +573,18 @@ async def loop_stream(loop_id: str,
                 else:
                     yield ": keepalive\n\n"
                 if (doc.get("state") or "").lower() in _TERMINAL:
+                    # Iter 330 — hold stream open ONLY while a rollback
+                    # is in flight. Rollback emits reach this poll via
+                    # `services.loop_rollback._emit_rollback_event`
+                    # writing `last_event` on the same session doc.
+                    # Once rollback reaches done/failed OR never
+                    # started, break normally — original behaviour.
+                    # STREAM_MAX_S hard cap remains as belt-and-braces
+                    # so a caller who opens the stream and never fires
+                    # the /rollback POST cannot leak past ~20 min.
+                    _rb = str(doc.get("rollback_status") or "").lower()
+                    if _rb in ("queued", "running"):
+                        continue
                     break
         finally:
             # Iter 309 · Batch-2 Item 6 (bug_verify_315 fix) — do NOT
@@ -895,6 +909,135 @@ async def rollback_loop(
         "rollback_status": "queued",
         "commit_sha":      full_sha,
     }
+
+
+# ── Iter 330 — Operation history for auto-collapsing UI ──────────────
+#
+# Frontend `OperationHistory` renders a stacked timeline of past ship/
+# rollback ops per project. This endpoint returns up to `limit` recent
+# terminal-state loop sessions, splitting each into 1-2 items:
+#   • one "ship" item for the loop's terminal ship state
+#   • one additional "rollback" item if `rollback_status` is set
+#
+# Sorted newest-first by `updated_at`. Query capped at `limit*2`
+# candidate sessions since each may yield up to 2 items; we then
+# truncate the flattened item list to exactly `limit`.
+#
+# Read-only. Auth: same `current_dev` pattern as every other
+# /loop endpoint. Scoped to `user_id + project_id` so users cannot
+# read another user's history.
+@router.get("/history")
+async def loop_history(
+    project_id: str,
+    limit: int = 20,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    user = await current_dev(authorization)
+    db = get_db()
+    if db is None:
+        raise HTTPException(503, "DB unavailable")
+
+    if not project_id or len(project_id) > 200:
+        raise HTTPException(400, "project_id required")
+    lim = max(1, min(int(limit or 20), 100))
+
+    # Fetch up to lim*2 candidates — some produce 2 items, some 1.
+    cursor = db.loop_sessions.find(
+        {
+            "user_id":    user["user_id"],
+            "project_id": project_id,
+            "state":      {"$in": ["completed", "failed", "aborted"]},
+        },
+        {
+            "_id":                    0,
+            "loop_id":                1,
+            "state":                  1,
+            "created_at":             1,
+            "updated_at":             1,
+            "context.commit":         1,
+            "rollback_status":        1,
+            "rollback_started_at":    1,
+            "rollback_completed_at":  1,
+            "rollback_sha":           1,
+            "rollback_html_url":      1,
+            "rollback_error":         1,
+            "rollback_steps":         1,
+            "error":                  1,
+        },
+    ).sort("updated_at", -1).limit(lim * 2)
+
+    def _iso_or_ts(v):
+        # Sessions store timestamps in mixed formats (ISO string from
+        # engine emits, float from rollback code paths). Normalize to
+        # ISO for the frontend.
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
+        return str(v)
+
+    items: list = []
+    async for sess in cursor:
+        commit = ((sess.get("context") or {}).get("commit")) or {}
+        ship_sha  = commit.get("full_sha") or commit.get("sha")
+        ship_url  = commit.get("html_url")
+        loop_id   = sess.get("loop_id")
+        session_state = sess.get("state")
+
+        # (1) Ship item — always emitted for a terminal loop session.
+        items.append({
+            "loop_id":      loop_id,
+            "op_type":      "ship",
+            "state":        session_state,
+            "started_at":   _iso_or_ts(sess.get("created_at")),
+            "finished_at": _iso_or_ts(sess.get("updated_at")),
+            "final_status": session_state,
+            "all_passed":   session_state == "completed",
+            "step_count":   0,  # ship step_count not tracked in schema; frontend renders 0 as "—"
+            "commit_sha":   ship_sha,
+            "html_url":     ship_url,
+            "error":        sess.get("error") if session_state != "completed" else None,
+            "steps":        [],
+        })
+
+        # (2) Rollback item — only if a rollback was ever fired.
+        rb_status = sess.get("rollback_status")
+        if rb_status:
+            rb_steps_raw = sess.get("rollback_steps") or []
+            rb_steps = [
+                {
+                    "label":  s.get("step", ""),
+                    "status": (
+                        "failed" if (s.get("status") == "error")
+                        else "done"
+                    ),
+                }
+                for s in rb_steps_raw
+            ]
+            # Map rollback_status → frontend `state` enum values.
+            rb_terminal = {
+                "done":    "completed",
+                "failed":  "failed",
+                "queued":  "running",
+                "running": "running",
+            }.get(str(rb_status).lower(), "running")
+            items.append({
+                "loop_id":      loop_id,
+                "op_type":      "rollback",
+                "state":        rb_terminal,
+                "started_at":   _iso_or_ts(sess.get("rollback_started_at")),
+                "finished_at": _iso_or_ts(sess.get("rollback_completed_at")),
+                "final_status": rb_terminal,
+                "all_passed":   rb_terminal == "completed",
+                "step_count":   len(rb_steps),
+                "commit_sha":   sess.get("rollback_sha"),
+                "html_url":     sess.get("rollback_html_url"),
+                "error":        sess.get("rollback_error"),
+                "steps":        rb_steps,
+            })
+
+    # Truncate to caller's requested limit AFTER flattening.
+    return {"ok": True, "items": items[:lim]}
 
 
 # ── Iter 282 — deploy-verification diagnostics endpoint ─────────────
