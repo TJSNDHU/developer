@@ -56,6 +56,7 @@ import { logout, getUser } from "../lib/api";
 
 // v2 chrome
 import { TopBar }       from "../components/dashboard/v2/TopBar";
+import TopBarStatusSlot from "../components/TopBarStatusSlot";
 import SidebarV2Bound   from "../components/dashboard/v2/SidebarBound";
 import AskAdvisorReal   from "../components/dashboard/v2/AskAdvisorReal";
 
@@ -661,6 +662,7 @@ function DashboardV2Body() {
             hasRepo={!!activeProject}
             healthScore={healthScore}
             healthScoreLoading={healthScoreLoading}
+            statusSlot={<TopBarStatusSlot />}
             streakSlot={
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <ShipStreakWidget />

@@ -80,6 +80,12 @@ export function TopBar({
   healthScoreLoading = false,
   // Iter 212m-89 — optional slot for the ShipStreakWidget chip
   streakSlot = null,
+  // Iter 330 — slot for the F12 error strip + ModePill, previously
+  // rendered as `composer-status-bar` beside the input. Moved here
+  // per founder screenshot request. Sits between the mode-toggle
+  // pill row and the healthRing/streak block so it's visible but
+  // not adjacent to "New run" (safe placement).
+  statusSlot = null,
   // Iter 212m-192 — Preview/Graph tabs + "New run" hidden until a repo
   // is connected; they appear automatically once one is.
   hasRepo = true,
@@ -171,6 +177,16 @@ export function TopBar({
             <div className="h-5 w-px bg-border" />
           </>
         ) : null}
+
+        {/* Iter 330 — F12 + ModePill slot. Sits between health-ring
+            and streak so it's visible in the header without crowding
+            the "New run" button (safe placement per founder ask). */}
+        {statusSlot && (
+          <>
+            {statusSlot}
+            <div className="h-5 w-px bg-border" />
+          </>
+        )}
 
         {streakSlot && (
           <>

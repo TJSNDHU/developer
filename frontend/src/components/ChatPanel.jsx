@@ -293,6 +293,34 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const f12 = useF12Errors();
   const [detectedMode, setDetectedMode] = useState(null);
   const [serverMode,   setServerMode]   = useState(null);
+
+  // Iter 330 — broadcast composer status (detectedMode + serverMode)
+  // to the header so <TopBarStatusSlot /> can render the ModePill in
+  // the app header instead of beside the composer. Fires whenever
+  // either value changes, plus one on-demand rebroadcast when the
+  // slot mounts LATER than ChatPanel and requests a snapshot.
+  useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent("aurem:composer-status", {
+        detail: { detectedMode, serverMode },
+      }));
+    } catch { /* noop */ }
+  }, [detectedMode, serverMode]);
+  useEffect(() => {
+    const onRequest = () => {
+      try {
+        window.dispatchEvent(new CustomEvent("aurem:composer-status", {
+          detail: { detectedMode, serverMode },
+        }));
+      } catch { /* noop */ }
+    };
+    window.addEventListener("aurem:composer-status-request", onRequest);
+    return () => window.removeEventListener("aurem:composer-status-request", onRequest);
+  }, [detectedMode, serverMode]);
+  // Iter 330 — F12 action listeners moved further down (after taRef
+  // + lastF12PayloadRef are declared). See the useEffect block after
+  // taRef around line ~395 in this file. Split here to avoid TDZ
+  // reference errors on refs not yet declared.
   // Pattern #4 follow-through — when the classifier returns
   // needs_confirm=true, we DON'T pause the stream (would require
   // round-trip protocol changes); instead we surface a non-blocking
@@ -363,6 +391,50 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   const [streamHealth, setStreamHealth] = useState({
     phase: "idle", silentFor: 0, retryEtaSec: null,
   });
+
+  // Iter 330 — F12 action listeners (placed AFTER taRef +
+  // lastF12PayloadRef declarations to avoid TDZ). When the header
+  // <TopBarStatusSlot />'s F12Badge is clicked, it dispatches
+  // `aurem:f12-copy` or `aurem:f12-send-to-ora`; we execute the
+  // exact same logic that used to live inline in the removed
+  // composer-status-bar block.
+  useEffect(() => {
+    const onCopy = () => {
+      const payload = f12.flush();
+      try {
+        navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+      } catch { /* ignore */ }
+    };
+    const onSend = () => {
+      const payload = f12.flush();
+      const cc = payload?.console_errors?.length || 0;
+      const nc = payload?.network_errors?.length || 0;
+      const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
+      const ok = window.confirm(
+        `Send the captured F12 errors to ORA for analysis?\n\n` +
+        `${cc} console error(s), ${nc} network error(s)\n\n` +
+        `OK → send to ORA\nCancel → copy payload to clipboard instead`
+      );
+      if (!ok) {
+        try {
+          navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+        } catch { /* ignore */ }
+        return;
+      }
+      setInput(msg);
+      lastF12PayloadRef.current = payload;
+      setTimeout(() => {
+        const form = taRef.current && taRef.current.form;
+        if (form) form.requestSubmit();
+      }, 50);
+    };
+    window.addEventListener("aurem:f12-copy",        onCopy);
+    window.addEventListener("aurem:f12-send-to-ora", onSend);
+    return () => {
+      window.removeEventListener("aurem:f12-copy",        onCopy);
+      window.removeEventListener("aurem:f12-send-to-ora", onSend);
+    };
+  }, [f12]);
   // ──────────────────────────────────────────────────────────────
   // Iter 212m-58 — Prompt / Loop execution mode.
   // ──────────────────────────────────────────────────────────────
@@ -3651,42 +3723,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           upper-left corner (founder screenshot Marker #2). Empty state
           collapses via `.composer-status-bar:empty { display:none }`
           so idle sessions don't get a blank spacer row. */}
-      <div className="composer-status-bar" data-testid="composer-status-bar">
-        <ModePill mode={detectedMode || (serverMode ? { mode: serverMode, color: "#6b7280", label: "Mode " + serverMode } : null)} />
-        <F12Badge
-          errorCount={f12.errorCount}
-          hasErrors={f12.hasErrors}
-          onCopyPayload={() => {
-            const payload = f12.flush();
-            try {
-              navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-            } catch { /* ignore */ }
-          }}
-          onSendToORA={() => {
-            const payload = f12.flush();
-            const cc = payload?.console_errors?.length || 0;
-            const nc = payload?.network_errors?.length || 0;
-            const msg = `F12 errors captured (${cc} console, ${nc} network). Please diagnose.`;
-            const ok = window.confirm(
-              `Send the captured F12 errors to ORA for analysis?\n\n` +
-              `${cc} console error(s), ${nc} network error(s)\n\n` +
-              `OK → send to ORA\nCancel → copy payload to clipboard instead`
-            );
-            if (!ok) {
-              try {
-                navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-              } catch { /* ignore */ }
-              return;
-            }
-            setInput(msg);
-            lastF12PayloadRef.current = payload;
-            setTimeout(() => {
-              const form = taRef.current && taRef.current.form;
-              if (form) form.requestSubmit();
-            }, 50);
-          }}
-        />
-      </div>
+      {/* Iter 330 — composer-status-bar (F12 + ModePill) REMOVED from
+          this location per founder request. The same F12Badge +
+          ModePill now render in the TopBar via <TopBarStatusSlot />.
+          Bridging: ChatPanel broadcasts `aurem:composer-status`
+          whenever detectedMode/serverMode change (see the effect
+          near the top of this component). Header slot listens and
+          renders. Click handlers below listen for
+          `aurem:f12-send-to-ora` and `aurem:f12-copy` events fired
+          from the header slot and execute the exact same logic that
+          used to live inline here. */}
+
 
       {/* Iter 212m-35 — Founder Offer attached to the TOP of the
           composer. Rounded top corners flow visually into the form
