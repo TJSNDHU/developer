@@ -20,12 +20,21 @@ print('PASS Test 1: execute_bash in TOOL_SPECS')
 
 # Test 2: execute_bash blocks dangerous commands
 import asyncio
-result = asyncio.run(invoke_local_tool('execute_bash', {'command': 'rm -rf /'}, {}))
+# Iter 331 — invoke_local_tool now takes a ctx dict; execute_bash is
+# founder-gated (post-iter138 security hardening), so tests pass
+# ctx={'is_founder': True} to exercise the tool itself.
+result = asyncio.run(invoke_local_tool('execute_bash', {'command': 'rm -rf /'}, {'is_founder': True}))
 assert result['ok'] is False, 'Should block rm command'
 print('PASS Test 2: dangerous command blocked  ->  error=' + repr(result.get('error', ''))[:80])
 
-# Test 3: execute_bash runs safe commands
-result = asyncio.run(invoke_local_tool('execute_bash', {'command': 'echo hello'}, {}))
+# Test 2b: execute_bash is founder-gated — non-founder ctx must be refused
+result = asyncio.run(invoke_local_tool('execute_bash', {'command': 'echo hi'}, {}))
+assert result['ok'] is False, 'non-founder must be refused'
+assert 'founder' in (result.get('error') or ''), 'refusal should mention founder gating'
+print('PASS Test 2b: non-founder refused')
+
+# Test 3: execute_bash runs safe commands (founder ctx)
+result = asyncio.run(invoke_local_tool('execute_bash', {'command': 'echo hello'}, {'is_founder': True}))
 assert result['ok'] is True, 'echo should work'
 assert 'hello' in result['stdout'], 'stdout should contain hello'
 print('PASS Test 3: safe command works  ->  stdout=' + repr(result['stdout'].strip()))
@@ -44,13 +53,15 @@ ah_layer = _SECTION_LAYER.get('ANTI-HALLUCINATION CONTRACT — STRICTEST RULE')
 assert ah_layer == 'core', f'Expected core, got {ah_layer!r}'
 print('PASS Test 5: ANTI-HALLUCINATION in core layer')
 
-# Test 6: Tool count updated
+# Test 6: tool documentation template still documents the toolbelt
+# (Iter 331 — the hardcoded "23 total" count died long ago; TOOL_SPECS
+# is now 38 and the template no longer embeds a count. Assert the
+# structural invariants instead of a frozen number.)
 from services.orchestrator import _TOOL_HELP_TEMPLATE
-assert '23 total' in _TOOL_HELP_TEMPLATE, 'Tool count should be 23'
-# Also assert the LOCAL FILESYSTEM section now exists in the template
 assert 'LOCAL FILESYSTEM' in _TOOL_HELP_TEMPLATE
 assert 'execute_bash' in _TOOL_HELP_TEMPLATE
-print('PASS Test 6: tool count = 23 AND execute_bash documented in template')
+assert len(TOOL_SPECS) >= 23, f'toolbelt shrank below iter138 baseline: {len(TOOL_SPECS)}'
+print(f'PASS Test 6: execute_bash documented, toolbelt size {len(TOOL_SPECS)} >= 23')
 
 # Test 7: upstream giving up has timeout (5-min cooldown, not permanent)
 from services.tools_bridge import (

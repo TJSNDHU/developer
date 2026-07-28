@@ -1341,6 +1341,7 @@ function Architecture() {
   return (
     <div style={{ padding: 24 }}>
       <PersonaQualityTile />
+      <LearningHealthTile />
       <h3 style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase",
                     color: "var(--text-faint)", margin: "0 0 8px" }}>External services</h3>
       <div style={{
@@ -1391,6 +1392,69 @@ function Architecture() {
         Code surface · routers · services · pages
       </h3>
       <CodeSurfaceLive />
+    </div>
+  );
+}
+
+// Iter 331 · PRD #3-e — ORA learning-health tile. Exported for tests.
+export function LearningHealthTile() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get("/admin/learning-health").then((r) => setD(r.data)).catch(() => {});
+  }, []);
+  if (!d) return null;
+  const color = d.status === "green" ? "var(--ok)"
+              : d.status === "empty" ? "var(--text-faint)"
+              : "var(--danger)";
+  const brain = d.brain || {};
+  const patterns = d.patterns || {};
+  const council = d.council_logs || {};
+  const canary = d.canary || {};
+  return (
+    <div data-testid="learning-health-tile" style={{ marginBottom: 18 }}>
+      <h3 style={{ fontSize: 12, letterSpacing: "0.1em",
+        textTransform: "uppercase", color: "var(--text-faint)",
+        margin: "0 0 8px" }}>ORA Learning Health</h3>
+      <Card style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+          <div
+            data-testid="learning-health-status"
+            style={{ fontSize: 22, fontWeight: 700, color,
+                     fontFamily: "'JetBrains Mono', monospace",
+                     textTransform: "uppercase" }}
+          >
+            {d.status}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.8 }}>
+            <span data-testid="learning-health-brain">
+              brains {brain.count ?? 0}
+              {brain.age_hours != null
+                ? ` · last write ${brain.age_hours}h ago (${brain.project_id || "—"})`
+                : " · never written"}
+            </span>
+            {" · "}
+            <span data-testid="learning-health-patterns">
+              patterns {patterns.count ?? 0}
+            </span>
+            {" · "}
+            <span data-testid="learning-health-council">
+              council logs {council.count ?? 0} ({council.last_24h ?? 0} in 24h)
+            </span>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Badge color={canary.enabled ? "var(--ok)" : "var(--text-faint)"}>
+              canary · {canary.enabled ? "ON" : "OFF"}
+              {canary.last_run ? " · ran" : " · no runs yet"}
+            </Badge>
+            <Badge color={d.eval_cron_enabled ? "var(--ok)" : "var(--text-faint)"}>
+              eval cron · {d.eval_cron_enabled ? "ON" : "OFF"}
+            </Badge>
+            {d.learning_disabled_flag && (
+              <Badge color="var(--danger)">ORA_LEARNING_DISABLED=1</Badge>
+            )}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -2123,6 +2187,10 @@ const NAV = [
   // as every other sidebar entry; keeps the founder one click away
   // from the live QA metrics without having to memorize a URL.
   { id: "qa_health", label: "QA Health", Icon: ShieldCheck, route: "/admin/qa" },
+  // Iter 331 — Architecture() (learning-health + persona-quality +
+  // code-surface tiles) was defined but never wired into renderPage;
+  // /admin/architecture silently fell through to Overview.
+  { id: "arch", label: "Architecture", Icon: Cpu },
   { group: "USERS" },
   { id: "bin_tracker", label: "BIN Tracker", Icon: Users },
   { id: "users", label: "Users (Legacy)", Icon: Users },
@@ -2221,6 +2289,7 @@ export default function Admin({ initialTab = "overview" }) {
     }
     switch (page) {
       case "overview":       return <AdminOverview />;
+      case "arch":           return <Architecture />;
       case "llm_credits":    return <div style={{ padding: "24px 20px", maxWidth: 900 }}>
                                        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: "var(--text)" }}>LLM Credits</h1>
                                        <LLMCreditMonitor />

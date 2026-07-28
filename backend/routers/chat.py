@@ -2767,8 +2767,15 @@ async def chat_stream(
         # conversational modes (A/B) belong in ora_council_logs from this
         # path; Mode C uses log_code_task, Mode D/E aren't part of the
         # fine-tuning corpus.
+        # Iter 331 · #3-b callsite reattach — the casual intent-gateway
+        # and advisor paths label their result `mode: "chat"` (proven
+        # via live Mongo before/after: council count froze at 89 while
+        # extract_session_patterns kept writing). Those ARE
+        # conversational turns — the label mismatch silently detached
+        # this callsite for the platform's main chat path. "chat" is
+        # now accepted; D/E stay excluded (they carry explicit "D"/"E").
         _classified_mode = result.get("mode") if isinstance(result, dict) else None
-        if _classified_mode in (None, "A", "B"):
+        if _classified_mode in (None, "A", "B", "chat"):
             try:
                 from services.ora_council_logger import log_conversational
                 from services.project_brain import update_brain_from_conversation

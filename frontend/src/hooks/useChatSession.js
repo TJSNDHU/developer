@@ -1,19 +1,20 @@
 /**
- * useChatSession — session-level state: sessionId lifecycle,
- * history load, usage, turn persistence.
+ * useChatSession — session-level state: sessionId lifecycle, usage,
+ * turn persistence.
  *
  * Iter 140 — extracted from ChatPanel.jsx. Holds the network calls
- * that need a session_id (GET /chat/history, POST /chat/history,
- * GET /usage/me). Pure side-effects, no DOM ownership.
+ * that need a session_id (POST /chat/history, GET /usage/me). Pure
+ * side-effects, no DOM ownership.
  *
  * Iter 280 P0 fix — the hook now ALSO owns `sessionId` itself and
- * persists it to localStorage. Dashboard.jsx has been destructuring
- * `sessionId` from this hook's return since Iter 140, but the hook
- * never actually returned one — it only accepted `sessionId` as a
- * parameter. That silent `undefined` meant `loadHistory` early-returned
- * on every fresh mount → chat history vanished on every browser
- * refresh. Fixed by generating + persisting a sessionId if the caller
- * doesn't pass one in.
+ * persists it to localStorage, generating one if the caller doesn't
+ * pass one in.
+ *
+ * Iter 331 — dead-code prune: removed `loadHistory` (+ its
+ * `loadingHistory` state) and the `refreshSessions` no-op placeholder.
+ * Neither had a single caller in the codebase — ChatPanel owns its own
+ * history loading + loadingHistory state, and server-side session
+ * listing lives in Shell.jsx's SessionCtx.
  */
 import { useState, useCallback, useEffect } from "react";
 import { api } from "../lib/api";
@@ -37,13 +38,7 @@ export function useChatSession({ sessionId: sessionIdProp, onTurnSaved } = {}) {
     () => sessionIdProp || _readOrCreateSessionId()
   );
   const sessionId = sessionIdProp || ownSessionId;
-  const refreshSessions = useCallback(() => {
-    // Placeholder — Dashboard.jsx has always called this after a turn
-    // completes, but the hook never implemented it. Currently a no-op;
-    // wire up server-side session listing here if/when needed.
-  }, []);
 
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [usage, setUsage] = useState(null);
 
   const refreshUsage = useCallback(async () => {
@@ -54,30 +49,6 @@ export function useChatSession({ sessionId: sessionIdProp, onTurnSaved } = {}) {
       /* usage endpoint may 401 pre-login — non-fatal */
     }
   }, []);
-
-  const loadHistory = useCallback(
-    async (setMessages) => {
-      if (!sessionId) return;
-      setLoadingHistory(true);
-      try {
-        const r = await api.get(`/chat/history?session_id=${sessionId}`);
-        const turns = r.data?.turns || [];
-        if (turns.length) {
-          setMessages(
-            turns.map((t) => ({
-              role: t.role,
-              content: t.content,
-              provider: t.provider,
-            })),
-          );
-        }
-      } catch (_e) {
-        /* 404 = new session, that's fine */
-      }
-      setLoadingHistory(false);
-    },
-    [sessionId],
-  );
 
   const persistTurn = useCallback(
     async (userMsg, assistantMsg) => {
@@ -101,11 +72,8 @@ export function useChatSession({ sessionId: sessionIdProp, onTurnSaved } = {}) {
 
   return {
     sessionId,
-    refreshSessions,
-    loadingHistory,
     usage,
     refreshUsage,
-    loadHistory,
     persistTurn,
   };
 }

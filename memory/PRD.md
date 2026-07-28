@@ -16,6 +16,38 @@ Language: **Hinglish** — main agent responds in Hinglish.
 
 ## What's implemented (chronological, most recent first)
 
+### Iter 331-B · Items 4-7 closure (2026-07-28, post-deploy)
+- **P0 FOUND & FIXED — `tool_executor.py` restored**: an earlier session deleted it as "approved
+  dead code" but it's lazy-imported inside `invoke_local_tool` — EVERY chat tool-call crashed at
+  runtime (`ModuleNotFoundError`, reproduced live). Restored from git (`8e2536a~1`), validated by
+  its own suite (`test_iter209` 11/11 green) + live chat with tools. **Was live-broken on prod
+  since 27-Jul deploys — needs redeploy.**
+- **Item 4 · Deploy B / B1-race**: already implemented in Shell.jsx (`shouldDeferSessionMint` +
+  3s fallback) with `Shell.iter329_b1_race.test.jsx` green — shipped to prod in today's deploy.
+- **Item 5 · ORA learning resurrection (b→e) DONE with raw Mongo proof**:
+  - (b) **Callsite reattach**: casual-gateway/advisor paths label `mode:"chat"` which bypassed the
+    `(None,"A","B")` filter → council log + brain update silently dead on the main chat path.
+    Filter now accepts `"chat"`; D/E stay excluded (BUG 5 safe). Lock: `test_iter331_learning_reattach.py`.
+  - (c) **Live before/after proof**: ora_patterns wrote exact prompt file-paths into `hot_files`;
+    council count 89→91; `project_brains.p_norepotest.updated_at` 2026-06-14 → 2026-07-28 06:10 with
+    the decision text captured (`push_ops=1` log line).
+  - (d) **Flags ON**: `ORA_CANARY_ENABLED=1` (was already set; nightly 02:30 run confirmed in
+    ora_canary_runs) + `ENABLE_EVAL_CRON=1` added — startup logs show both armed.
+  - (e) **Learning-health tile** live on /admin/architecture: GET `/admin/learning-health`
+    (brains freshness → green/red, patterns, council 24h, canary last-run, flag badges) +
+    `LearningHealthTile` (3 vitest).
+- **BONUS FIX — /admin/architecture page was DEAD**: `Architecture()` (PersonaQualityTile +
+  code-surface) was defined but never wired into renderPage — route silently fell to Overview.
+  Added `case "arch"` + sidebar NAV entry. Verified live via Playwright screenshot.
+- **Item 6**: `useChatSession.js` pruned — dead `loadHistory`/`loadingHistory`/no-op
+  `refreshSessions` removed (zero callers, ChatPanel owns its own history loading).
+- **Item 7 (names were stale)**: "queue-status-bar"→AgentStatusBar (already tested),
+  "phase-stepper"→LoopStepBar (heavily tested). Real gap = **ShipStreakWidget**: 5-test suite
+  added (hidden@0, pill render, milestone toast + lower-milestone marking, ack dedupe,
+  aurem:shipped refetch).
+- **Stale-test repairs**: `test_iter138` modernised (invoke_local_tool ctx arg + founder-gate
+  test 2b + dynamic toolbelt-size assert). Suites: **210/210 vitest · touched-area pytest green**.
+
 ### Iter 331 · Systematic Closure (2026-07-28) — tech-debt zeroing before Phase 1
 - **Section A** — 2 red vitest fixed: `LoopLiveFeed.iter329_task2_shipped_row.test.jsx` rewritten
   for Iter 330 phases (`submitting`/`handed-off`, poll phases removed). Added hand-off assertion:
@@ -84,11 +116,15 @@ Language: **Hinglish** — main agent responds in Hinglish.
 ## Prioritized backlog (top of queue → bottom)
 
 **P0 — awaiting founder:**
+- **REDEPLOY NEEDED**: prod is running with `tool_executor.py` deleted → every chat tool-call
+  crashes there. Iter 331-B restore + learning reattach + admin tile must ship.
 - **Iter 330+331 prod smoke test** (founder, 2 cycles): real ship → OperationHistory → rollback →
   SSE progress → collapsed row. Also re-check Bug 1 (PLAN green during EXECUTE) + Bug 2 (ECG wave)
   on prod AFTER deploying Iter 331.
 - **#14 dead-code delete list** — REJECTED with evidence (see Iter 331 above). Founder must supply
   a corrected list; all 3 named files are live dependencies.
+- **Tavily credits exhausted + Firecrawl probe timeouts** — 32 critical integration alerts on
+  /admin/architecture (founder: top up tavily.com, check Firecrawl).
 
 **P1 — next in queue:**
 - **Deploy B** — Chat-history B1-race (`Shell.jsx` mint deferral with 3s fallback). (B3 `$slice: -200` already shipped.)

@@ -1030,6 +1030,99 @@ async def get_digest(authorization: Optional[str] = Header(None)):
 
 
 # ── Architecture ──────────────────────────────────────────────────────
+@router.get("/learning-health")
+async def learning_health(authorization: Optional[str] = Header(None)):
+    """Iter 331 · ORA learning-health (PRD #3-e) — data for the
+    /admin/architecture tile. GREEN = project_brains touched <24h,
+    RED = stale, EMPTY = no brains yet. Every collection read is
+    fail-open so one bad collection never blanks the tile."""
+    await _require_admin(authorization)
+    db = require_db()
+    now = datetime.now(timezone.utc)
+    day_ago = now - timedelta(hours=24)
+
+    def _iso(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return None
+
+    brain: dict = {"count": 0, "updated_at": None,
+                   "age_hours": None, "project_id": None}
+    try:
+        brain["count"] = await db.project_brains.count_documents({})
+        doc = await db.project_brains.find_one(
+            {}, {"_id": 0, "project_id": 1, "updated_at": 1},
+            sort=[("updated_at", -1)],
+        )
+        if doc and doc.get("updated_at"):
+            u = doc["updated_at"]
+            if u.tzinfo is None:
+                u = u.replace(tzinfo=timezone.utc)
+            brain.update({
+                "project_id": doc.get("project_id"),
+                "updated_at": _iso(u),
+                "age_hours": round((now - u).total_seconds() / 3600, 1),
+            })
+    except Exception as e:
+        logger.warning("learning-health brains read failed: %r", e)
+
+    patterns: dict = {"count": 0, "last_seen": None}
+    try:
+        patterns["count"] = await db.ora_patterns.count_documents({})
+        pdoc = await db.ora_patterns.find_one(
+            {}, {"_id": 0, "last_seen": 1}, sort=[("last_seen", -1)])
+        if pdoc and pdoc.get("last_seen"):
+            patterns["last_seen"] = _iso(datetime.fromtimestamp(
+                float(pdoc["last_seen"]), tz=timezone.utc))
+    except Exception as e:
+        logger.warning("learning-health patterns read failed: %r", e)
+
+    council: dict = {"count": 0, "last_24h": 0}
+    try:
+        council["count"] = await db.ora_council_logs.count_documents({})
+        council["last_24h"] = await db.ora_council_logs.count_documents(
+            {"timestamp": {"$gte": day_ago}})
+    except Exception as e:
+        logger.warning("learning-health council read failed: %r", e)
+
+    canary: dict = {
+        "enabled": os.environ.get(
+            "ORA_CANARY_ENABLED", "0").lower() in ("1", "true", "yes"),
+        "last_run": None,
+    }
+    try:
+        cdoc = await db.ora_canary_runs.find_one(
+            {}, {"_id": 0}, sort=[("$natural", -1)])
+        if cdoc:
+            for k, v in list(cdoc.items()):
+                if isinstance(v, datetime):
+                    cdoc[k] = _iso(v)
+            canary["last_run"] = cdoc
+    except Exception as e:
+        logger.warning("learning-health canary read failed: %r", e)
+
+    if brain["age_hours"] is not None and brain["age_hours"] < 24:
+        status = "green"
+    elif brain["count"] == 0:
+        status = "empty"
+    else:
+        status = "red"
+
+    return {
+        "status": status,
+        "brain": brain,
+        "patterns": patterns,
+        "council_logs": council,
+        "canary": canary,
+        "eval_cron_enabled": os.environ.get(
+            "ENABLE_EVAL_CRON", "").lower() in ("1", "true", "yes"),
+        "learning_disabled_flag":
+            os.environ.get("ORA_LEARNING_DISABLED") == "1",
+        "generated_at": _iso(now),
+    }
+
+
 @router.get("/architecture")
 async def get_architecture(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
