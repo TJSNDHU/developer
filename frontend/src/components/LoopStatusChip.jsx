@@ -191,10 +191,31 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
         }
         setTerminalSnapshot(snap);
         if (terminalTimerRef.current) clearTimeout(terminalTimerRef.current);
-        terminalTimerRef.current = setTimeout(() => {
-          setTerminalSnapshot(null);
-          terminalTimerRef.current = null;
-        }, TERMINAL_GRACE_MS);
+        // ── Iter 329 · Task 2 · Fix B — grace duration by outcome ──
+        // Terminal-failure (failed/aborted/expired): 30s auto-dismiss
+        //   — chip has no Done button on failures (would let user
+        //   accidentally dismiss critical context), so a timeout is
+        //   the only exit; 30s is enough for the user to read.
+        // Terminal-success (completed/shipped/done): NO auto-dismiss
+        //   — the Done button is the explicit dismissal affordance
+        //   per founder's inline-UX design. Auto-hiding a success
+        //   before the user acknowledges it is the same silent-state-
+        //   loss class we've been eliminating. Chip persists until:
+        //     (a) user clicks Done, or
+        //     (b) a new loop starts (nextActive branch below clears
+        //         the snapshot naturally).
+        const isFailureTerminal = (
+          terminalKind === "failed"
+          || terminalKind === "aborted"
+          || terminalKind === "expired"
+        );
+        if (isFailureTerminal) {
+          terminalTimerRef.current = setTimeout(() => {
+            setTerminalSnapshot(null);
+            terminalTimerRef.current = null;
+          }, TERMINAL_GRACE_MS);
+        }
+        // else: success — no timer, wait for Done click.
       } else if (nextActive) {
         // A new (or same) active loop is running — clear any
         // lingering terminal snapshot so the pill can update.

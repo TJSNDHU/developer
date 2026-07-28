@@ -41,13 +41,29 @@ export function extractShipInfo(events) {
 // Rollback wiring: calls the PROVEN POST /loop/{id}/rollback
 // (Iter 329 Deploy 3-A · production-verified with commit 5d939a4 →
 // revert ea3ebcf on 2026-07-27). Two-click safety: first click sets
-// state="confirming" with a 4s auto-timeout back to idle; second
+// state="confirming" with a 10s auto-timeout back to idle; second
 // click within the window kicks the real revert. Progress updates
 // via a lightweight poll of /loop/{id}/status until
 // rollback_status ∈ {done, failed}. Zero force-push semantics
 // because the backend uses github_api_writer.revert_commit which
 // produces a new revert commit (history preserved).
-const ROLLBACK_CONFIRM_MS = 4_000;
+//
+// Iter 329 · Fix C — confirm-click hardening (real production bug):
+// Founder reported the second click never firing POST even though
+// data-rollback-phase advanced to "confirming" on first click.
+// Root causes:
+//   (1) Bug X — parent unmounts (fixed via Fix A dropping the
+//       `terminal` gate). Row now persists across parent re-renders.
+//   (2) Bug Y — `useCallback` with `phase` in deps captured a stale
+//       phase from an old render under React 18 concurrent
+//       scheduling. Now the callback reads `phaseRef.current` (a
+//       useRef mirror synced via effect) so it ALWAYS sees the
+//       latest phase, regardless of when the callback was created.
+//   (3) Insufficient visual feedback — bumped confirm window from
+//       4s → 10s + high-contrast red-fill with white text +
+//       distinct data-testid suffix so DOM inspection can prove
+//       the confirming state visually landed.
+const ROLLBACK_CONFIRM_MS = 10_000;
 const ROLLBACK_POLL_MS    = 1_500;
 
 function ShippedRow({ loopId, ship, onDone }) {
@@ -58,6 +74,12 @@ function ShippedRow({ loopId, ship, onDone }) {
   const [rollbackHtmlUrl, setRollbackHtmlUrl] = useState(null);
   const confirmTimerRef = useRef(null);
   const pollTimerRef    = useRef(null);
+
+  // Iter 329 · Fix C — phaseRef mirrors phase state so the click
+  // callback always reads the latest value, immune to stale-closure
+  // regardless of when React commits the setPhase update.
+  const phaseRef = useRef("idle");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const clearConfirmTimer = useCallback(() => {
     if (confirmTimerRef.current) {
@@ -103,16 +125,23 @@ function ShippedRow({ loopId, ship, onDone }) {
     }
   }, [loopId, clearPollTimer, onDone]);
 
+  // Iter 329 · Fix C — callback reads phaseRef, NOT closure. Deps
+  // no longer include `phase`; the ref keeps us fresh across
+  // renders. This eliminates the Bug Y stale-closure class.
   const onRollbackClick = useCallback(async () => {
-    if (phase === "idle") {
+    const current = phaseRef.current;
+    if (current === "idle") {
       setPhase("confirming");
       confirmTimerRef.current = setTimeout(() => {
-        setPhase("idle");
+        // Only revert if we're still in confirming (guard against
+        // race where user clicked twice fast and phase already moved
+        // to queued).
+        if (phaseRef.current === "confirming") setPhase("idle");
         confirmTimerRef.current = null;
       }, ROLLBACK_CONFIRM_MS);
       return;
     }
-    if (phase === "confirming") {
+    if (current === "confirming") {
       clearConfirmTimer();
       setPhase("queued");
       setError(null);
@@ -139,7 +168,7 @@ function ShippedRow({ loopId, ship, onDone }) {
         );
       }
     }
-  }, [phase, loopId, clearConfirmTimer, pollRollback]);
+  }, [loopId, clearConfirmTimer, pollRollback]);
 
   const rollbackLabel =
     phase === "confirming" ? "Confirm rollback"
@@ -218,7 +247,11 @@ function ShippedRow({ loopId, ship, onDone }) {
       ) : (
         <button
           type="button"
-          data-testid={`loop-shipped-rollback-btn-${ship.shortSha}`}
+          data-testid={
+            phase === "confirming"
+              ? `loop-shipped-rollback-btn-confirming-${ship.shortSha}`
+              : `loop-shipped-rollback-btn-${ship.shortSha}`
+          }
           aria-label={phase === "confirming" ? "Confirm rollback" : "Rollback loop"}
           aria-pressed={phase === "confirming"}
           disabled={phase === "queued" || phase === "running"}
@@ -226,18 +259,24 @@ function ShippedRow({ loopId, ship, onDone }) {
           style={{
             appearance: "none",
             background: phase === "confirming" ? "#EF4444" : "transparent",
-            color:      phase === "confirming" ? "#000" : "#f87171",
-            border:     "1px solid #EF4444",
+            color:      phase === "confirming" ? "#ffffff" : "#f87171",
+            border:     phase === "confirming"
+              ? "1px solid #FCA5A5"
+              : "1px solid #EF4444",
             borderRadius: 6,
             padding: "3px 10px",
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 10.5,
+            fontWeight: phase === "confirming" ? 700 : 500,
             letterSpacing: "0.04em",
             cursor: (phase === "queued" || phase === "running")
               ? "wait" : "pointer",
             display: "inline-flex", alignItems: "center", gap: 4,
             textTransform: "uppercase",
-            transition: "background 120ms ease, color 120ms ease",
+            transition: "background 120ms ease, color 120ms ease, border-color 120ms ease",
+            boxShadow: phase === "confirming"
+              ? "0 0 0 2px rgba(239, 68, 68, 0.35)"
+              : "none",
           }}
         >
           <RotateCcw size={9} strokeWidth={2.5} />
@@ -666,11 +705,20 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase }) {
             {emptyLine}
           </div>
         )}
-        {/* Iter 329 · Task 2 — persistent inline Shipped row on
-            terminal-success. Renders "Shipped {sha7} · View on
-            GitHub · Rollback" — replaces the dark-overlay ship
-            modal (kind='shipped' dispatch removed in ChatPanel). */}
-        {shipInfo && terminal && (
+        {/* Iter 329 · Task 2 · Fix A — persistent inline Shipped row
+            on ship completion. Gate is `shipInfo` alone (not
+            `shipInfo && terminal`). Rationale: extractShipInfo
+            already requires state=completed + phase=ship +
+            data.commit_sha; the server-side invariant (loop_engine.py
+            2823-2944) guarantees commit_sha is populated ONLY after
+            a real GitHub push, so shipInfo being truthy IS the
+            terminal signal. The previous dual-gate coupled ShippedRow
+            to the parent's `terminal` prop which could flicker false
+            on unrelated re-renders (openLoopStream reset,
+            heartbeats), unmounting the row and losing internal state
+            (phase="confirming", timers). That was Bug X behind the
+            confirm-click never firing on production. */}
+        {shipInfo && (
           <ShippedRow loopId={loopId} ship={shipInfo} />
         )}
       </div>

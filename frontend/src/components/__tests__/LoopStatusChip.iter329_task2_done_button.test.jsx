@@ -105,4 +105,38 @@ describe("Iter 329 · Task 2 — LoopStatusChip Done button", () => {
       expect(screen.queryByTestId("loop-status-chip")).toBeNull();
     });
   });
+
+  it("Iter 329 · Fix B — source-lock: terminal grace is gated by outcome (no unconditional setTimeout)", () => {
+    // Source-level regression guard for Fix B. If a future edit
+    // removes the isFailureTerminal branching and returns to the
+    // unconditional 30s auto-dismiss on ALL terminals, this test
+    // fails — which would silently regress the founder-visible
+    // behaviour (success chip vanishing before user clicks Done).
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const src = fs.readFileSync(
+      path.resolve(__dirname, "..", "LoopStatusChip.jsx"),
+      "utf-8",
+    );
+    // The gating variable MUST be present.
+    expect(src).toMatch(/isFailureTerminal\s*=/);
+    // Iter 329 · Task 2 · Fix B rationale comment MUST be present.
+    expect(src).toContain("Iter 329 · Task 2 · Fix B");
+    // Rationale: no auto-dismiss for terminal-success.
+    expect(src).toMatch(/no timer.*wait for Done click/i);
+    // The setTimeout call MUST be inside the isFailureTerminal
+    // guard (roughly: the terminal timer setup appears after the
+    // `if (isFailureTerminal)` check).
+    const iffIdx = src.indexOf("if (isFailureTerminal)");
+    const setTimeoutIdx = src.indexOf(
+      "terminalTimerRef.current = setTimeout",
+      iffIdx,
+    );
+    expect(iffIdx).toBeGreaterThan(0);
+    expect(setTimeoutIdx).toBeGreaterThan(iffIdx);
+    // Distance between the guard and the setTimeout must be small
+    // — ensures the setTimeout is inside the guarded branch, not
+    // some unrelated later block.
+    expect(setTimeoutIdx - iffIdx).toBeLessThan(400);
+  });
 });

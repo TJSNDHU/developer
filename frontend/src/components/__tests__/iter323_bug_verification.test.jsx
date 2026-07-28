@@ -72,7 +72,7 @@ describe("Iter 323 Bug B — LoopStatusChip terminal grace behavior", () => {
     vi.useRealTimers();
   });
 
-  test("active→null keeps SHIPPED chip mounted for 30s, marks terminal, hides Stop, then unmounts", async () => {
+  test("active→null keeps SHIPPED chip mounted (Fix B: no auto-unmount on success — persists until Done click)", async () => {
     getActiveLoop
       .mockResolvedValueOnce({ ok: true, active: liveShipLoop })
       .mockResolvedValue({ ok: true, active: null });
@@ -92,10 +92,17 @@ describe("Iter 323 Bug B — LoopStatusChip terminal grace behavior", () => {
     expect(screen.getByTestId("loop-status-chip-id")).toHaveTextContent("id · e67cfd44");
     expect(screen.queryByTestId("loop-status-chip-stop")).toBeNull();
 
-    await advance(29_999);
+    // Iter 329 · Task 2 · Fix B — terminal-SUCCESS persists past the
+    // former 30s grace. Chip only unmounts when user clicks Done or
+    // a new loop starts. Previous test asserted auto-unmount at 30s;
+    // that's now expected behaviour ONLY for terminal-failure.
+    await advance(60_000);
     expect(screen.getByTestId("loop-status-chip")).toBeInTheDocument();
+    expect(screen.getByTestId("loop-status-chip-done")).toBeInTheDocument();
 
-    await advance(1);
+    // Clicking Done unmounts the chip immediately (Task 2 inline UX).
+    await act(async () => { screen.getByTestId("loop-status-chip-done").click(); });
+    await flushPromises();
     expect(screen.queryByTestId("loop-status-chip")).toBeNull();
   });
 
