@@ -184,3 +184,88 @@ class TestNoPlaywrightInBackendPath:
         helpers = src.split("def _run_pytest")[1].split(
             "async def run_backend_scenario")[0]
         assert "playwright" not in helpers.lower()
+
+
+# ── Iter 338 — response secret-leak scanner (born from iter337) ─────
+class TestSecretLeakScanner:
+    def test_catches_the_exact_iter337_leak_shape(self):
+        leak = {"ok": True, "user": {
+            "email": "x", "mfa_secret": "ZNWU",
+            "mfa_backup_codes": ["a", "b"],
+            "github": {"login": "foo", "access_token": "gho_xxx",
+                       "avatar_url": "u"}}, "token": "jwt_session"}
+        hits = qm.scan_response_for_secrets(leak)
+        assert "user.mfa_secret" in hits
+        assert "user.mfa_backup_codes" in hits
+        assert "user.github.access_token" in hits
+
+    def test_clean_response_no_hits(self):
+        clean = {"ok": True, "user": {
+            "email": "x", "mfa_enabled": True,
+            "github": {"login": "foo", "avatar_url": "u",
+                       "connected_at": 1}}, "token": "jwt_session"}
+        assert qm.scan_response_for_secrets(clean) == []
+
+    def test_toplevel_session_token_not_flagged(self):
+        # bare top-level `token`/`mfa_token` are the login flow's own
+        # session/challenge tokens — by design, not a leak.
+        assert qm.scan_response_for_secrets({"token": "abc"}) == []
+        assert qm.scan_response_for_secrets({"mfa_token": "abc"}) == []
+
+    def test_nested_access_token_still_flagged(self):
+        assert "a.b.access_token" in qm.scan_response_for_secrets(
+            {"a": {"b": {"access_token": "gho_x"}}})
+
+    def test_empty_secret_value_not_flagged(self):
+        assert qm.scan_response_for_secrets({"password": ""}) == []
+        assert qm.scan_response_for_secrets({"access_token": None}) == []
+
+    async def test_verify_pass_flags_leak_and_logs_regression(self, tmp_path,
+                                                              monkeypatch):
+        monkeypatch.setattr(qm, "_HISTORY_DIR", str(tmp_path))
+        monkeypatch.setattr(qm, "_REGRESSION_LIB",
+                            str(tmp_path / "regression_library.json"))
+        Path(qm._REGRESSION_LIB).write_text("[]")
+        out = await qm.verify_pass_is_real(
+            "RESPONSE_SCAN", owner="", repo="", branch="", token="",
+            response_payload={"user": {"mfa_secret": "ZZ"}},
+            response_source="/auth/me")
+        assert out["checks"]["no_secret_leak"] is False
+        assert out["genuinely_verified"] is False
+        lib = json.loads(Path(qm._REGRESSION_LIB).read_text())
+        assert any("secretleak" in e["id"] for e in lib)
+        assert lib[-1]["status"] == "open"
+
+    async def test_verify_pass_clean_response_passes(self, tmp_path,
+                                                     monkeypatch):
+        monkeypatch.setattr(qm, "_REGRESSION_LIB",
+                            str(tmp_path / "rl.json"))
+        Path(qm._REGRESSION_LIB).write_text("[]")
+        out = await qm.verify_pass_is_real(
+            "RESPONSE_SCAN", owner="", repo="", branch="", token="",
+            response_payload={"user": {"email": "x", "mfa_enabled": True}},
+            response_source="/auth/me")
+        assert out["checks"]["no_secret_leak"] is True
+        assert json.loads(Path(qm._REGRESSION_LIB).read_text()) == []
+
+    async def test_live_auth_me_is_clean_on_this_backend(self):
+        """Live scan against the REAL running backend /auth/me — proves
+        the iter337 fix holds and the scanner works end-to-end."""
+        out = await qm.run_backend_scenario("secret_leak_scan")
+        me_rows = [r for r in out["rows"] if r["variant"] == "/auth/me"]
+        assert me_rows, "scan did not reach /auth/me (login may have failed)"
+        assert me_rows[0]["result"] == "PASS", me_rows[0]["detail"]
+
+    def test_regression_dedup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(qm, "_HISTORY_DIR", str(tmp_path))
+        monkeypatch.setattr(qm, "_REGRESSION_LIB",
+                            str(tmp_path / "rl.json"))
+        Path(qm._REGRESSION_LIB).write_text("[]")
+        assert qm._append_regression_entry("regression-x", "d", {}) is True
+        assert qm._append_regression_entry("regression-x", "d", {}) is False
+        assert len(json.loads(Path(qm._REGRESSION_LIB).read_text())) == 1
+
+    def test_decide_scope_triggers_secret_scan_on_auth_change(self):
+        out = qm.decide_scope("fix auth token handling",
+                              ["backend/routers/auth.py"])
+        assert "secret_leak_scan" in out["scenarios"]

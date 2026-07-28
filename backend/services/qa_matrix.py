@@ -453,6 +453,7 @@ FILE_TO_SCENARIO = {
     "LoopActionCards.jsx":   "ship_gate_approval",
     "ChatPanel.jsx":         "ship_gate_approval",
     "chat.py":               "long_input_crash_guard",
+    "auth.py":               "secret_leak_scan",
 }
 
 
@@ -481,6 +482,10 @@ def decide_scope(commit_message: str, changed_files: list) -> dict:
         "nonetype":  "long_input_crash_guard",
         "readonly":  "readonly_query",
         "read-only": "readonly_query",
+        "secret":    "secret_leak_scan",
+        "leak":      "secret_leak_scan",
+        "auth":      "secret_leak_scan",
+        "token":     "secret_leak_scan",
     }
     matched_keywords = []
     for kw, scenario in keyword_map.items():
@@ -535,6 +540,7 @@ BACKEND_SCENARIOS = {
     "long_input_crash_guard": ["tests/test_iter331_nonetype_guard.py"],
     "chat_tool_call":         [],   # direct tool_executor calls below
     "smoke_baseline":         [],   # real HTTP /api/health below
+    "secret_leak_scan":       [],   # Iter 338 — live endpoint scan below
 }
 UI_SCENARIOS = {"ship_gate_approval"}
 
@@ -612,11 +618,67 @@ async def _run_smoke_baseline() -> list:
                   "detail": f"backend unreachable: {e!r}"[:200]}]
 
 
+async def _run_secret_leak_scan() -> list:
+    """Iter 338 — log into the REAL running backend and scan the JSON
+    responses of credential-bearing endpoints for sensitive keys via
+    verify_pass_is_real (which self-logs a regression on any leak).
+    Born from the iter337 /auth/me incident. Uses the preview test
+    account (env-overridable) so it never touches founder data."""
+    import httpx as _hx
+    base = os.environ.get("QA_API_BASE",
+                          "http://localhost:8001/api/aurem-dev")
+    email = os.environ.get("QA_SCAN_EMAIL", "test@aurem.dev")
+    pw = os.environ.get("QA_SCAN_PASSWORD", "AuremTest2026!")
+    rows = []
+    try:
+        async with _hx.AsyncClient(timeout=25.0) as c:
+            login = await c.post(f"{base}/auth/login",
+                                 json={"email": email, "password": pw})
+            if login.status_code != 200 or not login.json().get("token"):
+                return [{"variant": "login", "result": "INCONCLUSIVE",
+                          "detail": f"scan account login failed "
+                                    f"({login.status_code}) — cannot scan "
+                                    f"authed endpoints"}]
+            tok = login.json()["token"]
+            hdr = {"Authorization": f"Bearer {tok}"}
+            # Endpoints that historically carried or could carry stored
+            # credentials in their response body.
+            targets = ["/auth/me", "/auth/tokens"]
+            for path in targets:
+                try:
+                    resp = await c.get(f"{base}{path}", headers=hdr)
+                    payload = resp.json()
+                except Exception as e:                      # noqa: BLE001
+                    rows.append({"variant": path, "result": "INCONCLUSIVE",
+                                  "detail": f"fetch failed: {e!r}"[:150]})
+                    continue
+                v = await verify_pass_is_real(
+                    "RESPONSE_SCAN", owner="", repo="", branch="",
+                    token="", response_payload=payload,
+                    response_source=path)
+                leaked = v.get("leaked_paths") or []
+                rows.append({
+                    "variant": path,
+                    "result":  "PASS" if v["checks"].get("no_secret_leak") else "FAIL",
+                    "detail":  ("no sensitive keys in response ✓"
+                                if not leaked
+                                else f"LEAKED: {sorted(set(p.split('.')[-1] for p in leaked))} "
+                                     f"→ regression auto-logged"),
+                })
+    except Exception as e:                                  # noqa: BLE001
+        return [{"variant": "scan", "result": "INCONCLUSIVE",
+                  "detail": f"backend unreachable: {e!r}"[:200]}]
+    return rows
+
+
+
 async def run_backend_scenario(scenario: str) -> dict:
     if scenario == "chat_tool_call":
         rows = await _run_chat_tool_call_variants()
     elif scenario == "smoke_baseline":
         rows = await _run_smoke_baseline()
+    elif scenario == "secret_leak_scan":
+        rows = await _run_secret_leak_scan()
     else:
         files = BACKEND_SCENARIOS.get(scenario) or []
         existing = [f for f in files
@@ -716,14 +778,85 @@ def detect_stall_from_replay_buffer(loop_id: str, window: int = 3,
 PRE_SHIP_BASELINE_CONTENT = "# qa sandbox marker — baseline\n"
 
 
+# ── Iter 338 — response secret-leak scanner ─────────────────────────
+# Born from the iter337 incident: /auth/me leaked mfa_secret, the raw
+# github access_token and hashed backup_codes for weeks. This scanner
+# runs on EVERY scenario's captured response (via verify_pass_is_real)
+# and as a dedicated live endpoint scan, so a secret in a response body
+# fails the QA run and self-logs a regression — never silently ships.
+SENSITIVE_KEY_NAMES = frozenset({
+    "mfa_secret", "totp_secret", "otp_secret",
+    "access_token", "refresh_token", "github_token", "gh_token",
+    "backup_codes", "mfa_backup_codes",
+    "password", "password_hash", "hashed_password",
+    "secret", "client_secret", "api_key", "apikey", "pat",
+    "private_key", "session_secret", "jwt_secret",
+})
+
+# Keys that are legitimately tokens the client NEEDS (auth flow) — not
+# leaks. The scanner ignores a bare top-level `token`/`mfa_token` since
+# those are the session/challenge tokens the login flow returns by
+# design; it only flags the sensitive *stored-credential* names above.
+_SECRET_IGNORE_TOPLEVEL = frozenset({"token", "mfa_token"})
+
+
+def scan_response_for_secrets(payload, _path: str = "") -> list:
+    """Recursively walk a JSON-like response. Returns dotted paths of
+    every sensitive key that carries a non-empty value. Pure function."""
+    hits = []
+    if isinstance(payload, dict):
+        for k, v in payload.items():
+            key_l = str(k).lower()
+            here = f"{_path}.{k}" if _path else str(k)
+            is_sensitive = (
+                key_l in SENSITIVE_KEY_NAMES
+                and not (not _path and key_l in _SECRET_IGNORE_TOPLEVEL))
+            if is_sensitive and v not in (None, "", [], {}):
+                hits.append(here)
+            hits.extend(scan_response_for_secrets(v, here))
+    elif isinstance(payload, list):
+        for i, item in enumerate(payload):
+            hits.extend(scan_response_for_secrets(item, f"{_path}[{i}]"))
+    return hits
+
+
+def _append_regression_entry(entry_id: str, description: str,
+                             steps: dict) -> bool:
+    """Append a new regression to regression_library.json (dedup by id).
+    Returns True if a NEW entry was written."""
+    lib = _load_regression_library()
+    if any(e.get("id") == entry_id for e in lib):
+        return False
+    lib.append({
+        "id":              entry_id,
+        "description":     description,
+        "steps":           steps,
+        "found_in_commit": "auto-qa-secret-scan",
+        "fixed_in_commit": None,
+        "status":          "open",
+        "detected_at":     _dt.now(_tz.utc).isoformat(timespec="seconds"),
+        "note":            ("Auto-logged by the iter338 response "
+                            "secret-leak scanner. Set status=fixed only "
+                            "after a live re-scan shows the key gone."),
+    })
+    os.makedirs(_HISTORY_DIR, exist_ok=True)
+    with open(_REGRESSION_LIB, "w", encoding="utf-8") as f:
+        json.dump(lib, f, indent=2)
+        f.write("\n")
+    return True
+
+
 async def verify_pass_is_real(claimed_state: str, *, owner: str,
                               repo: str, branch: str, token: str,
                               pre_state_sha: str = None,
                               marker_path: str = "tests/qa_sandbox_marker.py",
-                              baseline_content: str = None) -> dict:
-    """Independent GitHub-API checks behind any PASS claim, using the
-    EXISTING github_api_writer client. Empty checks → verified=None,
-    stated explicitly — never silently marked verified."""
+                              baseline_content: str = None,
+                              response_payload=None,
+                              response_source: str = "") -> dict:
+    """Independent PASS verification, using the EXISTING github_api_writer
+    client. Iter 338: ALWAYS runs the secret-leak scanner on
+    `response_payload` when provided — a leaked credential fails the
+    check and self-logs a regression. Empty checks → verified=None."""
     import httpx as _hx
     from services.github_api_writer import _get_branch_head, fetch_file
     checks = {}
@@ -740,11 +873,27 @@ async def verify_pass_is_real(claimed_state: str, *, owner: str,
                 current == (baseline_content
                              if baseline_content is not None
                              else PRE_SHIP_BASELINE_CONTENT))
+
+    # Iter 338 — secret-leak scan on the captured response, always.
+    leaked = []
+    if response_payload is not None:
+        leaked = scan_response_for_secrets(response_payload)
+        checks["no_secret_leak"] = (len(leaked) == 0)
+        if leaked:
+            src = response_source or "unknown-endpoint"
+            _append_regression_entry(
+                entry_id=f"regression-secretleak-{src.strip('/').replace('/', '_')}",
+                description=(f"Response from {src} leaked sensitive "
+                             f"key(s): {sorted(set(k.split('.')[-1] for k in leaked))}"),
+                steps={"endpoint": src, "leaked_paths": leaked[:20]})
+
     out = {
         "claimed":            claimed_state,
         "checks":             checks,
         "genuinely_verified": all(checks.values()) if checks else None,
     }
+    if leaked:
+        out["leaked_paths"] = leaked
     if not checks:
         out["note"] = "no independent check defined for this state yet"
     return out

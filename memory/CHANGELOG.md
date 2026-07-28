@@ -4908,3 +4908,32 @@ codes as precaution (leak was live ~from MFA feature ship until this deploy).
 **Deferred (unchanged):** iter336b serial-probes live; Section 0 QA sandbox
 (qa-bot account + GitHub secrets) still needed for Auto-QA CI + future
 prod verification should use sandbox, not founder account.
+
+## Iter 338 — Auto-QA response secret-leak scanner (Jun 28 2026) ✅
+
+Founder ask after iter337: prevent another /auth/me-style leak
+automatically. Extended `services/qa_matrix.py` (ZERO new source files):
+- `SENSITIVE_KEY_NAMES` (mfa_secret, totp_secret, access_token,
+  refresh_token, github_token, backup_codes, password, secret, pat,
+  private_key, api_key, …) + `scan_response_for_secrets()` recursive
+  walker (dotted paths, ignores bare top-level session token/mfa_token
+  which are by-design, skips empty values).
+- `verify_pass_is_real()` now ALWAYS scans `response_payload` when
+  given → sets `no_secret_leak` check; on any hit it FAILS and
+  auto-appends a dedup'd entry to regression_library.json (status=open).
+- New `secret_leak_scan` scenario: logs into the REAL backend (preview
+  test account, env-overridable — never founder data) and scans
+  /auth/me + /auth/tokens JSON.
+- `decide_scope` routes auth.py changes + secret/leak/auth/token
+  keywords → secret_leak_scan automatically.
+
+Evidence (pasted from real run):
+- Unit: catches exact iter337 shape → ['user.mfa_secret',
+  'user.mfa_backup_codes', 'user.github.access_token']; clean shape → [].
+- LIVE run against real /api/aurem-dev/auth/me + /auth/tokens →
+  both PASS "no sensitive keys in response ✓" (latest-qa-report.md).
+- FAIL path + regression auto-log covered by tests.
+- Tests added to existing test_iter334_auto_qa_agent.py (10 new,
+  26/26 green). No new test file either.
+
+Ships to prod on next redeploy (CI/QA tooling — no prod runtime change).
