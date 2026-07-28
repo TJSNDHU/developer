@@ -25,6 +25,7 @@ import TaskProgressCard from "./TaskProgressCard";
 import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
+import LoopProgressBubble, { isLoopProgressContent } from "./LoopProgressBubble"; // Iter 331
 import MermaidBlock from "./MermaidBlock";       // Iter 212m-61 /diagram
 import PatRequiredCTA from "./PatRequiredCTA";
 import SystemSignalBanner from "./SystemSignalBanner";
@@ -656,7 +657,15 @@ export default function MessageBubble({
               User-typed messages don't get parsed (preserves raw text);
               assistant replies get full syntax highlighting + copy. */}
           {m.role === "assistant" ? (
-            <RenderedMessage text={m.content} />
+            /* Iter 331 — loop-progress transcripts (live AND persisted
+               history) collapse to a one-line summary; expand on click. */
+            isLoopProgressContent(m.content) ? (
+              <LoopProgressBubble text={m.content} streaming={!!m.streaming}>
+                <RenderedMessage text={m.content} />
+              </LoopProgressBubble>
+            ) : (
+              <RenderedMessage text={m.content} />
+            )
           ) : (
             m.content
           )}
