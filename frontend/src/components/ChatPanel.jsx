@@ -2810,6 +2810,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         // Iter 328 hotfix v3 — shared mapper (see /lib/shipPendingMappers).
         setShipPending(mapShipPendingFromAwaitingShipEvent(data, ev));
         setUserAction(null);
+      } else if (data && (data.kind === "human_review_required"
+                          || data.requires_human_review)) {
+        // Iter 332 — dedicated SHIP human-review gate: test files were
+        // modified. Show Approve & Ship / Cancel instead of the
+        // generic retry/skip/abort card (which soft-locked the loop).
+        setShipPending(null);
+        setUserAction({
+          phase,
+          gateType: "ship_human_review",
+          message: ev.message
+            || "Test files were modified — human review required to ship.",
+          errors: [],
+          testsTouched: Array.isArray(data.tests_touched)
+            ? data.tests_touched : [],
+        });
       } else {
         const errors = Array.isArray(data.errors)
           ? data.errors.map((e) => typeof e === "string" ? e : JSON.stringify(e))
@@ -2970,6 +2985,26 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
 
   async function handlePauseAction(action, feedback) {
     if (!loopId) return;
+    // Iter 332 — SHIP human-review gate actions. approve_ship pushes
+    // the held commit (confirm-ship approved=true); cancel_ship aborts
+    // cleanly without committing.
+    if (action === "approve_ship" || action === "cancel_ship") {
+      setUserActionBusy(true);
+      try {
+        await confirmShip(loopId, action === "approve_ship");
+        setUserAction(null);
+        if (action === "approve_ship") {
+          setBusy(true);
+        } else {
+          setLoopPhase("idle");
+        }
+      } catch (e) {
+        toast(e?.response?.data?.detail || e?.message || "Ship action failed");
+      } finally {
+        setUserActionBusy(false);
+      }
+      return;
+    }
     setUserActionBusy(true);
     try {
       await pauseResponse(loopId, action, feedback || "");
@@ -3725,6 +3760,8 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           phase={userAction.phase}
           message={userAction.message}
           errors={userAction.errors}
+          gateType={userAction.gateType}
+          testsTouched={userAction.testsTouched}
           busy={userActionBusy}
           onAction={handlePauseAction}
         />

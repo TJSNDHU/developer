@@ -4607,3 +4607,41 @@ spot-check for the new timing telemetry. Admin-only, returns the
 20 most recent samples sorted by `ts` desc.
 
 **Honest deviation
+---
+
+## Iter 332 — P0 Ship-Gate fix + P1 Stall Detector (Jun 28 2026) ✅
+
+**P0 (founder prod smoke test):** Ship human-review gate (test files
+modified) rendered generic retry/skip/abort card with NO "Approve &
+Ship" button; "Skip this step" resumed the pipeline from EXECUTE →
+re-hit the same gate → infinite loop.
+
+Fixes:
+1. `LoopActionCards.jsx` — `UserActionCard` now takes `gateType`;
+   `ship_human_review` renders dedicated green card: "Approve & Ship"
+   (`loop-approve-ship-btn`) + "Cancel ship" (`loop-cancel-ship-btn`)
+   + touched-tests list. Generic buttons hidden for this gate.
+2. `ChatPanel.jsx` — `human_review_required` SSE event maps to the new
+   gate card; `handlePauseAction` routes `approve_ship`/`cancel_ship`
+   → existing `confirmShip(loopId, bool)`.
+3. `routers/loop.py` — new `POST /{loop_id}/approve-ship` (alias over
+   confirm-ship approved=true). `pause_response` skip@ship now calls
+   `engine.skip_at_ship()` instead of resuming pipeline.
+4. `loop_engine.py` — new `skip_at_ship()`: terminal ABORTED +
+   `context.terminal_reason="SKIPPED_AT_SHIP"`, cancels pipeline task,
+   releases loop lock, emits `kind=skipped_at_ship`.
+
+**P1 stall detector (defense-in-depth):** `_narrate()` keeps a 12-entry
+ring of `step|tone|text` keys; if the last 3 == previous 3 (same
+sequence repeated twice), engine `_fail()`s with stall message +
+`context.stall_auto_abort` and raises CancelledError to unwind the
+pipeline. Prevents 7+ min silent loops.
+
+Tests: `backend/tests/test_iter332_ship_gate_skip.py` (10 pass:
+skip_at_ship behavior, stall detector, router wiring) +
+`frontend .../LoopActionCards.iter332_ship_gate.test.jsx` (7 pass).
+Regression: ShipPendingCard + loop_iter308 suites green; 3 backend
+failures confirmed PRE-EXISTING stale tests (eng.db=None vs Iter
+212m-177 claim code; loop_stream missing `request` arg).
+
+> **Deployment note**: PREVIEW only — user must redeploy auremcto.com.

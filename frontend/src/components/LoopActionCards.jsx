@@ -20,7 +20,7 @@
  * state machine + API calls.
  */
 import React, { useState } from "react";
-import { Wrench, Play, SkipForward, X, AlertTriangle } from "lucide-react";
+import { Wrench, Play, SkipForward, X, AlertTriangle, ShieldCheck, Rocket } from "lucide-react";
 
 
 export function SelfHealIndicator({ visible, attempt = 1, max = 3,
@@ -78,8 +78,74 @@ export function SelfHealIndicator({ visible, attempt = 1, max = 3,
  * @param {(action: 'retry'|'skip'|'abort', feedback?: string) => void} props.onAction
  */
 export function UserActionCard({ phase, message, errors,
-                                  onAction, busy }) {
+                                  onAction, busy,
+                                  gateType, testsTouched }) {
   const [feedback, setFeedback] = useState("");
+  // Iter 332 — dedicated SHIP human-review gate. Test files were
+  // modified, so the engine paused for explicit approval. Generic
+  // retry/skip buttons here soft-locked the engine; the ONLY valid
+  // actions are Approve & Ship or Cancel.
+  if (gateType === "ship_human_review") {
+    return (
+      <div
+        data-testid="ship-review-gate-card"
+        data-phase={phase}
+        role="region"
+        aria-label="Human review required before ship"
+        style={{
+          margin: "10px 12px",
+          padding: 14,
+          background: "linear-gradient(135deg, rgba(34,197,94,0.10), rgba(16,185,129,0.05))",
+          border: "1px solid rgba(34,197,94,0.40)",
+          borderRadius: 12,
+          display: "flex", flexDirection: "column", gap: 10,
+          fontFamily: "'JetBrains Mono', monospace",
+          boxShadow: "0 0 28px -10px rgba(34,197,94,0.45)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ShieldCheck size={14} color="#86efac" />
+          <strong style={{ fontSize: 12, color: "#86efac", letterSpacing: 0.4 }}>
+            Human review required — test files modified
+          </strong>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text, #e8ecf3)", lineHeight: 1.5 }}>
+          {message}
+        </div>
+        {Array.isArray(testsTouched) && testsTouched.length > 0 && (
+          <pre
+            data-testid="ship-review-tests-touched"
+            style={{
+              margin: 0, padding: "8px 10px",
+              background: "rgba(0,0,0,0.40)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: 6,
+              fontSize: 10.5, color: "#86efac",
+              maxHeight: 120, overflowY: "auto",
+              whiteSpace: "pre-wrap", wordBreak: "break-all",
+            }}
+          >
+            {testsTouched.slice(0, 10).join("\n")}
+            {testsTouched.length > 10 && `\n…and ${testsTouched.length - 10} more`}
+          </pre>
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <ActionBtn
+            testid="loop-approve-ship-btn"
+            Icon={Rocket} label="Approve & Ship"
+            tone="primary" disabled={busy}
+            onClick={() => onAction?.("approve_ship")}
+          />
+          <ActionBtn
+            testid="loop-cancel-ship-btn"
+            Icon={X} label="Cancel ship"
+            tone="danger" disabled={busy}
+            onClick={() => onAction?.("cancel_ship")}
+          />
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       data-testid="user-action-card"

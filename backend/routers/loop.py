@@ -371,6 +371,17 @@ async def confirm_ship_endpoint(loop_id: str, body: ConfirmBody,
     }
 
 
+@router.post("/{loop_id}/approve-ship")
+async def approve_ship_endpoint(loop_id: str,
+                                authorization: Optional[str] = Header(None)) -> dict:
+    """Iter 332 — Dedicated approve endpoint for the SHIP human-review
+    gate (test files touched). Thin alias over confirm-ship with
+    approved=True so the UI's "Approve & Ship" button has a stable,
+    self-describing route. Moves PAUSED_FOR_USER/ship → SHIPPING."""
+    return await confirm_ship_endpoint(
+        loop_id, ConfirmBody(approved=True), authorization)
+
+
 @router.post("/{loop_id}/pause-response")
 async def pause_response(loop_id: str, body: PauseResponseBody,
                          authorization: Optional[str] = Header(None)) -> dict:
@@ -383,6 +394,13 @@ async def pause_response(loop_id: str, body: PauseResponseBody,
         raise HTTPException(403, "Not your loop")
     if body.action == "abort":
         await engine.cancel()
+    elif (body.action == "skip"
+          and engine.state == eng.LoopState.PAUSED_FOR_USER
+          and engine.phase == "ship"):
+        # Iter 332 — skipping at a SHIP gate must NOT resume the
+        # pipeline (that re-runs EXECUTE and re-hits the same gate →
+        # infinite loop). Terminate gracefully instead.
+        await engine.skip_at_ship()
     elif body.action in ("retry", "skip"):
         # Phase C implements true retry/skip semantics; Phase B simply
         # resumes the pipeline from the next phase.

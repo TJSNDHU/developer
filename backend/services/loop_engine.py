@@ -421,6 +421,9 @@ class LoopEngine:
             "commit":                None,
         }
         self._cancelled = False
+        # Iter 332 — stall detector ring: last N narration keys. If the
+        # same 3-key sequence repeats twice back-to-back, auto-abort.
+        self._narration_ring: list = []
         # Iter 212m-131 — Hold a strong reference to the pipeline task
         # so the asyncio GC can't reap it mid-flight. The old code
         # called `asyncio.create_task(self._run_pipeline())` in
@@ -2742,6 +2745,39 @@ class LoopEngine:
             requires_user_action=True,
         )
 
+    async def skip_at_ship(self) -> None:
+        """Iter 332 — User clicked "Skip this step" while the loop was
+        paused at a SHIP gate (human_review_required / verifier_rejected
+        / awaiting_ship). Skipping a ship means: do NOT commit, close
+        the loop gracefully. Previously this resumed the pipeline from
+        EXECUTE which re-hit the same gate → infinite loop."""
+        if self.state in _TERMINAL:
+            return
+        self._cancelled = True
+        task = self._pipeline_task
+        if task is not None and not task.done():
+            task.cancel()
+        self.state = LoopState.ABORTED
+        self.context["terminal_reason"] = "SKIPPED_AT_SHIP"
+        self.context.pop("ship_pending", None)
+        await _persist_session(self.db, self._doc())
+        try:
+            from services.loop_safety import release_loop_lock
+            await release_loop_lock(
+                self.db, self.project_id or "_no_project",
+                self.user_id, self.loop_id,
+            )
+        except Exception as e:                              # noqa: BLE001
+            logger.debug("release_loop_lock on skip_at_ship failed: %r", e)
+        await self._emit(
+            LoopState.ABORTED, "ship",
+            step=5, total_steps=5,
+            message=("Ship skipped by user — loop closed without "
+                     "committing (SKIPPED_AT_SHIP)."),
+            data={"kind": "skipped_at_ship",
+                  "terminal_reason": "SKIPPED_AT_SHIP"},
+        )
+
     async def confirm_ship(self, approved: bool) -> None:
         """Iter 212m-111 — User clicked the manual "Ship to GitHub"
         button (approved=True) or "Cancel" (approved=False) on the
@@ -3156,6 +3192,30 @@ class LoopEngine:
         # doing. Narration never changes state; it only observes.
         await self._emit(self.state, self.phase, step=0, total_steps=5,
                          message=text, data=data)
+        # Iter 332 — stall/loop detector (defense-in-depth). If the same
+        # 3-narration sequence repeats twice in a row, the engine is
+        # cycling (e.g. execute→gate→execute). Auto-abort instead of
+        # burning compute silently for minutes.
+        key = f"{step}|{tone}|{text}"
+        ring = self._narration_ring
+        ring.append(key)
+        if len(ring) > 12:
+            del ring[:-12]
+        if (len(ring) >= 6 and ring[-3:] == ring[-6:-3]
+                and self.state not in _TERMINAL):
+            logger.error(
+                "[loop %s] STALL DETECTED — narration sequence repeated "
+                "twice: %r — auto-aborting.", self.loop_id, ring[-3:],
+            )
+            self.context["stall_auto_abort"] = {
+                "repeated_sequence": ring[-3:], "ts": _iso(),
+            }
+            await self._fail(
+                self.phase or "?",
+                "Stall detected: the same step sequence repeated twice — "
+                "loop auto-aborted to prevent an infinite cycle.",
+            )
+            raise asyncio.CancelledError("loop stall auto-abort")
 
     def _doc(self, extra: Optional[dict] = None) -> dict:
         out = {
