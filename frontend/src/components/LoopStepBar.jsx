@@ -257,17 +257,21 @@ export default function LoopStepBar({
         letterSpacing: "0.10em",
       }}
     >
-      {/* Row 1 — Labels + icons (unchanged from prior iter) */}
+      {/* Row 1 — Labels + icons. Iter 330 · alignment fix — matches
+          Row 2's grid columns 1:1 so each step chip sits directly
+          above its ECG segment, regardless of chat-input width. */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 14,
-        overflowX: "auto", whiteSpace: "nowrap",
+        display: "grid",
+        gridTemplateColumns: "auto repeat(5, 1fr)",
+        gap: 8, alignItems: "center",
+        columnGap: 8,
       }}>
         <span style={{
           color: "#8A8A8A", fontWeight: 700, fontSize: 11,
-          letterSpacing: "0.14em", flexShrink: 0,
+          letterSpacing: "0.14em", width: 34,
         }}>LOOP</span>
 
-        {STEPS.map((s, i) => {
+        {STEPS.map((s) => {
           const variant = ecgVariant(s);
           const done = variant === "success";
           const live = variant === "active";
@@ -278,62 +282,60 @@ export default function LoopStepBar({
             : live ? COL.amber
             : COL.muted;
           return (
-            <React.Fragment key={s.id}>
-              <span
-                data-testid={`loop-step-${s.key}`}
-                data-step-state={errd ? "error" : done ? "done" : live ? "active" : "future"}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 7,
-                  color, fontWeight: 700,
-                  opacity: future ? 0.55 : 1,
-                  flexShrink: 0,
-                }}
-              >
-                <span style={{
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  width: 16, height: 16, borderRadius: 999,
-                  border: live ? `1.5px solid ${COL.amber}`
-                    : done ? `1.5px solid ${COL.green}`
-                    : errd ? `1.5px solid ${COL.red}`
-                    : "1.5px solid #444",
-                  background: live ? "rgba(255,102,8,0.10)" : "transparent",
-                  flexShrink: 0,
-                }}>
-                  {errd
-                    ? <AlertTriangle size={10} strokeWidth={2.5} />
-                    : done
-                      ? <Check size={10} strokeWidth={3} />
-                      : live
-                        ? <Loader2 size={10} className="loop-spin" strokeWidth={2.5} />
-                        : <Circle size={5} strokeWidth={0} fill="transparent" />}
-                </span>
-                <span>{s.label}</span>
+            <span
+              key={s.id}
+              data-testid={`loop-step-${s.key}`}
+              data-step-state={errd ? "error" : done ? "done" : live ? "active" : "future"}
+              style={{
+                display: "inline-flex", alignItems: "center",
+                justifyContent: "center",
+                gap: 7,
+                color, fontWeight: 700,
+                opacity: future ? 0.55 : 1,
+                minWidth: 0, // allow shrink inside grid cell
+              }}
+            >
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 16, height: 16, borderRadius: 999,
+                border: live ? `1.5px solid ${COL.amber}`
+                  : done ? `1.5px solid ${COL.green}`
+                  : errd ? `1.5px solid ${COL.red}`
+                  : "1.5px solid #444",
+                background: live ? "rgba(255,102,8,0.10)" : "transparent",
+                flexShrink: 0,
+              }}>
+                {errd
+                  ? <AlertTriangle size={10} strokeWidth={2.5} />
+                  : done
+                    ? <Check size={10} strokeWidth={3} />
+                    : live
+                      ? <Loader2 size={10} className="loop-spin" strokeWidth={2.5} />
+                      : <Circle size={5} strokeWidth={0} fill="transparent" />}
               </span>
-              {i < STEPS.length - 1 && (
-                <span aria-hidden style={{
-                  color: "#3A3A3A", fontSize: 11, userSelect: "none",
-                  flexShrink: 0, fontWeight: 700,
-                }}>—</span>
-              )}
-            </React.Fragment>
+              <span style={{
+                overflow: "hidden", textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}>{s.label}</span>
+            </span>
           );
         })}
+      </div>
 
-        {retryCount > 0 && (
+      {retryCount > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <span
             data-testid="loop-retry-pill"
             style={{
-              marginLeft: "auto",
               padding: "3px 9px", borderRadius: 999,
               fontSize: 10, fontWeight: 700,
               color: "#FB923C",
               background: "rgba(251,146,60,0.10)",
               border: "1px solid rgba(251,146,60,0.32)",
-              flexShrink: 0,
             }}
           >{retryCount}/3 retries</span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Row 2 — ECG strips per step, columns align 1:1 with the
           label row above. Uses the same 5-column grid + LOOP header
