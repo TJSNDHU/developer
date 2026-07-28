@@ -65,3 +65,12 @@ Even with a ✅ verdict, never hard-delete immediately:
 
 **The founder-approved delete list #14 is therefore fully REJECTED.**
 A new list requires fresh script runs + this template.
+
+## Protected data files (never delete without scan) — Iter 334
+
+- `.emergent/qa-history/regression_library.json` — append-only Auto-QA
+  regression library. String-referenced (not imported) by
+  `services/qa_matrix.py::_load_regression_library` at every
+  auto-qa-agent run; deleting it silently blanks the "Regressions
+  checked against" section of every future QA report. Exactly the
+  class of reference `scripts/check-safe-to-delete.sh` exists to catch.

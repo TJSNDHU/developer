@@ -21,6 +21,7 @@ import React from "react";
 import { useSearchParams } from "react-router-dom";
 import LoopStepBar from "../components/LoopStepBar";
 import LoopLiveFeed from "../components/LoopLiveFeed";
+import { UserActionCard } from "../components/LoopActionCards";
 
 
 // Fixed reference timestamps (Unix epoch millis) so every snapshot
@@ -160,7 +161,28 @@ const FIXTURES = {
   "feed-pending":          FeedPending,
   "feed-live-events":      FeedLiveEvents,
   "feed-terminal":         FeedTerminal,
+  // Iter 334 — ship human-review gate (regression lock for the
+  // 2026-07-28 infinite-loop bug; driven by ship_gate.spec.js).
+  "ship-gate":             ShipGateFixture,
 };
+
+
+function ShipGateFixture() {
+  return (
+    <Stage label="fixture: ship-gate / human-review (Iter 332)">
+      <UserActionCard
+        phase="ship"
+        gateType="ship_human_review"
+        message={"Test/fixture files were modified — human review "
+                 + "required regardless of trust level. Approve "
+                 + "manually to ship."}
+        testsTouched={["tests/test_example.py", "tests/fixtures/data.json"]}
+        busy={false}
+        onAction={() => {}}
+      />
+    </Stage>
+  );
+}
 
 
 export default function VisualFixtures() {

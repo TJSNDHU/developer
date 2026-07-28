@@ -314,6 +314,20 @@ async def _harvest_ci_status() -> dict:
 # Route
 # ═══════════════════════════════════════════════════════════════════
 
+@router.get("/latest-report")
+async def get_latest_qa_report(authorization: Optional[str] = Header(None)):
+    """Iter 334 — Auto-QA agent report viewer. Serves the markdown
+    written by services/qa_matrix.write_report() (locally or by the
+    auto-qa-agent CI job committing .emergent/latest-qa-report.md).
+    Honest empty-state when the job has never run."""
+    await _require_admin(authorization)
+    path = "/app/.emergent/latest-qa-report.md"
+    if not os.path.exists(path):
+        return {"error": "No report yet — auto-qa-agent job has not run"}
+    with open(path, "r", encoding="utf-8") as f:
+        return {"content": f.read(), "modified_at": os.path.getmtime(path)}
+
+
 @router.get("/status")
 async def qa_status(authorization: Optional[str] = Header(None)):
     """Aggregate QA snapshot for /admin/qa. Locked to admin/founder."""

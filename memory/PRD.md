@@ -1,7 +1,7 @@
 # AUREM CTO — Product Requirements Document (living)
 
-**Last updated**: 2026-07-28 (Iter 331 · Systematic Closure)
-**Live**: https://auremcto.com
+**Last updated**: 2026-06-28 (Iter 334 · Auto-QA Agent) — see CHANGELOG.md for iter 332 (ship-gate P0 fix), 333 (Phase 1 correction rules), 334 (auto-QA agent)
+**Live**: https://auremcto.com (⚠️ /api routes 520 since last deploy — infra routing issue, deployer RCA done, awaiting founder decision: retry redeploy vs support escalation)
 
 ## Original problem statement
 Optimize onboarding, strict separation of backend founder logic, and expand codebase health scanners.

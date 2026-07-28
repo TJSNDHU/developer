@@ -317,3 +317,79 @@ jobs:
           name: lighthouse-report
           path: frontend/.lighthouseci
           retention-days: 7
+
+  auto-qa-agent:
+    # Iter 334 — Auto-QA agent (founder charter). Decides test scope
+    # from the actual commit diff, runs the mapped scenarios at the
+    # SERVICE layer (pytest on real state-machine suites + direct
+    # tool_executor calls — no browser, no LLM tokens for backend
+    # checks), and writes .emergent/latest-qa-report.md. UI-level
+    # ship-gate coverage runs in visual-regression (ship_gate.spec.js
+    # is auto-collected by `npx playwright test` there).
+    name: Auto-QA agent (scope-decided scenarios + report)
+    needs: [invariants, frontend-vitest, visual-regression]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+      - name: Get diff and commit message
+        id: diff
+        run: |
+          echo "MESSAGE<<EOF" >> $GITHUB_OUTPUT
+          git log -1 --pretty=%B >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-only HEAD~1 HEAD >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Run auto-QA agent
+        working-directory: backend
+        env:
+          QA_BOT_SESSION_TOKEN: ${{ secrets.QA_BOT_SESSION_TOKEN }}
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME:   aurem_ci_smoke
+          COMMIT_MESSAGE: ${{ steps.diff.outputs.MESSAGE }}
+          CHANGED_FILES:  ${{ steps.diff.outputs.FILES }}
+        # NOTE: `python -m services.qa_matrix.run_auto` (original spec)
+        # is not importable — qa_matrix is a module, not a package.
+        # The CLI entrypoint lives in qa_matrix.__main__ guard instead.
+        run: |
+          python -m services.qa_matrix \
+            --message "$COMMIT_MESSAGE" \
+            --files "$CHANGED_FILES" \
+            --sha "$(git rev-parse --short HEAD)"
+      - name: Commit report back to repo
+        if: ${{ github.event_name == 'push' }}
+        env:
+          QA_REPORT_COMMIT_TOKEN: ${{ secrets.QA_REPORT_COMMIT_TOKEN }}
+        run: |
+          if [ -z "$QA_REPORT_COMMIT_TOKEN" ]; then
+            echo "QA_REPORT_COMMIT_TOKEN not configured — report kept as artifact only"
+            exit 0
+          fi
+          git config user.name "qa-agent-bot"
+          git config user.email "qa-bot@auremcto.com"
+          git remote set-url origin "https://x-access-token:${QA_REPORT_COMMIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git add .emergent/latest-qa-report.md .emergent/qa-history/
+          # [skip ci] prevents the report commit from re-triggering
+          # this workflow in an infinite loop.
+          git commit -m "qa-agent: report for $(git rev-parse --short HEAD~1) [skip ci]" || echo "no changes to commit"
+          git push || echo "push skipped (protected branch or no delta)"
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-qa-report
+          path: .emergent/latest-qa-report.md
+          retention-days: 14

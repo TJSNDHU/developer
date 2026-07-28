@@ -4690,3 +4690,56 @@ agent (`Live at: https://auremcto.com`) BUT post-deploy smoke found
 static frontend loads. Same code healthy on preview. Deployer debug
 dispatched — RCA pending. Do NOT claim iter332 live until /api/health
 200 + founder ship-gate smoke passes.
+
+---
+
+## Iter 334 — AUTO-QA AGENT (founder charter, reuse-first) (Jun 28 2026) ✅ preview-verified
+
+Anti-mock rule honored: every function real, every claim backed by
+raw output captured in-session.
+
+**New files (3):** `.emergent/qa-history/regression_library.json`
+(seeded with the real ship-gate infinite-loop bug, status=open),
+`frontend/tests/visual/ship_gate.spec.js` (4 functional DOM tests via
+the existing /dev/visual fixture surface), 
+`backend/tests/test_iter334_auto_qa_agent.py` (16 tests).
+
+**Extended (7):** `services/qa_matrix.py` (decide_scope, scenario
+runners, ADVERSARIAL_VARIANTS, detect_stall_from_replay_buffer on the
+EXISTING sse_replay_buffer, verify_pass_is_real via EXISTING
+github_api_writer, write_report, CLI `python -m services.qa_matrix`),
+`routers/qa_probe.py` (POST /qa/scope-decision, triple-gated),
+`routers/admin_qa.py` (GET /admin/qa/latest-report),
+`AdminQADashboard.jsx` (LatestAutoQASection, <pre> render — no
+react-markdown dep added, deliberate), `VisualFixtures.jsx`
+(ship-gate fixture), `quality-gate.yml` (ONE new job auto-qa-agent,
+append-only — git diff shows 76 insertions 0 deletions, YAML
+validated), `docs/DELETE_GATE.md` (regression_library.json protected).
+
+**DONE-criteria evidence (all captured raw in session):**
+- decide_scope vs the REAL iter332 fix commit → scenarios
+  ['full_loop_lifecycle','ship_gate_approval'] ✓ (also live via
+  /qa/scope-decision endpoint with real JWT + QA token)
+- detect_stall synthetic 3x-repeat → True; non-repeat → False ✓
+- verify_pass_is_real SHIPPED negative case → genuinely_verified
+  False; unknown state → null + explicit note ✓
+- Real CLI run produced .emergent/latest-qa-report.md: 
+  full_loop_lifecycle 14 passed; ship_gate_approval playwright
+  4 passed against LIVE preview :3000; Overall: PASS ✓
+- AdminQADashboard renders report — screenshot captured ✓
+- grep-lock: no playwright import in backend scenario path (test) ✓
+- 70/70 combined suite green (iter332+333+334+iter298 regression) ✓
+
+**Honest deviations / founder-blocked items:**
+1. `python -m services.qa_matrix.run_auto` (spec snippet) not
+   importable — CLI is `python -m services.qa_matrix`; CI job uses it.
+2. Playwright specs live in frontend/tests/visual (existing Layer 2),
+   not tests/e2e — new spec follows the real repo layout.
+3. verify_pass_is_real negative-case vs a REAL sandbox repo: BLOCKED
+   on Section 0 (qa-bot account + TJSNDHU/aurem-qa-sandbox + PAT).
+   Logic tested with monkeypatched GitHub layer — stated, not hidden.
+4. skip_does_not_reexecute UI click-through of a LIVE paused loop:
+   BLOCKED on same Section 0 sandbox; state-machine contract locked
+   at service layer (TestSkipAtShip 4 passed).
+5. FOUNDER MANUAL STEPS: create qa-bot@auremcto.com + sandbox repo,
+   add QA_BOT_SESSION_TOKEN + QA_REPORT_COMMIT_TOKEN GitHub secrets.

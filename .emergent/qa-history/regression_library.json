@@ -1,0 +1,16 @@
+[
+  {
+    "id": "regression-20260728-ship-gate-infinite-loop",
+    "description": "Skip-this-step at ship-approval gate caused infinite Execute->Ship-gate cycle instead of terminating (observed: 3 cycles, 7m22s stall, manually aborted)",
+    "steps": {
+      "task": "Add a comment to a test file",
+      "action_at_ship_gate": "click_skip"
+    },
+    "found_in_commit": "manual-browser-test-2026-07-28",
+    "fixed_in_commit": null,
+    "status": "open",
+    "service_layer_lock": "backend/tests/test_iter332_ship_gate_skip.py",
+    "ui_layer_lock": "frontend/tests/visual/ship_gate.spec.js",
+    "note": "Set status=fixed + fill fixed_in_commit ONLY after verify_pass_is_real confirms against the sandbox repo — one green run is not proof."
+  }
+]

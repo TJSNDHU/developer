@@ -30,6 +30,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from cto_services.auth import current_dev
+from services.qa_matrix import decide_scope  # Iter 334 — re-export
 
 router = APIRouter(prefix="/qa", tags=["QA — internal only"])
 logger = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ class ProbeBody(BaseModel):
     prompt:     str
     session_id: Optional[str] = None
     project_id: Optional[str] = None
+
+
+class ScopeDecisionBody(BaseModel):
+    commit_message: str
+    changed_files:  list[str]
 
 
 def _qa_enabled() -> bool:
@@ -172,3 +178,23 @@ async def chat_probe(
         "quota_state":     quota_state,
         "elapsed_ms":      int((time.monotonic() - started) * 1000),
     }
+
+
+@router.post("/scope-decision")
+async def scope_decision(
+    body: ScopeDecisionBody,
+    authorization: Optional[str] = Header(None),
+    x_qa_probe_token: Optional[str] = Header(None),
+):
+    """Iter 334 — Auto-QA agent scope decider. Given a commit message
+    + changed file list, returns the deterministic test scope
+    (backend/ui flags + scenario list + reasoning). Same triple gate
+    as /qa/chat-probe. The logic itself lives in services/qa_matrix
+    (service layer); this endpoint is the HTTP surface for CI and
+    manual founder checks."""
+    if not _qa_enabled():
+        raise HTTPException(404, "qa_disabled")
+    if not _valid_probe_token(x_qa_probe_token):
+        raise HTTPException(403, "invalid_qa_probe_token")
+    await current_dev(authorization)
+    return decide_scope(body.commit_message, body.changed_files)

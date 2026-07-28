@@ -635,3 +635,5 @@ History claimed these shipped ~Iter 114-115. Live-codebase evidence
 - `ORA_LEARNING_DISABLED` — auto-detected in backend/routers/admin.py (verify) (default: unset) [Iter 0, 2026-07-28T06:29:25.601117Z] <!-- inv:envvar:ORA_LEARNING_DISABLED -->
 - `services/tool_executor.py` — auto-detected new service (verify) · status=wired [Iter 0, 2026-07-28T06:29:25.601127Z] <!-- inv:service:services/tool_executor.py -->
 - `loop_run_log kind='skipped_at_ship'` — auto-detected in backend/services/loop_engine.py (verify) [Iter 0, 2026-07-28T17:41:08.528452Z] <!-- inv:loop_run_log_kind:skipped_at_ship -->
+- `services/correction_rules.py` — auto-detected new service (verify) · status=wired [Iter 0, 2026-07-28T18:04:46.543897Z] <!-- inv:service:services/correction_rules.py -->
+- `MONGO_URL` — auto-detected in backend/tests/test_iter333_correction_rules.py (verify) (default: unset) [Iter 0, 2026-07-28T18:04:46.543926Z] <!-- inv:envvar:MONGO_URL -->

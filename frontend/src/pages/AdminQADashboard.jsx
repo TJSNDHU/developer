@@ -140,7 +140,6 @@ export default function AdminQADashboard() {
   const style  = data.test_style;
   const a11y   = data.a11y;
   const ci     = data.ci_status;
-
   return (
     <div data-testid="admin-qa-dashboard"
           style={{ minHeight: "100vh", padding: "32px 40px",
@@ -306,6 +305,54 @@ export default function AdminQADashboard() {
           )}
         </Card>
       </div>
+
+      {/* Iter 334 — Auto-QA agent latest report */}
+      <LatestAutoQASection />
+    </div>
+  );
+}
+
+
+// Iter 334 — renders .emergent/latest-qa-report.md served by
+// GET /admin/qa/latest-report. Raw markdown in a <pre> (no
+// react-markdown dependency in this repo — deliberate, documented).
+function LatestAutoQASection() {
+  const [report, setReport] = useState(null);
+  useEffect(() => {
+    const tok = localStorage.getItem("aurem_admin_token")
+      || localStorage.getItem("aurem_token");
+    axios.get(`${API}/api/aurem-dev/admin/qa/latest-report`,
+      { headers: { Authorization: `Bearer ${tok || ""}` } })
+      .then((r) => setReport(r.data))
+      .catch((e) => setReport({
+        error: e?.response?.data?.detail || e.message,
+      }));
+  }, []);
+  if (!report) return null;
+  return (
+    <div className="latest-auto-qa" data-testid="admin-qa-latest-report"
+          style={{ maxWidth: 1100, marginTop: 20 }}>
+      <Card testid="admin-qa-card-auto-report"
+            title="Latest Auto-QA Report"
+            sub={report.modified_at
+              ? `written ${new Date(report.modified_at * 1000).toLocaleString()}`
+              : "auto-qa-agent job output"}>
+        {report.content ? (
+          <pre data-testid="admin-qa-report-content"
+                style={{ whiteSpace: "pre-wrap", fontSize: 11.5,
+                          lineHeight: 1.6, color: "#d4d4d4",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          maxHeight: 420, overflowY: "auto",
+                          margin: 0 }}>
+            {report.content}
+          </pre>
+        ) : (
+          <div data-testid="admin-qa-report-empty"
+                style={{ fontSize: 12, color: "#888" }}>
+            {report.error || "No report yet — auto-qa-agent job has not run"}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
