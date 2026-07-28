@@ -254,11 +254,18 @@ async def lifespan(app: FastAPI):
         #                        run 2 uvicorn workers in prod, so up
         #                        to 100 total — safe under M10's 1500
         #                        connection ceiling)
-        #   • minPoolSize=5    — keep 5 warm so the first request
-        #                        after idle doesn't pay TCP+TLS setup
-        #   • maxIdleTimeMS    — recycle sockets after 30 s of idle
-        #                        so Atlas's 10-minute idle-kill never
-        #                        surprises us mid-request
+        #   • minPoolSize=0    — Iter 335 (prod Atlas fix): was 5,
+        #                        which forced the pool-maintenance
+        #                        thread to re-dial Atlas every
+        #                        maxIdleTimeMS to refill the floor —
+        #                        the exact remove_stale_sockets →
+        #                        NetworkTimeout tracebacks seen in
+        #                        prod deploy logs. 0 = connect on
+        #                        demand, no churn.
+        #   • maxIdleTimeMS    — recycle sockets after 120 s of idle
+        #                        (was 30 s — churned 4× more against
+        #                        Atlas TLS handshakes); still well
+        #                        under Atlas's 10-minute idle-kill
         #   • connectTimeoutMS — fail fast on partition; 10 s is the
         #                        Atlas-recommended default
         #   • retryWrites=True — default in Atlas, made explicit so a
@@ -268,8 +275,8 @@ async def lifespan(app: FastAPI):
         app.state.mongo = AsyncIOMotorClient(
             MONGO_URL,
             maxPoolSize=50,
-            minPoolSize=5,
-            maxIdleTimeMS=30_000,
+            minPoolSize=0,
+            maxIdleTimeMS=120_000,
             serverSelectionTimeoutMS=5_000,
             connectTimeoutMS=10_000,
             retryWrites=True,

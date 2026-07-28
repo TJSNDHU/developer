@@ -4743,3 +4743,32 @@ validated), `docs/DELETE_GATE.md` (regression_library.json protected).
    at service layer (TestSkipAtShip 4 passed).
 5. FOUNDER MANUAL STEPS: create qa-bot@auremcto.com + sandbox repo,
    add QA_BOT_SESSION_TOKEN + QA_REPORT_COMMIT_TOKEN GitHub secrets.
+
+---
+
+## Iter 335 — Prod deploy-log NetworkTimeout fix (Jun 28 2026) ✅
+
+Founder shared prod deploy logs: pymongo NetworkTimeout tracebacks to
+Atlas shards from `_process_periodic_tasks → update_pool →
+remove_stale_sockets` while all requests still served 200.
+
+**Root cause**: `minPoolSize=5` + `maxIdleTimeMS=30_000` on the motor
+client — the pool-maintenance thread re-dialed Atlas TLS every 30 s to
+refill the pool floor; any >10 s network wobble threw the traceback.
+Never visible on preview (local Mongo connects instantly).
+
+**Fix**: `main.py` client → `minPoolSize=0`, `maxIdleTimeMS=120_000`
+(comment updated with rationale). Same alignment in the dormant
+`shared/memory_tiers.py` fallback client. Source-locked by
+`tests/test_iter335_atlas_pool_churn.py` (4 tests: minPoolSize=0,
+maxIdleTimeMS ≥60s, single client in main.py, fail-fast
+serverSelection kept).
+
+**Deployment agent static scan**: PASS — no hardcoded URLs/ports, env
+usage clean, single motor client, CORS fine. No other blockers.
+
+**BONUS finding**: prod /api recovered — `https://auremcto.com/api/health`
+now returns 200 (was 520 after the earlier deploy; edge routing
+self-healed or was re-bound). Iter 332 ship-gate fix is therefore LIVE.
+Iter 333 (correction rules) + 334 (auto-QA) + 335 (this fix) still
+need the NEXT redeploy to reach prod.

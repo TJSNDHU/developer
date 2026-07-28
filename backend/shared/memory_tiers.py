@@ -40,7 +40,7 @@ def _get_db():
         # commercial memory tier never starves the connection pool.
         client = AsyncIOMotorClient(
             mongo_url,
-            maxPoolSize=20, minPoolSize=2, maxIdleTimeMS=30_000,
+            maxPoolSize=20, minPoolSize=0, maxIdleTimeMS=120_000,
             connectTimeoutMS=10_000, retryWrites=True,
         )
         _db = client[os.environ.get("DB_NAME", "aurem_db")]
