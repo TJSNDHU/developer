@@ -197,6 +197,99 @@ def _audit_price_config_at_boot() -> None:
 _BOOT_AUDIT_DONE = False
 
 
+# ── Iter 335 — self-healing price resolution ─────────────────────────
+# Prod deploy logs showed 404 `No such price` on the three MONTHLY
+# price IDs (old-account `..2XYZ7cJIy2..` values still in the prod env
+# store) while the annual `..0Exg9gU93t..` ones worked. The code and
+# preview env are correct — the prod env is stale. Rather than letting
+# checkout 503 until a human rotates env vars, we auto-discover the
+# right price in the LIVE account (product name + interval + USD) and
+# use it for this process, logging loudly so the env still gets fixed.
+_RESOLVED_PRICES: dict = {}
+
+_PLAN_MATCH = {
+    "starter":        ("starter", "month"),
+    "pro":            ("pro", "month"),
+    "team":           ("team", "month"),
+    "starter_annual": ("starter", "year"),
+    "pro_annual":     ("pro", "year"),
+    "team_annual":    ("team", "year"),
+}
+
+
+def _match_discovered_price(prices_data: list, plan: str) -> Optional[str]:
+    """Pure matcher: exactly one active USD price whose product name +
+    billing interval fit the plan, else None (ambiguity = no heal)."""
+    name, interval = _PLAN_MATCH.get(plan, (None, None))
+    if not name:
+        return None
+    matches = []
+    for p in prices_data or []:
+        prod = p.get("product") if isinstance(p, dict) else None
+        pname = ((prod or {}).get("name") or "").strip().lower() \
+            if isinstance(prod, dict) else ""
+        rec = (p.get("recurring") or {}) if isinstance(p, dict) else {}
+        if (pname == name and rec.get("interval") == interval
+                and p.get("currency") == "usd"):
+            matches.append(p["id"])
+    return matches[0] if len(matches) == 1 else None
+
+
+async def _discover_price_id(plan: str) -> Optional[str]:
+    try:
+        prices = await _stripe_call(
+            stripe.Price.list, active=True, limit=100,
+            expand=["data.product"])
+    except Exception as e:                                  # noqa: BLE001
+        logger.warning("price auto-discovery list failed: %r", e)
+        return None
+    data = prices.get("data") if hasattr(prices, "get") else None
+    return _match_discovered_price(
+        [dict(p) for p in (data or [])], plan)
+
+
+async def _preflight_price(plan: str, price_id: str) -> str:
+    """Validate the configured price against Stripe BEFORE Checkout;
+    on `No such price` (stale prod env), attempt one auto-discovery
+    heal. Returns a usable price_id or raises the precise 503."""
+    if _RESOLVED_PRICES.get(plan):
+        return _RESOLVED_PRICES[plan]
+    try:
+        await _stripe_call(stripe.Price.retrieve, price_id)
+        return price_id
+    except HTTPException as he:
+        if he.status_code not in (502, 504):
+            raise
+        logger.warning(
+            "stripe price.retrieve failed for plan=%s price_id=%s: %s",
+            plan, price_id, getattr(he, "detail", ""),
+        )
+    except stripe.error.StripeError as se:
+        logger.warning(
+            "stripe price.retrieve raised for plan=%s price_id=%s: %r",
+            plan, price_id, se,
+        )
+    healed = await _discover_price_id(plan)
+    if healed:
+        _RESOLVED_PRICES[plan] = healed
+        logger.error(
+            "⚠ STALE STRIPE ENV: STRIPE_%s_PRICE_ID=…%s is invalid — "
+            "auto-discovered live price …%s and using it. FIX the env "
+            "var in the Emergent dashboard.",
+            plan.upper(), price_id[-6:], healed[-6:],
+        )
+        return healed
+    raise HTTPException(
+        503,
+        f"Stripe price `{plan}` is misconfigured — the configured "
+        f"price ID does not exist or is from a different "
+        f"(test/live) mode than the Stripe secret key, and "
+        f"auto-discovery found no unambiguous match. Admin: "
+        f"check STRIPE_{plan.upper()}_PRICE_ID env var in the "
+        f"Emergent dashboard against the Stripe dashboard.",
+    )
+
+
 def _frontend_url() -> str:
     """Where Stripe should redirect after Checkout / Portal. Falls back
     to the request's own origin if the env isn't set so dev still works."""
@@ -239,36 +332,9 @@ async def create_checkout(
     # monthly plans while annual variants worked, proving it's the env
     # vars, not the code path). Pre-flighting `Price.retrieve` lets us
     # return a clean diagnostic JSON instead.
-    try:
-        await _stripe_call(stripe.Price.retrieve, price_id)
-    except HTTPException as he:
-        # Stripe 4xx surfaces as a 502 from _stripe_call's catch-all.
-        # Translate to a precise admin-facing message instead.
-        if he.status_code in (502, 504):
-            logger.warning(
-                "stripe price.retrieve failed for plan=%s price_id=%s: %s",
-                plan, price_id, getattr(he, "detail", ""),
-            )
-            raise HTTPException(
-                503,
-                f"Stripe price `{plan}` is misconfigured — the configured "
-                f"price ID does not exist or is from a different "
-                f"(test/live) mode than the Stripe secret key. Admin: "
-                f"check STRIPE_{plan.upper()}_PRICE_ID env var in the "
-                f"Emergent dashboard against the Stripe dashboard.",
-            )
-        raise
-    except stripe.error.StripeError as se:
-        logger.warning(
-            "stripe price.retrieve raised for plan=%s price_id=%s: %r",
-            plan, price_id, se,
-        )
-        raise HTTPException(
-            503,
-            f"Stripe price `{plan}` is misconfigured — Stripe says: "
-            f"{getattr(se, 'user_message', None) or str(se)}. "
-            f"Admin: rotate STRIPE_{plan.upper()}_PRICE_ID.",
-        )
+    # Iter 335 — pre-flight now also self-heals stale env IDs via live
+    # price auto-discovery (see _preflight_price).
+    price_id = await _preflight_price(plan, price_id)
 
     origin = (
         (body.origin_url or "").rstrip("/")

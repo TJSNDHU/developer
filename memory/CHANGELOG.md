@@ -4772,3 +4772,33 @@ now returns 200 (was 520 after the earlier deploy; edge routing
 self-healed or was re-bound). Iter 332 ship-gate fix is therefore LIVE.
 Iter 333 (correction rules) + 334 (auto-QA) + 335 (this fix) still
 need the NEXT redeploy to reach prod.
+
+---
+
+## Iter 335b — Stripe stale-env self-healing (Jun 28 2026) ✅
+
+Prod deploy logs: 404 `No such price` on the 3 MONTHLY price IDs
+(`price_1TfX..2XYZ7cJIy2..` = OLD Stripe account) while annual
+`..0Exg9gU93t..` IDs worked. Preview .env + code correct — the PROD
+env store still has stale values (known Issue 3).
+
+**Code-level fix (so prod works even before env rotation):**
+`routers/payments.py` — checkout pre-flight now self-heals: on
+`No such price`, `_discover_price_id()` lists live prices and matches
+product name + interval + currency=usd (unambiguous match only,
+verified against the real live account which ALSO has CAD duplicates
+that must be excluded). Healed ID cached per-process
+(`_RESOLVED_PRICES`) + loud "STALE STRIPE ENV" error log so the env
+still gets fixed. No match → same precise 503 as before.
+
+Tests: `test_iter335b_stripe_price_selfheal.py` 9/9 green (matcher vs
+real live-account price shapes incl. CAD-duplicate disambiguation +
+heal/cache/503 paths). Live E2E: real checkout session created OK
+(happy path unaffected). iter124d failures confirmed PRE-EXISTING
+(fail identically on the before-version; env-dependent stale suite).
+
+**STILL REQUIRED (founder, one-time):** rotate
+STRIPE_STARTER/PRO/TEAM_PRICE_ID in the prod env store to
+`price_1Tfl6W0Exg9gU93tkDkSLvW6` / `price_1Tfl6W0Exg9gU93tdcE2bVRV` /
+`price_1Tfl6X0Exg9gU93tgN57sGap` — integration_health will keep
+flagging the env as broken until then (checkout works via self-heal).
