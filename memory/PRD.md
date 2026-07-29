@@ -264,3 +264,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - FIX: /loop/start now accepts session_id (frontend passes it); LoopEngine._persist_chat_turns writes a compact user+assistant turn pair (shipped/failed/aborted variants, provider:"loop", loop_id tagged, $slice -200, idempotent one-shot) into chat_sessions at every terminal state via _emit hook.
 - NEW FEATURE: CollapsibleReply.jsx — older long assistant replies (>280 chars or >6 lines) collapse to one-line preview + "N lines"; click to expand/collapse. Last assistant reply always stays expanded. Wired via MessageBubble collapseDefault prop from ChatPanel (lastAssistantIdx).
 - Tested: backend unit (persist ship/fail/idempotent) PASS, pytest iter332/333 32 passed, Playwright E2E (8-turn seeded session: 2 collapsed, loop turn visible, expand/collapse toggle) PASS, 230/230 vitest PASS. Deploy pending.
+
+## Iter 339e · 2026-07-29 — Ops History toggle in composer toolbar
+- Founder request: chat window clean rahe — ops timeline default hidden, composer input mein toggle.
+- Removed Codebase Graph toggle from composer toolbar (Graph stays on top tab bar); replaced with Ops History toggle (History icon, data-testid="ops-history-toggle-btn").
+- Standalone ops timeline now renders ONLY when toggled ON (minimize/maximize in same place above composer); solid dark card styling (bg #0d1117, border, shadow) so it doesn't bleed over messages.
+- Tested: Playwright E2E (default hidden → toggle ON shows 5 rows + rollback btn → toggle OFF hides; graph btn gone; collapsed replies unaffected) PASS, 230/230 vitest PASS. Deploy pending.

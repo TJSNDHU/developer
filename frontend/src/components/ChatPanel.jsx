@@ -15,7 +15,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Loader2, Square, Paperclip, Github, Zap,
-  Eye, EyeOff, Trash2, Network, ShieldCheck,
+  Eye, EyeOff, Trash2, ShieldCheck, History,
 } from "lucide-react";
 import { api, streamChat, API_BASE, getToken, getUser, isAdminOrFounder } from "../lib/api";
 import { toast, dismissToast } from "./Toast";
@@ -379,6 +379,9 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // `ora-inject` events when a user clicks "Ask ORA about this file"
   // which this component picks up below to seed the composer input.
   const [graphOpen, setGraphOpen] = useState(false);
+  // Iter 339e — Ops History timeline visibility. OFF by default so the
+  // chat window stays clean; toggled from the composer toolbar.
+  const [opsHistoryOpen, setOpsHistoryOpen] = useState(false);
   // Iter 212m-55 — security scanner drawer state.
   const [scanOpen, setScanOpen] = useState(false);
   // Iter 212m-57 — visible status of the active SSE stream so we can
@@ -3729,15 +3732,22 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         </div>
       )}
 
-      {/* Iter 339 — persistent ops timeline. Previously OperationHistory
-          only existed INSIDE LoopLiveFeed, so after a reload (loopId
-          null — /loop/active filters terminal loops) there was NO
-          rollback affordance anywhere for a shipped loop. Now the
-          timeline (with its stream-independent Rollback buttons)
-          renders standalone whenever no loop is active. Renders
-          nothing when the project has no ship history. */}
-      {!loopId && activeProject?.project_id && (
-        <div className="chat-inline-card" data-testid="standalone-op-history">
+      {/* Iter 339 — persistent ops timeline (stream-independent
+          Rollback buttons inside). Iter 339e: gated by the composer-
+          toolbar Ops History toggle (default hidden) so the chat
+          window stays clean. */}
+      {!loopId && opsHistoryOpen && activeProject?.project_id && (
+        <div
+          className="chat-inline-card"
+          data-testid="standalone-op-history"
+          style={{
+            background: "#0d1117",
+            border: "1px solid #30363d",
+            borderRadius: 10,
+            padding: "8px 4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+          }}
+        >
           <OperationHistory
             projectId={activeProject.project_id}
             activeLoopId={null}
@@ -4113,16 +4123,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             Icon={Paperclip}
             wide
           />
-          {/* Iter 165 — Codebase Graph drawer toggle. Visible only when
-              a real project is active so the toolbar stays clean on
-              the home/scratch view. */}
+          {/* Iter 339e — Ops History toggle (founder request: keep the
+              chat window clean — the ship/rollback timeline shows ONLY
+              when this is toggled on). Replaced the old Codebase Graph
+              toggle; Graph stays reachable from the top tab bar. */}
           {activeProject?.project_id && activeProject.project_id !== "home" && (
             <ToolButton
-              testid="graph-toggle-btn"
-              title="Codebase graph — visualise file relationships"
-              onClick={() => setGraphOpen((v) => !v)}
-              Icon={Network}
-              active={graphOpen}
+              testid="ops-history-toggle-btn"
+              title="Ops history — ship / rollback timeline (click to show/hide)"
+              onClick={() => setOpsHistoryOpen((v) => !v)}
+              Icon={History}
+              active={opsHistoryOpen}
               wide
             />
           )}
