@@ -286,3 +286,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Deployed Iter-339 bundle to prod. New build 79a420712378 (00:23 UTC) verified live.
 - Post-deploy: health 200, secret-leak scan /auth/me + /auth/tokens both PASS on prod.
 - Founder next: hard-reload prod, verify collapsed replies + ops toggle + advisor compressed; rollback cc60342 via Ops History if desired.
+
+## Iter 339i · 2026-07-29 — Collapsible mode pill + bottom tabs + sidebar default hidden
+- TopBar mode pill (Swift/Pro/Maxx) collapsed by default → shows only active mode + chevron (ds2-mode-collapsed); click expands all 3; select → collapses back.
+- Ask Advisor opener tab moved from right-middle to bottom-right (bottom-6).
+- NEW bottom-left "MENU" tab (sidebar-open-tab, desktop only): sidebar now DEFAULT HIDDEN on every load/refresh; opens via MENU click or left-edge (16px) hover; auto-hides when cursor drifts >264px. Mobile hamburger/drawer unchanged.
+- E2E verified: mode collapse/expand/select, sidebar hidden(w=0)→open(220px)→auto-hide, advisor tab at (1892,685). 230/230 vitest PASS. Deploy pending.

@@ -171,6 +171,9 @@ function DashboardV2Body() {
   // off-screen we can't hover the panel itself; we listen for the
   // cursor crossing the left 16 px of the viewport instead.
   const [sidebarEdgeReveal, setSidebarEdgeReveal] = useState(false);
+  // Iter 339i — founder: sidebar default HIDDEN on every load. Opens
+  // via the bottom-left MENU tab (click) or the left-edge hover.
+  const [sidebarManualOpen, setSidebarManualOpen] = useState(false);
   const [chatActive,       setChatActive]       = useState(false);
   const [healthScore,      setHealthScore]      = useState(null);
   // Iter 212m-147 — Health ring UX hardening:
@@ -199,14 +202,15 @@ function DashboardV2Body() {
       const x = e.clientX;
       if (x <= 16) {
         if (!sidebarEdgeReveal) setSidebarEdgeReveal(true);
-      } else if (x > SIDEBAR_PX + 24 && sidebarEdgeReveal) {
-        // Mouse drifted off the sidebar — re-hide.
-        setSidebarEdgeReveal(false);
+      } else if (x > SIDEBAR_PX + 24) {
+        // Mouse drifted off the sidebar — re-hide (edge OR manual).
+        if (sidebarEdgeReveal) setSidebarEdgeReveal(false);
+        if (sidebarManualOpen) setSidebarManualOpen(false);
       }
     };
     window.addEventListener("mousemove", onMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMove);
-  }, [sidebarEdgeReveal]);
+  }, [sidebarEdgeReveal, sidebarManualOpen]);
 
   // Iter 212m-111 — Theme is permanently locked to NIGHT (dark). The
   // user-facing day/night toggle has been removed per founder spec.
@@ -500,11 +504,16 @@ function DashboardV2Body() {
   // is bypassed: visibility is driven purely by `mobileSidebarOpen`
   // because touch devices can't synthesise the cursor events that
   // gate the desktop behaviour.
+  // Iter 339i — sidebar is HIDDEN BY DEFAULT (fresh load / refresh).
+  // Visible only while: pinned, manual (bottom-left MENU tab click),
+  // left-edge hover reveal, or panel hover. Mobile stays drawer-driven.
   const sidebarCollapsed = !isMobile
-    && chatActive && !sidebarPinned && !sidebarHovered && !sidebarEdgeReveal;
+    && !sidebarPinned && !sidebarHovered && !sidebarEdgeReveal
+    && !sidebarManualOpen;
   const sidebarFullyHidden = isMobile
     ? !mobileSidebarOpen
-    : (chatActive && !sidebarPinned && !sidebarEdgeReveal);
+    : (!sidebarPinned && !sidebarEdgeReveal && !sidebarManualOpen
+       && !sidebarHovered);
   const user = getUser() || {};
 
   return (
@@ -546,6 +555,38 @@ function DashboardV2Body() {
             }}
           >
             ☰
+          </button>
+        )}
+
+        {/* Iter 339i — Bottom-left "MENU" tab (desktop). Mirrors the
+            Advisor tab on the right: visible only while the sidebar
+            is hidden; click opens the sidebar. Moving the cursor off
+            the sidebar area hides it again. */}
+        {!isMobile && sidebarFullyHidden && (
+          <button
+            type="button"
+            data-testid="sidebar-open-tab"
+            aria-label="Open sidebar"
+            onClick={() => setSidebarManualOpen(true)}
+            style={{
+              position: "fixed", bottom: 24, left: 0, zIndex: 1500,
+              display: "flex", flexDirection: "column",
+              alignItems: "center", gap: 6,
+              padding: "12px 5px",
+              borderRadius: "0 10px 10px 0",
+              background: "#111214",
+              border: "1px solid #2A2A2A", borderLeft: "none",
+              color: "var(--text-dim, #9aa0a6)",
+              cursor: "pointer",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>☰</span>
+            <span style={{
+              writingMode: "vertical-rl",
+              fontSize: 9, fontWeight: 700,
+              letterSpacing: "0.12em", textTransform: "uppercase",
+            }}>Menu</span>
           </button>
         )}
 

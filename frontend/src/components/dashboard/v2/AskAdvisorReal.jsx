@@ -274,7 +274,7 @@ export default function AskAdvisorReal({ collapsed = false, onCollapse, projectI
       <button onClick={() => onCollapse?.(false)} aria-label="Open Advisor panel"
         data-testid="ds2-advisor-open"
         className={cn(
-          "absolute top-1/2 z-30 -translate-y-1/2 flex flex-col items-center gap-1.5 rounded-l-lg border border-r-0 border-border bg-card px-1.5 py-3 shadow-lg transition-all duration-200 ease-in-out hover:bg-secondary",
+          "absolute bottom-6 z-30 flex flex-col items-center gap-1.5 rounded-l-lg border border-r-0 border-border bg-card px-1.5 py-3 shadow-lg transition-all duration-200 ease-in-out hover:bg-secondary",
           collapsed ? "-left-7 opacity-100 pointer-events-auto"
                     : "left-0 opacity-0 pointer-events-none",
         )}>

@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { cn } from "./cn";
-import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, Zap, Gauge, Crown, Plus } from "lucide-react";
+import { MessagesSquare, MonitorPlay, Workflow, ChevronRight, ChevronDown, Zap, Gauge, Crown, Plus } from "lucide-react";
 
 const TABS = [
   { id: "Chat",    icon: MessagesSquare },
@@ -127,6 +127,13 @@ export function TopBar({
 
   const effectiveHidden = hidden || autoHidden;
 
+  // Iter 339i — founder: mode pill is COLLAPSED by default, showing
+  // only the active mode. Click it → expand all modes; pick one →
+  // select + collapse back.
+  const [modesOpen, setModesOpen] = useState(false);
+  const activeMode = MODES.find((m) => m.id === mode) || MODES[0];
+  const ActiveModeIcon = activeMode.icon;
+
   return (
     <header data-testid="ds2-topbar" className={cn(
       "sticky top-0 z-20 flex flex-col border-b border-border bg-[#0A0A0A]/95 backdrop-blur-xl overflow-hidden",
@@ -154,16 +161,30 @@ export function TopBar({
           )}
         </nav>
 
-        <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#111111] p-[3px]">
-          {MODES.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => onModeChange(id)}
-              data-testid={`ds2-mode-${id}`}
-              className={cn("flex items-center gap-1.5 rounded-full px-3 py-[5px] text-[11px] font-semibold transition-all duration-150",
-                mode === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
-              <Icon className="size-[11px] shrink-0" strokeWidth={2.5} />
-              {label}
+        <div className="flex items-center gap-[2px] rounded-full border border-border bg-[#111111] p-[3px]"
+             data-testid="ds2-mode-pill" data-modes-open={modesOpen ? "true" : "false"}>
+          {modesOpen ? (
+            MODES.map(({ id, label, icon: Icon }) => (
+              <button key={id}
+                onClick={() => { onModeChange(id); setModesOpen(false); }}
+                data-testid={`ds2-mode-${id}`}
+                className={cn("flex items-center gap-1.5 rounded-full px-3 py-[5px] text-[11px] font-semibold transition-all duration-150",
+                  mode === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <Icon className="size-[11px] shrink-0" strokeWidth={2.5} />
+                {label}
+              </button>
+            ))
+          ) : (
+            <button
+              onClick={() => setModesOpen(true)}
+              data-testid="ds2-mode-collapsed"
+              title="Change mode"
+              className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-[5px] text-[11px] font-semibold text-primary-foreground transition-all duration-150">
+              <ActiveModeIcon className="size-[11px] shrink-0" strokeWidth={2.5} />
+              {activeMode.label}
+              <ChevronDown className="size-[10px] shrink-0 opacity-80" strokeWidth={2.5} />
             </button>
-          ))}
+          )}
         </div>
 
         {typeof healthScore === "number" ? (
