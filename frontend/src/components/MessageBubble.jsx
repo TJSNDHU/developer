@@ -517,6 +517,13 @@ export default function MessageBubble({
   }
 
   const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
+  // Iter 339g — founder: collapsed replies must be truly ONE line —
+  // no "via openai / via loop" caption row beneath them. Same for the
+  // compact one-line loop-result turns (provider === "loop").
+  const collapsedReply = collapseDefault && !m.streaming && !m.error
+    && m.role === "assistant" && !isLoopProgressContent(m.content)
+    && isCollapsibleReply(m.content);
+  const hideScopeBadge = collapsedReply || m.provider === "loop";
   const showUserCopy = m.role === "user" && !!m.content;
   // Detect ```aurem-handoff fence → render one-click Ship via CTO button
   // Iter 89: once a turn has been shipped (m.shipped_task_id present
@@ -664,8 +671,7 @@ export default function MessageBubble({
               <LoopProgressBubble text={m.content} streaming={!!m.streaming}>
                 <RenderedMessage text={m.content} />
               </LoopProgressBubble>
-            ) : (collapseDefault && !m.streaming && !m.error
-                 && isCollapsibleReply(m.content)) ? (
+            ) : collapsedReply ? (
               /* Iter 339d — older long replies collapse to a one-line
                  preview; click to expand / collapse. */
               <CollapsibleReply text={m.content}>
@@ -994,7 +1000,7 @@ export default function MessageBubble({
               model produced it.  Data flows from the SSE response:
               m.repo_owner / m.repo_name / m.branch (set by the
               orchestrator's bin_ctx echo) + m.council + m.provider. */}
-          {!m.streaming && m.role === "assistant" &&
+          {!m.streaming && m.role === "assistant" && !hideScopeBadge &&
            m.provider !== "system" && (m.repo_owner || m.provider) && (
             <div data-testid={`scope-badge-${idx}`} style={{
               marginTop: 8, fontSize: 10,

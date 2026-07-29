@@ -275,3 +275,8 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Ops panel (and inline cards) ab exactly chat-input jitni width — inline padding ne .chat-inline-card ka clamp override kar diya tha; restructured to outer clamp wrapper + inner styled card. Verified: ops card x/w == composer card x/w (241/1438).
 - LoopStepBar (5-tools chip) compact: padding 12/18→6/12, margin bottom 0 (input se bilkul close), gap 6→4, fontSize 11→10, icon 16→14, ECG height 14→10.
 - Tested: 230/230 vitest PASS, Playwright width-alignment check PASS. Deploy pending.
+
+## Iter 339g/h · 2026-07-29 — One-line collapsed replies + Advisor default compressed
+- 339g: "via openai / via loop" scope-badge hidden for collapsed replies + loop-result turns (truly 1 line). Last expanded reply keeps badge. E2E verified (badges 0/0/0 collapsed+loop, 1 on last).
+- 339h: Ask Advisor default COLLAPSED on every login/refresh (Dashboard advisorCollapsed useState true). Click-only open (hover-reveal was already removed in 212m-122). E2E verified: load=collapsed (input off-screen), click=open, refresh=collapsed.
+- 230/230 vitest PASS (after 339g). Deploy pending (all Iter 339 series fixes).

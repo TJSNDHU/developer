@@ -182,7 +182,9 @@ function DashboardV2Body() {
   //     repo's score for ~600ms" race.
   const [healthScoreLoading, setHealthScoreLoading] = useState(false);
   const _healthScoreCacheRef = useRef(new Map());
-  const [advisorCollapsed, setAdvisorCollapsed] = useState(false);
+  // Iter 339h — founder: Ask Advisor stays COMPRESSED by default on
+  // every login / refresh; opens only when clicked.
+  const [advisorCollapsed, setAdvisorCollapsed] = useState(true);
 
   // Iter 212m-124 — Left-edge reveal trigger.  Per founder spec:
   // once the sidebar fully hides (chatActive=true), the ONLY way to
