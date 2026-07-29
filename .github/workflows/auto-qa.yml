@@ -68,10 +68,11 @@ jobs:
           git log -1 --pretty=%B >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "FILES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-only HEAD~1 HEAD >> $GITHUB_OUTPUT
+          # Force-pushes / initial commits may have no fetchable parent.
+          (git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "") >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Run Auto-QA (scope scenarios + ALL regression locks)
+      - name: Run Auto-QA (ALL regression locks — locks-only on CI)
         working-directory: backend
         env:
           MONGO_URL: mongodb://localhost:27017
@@ -80,6 +81,7 @@ jobs:
           CHANGED_FILES:  ${{ steps.diff.outputs.FILES }}
         run: |
           python -m services.qa_matrix \
+            --locks-only \
             --message "$COMMIT_MESSAGE" \
             --files "$CHANGED_FILES" \
             --sha "$(git rev-parse --short HEAD)"

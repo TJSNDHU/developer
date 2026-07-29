@@ -977,11 +977,19 @@ def write_report(scope: dict, results: list, commit_message: str,
 
 
 def _run_vitest(files: list) -> dict:
-    """Run the given vitest files for real (frontend locks)."""
+    """Run the given vitest files for real (frontend locks). Exit code
+    is the authoritative pass/fail signal (vitest exits non-zero on
+    any failure AND on zero-collected tests); the parsed counts are
+    informational only. NO_COLOR forced — with CI=true vitest emits
+    ANSI codes that break count parsing (Iter 347 CI incident)."""
+    env = dict(os.environ)
+    env["NO_COLOR"] = "1"
+    env["FORCE_COLOR"] = "0"
     cmd = ["npx", "vitest", "run", *files]
     proc = _subprocess.run(cmd, cwd=_FRONTEND_DIR, capture_output=True,
-                           text=True, timeout=600)
+                           text=True, timeout=600, env=env)
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    out = re.sub(r"\x1b\[[0-9;]*m", "", out)
     m = re.search(r"Tests\s+(?:(\d+)\s+failed\s*\|\s*)?(\d+)\s+passed", out)
     failed = int(m.group(1)) if (m and m.group(1)) else 0
     passed = int(m.group(2)) if m else 0
@@ -1046,8 +1054,7 @@ def run_regression_locks() -> dict:
                 missing.append(p)
                 continue
             res = _run_vitest([rel])
-            cls = ("PASS" if res["exit"] == 0 and res["passed"] > 0
-                   else "FAIL")
+            cls = "PASS" if res["exit"] == 0 else "FAIL"
             lock_outcomes.append(
                 (p, cls, f"{res['passed']} passed, {res['failed']} failed"))
 
@@ -1085,9 +1092,18 @@ def run_regression_locks() -> dict:
 
 # ── Section 3 — orchestrator + CLI entry ───────────────────────────
 async def run_auto(commit_message: str, changed_files: list,
-                   sha: str = "") -> dict:
+                   sha: str = "", locks_only: bool = False) -> dict:
     scope = decide_scope(commit_message, changed_files)
     results = []
+    if locks_only:
+        # Iter 347 — CI runners have no live backend (localhost:8001)
+        # and no backend/.env, so scope scenarios (smoke_baseline,
+        # secret_leak_scan, chat_tool_call…) can never pass there.
+        # The CI gate's charter is the REGRESSION LIBRARY — scope
+        # scenarios stay a preview-environment concern.
+        scope = dict(scope)
+        scope["scenarios"] = []
+        scope["reason"] = (scope.get("reason") or "") + " [locks-only mode]"
     for scenario in scope["scenarios"]:
         if scenario in UI_SCENARIOS:
             results.append(await run_ui_scenario(scenario))
@@ -1112,8 +1128,12 @@ def _cli() -> None:
     p.add_argument("--files", required=True,
                    help="newline-separated changed file paths")
     p.add_argument("--sha", default="")
+    p.add_argument("--locks-only", action="store_true",
+                   help="run ONLY the regression-library locks "
+                        "(CI runners: no live backend for scope scenarios)")
     a = p.parse_args()
-    out = _aio.run(run_auto(a.message, a.files.splitlines(), sha=a.sha))
+    out = _aio.run(run_auto(a.message, a.files.splitlines(), sha=a.sha,
+                            locks_only=a.locks_only))
     print(json.dumps({"scope": out["scope"], "overall": out["overall"],
                        "report": out["report"]}, indent=2))
     # Exit non-zero on FAIL so the CI job goes red for real failures;

@@ -41,7 +41,11 @@ PASSWORD = "AuremTest2026!"
 # ─────────────────────────── fixtures ───────────────────────────
 @pytest.fixture(scope="module")
 def db():
-    cli = MongoClient(MONGO_URL)
+    cli = MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000)
+    try:
+        cli.admin.command("ping")
+    except Exception:
+        pytest.skip("Mongo unreachable — live-server suite (CI runner)")
     yield cli[DB_NAME]
     cli.close()
 
@@ -50,9 +54,12 @@ def db():
 def auth_headers():
     s = requests.Session()
     # signup is idempotent — try it, ignore 409
-    s.post(f"{API}/auth/signup", json={
-        "email": EMAIL, "password": PASSWORD, "name": "Test Builder",
-    }, timeout=15)
+    try:
+        s.post(f"{API}/auth/signup", json={
+            "email": EMAIL, "password": PASSWORD, "name": "Test Builder",
+        }, timeout=15)
+    except requests.ConnectionError:
+        pytest.skip(f"preview API unreachable at {API} — live-server suite")
     r = s.post(f"{API}/auth/login",
                json={"email": EMAIL, "password": PASSWORD}, timeout=15)
     assert r.status_code == 200, f"login failed: {r.status_code} {r.text}"

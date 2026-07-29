@@ -13,8 +13,11 @@ PROJECT_ID = "p_demo_a"
 
 @pytest.fixture(scope="module")
 def token():
-    r = requests.post(f"{BASE_URL}/api/aurem-dev/auth/login",
-                      json={"email": EMAIL, "password": PASSWORD}, timeout=15)
+    try:
+        r = requests.post(f"{BASE_URL}/api/aurem-dev/auth/login",
+                          json={"email": EMAIL, "password": PASSWORD}, timeout=15)
+    except requests.ConnectionError:
+        pytest.skip(f"preview API unreachable at {BASE_URL} — live-server suite")
     assert r.status_code == 200, r.text
     return r.json()["token"]
 

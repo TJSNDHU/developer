@@ -124,7 +124,21 @@ jobs:
   invariants:
     name: Fitness-function invariants (always green on main)
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
+    services:
+      # Iter 347 — the invariants subset includes DB-touching suites;
+      # the job env already pointed MONGO_URL at localhost:27017 but
+      # no Mongo was ever started on the runner. Root fix: real
+      # service container (same pattern as ci.yml backend-tests).
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python

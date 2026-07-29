@@ -41,6 +41,10 @@ def session() -> requests.Session:
     _clear_login_lockout()
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    try:
+        requests.get(f"{BASE_URL}/api/health", timeout=10)
+    except requests.ConnectionError:
+        pytest.skip(f"preview API unreachable at {BASE_URL} — live-server suite")
     return s
 
 
