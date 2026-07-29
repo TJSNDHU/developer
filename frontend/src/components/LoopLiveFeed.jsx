@@ -65,6 +65,13 @@ export function extractShipInfo(events) {
 //       the confirming state visually landed.
 const ROLLBACK_CONFIRM_MS = 10_000;
 
+// Iter 339j — module-level confirm-arm registry (loopId → armedAt ms).
+// Lives OUTSIDE the component so the two-click confirm survives ANY
+// remount / state reset (prod bug: clicks logged but phase state never
+// advanced, so the POST never fired). Map state is the source of
+// truth for the confirm window; component `phase` is visuals-only.
+const _rollbackArmed = new Map();
+
 export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
   const [phase, setPhase] = useState("idle");
   // idle | confirming | submitting | handed-off | failed
@@ -127,6 +134,17 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
     } catch { /* noop */ }
   });
 
+  // Iter 339j — decisive prod diagnostics: reveal remount churn.
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.debug("[rollback] ShippedRow MOUNTED", { loopId, sha: ship.shortSha });
+    return () => {
+      // eslint-disable-next-line no-console
+      console.debug("[rollback] ShippedRow UNMOUNTED", { loopId, sha: ship.shortSha });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Iter 329 · Fix C + Iter 330 · Path P1 — callback reads phaseRef +
   // inFlightRef, NOT closure `phase`. Deps intentionally omit `phase`
   // so we don't recreate on every phase transition (which would
@@ -149,12 +167,21 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
       ));
     } catch { /* noop */ }
 
-    // Iter 339 — console-visible trace (the CustomEvents above have no
-    // listener on prod; this line is the founder's behavioural proof
-    // that the handler ran and what phase it read).
+    // Iter 339j — the confirm window is read from the MODULE-LEVEL
+    // registry, not component state. Prod evidence showed clicks
+    // logging but `phase` never advancing (state resets / remounts),
+    // so the POST never fired. The Map survives remounts, making the
+    // second click fire the POST no matter what happened to the
+    // component instance in between.
+    const armedAt = _rollbackArmed.get(loopId) || 0;
+    const armed = (Date.now() - armedAt) < ROLLBACK_CONFIRM_MS;
+
+    // Iter 339 — console-visible trace (behavioural proof of what the
+    // handler read on this exact click).
     // eslint-disable-next-line no-console
     console.debug("[rollback] click", {
-      phaseRead: current, inFlight: inFlightRef.current,
+      phaseRead: current, armed, armedAt,
+      inFlight: inFlightRef.current,
       loopId, sha: ship.shortSha,
     });
 
@@ -163,18 +190,22 @@ export function ShippedRow({ loopId, ship, onDone, onRollbackStarted }) {
     // React fiber scheduling can never squeeze a second click through.
     if (inFlightRef.current) return;
 
-    if (current === "idle") {
+    if (!armed) {
+      // First click → arm the confirm window (module registry) and
+      // update visuals best-effort.
+      _rollbackArmed.set(loopId, Date.now());
       setPhase("confirming");
       confirmTimerRef.current = setTimeout(() => {
-        // Only revert if we're still in confirming (guard against
-        // race where user clicked twice fast and phase already moved
-        // past confirming).
+        _rollbackArmed.delete(loopId);
         if (phaseRef.current === "confirming") setPhase("idle");
         confirmTimerRef.current = null;
       }, ROLLBACK_CONFIRM_MS);
       return;
     }
-    if (current === "confirming") {
+    {
+      // Second click inside the window → FIRE THE POST. Independent
+      // of `phase` so a remount between clicks can no longer eat it.
+      _rollbackArmed.delete(loopId);
       inFlightRef.current = true;
       clearConfirmTimer();
       setPhase("submitting");

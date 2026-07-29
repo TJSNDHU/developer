@@ -295,3 +295,11 @@ Language: **Hinglish** — main agent responds in Hinglish.
 
 ## Iter 339i-b · 2026-07-29 — MENU tab exact mirror of Advisor tab
 - MENU tab rebuilt with same Tailwind classes as Advisor tab: orange lucide Menu icon (text-primary), vertical label, both tabs locked to 26x96px (h-[96px] w-[26px] justify-center) at same bottom offset. Verified: both bboxes 26x96 @ y=680. 
+
+## Iter 339j · 2026-07-29 — PROD rollback dead-click ROOT FIX + null-turn crash
+- Prod evidence: "[rollback] click" logged, but NO network, NO UI change, 7 attempts — phase state ("confirming") was being lost between clicks (component state reset/remount), so the second-click POST branch was never reachable.
+- ROOT FIX: confirm-arm state moved OUT of component state into module-level Map `_rollbackArmed` (loopId→armedAt). Second click within 10s fires POST regardless of any remount/state reset. Component `phase` is now visuals-only. Added MOUNT/UNMOUNTED console tracing + `armed` flag in click log for decisive prod diagnosis.
+- Regression test: LoopLiveFeed.iter339j_rollback_remount.test.jsx — click→UNMOUNT→REMOUNT→click fires exactly one POST. PASS.
+- E2E network proof (preview, real ChatPanel+SSE): POST /loop/repro-339j-2/rollback FIRED, phase confirming→handed-off, ops history live-updated. Loop-turn chat persistence also confirmed live ("Loop run … Shipped" bubble).
+- BONUS FIX: "[chat/history] Cannot read properties of null (reading 'role')" — Mongo null-padded turns crashed hydration. Frontend filters falsy/role-less turns; backend GET /chat/history strips non-dict turns. Verified: null-turn seeded session hydrates 2/2 messages.
+- 232/232 vitest PASS. DEPLOY PENDING.

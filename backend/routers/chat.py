@@ -2978,6 +2978,10 @@ async def chat_history(
         {"_id": 0, "turns": 1, "title": 1},
     )
     turns = ((doc or {}).get("turns") or [])[-200:]
+    # Iter 339j — strip literal nulls (Mongo pads sparse indexes with
+    # null on out-of-range positional $set from stale clients). One
+    # null crashed the frontend hydration entirely.
+    turns = [t for t in turns if isinstance(t, dict) and t.get("role")]
     return {
         "ok": True,
         "messages": turns,

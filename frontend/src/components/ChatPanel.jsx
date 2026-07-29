@@ -1078,7 +1078,12 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
       .get(`/chat/history`, { params: { session_id: sessionId } })
       .then((r) => {
         if (cancelled) return;
-        const turns = r.data?.messages || [];
+        // Iter 339j — filter null/corrupt turns (Mongo index-padding can
+        // leave literal nulls in the turns array; one null crashed the
+        // whole hydration with "Cannot read properties of null").
+        const turns = (r.data?.messages || []).filter(
+          (t) => t && typeof t === "object" && t.role,
+        );
         if (turns.length === 0) {
           // Iter 330 root-fix — only paint WELCOME on a CONFIRMED empty
           // session (server returned OK with no turns). Never on error.
