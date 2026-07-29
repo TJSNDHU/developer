@@ -280,3 +280,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - 339g: "via openai / via loop" scope-badge hidden for collapsed replies + loop-result turns (truly 1 line). Last expanded reply keeps badge. E2E verified (badges 0/0/0 collapsed+loop, 1 on last).
 - 339h: Ask Advisor default COLLAPSED on every login/refresh (Dashboard advisorCollapsed useState true). Click-only open (hover-reveal was already removed in 212m-122). E2E verified: load=collapsed (input off-screen), click=open, refresh=collapsed.
 - 230/230 vitest PASS (after 339g). Deploy pending (all Iter 339 series fixes).
+
+## Iter 340 · 2026-07-29 — Full regression + PROD DEPLOY
+- Testing agent pre-deploy regression: backend 4/4 + frontend 8/8 PASS (report: /app/test_reports/iteration_340.json).
+- Deployed Iter-339 bundle to prod. New build 79a420712378 (00:23 UTC) verified live.
+- Post-deploy: health 200, secret-leak scan /auth/me + /auth/tokens both PASS on prod.
+- Founder next: hard-reload prod, verify collapsed replies + ops toggle + advisor compressed; rollback cc60342 via Ops History if desired.
