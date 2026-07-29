@@ -317,4 +317,8 @@ Language: **Hinglish** — main agent responds in Hinglish.
 ## Iter 339m · 2026-07-29 — Free-tier 499 root fix + collapse-ALL messages
 - P0 FOUND during post-deploy check: /chat/stream returned 499 for ALL non-admin/free accounts — UnboundLocalError at chat.py:1121 (`is_founder_email`) caused by a LOCAL `from services.usage import is_founder_email` at ~line 1212 inside chat_stream shadowing the module-level import for the whole function scope. Admin/founder accounts short-circuited before the call, masking it. FIX: removed the local import. Verified: free-tier account now gets "2 + 2 = 4." reply.
 - Collapse-ALL (founder request): EVERY message (user inputs too) now collapses to one-line preview except the LAST message — length threshold removed (was: only >280-char assistant replies → "80% outputs / 0% inputs"). MessageBubble: collapsedUserMsg branch; ChatPanel: collapseDefault = i !== messages.length-1.
-- 232/232 vitest + 2/2 pytest PASS, E2E verified (n-1 collapsed, last expanded, user-msg expand/collapse). DEPLOY PENDING (includes iter 339k/l fixes too).
+- 232/232 vitest + 2/2 pytest PASS, E2E verified (n-1 collapsed, last expanded, user-msg expand/collapse). DEPLOYED.
+
+## 2026-07-29 — DEPLOY: Iter-339k/l/m LIVE on https://auremcto.com
+- Prod build m1c60458. Health 200, db:true. Includes: null-turn NoneType fix, ops-toggle root fix, free-tier 499 fix, collapse-all-but-last chat.
+- Section 0 QA sandbox account (qa-bot GitHub PAT): founder confirmed created ("yes"). Next: wire PAT into Prod CI scenarios.
