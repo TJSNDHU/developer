@@ -1000,6 +1000,8 @@ async def _maybe_guard_shell_handoff_followup(
     # Walk back at most 4 turns to find the most recent assistant
     # handoff fence. If it's a shell command, intercept.
     for m in reversed(msgs[-8:]):
+        if not isinstance(m, dict):
+            continue
         if m.get("role") != "assistant":
             continue
         match = _HANDOFF_FENCE_RE.search(m.get("content") or "")
@@ -2607,8 +2609,15 @@ async def chat_stream(
                     }) + "\n\n"
                 )
             elif ev["type"] == "error":
-                yield f"data: {json.dumps({'error': ev['error']})}\n\n"
-                return
+                # Iter 339k — NEVER leak a raw Python exception string
+                # into the chat bubble. Convert the error frame into an
+                # empty result and fall through to the graceful
+                # empty-content fallback below ("I wasn't able to
+                # produce a reply…"), which includes a trimmed reason.
+                logger.warning("chat_stream worker error frame: %s",
+                               str(ev.get("error"))[:300])
+                result = {"content": "", "error": str(ev.get("error") or "pipeline error")}
+                break
             elif ev["type"] == "intent":
                 # Iter 212m-149 — Intent Gateway frame.  UI uses this
                 # to render the tier dot (casual/query/agentic) +

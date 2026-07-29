@@ -382,6 +382,14 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
   // Iter 339e — Ops History timeline visibility. OFF by default so the
   // chat window stays clean; toggled from the composer toolbar.
   const [opsHistoryOpen, setOpsHistoryOpen] = useState(false);
+  // Iter 339l — rollback progress target. Set when a ShippedRow
+  // rollback POST succeeds; auto-opens the ops panel so progress is
+  // always visible.
+  const [activeRollbackLoopId, setActiveRollbackLoopId] = useState(null);
+  const handleRollbackStarted = useCallback((lid) => {
+    setActiveRollbackLoopId(lid);
+    setOpsHistoryOpen(true);
+  }, []);
   // Iter 212m-55 — security scanner drawer state.
   const [scanOpen, setScanOpen] = useState(false);
   // Iter 212m-57 — visible status of the active SSE stream so we can
@@ -3733,15 +3741,17 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
             terminal={loopTerminal}
             phase={loopPhase}
             projectId={activeProject?.project_id}
+            onRollbackStarted={handleRollbackStarted}
           />
         </div>
       )}
 
-      {/* Iter 339 — persistent ops timeline (stream-independent
-          Rollback buttons inside). Iter 339e: gated by the composer-
-          toolbar Ops History toggle (default hidden) so the chat
-          window stays clean. */}
-      {!loopId && opsHistoryOpen && activeProject?.project_id && (
+      {/* Iter 339l — SINGLE ops surface, toggle-owned. Previously
+          gated on !loopId, which made the composer toggle a DEAD
+          CLICK whenever a loop session existed. Now it renders for
+          any project whenever toggled on, and auto-opens when a
+          rollback starts so live progress is always visible. */}
+      {opsHistoryOpen && activeProject?.project_id && (
         <div className="chat-inline-card" data-testid="standalone-op-history">
           <div
             style={{
@@ -3754,7 +3764,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           >
             <OperationHistory
               projectId={activeProject.project_id}
-              activeLoopId={null}
+              activeLoopId={activeRollbackLoopId}
             />
           </div>
         </div>

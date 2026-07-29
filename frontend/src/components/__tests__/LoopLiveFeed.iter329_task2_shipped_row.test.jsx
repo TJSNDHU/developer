@@ -181,10 +181,12 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
     loopApi.rollbackLoop.mockImplementation(
       () => new Promise((res) => { resolvePost = res; }),
     );
+    const onRollbackStarted = vi.fn();
 
     feedMount({
       loopId: "loop_task2_d",
-      projectId: "proj_task2_d",  // mounts OperationHistory for the hand-off assert
+      projectId: "proj_task2_d",
+      onRollbackStarted,
       event: shipEvent({ commit_sha: "5d939a4abcd" }),
       terminal: true,
     });
@@ -216,12 +218,11 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
     expect(btn).toBeDisabled();
     expect(btn).toHaveTextContent(/see history/i);
 
-    // Hand-off proof — LoopLiveFeed lifted the loopId into
-    // OperationHistory, which opened its own /stream subscription.
+    // Hand-off proof — Iter 339l: LoopLiveFeed forwards the loopId to
+    // the PARENT via onRollbackStarted (ChatPanel opens the single
+    // Ops History panel, which owns the /stream subscription now).
     await waitFor(() => {
-      expect(loopApi.streamLoopEvents).toHaveBeenCalledWith(
-        "loop_task2_d", expect.any(Object),
-      );
+      expect(onRollbackStarted).toHaveBeenCalledWith("loop_task2_d");
     });
   });
 

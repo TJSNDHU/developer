@@ -1514,6 +1514,13 @@ async def chat_with_tools(
                 logger.warning("session history load failed: %r", e)
         if doc is not None:
             for t in (doc or {}).get("turns") or []:
+                # Iter 339k — PROD P0: turns arrays can contain literal
+                # nulls (Mongo pads sparse indexes on stale positional
+                # writes). `None.get(...)` here crashed EVERY prompt-mode
+                # message in the session with "'NoneType' object has no
+                # attribute 'get'". Skip anything that isn't a dict.
+                if not isinstance(t, dict):
+                    continue
                 role = t.get("role", "user")
                 content = (t.get("content") or "").strip()
                 if content:

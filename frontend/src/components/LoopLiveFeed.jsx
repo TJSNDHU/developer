@@ -651,17 +651,16 @@ function NarrationLine({ line, nowEpoch }) {
 }
 
 // ── Component ───────────────────────────────────────────────────────
-export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId }) {
+export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId, onRollbackStarted }) {
   // Full history of raw SSE events we've seen. `foldNarrations` will
   // dedupe by correlation_id, so we can safely keep the full stream —
   // the bound is enforced downstream.
   const [events, setEvents] = useState([]);
   const [nowEpoch, setNowEpoch] = useState(() => Date.now() / 1000);
-  // Iter 330 · Path P1 — activeRollbackLoopId lifts the loopId into
-  // OperationHistory's SSE subscription surface when a rollback POST
-  // succeeds. ShippedRow.onRollbackStarted fires this exactly once
-  // per rollback attempt (guarded by inFlightRef there).
-  const [activeRollbackLoopId, setActiveRollbackLoopId] = useState(null);
+  // Iter 339l — rollback progress ownership moved UP to ChatPanel:
+  // the single toggled Ops History panel is now the only ops surface,
+  // so ShippedRow's onRollbackStarted is forwarded to the parent
+  // (which opens that panel and lifts activeLoopId into it).
   const scrollerRef = useRef(null);
 
   // Append each real event as it arrives.
@@ -810,24 +809,15 @@ export default function LoopLiveFeed({ loopId, event, terminal, phase, projectId
           <ShippedRow
             loopId={loopId}
             ship={shipInfo}
-            onRollbackStarted={setActiveRollbackLoopId}
+            onRollbackStarted={onRollbackStarted}
           />
         )}
       </div>
 
-      {/* Iter 330 · Path P1 — OperationHistory renders past + current
-          ship/rollback ops as an auto-collapsing timeline. It opens
-          its own /stream subscription ONLY when activeRollbackLoopId
-          becomes non-null (i.e. after ShippedRow's confirm click has
-          POSTed successfully). Passing projectId enables history
-          hydration; without it the component still functions for the
-          current-op live rollback flow. */}
-      {projectId && (
-        <OperationHistory
-          projectId={projectId}
-          activeLoopId={activeRollbackLoopId}
-        />
-      )}
+      {/* Iter 339l — OperationHistory REMOVED from inside the feed.
+          The composer-toolbar Ops History toggle (ChatPanel) is now
+          the single ops surface — it renders with or without an
+          active loop, so the toggle can never be a dead click. */}
 
       <style>{`
         @keyframes loop-pulse {

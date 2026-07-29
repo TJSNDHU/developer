@@ -307,3 +307,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 ## 2026-07-29 — DEPLOY: Iter-339j (rollback root fix) LIVE
 - Prod build b266cb2332f1 (02:04 UTC). Health 200, secret-leak scan PASS (/auth/me, /auth/tokens).
 - Founder to verify: hard-reload prod → rollback 2-click within 10s → console shows armed:true + Network POST.
+
+## Iter 339k/l · 2026-07-29 — Prompt-mode NoneType P0 + Ops toggle root fix
+- 339k ROOT CAUSE (prod: every prompt-mode msg crashed after "ORA recalled…"): orchestrator.py session-history loader called t.get() on literal NULL turns (Mongo index-padding corruption). Fixed with isinstance guards in orchestrator.py + chat.py (_find_recent walk) + ora_chat/session.py (3 iterators). Raw exception leak fixed: worker "error" frames now route into the graceful "I wasn't able to produce a reply…" fallback instead of yielding raw error to the bubble (chat.py ~2609).
+- Regression tests: tests/test_iter339k_null_turn_prompt_mode.py — 2-char prompt + "What is 2+2?" through REAL /chat/stream on null-poisoned session → no NoneType, reply "4" generated, /chat/history strips nulls. PASS.
+- 339l ROOT FIX (history toggle dead-click): standalone ops panel was gated on !loopId → toggle did nothing whenever a loop session existed. OperationHistory REMOVED from inside LoopLiveFeed; the composer-toggle panel is now the SINGLE ops surface (renders regardless of loopId), ShippedRow rollback lifts loopId to ChatPanel via onRollbackStarted → auto-opens panel for live progress. iter329 test updated to new contract.
+- E2E: toggle works WITH active loop (panel+5 rows), off hides, no embedded ops in feed. 232/232 vitest + backend tests PASS. DEPLOY PENDING.

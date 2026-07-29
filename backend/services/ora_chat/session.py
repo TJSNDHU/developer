@@ -155,7 +155,8 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _messages_token_estimate(msgs: list[dict]) -> int:
-    return sum(_estimate_tokens(m.get("content", "") or "") for m in msgs)
+    return sum(_estimate_tokens(m.get("content", "") or "")
+               for m in msgs if isinstance(m, dict))
 
 
 # ── Sliding-window prompt builder ───────────────────────────────────
@@ -163,6 +164,8 @@ def _messages_to_llm_format(msgs: list[dict]) -> list[dict]:
     """Reduce stored message docs to OpenAI-format role/content pairs."""
     out: list[dict] = []
     for m in msgs:
+        if not isinstance(m, dict):
+            continue
         role = m.get("role")
         if role not in ("user", "assistant"):
             continue
@@ -253,6 +256,8 @@ async def maybe_update_summary(session_id: str, user_id: str) -> None:
     prior_summary = (doc.get("rolling_summary") or "").strip()
     parts: list[str] = []
     for m in to_fold:
+        if not isinstance(m, dict):
+            continue
         role = m.get("role", "")
         content = (m.get("content") or "").strip().replace("\n", " ")
         if not content:
