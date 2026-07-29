@@ -234,9 +234,18 @@ def test_regression_iter288_execute_has_scope_drift_gate_before_parliament():
         f"scope drift must flip state to PAUSED_FOR_USER; "
         f"got {engine.state!r}"
     )
-    # An audit row must have landed in loop_events.
+    # An audit row must have landed in loop_events. Iter 344: the
+    # engine now ALSO writes a `state_transition` row per emit
+    # (Iter 315/328 audit trail), so the scope_drift row is no longer
+    # guaranteed to be rows[0] — locate it by kind.
     assert db.loop_events.rows, "loop_events must record scope_drift"
-    audit = db.loop_events.rows[0]
+    drift_rows = [r for r in db.loop_events.rows
+                  if r.get("kind") == "scope_drift"]
+    assert drift_rows, (
+        f"no scope_drift audit row in loop_events; kinds seen: "
+        f"{[r.get('kind') for r in db.loop_events.rows]}"
+    )
+    audit = drift_rows[0]
     assert audit["kind"]    == "scope_drift"
     assert audit["frozen"]  == ["a.py"]
     assert audit["extras"]  == ["b.py"]
@@ -263,15 +272,24 @@ def test_regression_iter288_execute_has_scope_drift_gate_before_parliament():
     assert df["data"]["frozen"] == ["a.py"]
 
     # Parliament dispatch never fired — the return short-circuit worked.
-    # Proof: no `execute_empty_output` row, no verify frames, no
-    # generate_files-linked frames. The queue holds EXACTLY 2 frames
-    # (executing-start + paused-for-user); anything more means the
-    # engine continued past the gate.
-    assert len(frames) == 2, (
-        f"scope-drift branch must RETURN before Parliament; queue "
-        f"length was {len(frames)}. Frames: "
+    # Iter 344: later iterations added extra progress emits during the
+    # execute preamble, so an exact frame-count assert is brittle. The
+    # contract that matters: the scope_drift paused-for-user frame is
+    # the LAST frame (nothing ran after the gate), and no post-gate
+    # frame kinds (execute_empty_output / verify) ever appear.
+    last = frames[-1]
+    assert (last.get("data") or {}).get("kind") == "scope_drift", (
+        f"scope-drift branch must RETURN before Parliament — the final "
+        f"frame must be the scope_drift pause. Frames: "
         f"{[(f.get('state'), (f.get('data') or {}).get('kind')) for f in frames]}"
     )
+    post_gate_kinds = {"execute_empty_output", "executor_elision_rejected"}
+    seen_kinds = {(f.get("data") or {}).get("kind") for f in frames}
+    assert not (seen_kinds & post_gate_kinds), (
+        f"engine continued past the scope-drift gate: {seen_kinds & post_gate_kinds}"
+    )
+    verify_frames = [f for f in frames if f.get("phase") == "verify"]
+    assert not verify_frames, "verify phase ran despite scope-drift pause"
 
 
 def test_regression_iter288_scope_drift_emits_requires_user_action():

@@ -22,8 +22,23 @@ TEST_PASSWORD = "AuremTest2026!"
 
 
 # ─────────── fixtures ───────────
+def _clear_login_lockout():
+    """Iter 344 — other suites' failed logins trip the shared IP
+    brute-force lockout (429) and cascade into this module. Clear the
+    persisted lockout rows before we log in."""
+    try:
+        import pymongo
+        db = pymongo.MongoClient(
+            os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+        )[os.environ.get("DB_NAME", "aurem_dev")]
+        db.login_attempts.delete_many({})
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="module")
 def session() -> requests.Session:
+    _clear_login_lockout()
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
     return s

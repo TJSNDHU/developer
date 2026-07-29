@@ -51,10 +51,13 @@ def test_LoopStepBar_covers_every_backend_state():
     m = re.search(r"PHASE_TO_STEP\s*=\s*\{(.*?)\};", src, re.S)
     assert m, "PHASE_TO_STEP object not found in LoopStepBar.jsx"
     body = m.group(1)
-    # Keys are bareword or quoted identifier at start of a line (after
-    # any whitespace/comments). Match `bareword:` or `"str":`.
-    keys = set(re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:",
-                          body, re.M))
+    # Keys are bareword or quoted identifiers anywhere in the body —
+    # Iter 344: the old `^`-anchored regex only matched the FIRST key
+    # per line, falsely reporting multi-key lines (`plan_pending: 1,
+    # planning: 1, …`) as missing. Runtime twin:
+    # frontend/src/components/__tests__/LoopStepBar.iter344_phase_map_runtime.test.jsx
+    # imports the executed map and asserts the same coverage.
+    keys = set(re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:", body))
     backend = _backend_state_values()
     missing = backend - keys
     assert not missing, (
@@ -102,13 +105,13 @@ def test_LoopLiveFeed_placeholder_is_dynamic():
     scan/ship. Verified by asserting that the placeholder branch
     references the `phase` variable at least once."""
     src = _read_frontend("src/components/LoopLiveFeed.jsx")
-    # The placeholder branch (rendered when !hasEvents) lives inside
-    # the `if (!hasEvents) { return ( ... ); }` block.
+    # Iter 344 — Iter 309 rewrite: the placeholder branch is now the
+    # `emptyLine` IIFE (rendered when !hasLines), still phase-aware.
     m = re.search(
-        r"if\s*\(\s*!hasEvents\s*\)\s*\{(.*?)\n  \}",
+        r"const emptyLine = \(\(\) => \{(.*?)\}\)\(\);",
         src, re.S,
     )
-    assert m, "!hasEvents placeholder branch not found in LoopLiveFeed.jsx"
+    assert m, "emptyLine placeholder block not found in LoopLiveFeed.jsx"
     branch = m.group(1)
     assert "phase" in branch, (
         "LoopLiveFeed placeholder branch must switch on the `phase` "

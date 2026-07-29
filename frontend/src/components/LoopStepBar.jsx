@@ -63,6 +63,11 @@ const PHASE_TO_STEP = {
   plan: 1, execute: 2, self_heal: 2, verify: 3, scan: 4, ship: 5,
 };
 
+// Iter 344 — runtime-testable export: the frontend_sync invariant
+// (backend LoopState ⊆ PHASE_TO_STEP keys) is verified by executing
+// this map in vitest, not by regex-parsing the source.
+export const __PHASE_TO_STEP = PHASE_TO_STEP;
+
 // Colours
 const COL = {
   amber:   "#FF6608",

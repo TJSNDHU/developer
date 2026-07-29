@@ -51,6 +51,30 @@ _client = pymongo.MongoClient(MONGO_URL)
 _db     = _client[DB_NAME]
 
 
+def _ensure_seed_users():
+    """Iter 344 — idempotent seed. Previous runs left this module
+    dependent on a REG user that may not exist (or whose password
+    drifted), and failed logins tripped the IP brute-force lockout
+    for every later test. Clear the lockout, then guarantee the REG
+    user exists with the expected password."""
+    _db.login_attempts.delete_many({})
+    r = requests.post(f"{API}/auth/login",
+                      json={"email": REG_EMAIL, "password": REG_PASS},
+                      timeout=15)
+    if r.status_code == 200:
+        return
+    _db.dev_users.delete_one({"email": REG_EMAIL})
+    _db.login_attempts.delete_many({})
+    r = requests.post(f"{API}/auth/signup",
+                      json={"email": REG_EMAIL, "password": REG_PASS,
+                            "name": "Scope Reg"},
+                      timeout=15)
+    assert r.status_code in (200, 201), f"seed signup failed: {r.status_code} {r.text[:200]}"
+
+
+_ensure_seed_users()
+
+
 def _login(email: str, password: str) -> tuple[str, str]:
     r = requests.post(f"{API}/auth/login",
                       json={"email": email, "password": password}, timeout=15)

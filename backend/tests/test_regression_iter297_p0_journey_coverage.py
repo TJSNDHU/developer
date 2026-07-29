@@ -137,14 +137,14 @@ class _StubDB:
 # ═══════════════════════════════════════════════════════════════════
 
 def test_j005_loop_start_endpoint_runs_plan_phase_and_returns_awaiting_confirmation():
-    """The `/loop/start` endpoint must:
+    """Iter 344 rewrite — `/loop/start` is ASYNC now (Class 1 fix):
       1. Reject non-founder users with 403 (loop_mode_locked).
-      2. For a founder: build a LoopEngine, run the plan phase to
-         completion, and return `state='awaiting_confirmation'` with
-         the plan attached.
+      2. For a founder: build a LoopEngine, schedule the driver as a
+         BACKGROUND task, and return IMMEDIATELY with state='planning'
+         + async_start=True. The plan arrives via the SSE stream, not
+         the response body (plan=None by contract).
     Iter 297 — plugs the pytest-cov gap on
         routers/loop.py::start_loop
-        services/loop_engine.py::LoopEngine._do_plan  (via .start())
     """
     from routers import loop as _loop_router
     from services import loop_engine as _le
@@ -234,13 +234,16 @@ def test_j005_loop_start_endpoint_runs_plan_phase_and_returns_awaiting_confirmat
         _ls.acquire_loop_lock     = orig_acquire
 
     assert result["loop_id"], "endpoint must return a loop_id"
-    assert result["state"]   == "awaiting_confirmation", (
-        f"plan phase must end in AWAITING_CONFIRMATION; got {result['state']!r}"
+    # Iter 344 — async contract: the endpoint returns immediately with
+    # state=planning; plan streams via SSE.
+    assert result["state"] == "planning", (
+        f"async /loop/start must return state='planning' immediately; "
+        f"got {result['state']!r}"
     )
-    # _do_plan wrote the mocked plan onto engine.context.
-    assert result["plan"]["title"] == "add health endpoint"
-    assert result["plan"]["files_to_change"] == ["backend/routers/health.py"]
-    assert result["requires_user_action"] is True
+    assert result.get("async_start") is True
+    assert result.get("plan") is None, (
+        "plan blob must NOT be in the sync response — it arrives via SSE"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════

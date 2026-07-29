@@ -167,13 +167,14 @@ async def select_relevant_files(
         scored.append((path, s))
     scored.sort(key=lambda t: t[1], reverse=True)
 
-    # Trim to top_n (or all planner files if fewer). `skipped` now
-    # tracks planner files pushed out of top_n by relevance ranking —
-    # they DID score well enough to be in planner_set but not in the
-    # top-N cut. Still valuable diagnostic data.
-    top = scored[:max(1, top_n)]
-    skipped = [p for p, _ in scored[top_n:]]
-    candidates = [p for p, _ in top]
+    # Iter 344 — founder ruling (REAL BUG class): planner-selected
+    # files are NEVER silently dropped by top_n truncation. Since
+    # Iter 311 Fix C the sweep iterates ONLY planner_set, so ANY trim
+    # here removes a planner file — the exact wrong-files mechanism
+    # behind loop_511/loop_643. Ranking is kept for audit ordering;
+    # truncation is NOT applied to planner files.
+    candidates = [p for p, _ in scored]
+    skipped: list = []
 
     # Defensive fallback: if trimming somehow produced an empty list
     # (should be impossible with +200 boost + non-empty planner_set,

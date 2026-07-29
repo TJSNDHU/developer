@@ -91,12 +91,16 @@ async def test_success_path_persists_done_row(
         commit_sha="deadbeef1234567",
         user_token="ghp_FAKEPAT",
     )
-    # First $set is "running", last should be "done" with sha + url.
-    running = fake_db.set_calls[0]
+    # Iter 344 — the SSE emit path (Iter 330) writes `last_event`
+    # $sets to loop_sessions interleaved with the rollback_status
+    # $sets, so positional indexing broke. Filter to the status
+    # writes: first must be "running", last "done".
+    status_sets = [s for s in fake_db.set_calls if "rollback_status" in s]
+    running = status_sets[0]
     assert running["rollback_status"] == "running"
     assert running["rollback_commit_sha"] == "deadbeef1234567"
 
-    done = fake_db.set_calls[-1]
+    done = status_sets[-1]
     assert done["rollback_status"] == "done"
     assert done["rollback_sha"] == "abc1234deadbeef"
     assert done["rollback_html_url"].endswith("/commit/abc1234deadbeef")
@@ -114,7 +118,7 @@ async def test_failure_path_persists_failed_and_scrubs_pat(
         commit_sha="deadbeef1234567",
         user_token="ghp_FAKEPAT",
     )
-    failed = fake_db.set_calls[-1]
+    failed = [s for s in fake_db.set_calls if "rollback_status" in s][-1]
     assert failed["rollback_status"] == "failed"
     err = failed["rollback_error"]
     # PAT must have been scrubbed out.

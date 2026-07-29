@@ -150,26 +150,25 @@ def test_regression_iter288_failed_frame_clears_busy_synchronously():
 # ── Symptom (c): heartbeat lines still render after FAIL ─────────────
 
 def test_regression_iter288_live_feed_purges_heartbeats_on_terminal():
-    """LoopLiveFeed's ring buffer must PURGE every heartbeat/keepalive
-    entry when the `terminal` prop flips true. Otherwise the panel
-    keeps showing "Still waiting on LLM response for X — 42s elapsed"
-    next to the FAIL message."""
+    """Iter 344 rewrite — the Iter 309 LoopLiveFeed rewrite REMOVED
+    heartbeat/keepalive rendering entirely: only `data.type ===
+    "narration"` events produce rows, so there is nothing left to
+    purge on terminal. The regression this locked (stale "Still
+    waiting on LLM response…" rows next to a FAIL message) is now
+    structurally impossible; this test locks the narration-only
+    contract instead."""
     src = _read(LIVE_FEED)
-    # There must be a useEffect that reacts to `terminal` and filters
-    # events by sub_step === 'heartbeat' || keepalive === true.
-    assert "useEffect" in src
-    assert "terminal" in src
-    # The purge logic must live in a dedicated effect.
-    assert "if (!terminal) return" in src, (
-        "iter288: LoopLiveFeed must guard the purge effect with the "
-        "same `if (!terminal) return` early-exit convention"
+    # The narration gate must exist — non-narration frames (heartbeats,
+    # keepalives, state transitions) return null and never render.
+    assert 'd.type !== "narration"' in src, (
+        "LoopLiveFeed must gate rows on data.type === 'narration' — "
+        "removing this gate lets heartbeat/keepalive frames render "
+        "again (iter288 regression)."
     )
-    assert 'sub === "heartbeat"' in src or "keepalive === true" in src, (
-        "the purge filter must key on `sub_step === 'heartbeat'` OR "
-        "`keepalive === true`"
-    )
-    assert "prev.filter" in src, (
-        "the purge must be a functional setEvents(prev => prev.filter(...))"
+    # The old heartbeat copy must never come back.
+    assert "Still waiting on LLM response" not in src, (
+        "iter288: heartbeat 'Still waiting…' copy reappeared in "
+        "LoopLiveFeed"
     )
 
 

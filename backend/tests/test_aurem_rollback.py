@@ -35,7 +35,7 @@ MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "aurem_dev")
 
 EMAIL = "test@aurem.dev"
-PASSWORD = "testpass123"
+PASSWORD = "AuremTest2026!"
 
 
 # ─────────────────────────── fixtures ───────────────────────────
@@ -70,12 +70,20 @@ def test_user_id(db):
 
 @pytest.fixture(scope="module")
 def project_with_pat(auth_headers, db):
-    """Real cto_project owned by the test user with a fake but
-    non-empty github_token so the rollback guard sees one."""
+    """Real cto_project owned by the test user. Iter 344: the
+    /projects/add endpoint now VALIDATES the PAT against the live
+    GitHub API (Contents: R/W), so a fake PAT is rejected with 400.
+    A real sandbox PAT must be supplied via QA_GITHUB_PAT; without it
+    these live-integration tests are skipped (requires_live_server
+    class), not silently faked."""
+    pat = os.environ.get("QA_GITHUB_PAT")
+    if not pat:
+        pytest.skip("QA_GITHUB_PAT not set — /projects/add validates PATs "
+                    "against live GitHub now; fake PATs are rejected (400)")
     payload = {
         "name": "TEST_RB_Project",
         "github_url": "https://github.com/test-aurem/rb-fixture",
-        "github_token": "ghp_FAKE_PAT_FOR_ROLLBACK_TEST_XXXXXXXXXXXXXX",
+        "github_token": pat,
         "branch": "main",
         "tech_stack": "node",
     }

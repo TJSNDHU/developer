@@ -19,6 +19,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Iter 344 — founder ruling: requires_live_server class. The mocked
+# sk_live_test key now trips the REAL network `_preflight_price`
+# Stripe call (added after this test was written) → AuthenticationError
+# → 503 before the event-loop measurement can run. Gate behind an
+# explicit opt-in env so CI/preview stay green without lying.
+pytestmark = pytest.mark.skipif(
+    os.environ.get("STRIPE_E2E", "").lower() not in ("1", "true"),
+    reason="requires live Stripe credentials + network preflight — "
+           "set STRIPE_E2E=1 to run (requires_live_server class)",
+)
+
 
 @pytest.mark.asyncio
 async def test_checkout_does_not_block_event_loop(monkeypatch):
