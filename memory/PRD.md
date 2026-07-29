@@ -303,3 +303,7 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - E2E network proof (preview, real ChatPanel+SSE): POST /loop/repro-339j-2/rollback FIRED, phase confirming→handed-off, ops history live-updated. Loop-turn chat persistence also confirmed live ("Loop run … Shipped" bubble).
 - BONUS FIX: "[chat/history] Cannot read properties of null (reading 'role')" — Mongo null-padded turns crashed hydration. Frontend filters falsy/role-less turns; backend GET /chat/history strips non-dict turns. Verified: null-turn seeded session hydrates 2/2 messages.
 - 232/232 vitest PASS. DEPLOY PENDING.
+
+## 2026-07-29 — DEPLOY: Iter-339j (rollback root fix) LIVE
+- Prod build b266cb2332f1 (02:04 UTC). Health 200, secret-leak scan PASS (/auth/me, /auth/tokens).
+- Founder to verify: hard-reload prod → rollback 2-click within 10s → console shows armed:true + Network POST.
