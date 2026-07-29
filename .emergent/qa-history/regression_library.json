@@ -11,6 +11,52 @@
     "status": "open",
     "service_layer_lock": "backend/tests/test_iter332_ship_gate_skip.py",
     "ui_layer_lock": "frontend/tests/visual/ship_gate.spec.js",
-    "note": "Set status=fixed + fill fixed_in_commit ONLY after verify_pass_is_real confirms against the sandbox repo — one green run is not proof."
+    "note": "Set status=fixed + fill fixed_in_commit ONLY after verify_pass_is_real confirms against the sandbox repo — one green run is not proof. 2026-07-29: service lock currently PASSING — founder to confirm fix and flip status."
+  },
+  {
+    "id": "regression-20260729-null-turn-prompt-mode-crash",
+    "description": "PROD P0: prompt-mode chat crashed with \"'NoneType' object has no attribute 'get'\" after 'ORA recalled...' when chat_sessions.turns contained literal nulls (Mongo index-padding corruption). Every non-loop message failed for affected sessions.",
+    "steps": {
+      "setup": "Seed a chat_sessions doc whose turns array contains literal null entries between valid turns",
+      "action": "Send any prompt-mode message (e.g. 'What is 2+2?') through POST /chat/stream on that session",
+      "expected": "Normal reply streams; GET /chat/history strips null turns; no NoneType error frame"
+    },
+    "found_in_commit": "prod-incident-2026-07-29",
+    "fixed_in_commit": "iter339k (prod build m1c60458, 2026-07-29)",
+    "status": "fixed",
+    "service_layer_lock": "backend/tests/test_iter339k_null_turn_prompt_mode.py",
+    "requires_live_server": true,
+    "note": "Lock exercises the REAL /chat/stream on a null-poisoned session — needs the live preview backend + Mongo, so it is DEFERRED on CI runners and enforced in the preview environment."
+  },
+  {
+    "id": "regression-20260729-freetier-499-unboundlocal",
+    "description": "PROD P0: /chat/stream returned 499 for ALL free-tier/non-admin accounts. A function-local `from services.usage import is_founder_email` inside chat_stream shadowed the module-level import for the entire function scope -> UnboundLocalError at the earlier callsite. Founder accounts short-circuited before the call, masking it.",
+    "steps": {
+      "setup": "Log in with any non-admin free-tier account",
+      "action": "Send any prompt-mode message via POST /chat/stream",
+      "expected": "Reply streams normally (no 499 / UnboundLocalError)"
+    },
+    "found_in_commit": "prod-incident-2026-07-29",
+    "fixed_in_commit": "iter339m (prod build m1c60458, 2026-07-29)",
+    "status": "fixed",
+    "service_layer_lock": "backend/tests/test_regression_iter339m_freetier_unboundlocal.py",
+    "note": "Static AST lock — runs anywhere, no live server needed."
+  },
+  {
+    "id": "regression-20260729-rollback-button-dead-click",
+    "description": "PROD P0 (3rd recurrence): Rollback button on shipped loops produced ZERO network calls. Root cause class: multi-click confirm flows relying on React state/timers die under SSE remount churn (browser eats `click` when the node is replaced between mousedown/mouseup). Fixed by pointerdown-trigger + native window.confirm + module-level in-flight registry.",
+    "steps": {
+      "setup": "Ship a loop successfully (trivial file change)",
+      "action": "Press Rollback on the Shipped row (or Ops History row), accept the native confirm dialog",
+      "expected": "POST /loop/{id}/rollback fires immediately on a single press; ops history shows live rollback progress"
+    },
+    "found_in_commit": "prod-incident-2026-07-29 (commit 637d885 test ship)",
+    "fixed_in_commit": "iter342 (2026-07-29)",
+    "status": "fixed",
+    "vitest_lock": [
+      "frontend/src/components/__tests__/LoopLiveFeed.iter339j_rollback_remount.test.jsx",
+      "frontend/src/components/__tests__/LoopLiveFeed.iter329_task2_shipped_row.test.jsx"
+    ],
+    "note": "Vitest locks assert: single pointerdown + confirm -> POST fires; remount between clicks cannot eat the action; confirm-cancel makes no POST; in-flight guard survives remounts. E2E network proof captured on preview 2026-07-29."
   }
 ]

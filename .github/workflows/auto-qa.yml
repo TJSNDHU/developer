@@ -1,0 +1,93 @@
+# Auto-QA — Regression Library Gate (Iter 343, founder charter)
+#
+# PURPOSE — this workflow exists so that EVERY push re-verifies EVERY
+# entry in .emergent/qa-history/regression_library.json, independent of
+# the quality-gate.yml dependency chain (whose `auto-qa-agent` job is
+# gated behind `needs: [invariants, frontend-vitest, visual-regression]`
+# and silently skips when any of those are red).
+#
+# Loud-failure contract:
+#   • Any status=fixed regression entry whose lock fails, is missing,
+#     or doesn't exist → services.qa_matrix CLI exits 1 → this job goes
+#     RED in the Actions tab. No quiet logging.
+#   • status=open entries are reported (OPEN rows) but don't gate.
+#   • requires_live_server locks are DEFERRED here (no live backend on
+#     runners) and enforced in the preview environment.
+name: Auto-QA — Regression Library Gate
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch: {}
+
+jobs:
+  regression-locks:
+    name: "Regression locks — ALL past bugs re-verified"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+
+      - name: Set up Node (vitest locks)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend deps (vitest locks)
+        working-directory: frontend
+        run: yarn install --frozen-lockfile --prefer-offline
+
+      - name: Get diff and commit message
+        id: diff
+        run: |
+          echo "MESSAGE<<EOF" >> $GITHUB_OUTPUT
+          git log -1 --pretty=%B >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-only HEAD~1 HEAD >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Auto-QA (scope scenarios + ALL regression locks)
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME:   aurem_ci_smoke
+          COMMIT_MESSAGE: ${{ steps.diff.outputs.MESSAGE }}
+          CHANGED_FILES:  ${{ steps.diff.outputs.FILES }}
+        run: |
+          python -m services.qa_matrix \
+            --message "$COMMIT_MESSAGE" \
+            --files "$CHANGED_FILES" \
+            --sha "$(git rev-parse --short HEAD)"
+
+      - name: Upload QA report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-qa-regression-report
+          path: .emergent/latest-qa-report.md
+          retention-days: 14

@@ -424,10 +424,17 @@ def canary_e2e(mode: str = "lane_a") -> dict:
 import fnmatch as _fnmatch
 import subprocess as _subprocess
 from datetime import datetime as _dt, timezone as _tz
+from pathlib import Path as _Path
 
-_BACKEND_DIR    = "/app/backend"
-_FRONTEND_DIR   = "/app/frontend"
-_EMERGENT_DIR   = "/app/.emergent"
+# Iter 343 — paths derived from the repo checkout, NOT hardcoded /app.
+# On GitHub-hosted runners the workspace is /home/runner/work/... so
+# the previous absolute paths silently loaded an EMPTY regression
+# library and tried to write reports into an unwritable /app.
+_REPO_ROOT = str(_Path(__file__).resolve().parents[2])
+
+_BACKEND_DIR    = os.path.join(_REPO_ROOT, "backend")
+_FRONTEND_DIR   = os.path.join(_REPO_ROOT, "frontend")
+_EMERGENT_DIR   = os.path.join(_REPO_ROOT, ".emergent")
 _REPORT_PATH    = f"{_EMERGENT_DIR}/latest-qa-report.md"
 _HISTORY_DIR    = f"{_EMERGENT_DIR}/qa-history"
 _REGRESSION_LIB = f"{_HISTORY_DIR}/regression_library.json"
@@ -969,6 +976,113 @@ def write_report(scope: dict, results: list, commit_message: str,
     return _REPORT_PATH
 
 
+def _run_vitest(files: list) -> dict:
+    """Run the given vitest files for real (frontend locks)."""
+    cmd = ["npx", "vitest", "run", *files]
+    proc = _subprocess.run(cmd, cwd=_FRONTEND_DIR, capture_output=True,
+                           text=True, timeout=600)
+    out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    m = re.search(r"Tests\s+(?:(\d+)\s+failed\s*\|\s*)?(\d+)\s+passed", out)
+    failed = int(m.group(1)) if (m and m.group(1)) else 0
+    passed = int(m.group(2)) if m else 0
+    return {"exit": proc.returncode, "passed": passed, "failed": failed,
+            "files": files}
+
+
+def _as_lock_list(v) -> list:
+    if not v:
+        return []
+    return [v] if isinstance(v, str) else list(v)
+
+
+def run_regression_locks() -> dict:
+    """Iter 343 — founder charter: EVERY QA run re-verifies EVERY entry
+    in regression_library.json, not just scope-decided scenarios. A fix
+    from months ago gets re-executed today. Policy:
+      • status=fixed  → all executable locks MUST pass. A failing lock,
+        a missing lock file, or an entry with no executable lock at all
+        is a hard FAIL (goes red in Actions via the CLI exit code).
+      • status=open   → informational "OPEN" row (a known-unfixed bug
+        cannot permanently red-gate every push); if its lock passes,
+        the detail nudges the founder to flip status to fixed.
+      • requires_live_server=true entries are DEFERRED on CI runners
+        (no live backend there) and executed in the preview env.
+      • ui_layer_lock (Playwright) runs in the visual-regression job;
+        counted here as deferred coverage, not silently dropped."""
+    lib = _load_regression_library()
+    rows: list = []
+    if not lib:
+        rows.append({"variant": "(library)", "result": "SUSPICIOUS",
+                     "detail": "regression_library.json empty or missing"})
+        return {"scenario": "regression_locks", "rows": rows}
+    on_ci = os.environ.get("CI", "").lower() == "true"
+
+    for e in lib:
+        eid    = e.get("id") or "(no-id)"
+        status = (e.get("status") or "open").lower()
+        py_locks = _as_lock_list(e.get("service_layer_lock"))
+        vt_locks = _as_lock_list(e.get("vitest_lock"))
+        ui_locks = _as_lock_list(e.get("ui_layer_lock"))
+
+        if e.get("requires_live_server") and on_ci:
+            rows.append({"variant": eid, "result": "DEFERRED",
+                         "detail": "live-server lock — runs in preview env, "
+                                   "not runnable on a CI runner"})
+            continue
+
+        lock_outcomes: list = []   # (path, PASS/FAIL, detail)
+        missing: list = []
+        for p in py_locks:
+            rel = p[len("backend/"):] if p.startswith("backend/") else p
+            if not os.path.exists(os.path.join(_BACKEND_DIR, rel)):
+                missing.append(p)
+                continue
+            res = _run_pytest([rel])
+            cls = _classify_pytest(res)
+            lock_outcomes.append((p, cls, res.get("summary", "")))
+        for p in vt_locks:
+            rel = p[len("frontend/"):] if p.startswith("frontend/") else p
+            if not os.path.exists(os.path.join(_FRONTEND_DIR, rel)):
+                missing.append(p)
+                continue
+            res = _run_vitest([rel])
+            cls = ("PASS" if res["exit"] == 0 and res["passed"] > 0
+                   else "FAIL")
+            lock_outcomes.append(
+                (p, cls, f"{res['passed']} passed, {res['failed']} failed"))
+
+        ran_detail = "; ".join(
+            f"{os.path.basename(p)}:{c}" for p, c, _ in lock_outcomes)
+        any_fail = any(c != "PASS" for _, c, _ in lock_outcomes)
+
+        if status == "fixed":
+            if missing:
+                rows.append({"variant": eid, "result": "FAIL",
+                             "detail": f"lock file(s) MISSING: {missing} — "
+                                       "fixed bug cannot be re-verified"})
+            elif any_fail:
+                rows.append({"variant": eid, "result": "FAIL",
+                             "detail": f"REGRESSION LOCK FAILED — {ran_detail}"})
+            elif lock_outcomes:
+                rows.append({"variant": eid, "result": "PASS",
+                             "detail": ran_detail})
+            elif ui_locks:
+                rows.append({"variant": eid, "result": "SUSPICIOUS",
+                             "detail": "ui-layer lock only — verified in the "
+                                       "visual-regression job"})
+            else:
+                rows.append({"variant": eid, "result": "FAIL",
+                             "detail": "status=fixed but NO executable lock "
+                                       "— unverifiable fix"})
+        else:
+            detail = f"bug still open — not gating. {ran_detail}".strip()
+            if lock_outcomes and not any_fail:
+                detail += " (lock passing — consider status=fixed)"
+            rows.append({"variant": eid, "result": "OPEN", "detail": detail})
+
+    return {"scenario": "regression_locks", "rows": rows}
+
+
 # ── Section 3 — orchestrator + CLI entry ───────────────────────────
 async def run_auto(commit_message: str, changed_files: list,
                    sha: str = "") -> dict:
@@ -979,6 +1093,8 @@ async def run_auto(commit_message: str, changed_files: list,
             results.append(await run_ui_scenario(scenario))
         else:
             results.append(await run_backend_scenario(scenario))
+    # Iter 343 — regression locks run on EVERY QA run, unconditionally.
+    results.append(run_regression_locks())
     report_path = write_report(scope, results, commit_message, sha=sha)
     return {"scope": scope, "results": results,
             "overall": _overall(results), "report": report_path}

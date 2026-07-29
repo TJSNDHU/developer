@@ -322,3 +322,17 @@ Language: **Hinglish** — main agent responds in Hinglish.
 ## 2026-07-29 — DEPLOY: Iter-339k/l/m LIVE on https://auremcto.com
 - Prod build m1c60458. Health 200, db:true. Includes: null-turn NoneType fix, ops-toggle root fix, free-tier 499 fix, collapse-all-but-last chat.
 - Section 0 QA sandbox account (qa-bot GitHub PAT): founder confirmed created ("yes"). Next: wire PAT into Prod CI scenarios.
+
+## Iter 342 · 2026-07-29 — Rollback ROOT FIX (3rd recurrence) + chip vanish + feed collapse — DEPLOYED
+- Rollback: two-click arm/confirm state machine REMOVED. New contract: `pointerdown` (fires pre-remount) → native `window.confirm()` → immediate POST. Module-level `_rollbackInFlight`/`_rollbackLastFire` Maps survive remounts; synthetic click after handled pointerdown swallowed (800ms). Applied to BOTH surfaces: ShippedRow (LoopLiveFeed) + OperationHistory row.
+- E2E network proof on preview: single press → confirm dialog → POST /loop/repro-342-1/rollback FIRED, ops history live-updated.
+- LoopStatusChip: terminal-SUCCESS auto-vanishes after SUCCESS_GRACE_MS=6s (Done button still instant-dismisses). Failure keeps 30s.
+- LoopLiveFeed: collapse/expand chevron toggle at header right corner (loop-live-feed-collapse-toggle).
+- 234/234 vitest PASS. Deployed to https://auremcto.com.
+
+## Iter 343 · 2026-07-29 — Regression Library Gate (founder charter)
+- FINDINGS: auto-qa.yml didn't exist; QA robot = auto-qa-agent job in quality-gate.yml, gated behind `needs:[invariants,...]` where invariants has 13 local failures → QA robot skipped on pushes. GITHUB_TOKEN in preview .env is 401 → Actions history unverifiable without PAT.
+- qa_matrix.py: paths now derived from repo root via __file__ (was hardcoded /app — broken on GH runners). NEW `run_regression_locks()` runs on EVERY run_auto: status=fixed entries' locks (pytest via service_layer_lock + vitest via vitest_lock) re-executed; fail/missing/no-lock → FAIL → CLI exit 1 → red Actions. status=open → informational OPEN row. requires_live_server → DEFERRED on CI, enforced in preview.
+- NEW .github/workflows/auto-qa.yml: standalone, push ['**'], mongo service, python+node setup, runs qa_matrix CLI, uploads report artifact. NOT gated behind invariants.
+- regression_library.json now has 4 entries: ship-gate-infinite-loop (open), null-turn-prompt-mode (fixed, live-server lock), freetier-499-unboundlocal (fixed, NEW static AST lock test_regression_iter339m_freetier_unboundlocal.py), rollback-dead-click (fixed, 2 vitest locks).
+- Verified locally: full CLI run → 3 fixed entries PASS (locks actually executed), loud-fail paths (missing lock/no lock/FAIL→exit 1/CI DEFERRED) all assert-checked. iter334 suite 26/26 PASS.
