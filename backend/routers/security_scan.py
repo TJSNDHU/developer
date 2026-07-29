@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -842,6 +843,46 @@ def _fallback_pr_body(findings: list[dict], counts: dict) -> str:
 # the spec: `vanguard/auto-fix-{unix_ts}`.
 _GH_PR_TIMEOUT = 30.0
 
+def _vanguard_fingerprint(findings: list[dict]) -> str:
+    """Iter 346 — stable dedup fingerprint for a scan's finding set:
+    sha1 over the sorted {(rule id, file)} pairs. Line numbers are
+    deliberately excluded so ordinary code drift doesn't defeat dedup."""
+    pairs = sorted({(f.get("id") or "", f.get("file") or "")
+                    for f in (findings or [])})
+    raw = "|".join(f"{i}:{p}" for i, p in pairs)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+_FP_MARKER = "vanguard-fingerprint:"
+
+
+async def _find_open_pr_with_fingerprint(
+    client, *, owner: str, repo: str, headers: dict, fingerprint: str,
+) -> Optional[str]:
+    """Scan open PRs (up to 3 pages × 100) for an existing Vanguard
+    draft carrying the same fingerprint marker. Returns its html_url
+    or None. Soft-fails to None so a listing hiccup never blocks the
+    scan flow."""
+    try:
+        for page in (1, 2, 3):
+            resp = await client.get(
+                f"{_GH_API}/repos/{owner}/{repo}/pulls",
+                headers=headers,
+                params={"state": "open", "per_page": 100, "page": page},
+            )
+            if resp.status_code != 200:
+                return None
+            prs = resp.json() or []
+            for pr in prs:
+                if f"{_FP_MARKER}{fingerprint}" in (pr.get("body") or ""):
+                    return pr.get("html_url")
+            if len(prs) < 100:
+                break
+    except Exception:
+        return None
+    return None
+
+
 async def _create_draft_pr(
     *, owner: str, repo: str, pat: str,
     report: dict,
@@ -883,8 +924,24 @@ async def _create_draft_pr(
         "Authorization": f"Bearer {pat}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    # Iter 346 — dedup guard (founder ruling): NEVER open a duplicate
+    # draft for the same finding set. Fingerprint is embedded in the
+    # PR body as an HTML comment and checked against all open PRs
+    # before creating anything.
+    fingerprint = _vanguard_fingerprint(fallback_findings)
+    body = f"{body}\n\n<!-- {_FP_MARKER}{fingerprint} -->"
     try:
         async with httpx.AsyncClient(timeout=_GH_PR_TIMEOUT) as client:
+            existing_url = await _find_open_pr_with_fingerprint(
+                client, owner=owner, repo=repo, headers=headers,
+                fingerprint=fingerprint,
+            )
+            if existing_url:
+                logger.info(
+                    "[vanguard] dedup — open PR already covers this "
+                    "finding set (%s), skipping new draft", existing_url,
+                )
+                return existing_url, None
             # 1. Get default branch + its HEAD SHA + tree SHA.
             repo_meta = await client.get(
                 f"{_GH_API}/repos/{owner}/{repo}", headers=headers,

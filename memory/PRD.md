@@ -352,3 +352,9 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Env hardening: LOGIN_RATE_PER_MIN=100 in preview .env (in-memory Layer-1 burst limit 10/min tripped by full-suite login hammering — prod env untouched); m55 login test clears lockout before login.
 - VERIFIED: blocking lane with ci.yml's exact flags → 3639 passed, 0 failed, 0 errors (273 deselected). Legacy lane collect = 270.
 - Awaiting founder: Save to Github push (STEP 1), then STEP 3 trigger verification on main. Branch protection = founder does it himself in UI.
+
+## Iter 346 · 2026-07-29 — Vanguard PR dedup + bulk-close script + PRE-DEPLOY GATE
+- DIAGNOSIS: 170 draft PRs = security_scan.py `_create_draft_pr` ("draft": True # NEVER force-merge, author Aurem Vanguard) + loop_safety.open_draft_pr. NO ready-for-review flip, NO auto-merge (never built), NO dedup → every auto_pr scan opened a fresh draft. Production deploys from workspace via Emergent deployer, NOT GitHub main — PR branches don't affect prod.
+- DEDUP GUARD: _vanguard_fingerprint (sha1 of sorted (id,file) pairs, line-insensitive) embedded as <!-- vanguard-fingerprint:X --> in PR body; _find_open_pr_with_fingerprint scans open PRs (3×100 pages) before creating; match → return existing URL, skip creation. Tests: test_iter346_vanguard_pr_dedup.py 3/3 + security suites 29/29.
+- BULK-CLOSE: scripts/bulk_close_vanguard_drafts.py (dry-run default; EXECUTE=1 to comment+close; DELETE_BRANCHES=1 optional; targets only draft + vanguard/aurem branches/titles). NEEDS FOUNDER PAT to run.
+- PRE-DEPLOY GATE: support_agent confirmed Emergent Deploy runs build+env+health ONLY, no tests. scripts/predeploy_gate.sh = 3 blocking lanes (pytest blocking lane, vitest, qa_matrix regression locks). Agent commitment: run before every deployer invocation.
