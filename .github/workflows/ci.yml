@@ -147,6 +147,42 @@ jobs:
           # Exit with pytest's exit code (captured before any post-processing).
           exit "$PYTEST_EXIT"
 
+      - name: Legacy lane (deferred failures — non-blocking)
+        # Iter 345 — founder ruling: 259 pre-existing failures
+        # (iter36–iter267 era) are quarantined via @pytest.mark.legacy
+        # (tests/legacy_quarantine.txt), tracked here, NOT fixed, NOT
+        # deleted, and NEVER block this required check.
+        if: always()
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          python -m pytest -m legacy --tb=no -q --timeout=30 \
+            --continue-on-collection-errors \
+            --ignore=tests/test_iter138_acceptance_seven.py \
+            --ignore=tests/test_iter212m163_aggression_chat.py \
+            2>&1 | tee /tmp/legacy_output.txt || true
+          mkdir -p ../.emergent
+          {
+            echo "# Legacy Test Report — deferred failures (founder ruling 2026-07-29)"
+            echo ""
+            echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ) · commit $(git rev-parse --short HEAD)"
+            echo "Quarantined nodeids: $(grep -vc '^#' tests/legacy_quarantine.txt)"
+            echo ""
+            echo '```'
+            tail -3 /tmp/legacy_output.txt
+            echo '```'
+            echo ""
+            echo "Full nodeid list: backend/tests/legacy_quarantine.txt"
+          } > ../.emergent/legacy-test-report.md
+
+      - name: Upload legacy lane report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-test-report
+          path: .emergent/legacy-test-report.md
+          retention-days: 14
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

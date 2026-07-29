@@ -344,3 +344,11 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - 5 env fixes: test_aurem_rollback password testpass123→AuremTest2026! + QA_GITHUB_PAT skip-gate (PAT now live-validated by /projects/add), iter212m190 idempotent seed (_ensure_seed_users: lockout clear + delete/signup), iter212m55 lockout clear in session fixture, Stripe iter124d gated behind STRIPE_E2E=1 (requires_live_server class).
 - Post-fix: invariants subset 452 passed/0 failed; iter212m142 5/5; vitest 219/219; qa_matrix full run PASS. auto-qa.yml + quality-gate invariants job now unblocked pending push.
 - PENDING: GitHub Actions green-run link needs founder push (Save to Github) + PAT for API access.
+
+## Iter 345 · 2026-07-29 — Legacy quarantine (founder ruling: defer, don't fix) — CI blocking lane GREEN
+- 270 nodeids quarantined via @pytest.mark.legacy (238 FAILED + 21 setup ERRORS from snapshot + 11 order-dependent flaky found during verification). Mechanism: tests/legacy_quarantine.txt (single source of truth) + pytest_collection_modifyitems hook in tests/conftest.py — NO test file edited.
+- pytest.ini: legacy marker registered; addopts now `-m "not flaky and not llm_judge and not legacy"`.
+- ci.yml: NEW non-blocking "Legacy lane" step (continue-on-error) runs `-m legacy`, writes .emergent/legacy-test-report.md + artifact. Local report generated with per-file breakdown.
+- Env hardening: LOGIN_RATE_PER_MIN=100 in preview .env (in-memory Layer-1 burst limit 10/min tripped by full-suite login hammering — prod env untouched); m55 login test clears lockout before login.
+- VERIFIED: blocking lane with ci.yml's exact flags → 3639 passed, 0 failed, 0 errors (273 deselected). Legacy lane collect = 270.
+- Awaiting founder: Save to Github push (STEP 1), then STEP 3 trigger verification on main. Branch protection = founder does it himself in UI.

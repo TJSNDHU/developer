@@ -69,6 +69,9 @@ class TestMiddlewareRegression:
         assert 400 <= r.status_code < 500, f"Unexpected status {r.status_code}: {r.text[:200]}"
 
     def test_login_good_creds_returns_200(self, session):
+        # Iter 345 — other suites' bad-password tests accumulate IP
+        # lockout DURING the run; clear right before this login.
+        _clear_login_lockout()
         r = session.post(LOGIN_URL, json={"email": TEST_EMAIL, "password": TEST_PASSWORD}, timeout=30)
         assert r.status_code != 499, "REGRESSION: login 499 with good creds"
         assert r.status_code == 200, f"Expected 200 for seeded test user, got {r.status_code}: {r.text[:200]}"
