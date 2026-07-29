@@ -1,0 +1,21 @@
+{
+  "summary": "Iter-341 final pre-deploy verification of both P0 fixes PASSED. Backend P0-1 (NoneType prompt-mode): both existing regression (test_iter339k) and new public-URL regression (test_iter341_predeploy) green — 5/5 tests. Verified via null-poisoned session: HTTP 200, string 'NoneType' NEVER appears in SSE stream for both 'What is 2+2?' and 'hi' prompts, stream contains real token frames. P0-1b: /api/aurem-dev/chat/history strips null turns — all returned messages are dicts with role. Frontend P0-2 (ops-history toggle root fix): CASE A (no active loop) PASS — toggle btn opens standalone-op-history with 5 rows, 2nd click hides. CASE B (with EXECUTING seeded loop) PASS — loop-live-feed mounts, ZERO op-history rows nested inside feed (single-surface rule verified), ops-history-toggle-btn STILL opens standalone panel with 5 rows even while feed is present, 2nd click hides. Regression: advisor default collapsed (x=1892 of vp=1920), seeded chat session e2e-collapse-339d still returns 8 turns, no page crashes, no console pageerrors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter341_predeploy.py",
+    "/app/backend/tests/test_iter339k_null_turn_prompt_mode.py",
+    "/app/test_reports/pytest/iter341_predeploy.xml",
+    "/app/test_reports/pytest/iter341_p01_backend.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_iter341_predeploy.py"],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (CASE A + CASE B + regression)"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! (preview) — from /app/memory/test_credentials.md",
+  "seed_data_creation": "Temp: null-poisoned chat_sessions doc (iter341-null-*, iter339k-null-*) and one executing loop_sessions doc (iter341-active-1785293047) for CASE B — all cleaned up after run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "P0-1 and P0-2 are deploy-ready. Key testids validated: ops-history-toggle-btn, standalone-op-history, op-history-row-collapsed-*, loop-live-feed, ds2-advisor-open. When testing with active loop, page never reaches networkidle — use domcontentloaded + wait_for_selector('loop-live-feed'). Cookie banner: click get_by_role('button', name='Accept all'). Seed executing loop with fields: loop_id, user_id='test_admin_001', project_id='p_demo_a', state='executing', phase='execute', created_at/updated_at (epoch floats), context={}, last_event={...requires_user_action:False}.",
+  "rca of the issue": "N/A — no failures."
+}
