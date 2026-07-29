@@ -1,0 +1,25 @@
+{
+  "summary": "Iter-340 pre-deploy regression complete. Backend 4/4 passed (health, /auth/me no sensitive keys, /chat/history returns 8 seeded turns incl provider:'loop', /loop/start accepts session_id — no 422). Frontend 8/8 UI features verified: collapsible replies (2 collapsed idx 1&3, last expanded idx 7), scope badges correctly hidden on 1/3/5 and shown 'via openai' on 7, no graph-toggle-btn, ops-history-toggle-btn works (open/close), ops panel header 'OPS HISTORY · 11', scroll-pane height=190 (<=190 spec), inner ops card x=461 w=1218 EXACTLY matches composer-card x=461 w=1218 (0px diff), 7 rollback buttons visible, rollback click → 'Confirm rollback' → POST fired to /api/aurem-dev/loop/repro-feedcheck-2/rollback confirmed via network, expand/collapse rows works, Ask Advisor default collapsed (x=2246 off-screen), opens on click (x=1646), stays collapsed after reload. No console page errors, only harmless React Router v7 future-flag warnings.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter340_regression.py",
+    "/app/test_reports/pytest/iter340_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "React Router v6 future-flag warnings (v7_startTransition, v7_relativeSplatPath) appear on every page load — cosmetic only, but consider opting in to silence noise before v7 upgrade."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter340_regression.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "test@aurem.dev / AuremTest2026! (preview)",
+  "seed_data_creation": "None — used existing seeded session e2e-collapse-339d and project p_demo_a.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter-339 UI/UX bundle is deploy-ready. Key testids verified: collapsed-reply-toggle, expanded-reply, expanded-reply-collapse, scope-badge-<idx>, ops-history-toggle-btn, standalone-op-history, op-history-header, op-history-toggle-show-all, op-history-scroll-pane, op-history-rollback-btn-*, op-history-rollback-btn-confirming-*, op-history-row-collapsed-*, op-history-expanded-*, ds2-advisor-input, ds2-advisor-open. Ops panel outer wrapper is .chat-inline-card (full 1698px wide) but the INNER card aligns exactly with .composer-card — bbox check must target the inner element (panel.firstElementChild) or use a nested card, not the outer wrapper.",
+  "rca of the issue": "N/A — no failures."
+}
