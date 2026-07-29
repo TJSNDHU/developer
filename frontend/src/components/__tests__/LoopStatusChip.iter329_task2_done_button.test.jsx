@@ -106,12 +106,10 @@ describe("Iter 329 · Task 2 — LoopStatusChip Done button", () => {
     });
   });
 
-  it("Iter 329 · Fix B — source-lock: terminal grace is gated by outcome (no unconditional setTimeout)", () => {
-    // Source-level regression guard for Fix B. If a future edit
-    // removes the isFailureTerminal branching and returns to the
-    // unconditional 30s auto-dismiss on ALL terminals, this test
-    // fails — which would silently regress the founder-visible
-    // behaviour (success chip vanishing before user clicks Done).
+  it("Iter 342 — source-lock: outcome-gated grace (failure 30s, success SUCCESS_GRACE_MS auto-vanish)", () => {
+    // Founder request (Iter 342): the SHIPPED success chip must
+    // auto-vanish a few seconds after the task finishes; failures
+    // keep the longer 30s window. This locks both branches in.
     const fs = require("node:fs");
     const path = require("node:path");
     const src = fs.readFileSync(
@@ -120,23 +118,15 @@ describe("Iter 329 · Task 2 — LoopStatusChip Done button", () => {
     );
     // The gating variable MUST be present.
     expect(src).toMatch(/isFailureTerminal\s*=/);
-    // Iter 329 · Task 2 · Fix B rationale comment MUST be present.
-    expect(src).toContain("Iter 329 · Task 2 · Fix B");
-    // Rationale: no auto-dismiss for terminal-success.
-    expect(src).toMatch(/no timer.*wait for Done click/i);
-    // The setTimeout call MUST be inside the isFailureTerminal
-    // guard (roughly: the terminal timer setup appears after the
-    // `if (isFailureTerminal)` check).
+    // Success grace constant MUST exist and be short (seconds).
+    expect(src).toMatch(/SUCCESS_GRACE_MS\s*=\s*6_?000/);
+    // Failure branch keeps the long grace.
     const iffIdx = src.indexOf("if (isFailureTerminal)");
-    const setTimeoutIdx = src.indexOf(
-      "terminalTimerRef.current = setTimeout",
-      iffIdx,
-    );
+    const failTimerIdx = src.indexOf("TERMINAL_GRACE_MS)", iffIdx);
     expect(iffIdx).toBeGreaterThan(0);
-    expect(setTimeoutIdx).toBeGreaterThan(iffIdx);
-    // Distance between the guard and the setTimeout must be small
-    // — ensures the setTimeout is inside the guarded branch, not
-    // some unrelated later block.
-    expect(setTimeoutIdx - iffIdx).toBeLessThan(400);
+    expect(failTimerIdx).toBeGreaterThan(iffIdx);
+    // Success branch sets its own auto-vanish timer.
+    const successTimerIdx = src.indexOf("SUCCESS_GRACE_MS)", iffIdx);
+    expect(successTimerIdx).toBeGreaterThan(iffIdx);
   });
 });

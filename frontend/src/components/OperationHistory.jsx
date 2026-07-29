@@ -34,6 +34,10 @@ import { streamLoopEvents, rollbackLoop } from "../lib/loopApi";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
 
+// Iter 342 — swallows the synthetic `click` that follows a handled
+// `pointerdown` on the row rollback button (loopId → ts).
+const _rbLastFire = new Map();
+
 function formatTime(iso) {
   if (!iso) return "";
   try {
@@ -80,19 +84,22 @@ function CollapsedOpRow({ op, onExpand, rb }) {
           <span style={{ flex: 1 }} />
           <button
             type="button"
-            data-testid={rb.phase === "confirming"
-              ? `op-history-rollback-btn-confirming-${lid8}`
-              : `op-history-rollback-btn-${lid8}`}
-            aria-label={rb.phase === "confirming"
-              ? "Confirm rollback" : "Rollback this ship"}
+            data-testid={`op-history-rollback-btn-${lid8}`}
+            aria-label="Rollback this ship"
             disabled={rb.phase === "submitting"}
-            onClick={(e) => { e.stopPropagation(); rb.onClick(op.loop_id); }}
+            onPointerDown={(e) => {
+              // Iter 342 — pointerdown fires pre-remount; the row's
+              // expand onClick must not swallow this.
+              if (e.button !== undefined && e.button !== 0) return;
+              e.stopPropagation();
+              rb.onClick(op.loop_id, "pointerdown");
+            }}
+            onClick={(e) => { e.stopPropagation(); rb.onClick(op.loop_id, "click"); }}
             style={{
               appearance: "none",
-              background: rb.phase === "confirming" ? "#EF4444" : "transparent",
-              color:      rb.phase === "confirming" ? "#ffffff" : "#f87171",
-              border:     rb.phase === "confirming"
-                ? "1px solid #FCA5A5" : "1px solid #EF444488",
+              background: "transparent",
+              color:      "#f87171",
+              border:     "1px solid #EF444488",
               borderRadius: 5, padding: "2px 8px",
               fontFamily: "inherit", fontSize: 10,
               textTransform: "uppercase", letterSpacing: ".04em",
@@ -100,8 +107,7 @@ function CollapsedOpRow({ op, onExpand, rb }) {
               opacity: rb.phase === "submitting" ? 0.6 : 1,
             }}
           >
-            {rb.phase === "confirming" ? "Confirm rollback"
-              : rb.phase === "submitting" ? "Rolling back…"
+            {rb.phase === "submitting" ? "Rolling back…"
               : rb.phase === "failed" ? "Retry rollback"
               : "Rollback"}
           </button>
@@ -444,26 +450,26 @@ function OperationHistoryInner({ projectId, activeLoopId, authToken }) {
     setExpandedId((cur) => (cur === key ? null : key)), []);
   const onCollapse = useCallback(() => setExpandedId(null),         []);
 
-  // Iter 339 — history-row rollback (two-click confirm, 10s window).
-  // Stream-independent: fires POST /loop/{id}/rollback directly, then
-  // lifts the id into the shared stream subscription for live progress.
-  const handleRowRollback = useCallback(async (loopId) => {
+  // Iter 342 — native window.confirm replaces the fragile two-click
+  // arm (same root fix as ShippedRow: a synchronous browser dialog is
+  // immune to remounts/state resets/timers). Stream-independent: fires
+  // POST /loop/{id}/rollback directly, then lifts the id into the
+  // shared stream subscription for live progress.
+  const handleRowRollback = useCallback(async (loopId, source) => {
+    const now = Date.now();
+    const last = _rbLastFire.get(loopId) || 0;
+    if (source === "click" && now - last < 800) return;
+    _rbLastFire.set(loopId, now);
     const cur = rbStateRef.current;
     // eslint-disable-next-line no-console
-    console.debug("[op-history rollback] click", {
-      loopId, phase: (cur && cur.loopId === loopId) ? cur.phase : "idle",
-    });
+    console.debug("[op-history rollback] trigger", { loopId, source });
     if (cur && cur.loopId === loopId && cur.phase === "submitting") return;
-    if (!cur || cur.loopId !== loopId || cur.phase !== "confirming") {
-      setRbState({ loopId, phase: "confirming" });
-      setTimeout(() => {
-        const s = rbStateRef.current;
-        if (s && s.loopId === loopId && s.phase === "confirming") {
-          setRbState(null);
-        }
-      }, 10_000);
-      return;
-    }
+    const ok = window.confirm(
+      `Rollback this shipped loop (${String(loopId).slice(0, 8)})?\n\n`
+      + "This creates a new revert commit on GitHub that undoes the ship. "
+      + "No history is force-pushed.",
+    );
+    if (!ok) return;
     setRbState({ loopId, phase: "submitting" });
     try {
       await rollbackLoop(loopId);

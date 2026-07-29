@@ -171,12 +171,8 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
       .toHaveTextContent(/Rollback/i);
   });
 
-  it("Rollback flow: idle → confirming → submitting → handed-off (Iter 330 SSE hand-off)", async () => {
-    // Iter 331 — rewritten for the Iter 330 Path P1 state machine.
-    // Old poll-based phases (queued/running/done via getLoopStatus)
-    // were removed: ShippedRow POSTs /rollback, holds "submitting"
-    // while in flight, then terminal "handed-off" on success and
-    // lifts the loopId into OperationHistory (which owns SSE progress).
+  it("Rollback flow (Iter 342): pointerdown + confirm → submitting → handed-off", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let resolvePost;
     loopApi.rollbackLoop.mockImplementation(
       () => new Promise((res) => { resolvePost = res; }),
@@ -192,14 +188,10 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
     });
     const btn = screen.getByTestId("loop-shipped-rollback-btn-5d939a4");
 
-    // First click → confirming
-    await act(async () => { btn.click(); });
-    expect(screen.getByTestId("loop-shipped-row-5d939a4")
-      .getAttribute("data-rollback-phase")).toBe("confirming");
-    expect(btn).toHaveTextContent(/Confirm rollback/i);
-
-    // Second click → POST fires; while in flight phase = submitting.
-    await act(async () => { btn.click(); });
+    // Single press → native confirm → POST fires; in flight = submitting.
+    const { fireEvent } = await import("@testing-library/react");
+    await act(async () => { fireEvent.pointerDown(btn, { button: 0 }); });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(loopApi.rollbackLoop).toHaveBeenCalledWith("loop_task2_d");
     expect(screen.getByTestId("loop-shipped-row-5d939a4")
       .getAttribute("data-rollback-phase")).toBe("submitting");
@@ -224,9 +216,11 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
     await waitFor(() => {
       expect(onRollbackStarted).toHaveBeenCalledWith("loop_task2_d");
     });
+    confirmSpy.mockRestore();
   });
 
   it("Rollback POST rejects → phase=failed + error text surfaces", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     loopApi.rollbackLoop.mockRejectedValue(
       new Error("Only completed loops can be rolled back (current: aborted)"),
     );
@@ -235,113 +229,32 @@ describe("Iter 329 · Task 2 — ShippedRow render + rollback flow", () => {
       event: shipEvent({ commit_sha: "abcdef1234" }),
       terminal: true,
     });
+    const { fireEvent } = await import("@testing-library/react");
     const btn = screen.getByTestId("loop-shipped-rollback-btn-abcdef1");
-    await act(async () => { btn.click(); });   // confirming
-    await act(async () => { btn.click(); });   // fire
+    await act(async () => { fireEvent.pointerDown(btn, { button: 0 }); });
     await waitFor(() => {
       expect(screen.getByTestId("loop-shipped-row-abcdef1")
         .getAttribute("data-rollback-phase")).toBe("failed");
     });
     expect(screen.getByTestId("loop-shipped-rollback-error"))
       .toHaveTextContent(/Only completed loops/);
+    confirmSpy.mockRestore();
   });
 
-  it("Iter 329 · Fix C — REAL-TIMER two-click rollback (locks in the founder-reported production bug)", async () => {
-    // ── The exact class of test that was missing ─────────────────
-    // Previous tests used act() with instant clicks → passed against
-    // synchronous state flushes. Production failed because real
-    // timing + React 18 concurrent scheduling + parent re-renders
-    // between clicks caused stale-closure OR unmount races.
-    //
-    // This test uses REAL setTimeout (no vi.useFakeTimers) with
-    // real wall-clock delays between clicks — 1.5s wait between
-    // click 1 and click 2 — matching the founder's multi-second
-    // manual retry pattern. Asserts:
-    //   (a) After click 1: data-rollback-phase="confirming", the
-    //       button label contains "Confirm rollback" (visual
-    //       feedback is real), the phase-specific testid variant
-    //       is present.
-    //   (b) After the real wait + click 2: rollbackLoop() actually
-    //       fires with the correct loop_id, phase advances past
-    //       "confirming".
-    loopApi.rollbackLoop.mockResolvedValue({
-      ok: true, loop_id: "loop_realtimer_test",
-      rollback_status: "queued",
-    });
-    loopApi.getLoopStatus.mockResolvedValue({
-      rollback_status: "done",
-      rollback_sha: "revert123456789",
-    });
-
+  it("Iter 342 — confirm Cancel leaves row idle, no POST", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     feedMount({
-      loopId: "loop_realtimer_test",
-      event: shipEvent({ commit_sha: "originaLsha1" }),
+      loopId: "loop_task2_f",
+      event: shipEvent({ commit_sha: "cancelsha99" }),
       terminal: true,
     });
-    const initialBtn = screen.getByTestId("loop-shipped-rollback-btn-origina");
-
-    // ── Click 1 (real click, real state flush) ───────────────────
-    await act(async () => { initialBtn.click(); });
-    // Assert VISIBLE feedback landed — this is what the founder
-    // couldn't see in production.
-    const row = screen.getByTestId("loop-shipped-row-origina");
-    expect(row.getAttribute("data-rollback-phase")).toBe("confirming");
-    const confirmingBtn = screen.getByTestId(
-      "loop-shipped-rollback-btn-confirming-origina",
-    );
-    expect(confirmingBtn).toBeInTheDocument();
-    expect(confirmingBtn).toHaveTextContent(/Confirm rollback/i);
-    expect(confirmingBtn.getAttribute("aria-pressed")).toBe("true");
-
-    // ── Real 1.5s wait — no fake timers, no shortcuts ───────────
-    // This is the interval that mattered on production. The
-    // callback MUST still see phase=confirming after this real
-    // wall-clock gap and any interleaved React re-renders that
-    // may occur.
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // ── Click 2 (real click after real wait) ─────────────────────
-    await act(async () => { confirmingBtn.click(); });
-
-    // The POST must have fired with the correct loop_id.
-    expect(loopApi.rollbackLoop).toHaveBeenCalledTimes(1);
-    expect(loopApi.rollbackLoop).toHaveBeenCalledWith("loop_realtimer_test");
-
-    // Phase must have advanced past confirming. Iter 331 — the
-    // Iter 330 refactor collapsed the poll-derived queued/running/done
-    // phases into submitting (POST in flight) → handed-off (terminal).
-    await waitFor(() => {
-      const currentPhase = screen.getByTestId("loop-shipped-row-origina")
-        .getAttribute("data-rollback-phase");
-      expect(["submitting", "handed-off"]).toContain(currentPhase);
-    }, { timeout: 3000 });
-  });
-
-  it("Iter 329 · Fix C — confirm timer auto-reverts idle after 10s (regression guard)", async () => {
-    // The confirm window bumped 4s → 10s. The revert-to-idle path
-    // must still fire; also must NOT fire if user already advanced
-    // to queued/running before the window closed.
-    vi.useFakeTimers();
-    try {
-      feedMount({
-        loopId: "loop_confirm_revert",
-        event: shipEvent({ commit_sha: "revertshsh" }),  // sha7=reverts
-        terminal: true,
-      });
-      const btn = screen.getByTestId("loop-shipped-rollback-btn-reverts");
-      await act(async () => { btn.click(); });
-      expect(screen.getByTestId("loop-shipped-row-reverts")
-        .getAttribute("data-rollback-phase")).toBe("confirming");
-      // At 9.9s: still confirming.
-      await act(async () => { vi.advanceTimersByTime(9_900); });
-      expect(screen.getByTestId("loop-shipped-row-reverts")
-        .getAttribute("data-rollback-phase")).toBe("confirming");
-      // At 10.1s: reverted to idle.
-      await act(async () => { vi.advanceTimersByTime(200); });
-      expect(screen.getByTestId("loop-shipped-row-reverts")
-        .getAttribute("data-rollback-phase")).toBe("idle");
-    } finally {
-      vi.useRealTimers();
-    }
+    const { fireEvent } = await import("@testing-library/react");
+    const btn = screen.getByTestId("loop-shipped-rollback-btn-cancels");
+    await act(async () => { fireEvent.pointerDown(btn, { button: 0 }); });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(loopApi.rollbackLoop).not.toHaveBeenCalled();
+    expect(screen.getByTestId("loop-shipped-row-cancels")
+      .getAttribute("data-rollback-phase")).toBe("idle");
+    confirmSpy.mockRestore();
   });
 });

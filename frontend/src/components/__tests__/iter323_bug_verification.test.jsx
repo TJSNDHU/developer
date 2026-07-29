@@ -92,17 +92,13 @@ describe("Iter 323 Bug B — LoopStatusChip terminal grace behavior", () => {
     expect(screen.getByTestId("loop-status-chip-id")).toHaveTextContent("id · e67cfd44");
     expect(screen.queryByTestId("loop-status-chip-stop")).toBeNull();
 
-    // Iter 329 · Task 2 · Fix B — terminal-SUCCESS persists past the
-    // former 30s grace. Chip only unmounts when user clicks Done or
-    // a new loop starts. Previous test asserted auto-unmount at 30s;
-    // that's now expected behaviour ONLY for terminal-failure.
-    await advance(60_000);
+    // Iter 342 — terminal-SUCCESS now auto-vanishes after
+    // SUCCESS_GRACE_MS (6s) per founder request; Done button remains
+    // for instant dismissal within that window.
+    await advance(5_000);
     expect(screen.getByTestId("loop-status-chip")).toBeInTheDocument();
     expect(screen.getByTestId("loop-status-chip-done")).toBeInTheDocument();
-
-    // Clicking Done unmounts the chip immediately (Task 2 inline UX).
-    await act(async () => { screen.getByTestId("loop-status-chip-done").click(); });
-    await flushPromises();
+    await advance(2_000);
     expect(screen.queryByTestId("loop-status-chip")).toBeNull();
   });
 

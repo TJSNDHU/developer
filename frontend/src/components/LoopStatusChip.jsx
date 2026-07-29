@@ -46,6 +46,10 @@ const CONFIRM_WINDOW_MS = 4_000;
 // vanished the instant the loop went COMPLETED, leaving no top-of-
 // panel confirmation.
 const TERMINAL_GRACE_MS = 30_000;
+// Iter 342 — founder request: the SHIPPED success chip must auto-vanish
+// a few seconds after the task finishes (Done button remains for
+// instant dismissal).
+const SUCCESS_GRACE_MS = 6_000;
 
 const C = {
   bg:      "#111827",
@@ -214,8 +218,14 @@ export default function LoopStatusChip({ projectId = null, onPhaseUpdate = null 
             setTerminalSnapshot(null);
             terminalTimerRef.current = null;
           }, TERMINAL_GRACE_MS);
+        } else {
+          // Iter 342 — success chips auto-vanish after a short grace
+          // (founder request). Done button still allows instant dismiss.
+          terminalTimerRef.current = setTimeout(() => {
+            setTerminalSnapshot(null);
+            terminalTimerRef.current = null;
+          }, SUCCESS_GRACE_MS);
         }
-        // else: success — no timer, wait for Done click.
       } else if (nextActive) {
         // A new (or same) active loop is running — clear any
         // lingering terminal snapshot so the pill can update.
