@@ -3472,15 +3472,6 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
         )}
 
         {messages.map((m, i) => {
-          // Iter 339d — index of the LAST assistant message: it stays
-          // expanded; every older assistant reply collapses to a
-          // one-line preview (click to expand).
-          const lastAssistantIdx = (() => {
-            for (let k = messages.length - 1; k >= 0; k--) {
-              if (messages[k].role === "assistant") return k;
-            }
-            return -1;
-          })();
           // Iter 167 — task id of the last assistant turn (for the
           // post-task scanner banner). Computed inline so the banner
           // appears only beneath that bubble, never duplicated.
@@ -3566,7 +3557,7 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
                 exhausted={exhausted}
                 onTaskCompleted={triggerTaskFollowup}
                 onOpenDeployTab={openDeployTab}
-                collapseDefault={m.role === "assistant" && i !== lastAssistantIdx}
+                collapseDefault={i !== messages.length - 1}
               />
               {suggestions.length > 0 && (
                 <div

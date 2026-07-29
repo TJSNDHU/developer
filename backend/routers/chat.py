@@ -1209,7 +1209,11 @@ async def chat_stream(
     # (breaking Ask Advisor entirely), silently downgrade to the default
     # orchestrator so they get Claude/DeepSeek from their own quota.
     if (body.agent or "").lower() == "ora":
-        from services.usage import is_founder_email
+        # Iter 339m — do NOT re-import is_founder_email here: a local
+        # import anywhere in this function makes the name local for the
+        # WHOLE function scope, so the earlier _is_founder check (line
+        # ~1121) raised UnboundLocalError for every non-admin account →
+        # 499 on ALL free-tier prompt chats. Module-level import is used.
         if not is_founder_email(user.get("email")):
             body.agent = "auto"
 

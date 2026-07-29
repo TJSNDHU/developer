@@ -26,7 +26,7 @@ import TaskLiveTape from "./TaskLiveTape";
 import TaskManagementPanel, { hasChecklist } from "./TaskManagementPanel";
 import RenderedMessage from "./RenderedMessage";
 import LoopProgressBubble, { isLoopProgressContent } from "./LoopProgressBubble"; // Iter 331
-import CollapsibleReply, { isCollapsibleReply } from "./CollapsibleReply"; // Iter 339d
+import CollapsibleReply from "./CollapsibleReply"; // Iter 339d/339m
 import MermaidBlock from "./MermaidBlock";       // Iter 212m-61 /diagram
 import PatRequiredCTA from "./PatRequiredCTA";
 import SystemSignalBanner from "./SystemSignalBanner";
@@ -517,12 +517,13 @@ export default function MessageBubble({
   }
 
   const showActions = m.role === "assistant" && !m.streaming && m.provider !== "system" && !m.error;
-  // Iter 339g — founder: collapsed replies must be truly ONE line —
-  // no "via openai / via loop" caption row beneath them. Same for the
-  // compact one-line loop-result turns (provider === "loop").
+  // Iter 339m — founder: EVERY message (user input + assistant reply)
+  // collapses to a one-line preview except the LAST one — regardless
+  // of length. Streaming / error bubbles stay expanded.
   const collapsedReply = collapseDefault && !m.streaming && !m.error
-    && m.role === "assistant" && !isLoopProgressContent(m.content)
-    && isCollapsibleReply(m.content);
+    && m.role === "assistant" && !isLoopProgressContent(m.content);
+  const collapsedUserMsg = collapseDefault && m.role === "user"
+    && typeof m.content === "string" && m.content.length > 0;
   const hideScopeBadge = collapsedReply || m.provider === "loop";
   const showUserCopy = m.role === "user" && !!m.content;
   // Detect ```aurem-handoff fence → render one-click Ship via CTO button
@@ -680,6 +681,11 @@ export default function MessageBubble({
             ) : (
               <RenderedMessage text={m.content} />
             )
+          ) : collapsedUserMsg ? (
+            /* Iter 339m — user inputs collapse to one line too. */
+            <CollapsibleReply text={m.content}>
+              {m.content}
+            </CollapsibleReply>
           ) : (
             m.content
           )}
