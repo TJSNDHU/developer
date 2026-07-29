@@ -292,3 +292,6 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Ask Advisor opener tab moved from right-middle to bottom-right (bottom-6).
 - NEW bottom-left "MENU" tab (sidebar-open-tab, desktop only): sidebar now DEFAULT HIDDEN on every load/refresh; opens via MENU click or left-edge (16px) hover; auto-hides when cursor drifts >264px. Mobile hamburger/drawer unchanged.
 - E2E verified: mode collapse/expand/select, sidebar hidden(w=0)→open(220px)→auto-hide, advisor tab at (1892,685). 230/230 vitest PASS. Deploy pending.
+
+## Iter 339i-b · 2026-07-29 — MENU tab exact mirror of Advisor tab
+- MENU tab rebuilt with same Tailwind classes as Advisor tab: orange lucide Menu icon (text-primary), vertical label, both tabs locked to 26x96px (h-[96px] w-[26px] justify-center) at same bottom offset. Verified: both bboxes 26x96 @ y=680. 

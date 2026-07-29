@@ -57,6 +57,7 @@ import { logout, getUser } from "../lib/api";
 // v2 chrome
 import { TopBar }       from "../components/dashboard/v2/TopBar";
 import TopBarStatusSlot from "../components/TopBarStatusSlot";
+import { Menu as MenuIcon } from "lucide-react";
 import SidebarV2Bound   from "../components/dashboard/v2/SidebarBound";
 import AskAdvisorReal   from "../components/dashboard/v2/AskAdvisorReal";
 
@@ -558,35 +559,25 @@ function DashboardV2Body() {
           </button>
         )}
 
-        {/* Iter 339i — Bottom-left "MENU" tab (desktop). Mirrors the
-            Advisor tab on the right: visible only while the sidebar
-            is hidden; click opens the sidebar. Moving the cursor off
-            the sidebar area hides it again. */}
+        {/* Iter 339i — Bottom-left "MENU" tab (desktop). EXACT mirror
+            of the Advisor tab (same classes, orange icon, fixed 96px
+            height on both so neither looks bigger). Click opens the
+            sidebar; moving the cursor off the sidebar hides it. */}
         {!isMobile && sidebarFullyHidden && (
           <button
             type="button"
             data-testid="sidebar-open-tab"
             aria-label="Open sidebar"
             onClick={() => setSidebarManualOpen(true)}
-            style={{
-              position: "fixed", bottom: 24, left: 0, zIndex: 1500,
-              display: "flex", flexDirection: "column",
-              alignItems: "center", gap: 6,
-              padding: "12px 5px",
-              borderRadius: "0 10px 10px 0",
-              background: "#111214",
-              border: "1px solid #2A2A2A", borderLeft: "none",
-              color: "var(--text-dim, #9aa0a6)",
-              cursor: "pointer",
-              boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
-            }}
+            className="fixed bottom-6 left-0 z-[1500] flex h-[96px] w-[26px] flex-col items-center justify-center gap-1.5 rounded-r-lg border border-l-0 border-border bg-card px-1.5 py-3 shadow-lg transition-all duration-200 ease-in-out hover:bg-secondary"
           >
-            <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>☰</span>
-            <span style={{
-              writingMode: "vertical-rl",
-              fontSize: 9, fontWeight: 700,
-              letterSpacing: "0.12em", textTransform: "uppercase",
-            }}>Menu</span>
+            <MenuIcon className="size-3 text-primary" strokeWidth={2.5} />
+            <span
+              className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+              style={{ writingMode: "vertical-rl" }}
+            >
+              Menu
+            </span>
           </button>
         )}
 
