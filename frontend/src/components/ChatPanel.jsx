@@ -3737,21 +3737,21 @@ export default function ChatPanel({ sessionId, onTurnSaved, activeProject }) {
           toolbar Ops History toggle (default hidden) so the chat
           window stays clean. */}
       {!loopId && opsHistoryOpen && activeProject?.project_id && (
-        <div
-          className="chat-inline-card"
-          data-testid="standalone-op-history"
-          style={{
-            background: "#0d1117",
-            border: "1px solid #30363d",
-            borderRadius: 10,
-            padding: "8px 4px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
-          }}
-        >
-          <OperationHistory
-            projectId={activeProject.project_id}
-            activeLoopId={null}
-          />
+        <div className="chat-inline-card" data-testid="standalone-op-history">
+          <div
+            style={{
+              background: "#0d1117",
+              border: "1px solid #30363d",
+              borderRadius: 10,
+              padding: "8px 4px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            }}
+          >
+            <OperationHistory
+              projectId={activeProject.project_id}
+              activeLoopId={null}
+            />
+          </div>
         </div>
       )}
 

@@ -78,7 +78,7 @@ const COL = {
 // 0 → -64px over 1s so it appears infinite.
 function ECGStrip({ variant, testid }) {
   // variant: "future" | "active" | "success" | "danger"
-  const height = 14;
+  const height = 10;
   const beatW  = 64;
   const isActive = variant === "active";
 
@@ -270,14 +270,17 @@ export default function LoopStepBar({
       role="status"
       aria-label={`Loop step ${active} of 5`}
       style={{
-        display: "flex", flexDirection: "column", gap: 6,
-        padding: "12px 18px",
-        margin: "8px clamp(16px, 17.25%, 240px)",
+        display: "flex", flexDirection: "column", gap: 4,
+        /* Iter 339f — founder: chip was eating too much vertical
+           space. Tighter padding, zero bottom margin so it hugs the
+           chat input, smaller type. */
+        padding: "6px 12px",
+        margin: "4px clamp(16px, 17.25%, 240px) 0",
         background: "#161616",
         border: "1px solid #2A2A2A",
-        borderRadius: 12,
+        borderRadius: 10,
         fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 11,
+        fontSize: 10,
         letterSpacing: "0.10em",
       }}
     >
@@ -291,7 +294,7 @@ export default function LoopStepBar({
         columnGap: 8,
       }}>
         <span style={{
-          color: "#8A8A8A", fontWeight: 700, fontSize: 11,
+          color: "#8A8A8A", fontWeight: 700, fontSize: 10,
           letterSpacing: "0.14em", width: 34,
         }}>LOOP</span>
 
@@ -321,7 +324,7 @@ export default function LoopStepBar({
             >
               <span style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 16, height: 16, borderRadius: 999,
+                width: 14, height: 14, borderRadius: 999,
                 border: live ? `1.5px solid ${COL.amber}`
                   : done ? `1.5px solid ${COL.green}`
                   : errd ? `1.5px solid ${COL.red}`

@@ -270,3 +270,8 @@ Language: **Hinglish** — main agent responds in Hinglish.
 - Removed Codebase Graph toggle from composer toolbar (Graph stays on top tab bar); replaced with Ops History toggle (History icon, data-testid="ops-history-toggle-btn").
 - Standalone ops timeline now renders ONLY when toggled ON (minimize/maximize in same place above composer); solid dark card styling (bg #0d1117, border, shadow) so it doesn't bleed over messages.
 - Tested: Playwright E2E (default hidden → toggle ON shows 5 rows + rollback btn → toggle OFF hides; graph btn gone; collapsed replies unaffected) PASS, 230/230 vitest PASS. Deploy pending.
+
+## Iter 339f · 2026-07-29 — Width alignment + compact LoopStepBar
+- Ops panel (and inline cards) ab exactly chat-input jitni width — inline padding ne .chat-inline-card ka clamp override kar diya tha; restructured to outer clamp wrapper + inner styled card. Verified: ops card x/w == composer card x/w (241/1438).
+- LoopStepBar (5-tools chip) compact: padding 12/18→6/12, margin bottom 0 (input se bilkul close), gap 6→4, fontSize 11→10, icon 16→14, ECG height 14→10.
+- Tested: 230/230 vitest PASS, Playwright width-alignment check PASS. Deploy pending.
