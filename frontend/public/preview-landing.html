@@ -1,10 +1,11 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>ORA by Aurem CTO — PREVIEW v2 (no WhatsApp · run-local · all MCP)</title>
-<meta name="robots" content="noindex,nofollow">
+<meta content="noindex,nofollow" name="robots"/>
 <style>
   :root {
     --bg:        #0a0e1a;
@@ -537,587 +538,569 @@
     .nav-links a:not(.nav-cta) { display: none; }
   }
 </style>
-</head>
+<meta content="Developer — built and maintained with AUREM." name="description"/><meta content="Developer" property="og:title"/><meta content="Developer — built and maintained with AUREM." property="og:description"/><meta content="website" property="og:type"/><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Developer",
+  "description": "Developer — built and maintained with AUREM."
+}</script></head>
 <body>
-
 <!-- ─── NAV ─── -->
 <nav class="nav">
-  <div class="nav-left">
-    <img src="/ora-icon.png" alt="ORA" class="logo-img" />
-    <div class="logo-text">ORA<span> by Aurem CTO</span></div>
-  </div>
-  <div class="nav-links">
-    <a class="nav-link" href="#features">Features</a>
-    <a class="nav-link" href="#pricing">Pricing</a>
-    <a class="nav-link" href="#reviews">Reviews</a>
-    <a class="nav-cta" href="/signup">Start free</a>
-  </div>
+<div class="nav-left">
+<img alt="ORA" class="logo-img" src="/ora-icon.png"/>
+<div class="logo-text">ORA<span> by Aurem CTO</span></div>
+</div>
+<div class="nav-links">
+<a class="nav-link" href="#features">Features</a>
+<a class="nav-link" href="#pricing">Pricing</a>
+<a class="nav-link" href="#reviews">Reviews</a>
+<a class="nav-cta" href="/signup">Start free</a>
+</div>
 </nav>
-
 <!-- Iter 184 — narrow tools strip directly under the nav.
      Old position: between hero and social-proof.
      User asked: yeh wala render hadder k neecha lgao + width kmm kr k. -->
-<div class="topstrip" aria-hidden="true">
-  <div class="topstrip-inner">
-    <div class="topstrip-track">
-      <span>Claude Desktop</span>
-      <span>Claude Code</span>
-      <span>Cursor</span>
-      <span>VS Code</span>
-      <span>Ollama (offline)</span>
-      <span>LM Studio (offline)</span>
-      <span>GitHub</span>
-      <span>MCP 2.4</span>
-      <!-- duplicate for seamless loop -->
-      <span>Claude Desktop</span>
-      <span>Claude Code</span>
-      <span>Cursor</span>
-      <span>VS Code</span>
-      <span>Ollama (offline)</span>
-      <span>LM Studio (offline)</span>
-      <span>GitHub</span>
-      <span>MCP 2.4</span>
-    </div>
-  </div>
+<div aria-hidden="true" class="topstrip">
+<div class="topstrip-inner">
+<div class="topstrip-track">
+<span>Claude Desktop</span>
+<span>Claude Code</span>
+<span>Cursor</span>
+<span>VS Code</span>
+<span>Ollama (offline)</span>
+<span>LM Studio (offline)</span>
+<span>GitHub</span>
+<span>MCP 2.4</span>
+<!-- duplicate for seamless loop -->
+<span>Claude Desktop</span>
+<span>Claude Code</span>
+<span>Cursor</span>
+<span>VS Code</span>
+<span>Ollama (offline)</span>
+<span>LM Studio (offline)</span>
+<span>GitHub</span>
+<span>MCP 2.4</span>
 </div>
-
+</div>
+</div>
 <div class="ora-page">
-
-  <!-- ─── HERO ─── -->
-  <section class="hero">
-    <div style="text-align:center">
-      <div class="hero-badge">▸ Developers Choice</div>
-    </div>
-    <div class="hero-split">
-      <h1 class="hero-title">
-        The AI engineer<br>
+<!-- ─── HERO ─── -->
+<section class="hero">
+<div style="text-align:center">
+<div class="hero-badge">▸ Developers Choice</div>
+</div>
+<div class="hero-split">
+<h1 class="hero-title">
+        The AI engineer<br/>
         That actually commits.
         <span>No IDE, no token meters.</span>
-      </h1>
-      <p class="hero-sub">
+</h1>
+<p class="hero-sub">
         ORA plugs into your GitHub repo and MCP terminal to ship
         production-ready code directly to your branches.
         Run it anywhere — even 100% offline on your own machine.
       </p>
-    </div>
-    <div class="hero-actions">
-      <div class="hero-buttons">
-        <a class="btn-primary" href="/signup">Start free — 10 tasks</a>
-        <a class="btn-ghost" href="#watch">Watch it ship</a>
-      </div>
-      <div class="hero-pill" data-testid="hero-no-card-pill">
-        <span class="live-dot"></span>
-        <span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
-      </div>
-      <div class="hero-stats">
-        <div><div class="stat-num">$9</div><div class="stat-label">flat monthly</div></div>
-        <div><div class="stat-num">0</div><div class="stat-label">token billing</div></div>
-        <div><div class="stat-num">1</div><div class="stat-label">tap to commit</div></div>
-        <div><div class="stat-num">∞</div><div class="stat-label">repos</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── MARQUEE (was the narrow nav-strip — moved down here per user) ─── -->
-  <div class="marquee-wrap">
-    <div class="marquee">
-      <span class="marquee-label">Why teams ship with ORA</span>
-      <span class="marquee-item">Production-ready code, committed direct</span>
-      <span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
-      <span class="marquee-item">Run local on your PC, no internet</span>
-      <span class="marquee-item">Flat $9/mo · no token meter</span>
-      <span class="marquee-item">Multi-file reasoning · audit-grade</span>
-      <span class="marquee-item">Security scan on every commit</span>
-      <!-- duplicated for seamless loop -->
-      <span class="marquee-label">Why teams ship with ORA</span>
-      <span class="marquee-item">Production-ready code, committed direct</span>
-      <span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
-      <span class="marquee-item">Run local on your PC, no internet</span>
-      <span class="marquee-item">Flat $9/mo · no token meter</span>
-      <span class="marquee-item">Multi-file reasoning · audit-grade</span>
-      <span class="marquee-item">Security scan on every commit</span>
-    </div>
-  </div>
-
-  <!-- ─── SOCIAL PROOF ─── -->
-  <section class="social-proof">
-    <div class="proof-grid">
-      <div><div class="proof-num">500+</div><div class="proof-label">developers using ORA</div></div>
-      <div><div class="proof-num">12k+</div><div class="proof-label">production commits shipped</div></div>
-      <div><div class="proof-num">4.9★</div><div class="proof-label">avg rating</div></div>
-      <div><div class="proof-num">55%</div><div class="proof-label">cheaper than 1 Copilot</div></div>
-    </div>
-  </section>
-
-  <!-- ─── WATCH IT LIVE ─── -->
-  <section class="video-section" id="watch">
-    <div class="section-label">See it live</div>
-    <h2 class="section-title">Watch ORA ship real code</h2>
-    <p class="section-sub">Real repos. Real commits. No staging.</p>
-    <div class="video-grid">
-      <div class="video-card">
-        <div class="video-thumb"><div class="play-btn">▶</div></div>
-        <div class="video-info">
-          <div class="video-title">Fix a bug in 90 seconds</div>
-          <div class="video-desc">ORA reads the issue, finds the file, commits the patch.</div>
-        </div>
-      </div>
-      <div class="video-card">
-        <div class="video-thumb green"><div class="play-btn">▶</div></div>
-        <div class="video-info">
-          <div class="video-title">Mobile dashboard ship</div>
-          <div class="video-desc">Type a task from the phone, watch it commit to GitHub.</div>
-        </div>
-      </div>
-      <div class="video-card">
-        <div class="video-thumb blue"><div class="play-btn">▶</div></div>
-        <div class="video-info">
-          <div class="video-title">Terminal workflow</div>
-          <div class="video-desc">Claude Code + ORA MCP — commit without a browser.</div>
-        </div>
-      </div>
-      <!-- NEW: Local-on-PC card (replaces WhatsApp card) -->
-      <div class="video-card">
-        <div class="video-thumb purple"><div class="play-btn">▶</div></div>
-        <div class="video-info">
-          <div class="video-title">Run local on PC — no internet</div>
-          <div class="video-desc">Boot ORA against Ollama / LM Studio. Your code never leaves the box.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── HOW IT WORKS ─── -->
-  <section class="section" id="features">
-    <div class="section-label">How it works</div>
-    <h2 class="section-title">From prompt to commit in 4 steps</h2>
-    <p class="section-sub">No setup. No IDE. No context switching.</p>
-    <div class="steps-grid">
-      <div class="step">
-        <div class="step-num">01</div><div class="step-icon">⚡</div>
-        <div class="step-title">Connect</div>
-        <div class="step-desc">Authorize GitHub once. ORA reads your repo, commits, branches.</div>
-      </div>
-      <div class="step">
-        <div class="step-num">02</div><div class="step-icon">✎</div>
-        <div class="step-title">Describe</div>
-        <div class="step-desc">"Fix the login bug" — in plain English, in the chat or in your terminal.</div>
-      </div>
-      <div class="step">
-        <div class="step-num">03</div><div class="step-icon">▶</div>
-        <div class="step-title">Ship</div>
-        <div class="step-desc">ORA writes the patch, runs security checks, commits the branch.</div>
-      </div>
-      <div class="step">
-        <div class="step-num">04</div><div class="step-icon">✓</div>
-        <div class="step-title">Done</div>
-        <div class="step-desc">GitHub commit hash. ORA opens the PR. No manual push.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── THREE-WINDOWS WORKSPACE ─── -->
-  <section class="section" id="workspace">
-    <div class="section-label">The workspace</div>
-    <h2 class="section-title">Three windows. One agent.</h2>
-    <p class="section-sub">Code, Live Preview and Advisor — side by side. Switch tabs, never switch tools.</p>
-    <div class="windows-grid">
-
-      <!-- 1. CODE WINDOW -->
-      <div class="win-card">
-        <div class="win-chrome">
-          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
-          <span class="win-title">Code · auth.py</span>
-          <span class="win-pill">DIFF +24 / −6</span>
-        </div>
-        <div class="win-body win-code">
-<span class="ln">12</span><span class="kw">def</span> <span class="fn">login</span>(email, pw):<br>
-<span class="ln">13</span>  <span class="cm"># Iter 184 — bcrypt + rate-limit</span><br>
-<span class="ln">14</span>  user = db.users.find_one({<span class="str">"email"</span>: email})<br>
-<span class="ln">15</span>  <span class="kw">if</span> <span class="kw">not</span> user:<br>
-<span class="ln">16</span>    <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br>
-<span class="ln">17</span>  <span class="kw">if</span> bcrypt.<span class="fn">checkpw</span>(pw, user[<span class="str">"hash"</span>]):<br>
-<span class="ln">18</span>    <span class="kw">return</span> <span class="fn">create_token</span>(user)<br>
-<span class="ln">19</span>  <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br>
-        </div>
-      </div>
-
-      <!-- 2. LIVE PREVIEW WINDOW -->
-      <div class="win-card">
-        <div class="win-chrome">
-          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
-          <span class="win-title">Live preview</span>
-          <span class="win-pill">localhost:3000</span>
-        </div>
-        <div class="win-body win-preview">
-          <span class="browser-bar">▸ https://auremcto.com/login</span>
-          <span class="live-tag">● live</span>
-          <div style="clear:both;margin-top:14px">
-            <h4>Welcome back</h4>
-            <p>Sign in to ship your next commit.</p>
-            <div class="preview-btn">Login →</div>
-            <div style="margin-top:14px; font-size:11px; color:var(--muted-3); font-family:var(--font-mono);">
-              <span style="color:#4ade80">✓</span> hot reload · 142ms<br>
-              <span style="color:#4ade80">✓</span> tests pass · 38 / 38<br>
-              <span style="color:#4ade80">✓</span> lint clean
+</div>
+<div class="hero-actions">
+<div class="hero-buttons">
+<a class="btn-primary" href="/signup">Start free — 10 tasks</a>
+<a class="btn-ghost" href="#watch">Watch it ship</a>
+</div>
+<div class="hero-pill" data-testid="hero-no-card-pill">
+<span class="live-dot"></span>
+<span><b>10 free tasks</b> — no credit card required · 30-second signup</span>
+</div>
+<div class="hero-stats">
+<div><div class="stat-num">$9</div><div class="stat-label">flat monthly</div></div>
+<div><div class="stat-num">0</div><div class="stat-label">token billing</div></div>
+<div><div class="stat-num">1</div><div class="stat-label">tap to commit</div></div>
+<div><div class="stat-num">∞</div><div class="stat-label">repos</div></div>
+</div>
+</div>
+</section>
+<!-- ─── MARQUEE (was the narrow nav-strip — moved down here per user) ─── -->
+<div class="marquee-wrap">
+<div class="marquee">
+<span class="marquee-label">Why teams ship with ORA</span>
+<span class="marquee-item">Production-ready code, committed direct</span>
+<span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
+<span class="marquee-item">Run local on your PC, no internet</span>
+<span class="marquee-item">Flat $9/mo · no token meter</span>
+<span class="marquee-item">Multi-file reasoning · audit-grade</span>
+<span class="marquee-item">Security scan on every commit</span>
+<!-- duplicated for seamless loop -->
+<span class="marquee-label">Why teams ship with ORA</span>
+<span class="marquee-item">Production-ready code, committed direct</span>
+<span class="marquee-item">All MCP — Claude · Cursor · VS Code</span>
+<span class="marquee-item">Run local on your PC, no internet</span>
+<span class="marquee-item">Flat $9/mo · no token meter</span>
+<span class="marquee-item">Multi-file reasoning · audit-grade</span>
+<span class="marquee-item">Security scan on every commit</span>
+</div>
+</div>
+<!-- ─── SOCIAL PROOF ─── -->
+<section class="social-proof">
+<div class="proof-grid">
+<div><div class="proof-num">500+</div><div class="proof-label">developers using ORA</div></div>
+<div><div class="proof-num">12k+</div><div class="proof-label">production commits shipped</div></div>
+<div><div class="proof-num">4.9★</div><div class="proof-label">avg rating</div></div>
+<div><div class="proof-num">55%</div><div class="proof-label">cheaper than 1 Copilot</div></div>
+</div>
+</section>
+<!-- ─── WATCH IT LIVE ─── -->
+<section class="video-section" id="watch">
+<div class="section-label">See it live</div>
+<h2 class="section-title">Watch ORA ship real code</h2>
+<p class="section-sub">Real repos. Real commits. No staging.</p>
+<div class="video-grid">
+<div class="video-card">
+<div class="video-thumb"><div class="play-btn">▶</div></div>
+<div class="video-info">
+<div class="video-title">Fix a bug in 90 seconds</div>
+<div class="video-desc">ORA reads the issue, finds the file, commits the patch.</div>
+</div>
+</div>
+<div class="video-card">
+<div class="video-thumb green"><div class="play-btn">▶</div></div>
+<div class="video-info">
+<div class="video-title">Mobile dashboard ship</div>
+<div class="video-desc">Type a task from the phone, watch it commit to GitHub.</div>
+</div>
+</div>
+<div class="video-card">
+<div class="video-thumb blue"><div class="play-btn">▶</div></div>
+<div class="video-info">
+<div class="video-title">Terminal workflow</div>
+<div class="video-desc">Claude Code + ORA MCP — commit without a browser.</div>
+</div>
+</div>
+<!-- NEW: Local-on-PC card (replaces WhatsApp card) -->
+<div class="video-card">
+<div class="video-thumb purple"><div class="play-btn">▶</div></div>
+<div class="video-info">
+<div class="video-title">Run local on PC — no internet</div>
+<div class="video-desc">Boot ORA against Ollama / LM Studio. Your code never leaves the box.</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ─── HOW IT WORKS ─── -->
+<section class="section" id="features">
+<div class="section-label">How it works</div>
+<h2 class="section-title">From prompt to commit in 4 steps</h2>
+<p class="section-sub">No setup. No IDE. No context switching.</p>
+<div class="steps-grid">
+<div class="step">
+<div class="step-num">01</div><div class="step-icon">⚡</div>
+<div class="step-title">Connect</div>
+<div class="step-desc">Authorize GitHub once. ORA reads your repo, commits, branches.</div>
+</div>
+<div class="step">
+<div class="step-num">02</div><div class="step-icon">✎</div>
+<div class="step-title">Describe</div>
+<div class="step-desc">"Fix the login bug" — in plain English, in the chat or in your terminal.</div>
+</div>
+<div class="step">
+<div class="step-num">03</div><div class="step-icon">▶</div>
+<div class="step-title">Ship</div>
+<div class="step-desc">ORA writes the patch, runs security checks, commits the branch.</div>
+</div>
+<div class="step">
+<div class="step-num">04</div><div class="step-icon">✓</div>
+<div class="step-title">Done</div>
+<div class="step-desc">GitHub commit hash. ORA opens the PR. No manual push.</div>
+</div>
+</div>
+</section>
+<!-- ─── THREE-WINDOWS WORKSPACE ─── -->
+<section class="section" id="workspace">
+<div class="section-label">The workspace</div>
+<h2 class="section-title">Three windows. One agent.</h2>
+<p class="section-sub">Code, Live Preview and Advisor — side by side. Switch tabs, never switch tools.</p>
+<div class="windows-grid">
+<!-- 1. CODE WINDOW -->
+<div class="win-card">
+<div class="win-chrome">
+<span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+<span class="win-title">Code · auth.py</span>
+<span class="win-pill">DIFF +24 / −6</span>
+</div>
+<div class="win-body win-code">
+<span class="ln">12</span><span class="kw">def</span> <span class="fn">login</span>(email, pw):<br/>
+<span class="ln">13</span> <span class="cm"># Iter 184 — bcrypt + rate-limit</span><br/>
+<span class="ln">14</span>  user = db.users.find_one({<span class="str">"email"</span>: email})<br/>
+<span class="ln">15</span> <span class="kw">if</span> <span class="kw">not</span> user:<br/>
+<span class="ln">16</span> <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br/>
+<span class="ln">17</span> <span class="kw">if</span> bcrypt.<span class="fn">checkpw</span>(pw, user[<span class="str">"hash"</span>]):<br/>
+<span class="ln">18</span> <span class="kw">return</span> <span class="fn">create_token</span>(user)<br/>
+<span class="ln">19</span> <span class="kw">raise</span> <span class="fn">HTTPException</span>(<span class="str">401</span>)<br/>
+</div>
+</div>
+<!-- 2. LIVE PREVIEW WINDOW -->
+<div class="win-card">
+<div class="win-chrome">
+<span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+<span class="win-title">Live preview</span>
+<span class="win-pill">localhost:3000</span>
+</div>
+<div class="win-body win-preview">
+<span class="browser-bar">▸ https://auremcto.com/login</span>
+<span class="live-tag">● live</span>
+<div style="clear:both;margin-top:14px">
+<h4>Welcome back</h4>
+<p>Sign in to ship your next commit.</p>
+<div class="preview-btn">Login →</div>
+<div style="margin-top:14px; font-size:11px; color:var(--muted-3); font-family:var(--font-mono);">
+<span style="color:#4ade80">✓</span> hot reload · 142ms<br/>
+<span style="color:#4ade80">✓</span> tests pass · 38 / 38<br/>
+<span style="color:#4ade80">✓</span> lint clean
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. ASK ADVISOR WINDOW -->
-      <div class="win-card">
-        <div class="win-chrome">
-          <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
-          <span class="win-title">Ask advisor</span>
-          <span class="win-pill">ORA · Pro</span>
-        </div>
-        <div class="win-body win-advisor">
-          <div class="advisor-msg user">Why are we using bcrypt over argon2 here?</div>
-          <div class="advisor-msg bot">
-            <b>ORA:</b> Your repo's been on bcrypt since `auth.py` was first written (Iter 04).
+</div>
+</div>
+</div>
+<!-- 3. ASK ADVISOR WINDOW -->
+<div class="win-card">
+<div class="win-chrome">
+<span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+<span class="win-title">Ask advisor</span>
+<span class="win-pill">ORA · Pro</span>
+</div>
+<div class="win-body win-advisor">
+<div class="advisor-msg user">Why are we using bcrypt over argon2 here?</div>
+<div class="advisor-msg bot">
+<b>ORA:</b> Your repo's been on bcrypt since `auth.py` was first written (Iter 04).
             Argon2 is stronger but you'd need a migration: re-hash on next login + add an
             <code style="color:var(--accent)">algo</code> column. Want me to draft the PR?
           </div>
-          <div class="advisor-msg user">Yes — and keep bcrypt as fallback for older rows.</div>
-          <div class="advisor-msg bot">
-            <span class="advisor-typing"><span></span><span></span><span></span></span>
+<div class="advisor-msg user">Yes — and keep bcrypt as fallback for older rows.</div>
+<div class="advisor-msg bot">
+<span class="advisor-typing"><span></span><span></span><span></span></span>
             planning across 3 files…
           </div>
-        </div>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- ─── MODES (now with Local mode) ─── -->
-  <section class="section">
-    <div class="section-label">Modes</div>
-    <h2 class="section-title">Pick your speed</h2>
-    <p class="section-sub">Every mode commits direct to GitHub.</p>
-    <div class="tabs-container">
-      <div class="tabs-row">
-        <button class="tab-btn active" onclick="switchTab(0)">⚡ Swift</button>
-        <button class="tab-btn"        onclick="switchTab(1)">◐ Pro</button>
-        <button class="tab-btn"        onclick="switchTab(2)">⚡ Max</button>
-        <!-- NEW: Local mode tab -->
-        <button class="tab-btn"        onclick="switchTab(3)">⌂ Local</button>
-      </div>
-      <div class="tab-content active" id="tab-0">
-        <div class="tab-info">
-          <h3>Swift mode</h3>
-          <p>Fast, cheap, reliable. <b>GPT-4o-mini / Claude Haiku 4.5</b> class. Perfect for quick fixes and everyday tasks.</p>
-          <ul class="tab-features">
-            <li>~30 seconds end-to-end</li>
-            <li>Minimum-diff commits</li>
-            <li>Full review pass included</li>
-            <li>Security scan every commit</li>
-          </ul>
-        </div>
-        <div class="terminal">
+</div>
+</div>
+</div>
+</section>
+<!-- ─── MODES (now with Local mode) ─── -->
+<section class="section">
+<div class="section-label">Modes</div>
+<h2 class="section-title">Pick your speed</h2>
+<p class="section-sub">Every mode commits direct to GitHub.</p>
+<div class="tabs-container">
+<div class="tabs-row">
+<button class="tab-btn active" onclick="switchTab(0)">⚡ Swift</button>
+<button class="tab-btn" onclick="switchTab(1)">◐ Pro</button>
+<button class="tab-btn" onclick="switchTab(2)">⚡ Max</button>
+<!-- NEW: Local mode tab -->
+<button class="tab-btn" onclick="switchTab(3)">⌂ Local</button>
+</div>
+<div class="tab-content active" id="tab-0">
+<div class="tab-info">
+<h3>Swift mode</h3>
+<p>Fast, cheap, reliable. <b>GPT-4o-mini / Claude Haiku 4.5</b> class. Perfect for quick fixes and everyday tasks.</p>
+<ul class="tab-features">
+<li>~30 seconds end-to-end</li>
+<li>Minimum-diff commits</li>
+<li>Full review pass included</li>
+<li>Security scan every commit</li>
+</ul>
+</div>
+<div class="terminal">
 <span class="prompt">$</span> ora ship "fix the login bug"
 <span class="gray">→</span> reading auth.py …
 <span class="gray">→</span> writing patch …
 <span class="gray">→</span> running security check …
 <span class="amber">✓ commit a1b2c3 pushed</span>
-        </div>
-      </div>
-      <div class="tab-content" id="tab-1">
-        <div class="tab-info">
-          <h3>Pro mode</h3>
-          <p>Balanced quality + depth. <b>Claude Sonnet 4.5 / GPT-5.2</b> class. Best default for production work.</p>
-          <ul class="tab-features">
-            <li>Multi-file reasoning</li>
-            <li>Test scaffolds auto-included</li>
-            <li>2-step plan-then-act</li>
-            <li>Token-aware budget control</li>
-          </ul>
-        </div>
-        <div class="terminal">
+</div>
+</div>
+<div class="tab-content" id="tab-1">
+<div class="tab-info">
+<h3>Pro mode</h3>
+<p>Balanced quality + depth. <b>Claude Sonnet 4.5 / GPT-5.2</b> class. Best default for production work.</p>
+<ul class="tab-features">
+<li>Multi-file reasoning</li>
+<li>Test scaffolds auto-included</li>
+<li>2-step plan-then-act</li>
+<li>Token-aware budget control</li>
+</ul>
+</div>
+<div class="terminal">
 <span class="prompt">$</span> ora ship "add stripe webhook"
 <span class="gray">→</span> planning across 4 files …
 <span class="gray">→</span> writing handlers + tests …
 <span class="amber">✓ commit 9z8y7x pushed</span>
-        </div>
-      </div>
-      <div class="tab-content" id="tab-2">
-        <div class="tab-info">
-          <h3>Max mode</h3>
-          <p>Deep, thorough, audit-grade. <b>Claude Opus 4.5 / GPT-5.2 / Gemini 3 Pro</b>. For refactors and risky changes.</p>
-          <ul class="tab-features">
-            <li>Full repo grep + AST scan</li>
-            <li>RCA on every regression</li>
-            <li>Migration scripts included</li>
-            <li>3-step plan/code/verify</li>
-          </ul>
-        </div>
-        <div class="terminal">
+</div>
+</div>
+<div class="tab-content" id="tab-2">
+<div class="tab-info">
+<h3>Max mode</h3>
+<p>Deep, thorough, audit-grade. <b>Claude Opus 4.5 / GPT-5.2 / Gemini 3 Pro</b>. For refactors and risky changes.</p>
+<ul class="tab-features">
+<li>Full repo grep + AST scan</li>
+<li>RCA on every regression</li>
+<li>Migration scripts included</li>
+<li>3-step plan/code/verify</li>
+</ul>
+</div>
+<div class="terminal">
 <span class="prompt">$</span> ora ship "migrate sessions to redis"
 <span class="gray">→</span> indexing 412 files …
 <span class="gray">→</span> writing migration plan …
 <span class="amber">✓ commit f4e3d2 pushed</span>
-        </div>
-      </div>
-      <!-- NEW Local mode -->
-      <div class="tab-content" id="tab-3">
-        <div class="tab-info">
-          <h3>Local mode <span style="color: var(--accent); font-size: 12px;">(no internet)</span></h3>
-          <p>Point ORA at a local Ollama / LM Studio endpoint. Your repo and prompts never leave your box. Same MCP tools, zero cloud inference.</p>
-          <ul class="tab-features">
-            <li>Works with Ollama / LM Studio / llama.cpp</li>
-            <li>Code Llama 70B · Mistral · Phi-3 · open-source backbones</li>
-            <li>End-to-end on localhost — air-gapped friendly</li>
-            <li>Same `sk-aurem-*` token, same MCP server</li>
-          </ul>
-        </div>
-        <div class="terminal">
+</div>
+</div>
+<!-- NEW Local mode -->
+<div class="tab-content" id="tab-3">
+<div class="tab-info">
+<h3>Local mode <span style="color: var(--accent); font-size: 12px;">(no internet)</span></h3>
+<p>Point ORA at a local Ollama / LM Studio endpoint. Your repo and prompts never leave your box. Same MCP tools, zero cloud inference.</p>
+<ul class="tab-features">
+<li>Works with Ollama / LM Studio / llama.cpp</li>
+<li>Code Llama 70B · Mistral · Phi-3 · open-source backbones</li>
+<li>End-to-end on localhost — air-gapped friendly</li>
+<li>Same `sk-aurem-*` token, same MCP server</li>
+</ul>
+</div>
+<div class="terminal">
 <span class="prompt">$</span> export ORA_LLM=ollama://codellama-70b
 <span class="prompt">$</span> ora ship "tidy README typos"
 <span class="gray">→</span> connecting to localhost:11434 …
 <span class="gray">→</span> writing patch on-device …
 <span class="amber">✓ commit d7e8f9 pushed (offline)</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── WHY TEAMS SWITCH ─── -->
-  <section class="section" id="why-switch">
-    <div class="section-label">Why teams switch</div>
-    <h2 class="section-title">Built like a teammate, not a chat bot</h2>
-    <p class="section-sub">Six things ORA does that the autocompletes don't.</p>
-    <div class="teams-grid">
-      <div class="team-card">
-        <div class="team-icon">▸</div>
-        <div class="team-tag">direct commit</div>
-        <div class="team-title">Real PRs, not snippets</div>
-        <div class="team-desc">ORA opens a PR on YOUR repo with a working diff — lint-clean, tests included, ready to merge.</div>
-      </div>
-      <div class="team-card">
-        <div class="team-icon">⌬</div>
-        <div class="team-tag">project brain</div>
-        <div class="team-title">Remembers your repo</div>
-        <div class="team-desc">Per-repo memory of decisions, conventions and past commits — so it ships in your style.</div>
-      </div>
-      <div class="team-card">
-        <div class="team-icon">⌥</div>
-        <div class="team-tag">f12 debug</div>
-        <div class="team-title">Pasted a stack trace? Done.</div>
-        <div class="team-desc">Catches F12 console errors and routes them straight to the right file, with a proposed fix.</div>
-      </div>
-      <div class="team-card">
-        <div class="team-icon">▤</div>
-        <div class="team-tag">live tape</div>
-        <div class="team-title">Watch it work</div>
-        <div class="team-desc">Terminal-style worker tape streams every step — reading, thinking, writing, committing.</div>
-      </div>
-      <div class="team-card">
-        <div class="team-icon">⫶</div>
-        <div class="team-tag">parallel agents</div>
-        <div class="team-title">Split big jobs</div>
-        <div class="team-desc">Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side.</div>
-      </div>
-      <div class="team-card">
-        <div class="team-icon">{ }</div>
-        <div class="team-tag">vs code</div>
-        <div class="team-title">Editor extension</div>
-        <div class="team-desc">Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── COMPARISON (richer, no WhatsApp row) ─── -->
-  <section class="compare-section">
-    <div class="section-label">Comparison</div>
-    <h2 class="section-title">Why developers choose ORA</h2>
-    <p class="section-sub">No IDE. No token meters. No guessing. No vendor lock.</p>
-    <table class="compare-table">
-      <thead>
-        <tr>
-          <th>Feature</th>
-          <th class="ora-col">ORA</th>
-          <th>GitHub Copilot</th>
-          <th>Cursor</th>
-          <th>Devin</th>
-          <th>Claude Code</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td class="feature-name">Direct GitHub commits</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td></tr>
-        <tr><td class="feature-name">No IDE required</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td><td><span class="yes">✓ Yes</span></td></tr>
-        <tr><td class="feature-name">Mobile-friendly (web + PWA)</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">Limited</span></td><td><span class="no">✗ No</span></td></tr>
-        <tr><td class="feature-name">Flat pricing (no token meter)</td><td class="ora-cell"><span class="yes">✓ $9/mo</span></td><td><span class="no">$10/mo</span></td><td><span class="no">$20/mo</span></td><td><span class="no">$500/mo</span></td><td><span class="no">Token-billed</span></td></tr>
-        <tr><td class="feature-name">MCP server (Claude / Cursor / VS Code)</td><td class="ora-cell"><span class="yes">✓ All</span></td><td><span class="no">✗ No</span></td><td><span class="no">Partial</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td></tr>
-        <tr><td class="feature-name">VS Code extension</td><td class="ora-cell"><span class="yes">✓ Marketplace</span></td><td><span class="yes">✓ Yes</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
-        <!-- NEW row: Run-local -->
-        <tr><td class="feature-name">Run local on PC, no internet</td><td class="ora-cell"><span class="yes">✓ Ollama / LM Studio</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
-        <tr><td class="feature-name">Codebase memory (warm-start)</td><td class="ora-cell"><span class="yes">✓ Built-in</span></td><td><span class="no">Limited</span></td><td><span class="no">Limited</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">Partial</span></td></tr>
-        <tr><td class="feature-name">Security scan every commit</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">Partial</span></td><td><span class="no">✗ No</span></td></tr>
-        <tr><td class="feature-name">OAuth 2.1 + PKCE for AI clients</td><td class="ora-cell"><span class="yes">✓ Native</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td></tr>
-        <tr><td class="feature-name">Open source friendly</td><td class="ora-cell"><span class="yes">✓ MIT extension</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
-      </tbody>
-    </table>
-    <div class="compare-cta">
-      <div class="live-dot"></div>
-      <div class="compare-cta-text">
-        <b>Try ORA live — free.</b> Connect your GitHub repo and ship your first task in under 2 minutes. No credit card required.
-      </div>
-      <a class="btn-primary" href="/signup">Start free</a>
-    </div>
-  </section>
-
-  <!-- ─── REVIEWS (no WhatsApp testimonial) ─── -->
-  <section class="section" id="reviews">
-    <div class="section-label">Reviews</div>
-    <h2 class="section-title">What developers are saying</h2>
-    <p class="section-sub">Real feedback from real developers.</p>
-    <div class="reviews-grid">
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"I shipped a Stripe integration in a Slack thread while waiting for a flight. ORA read the repo, wrote the code, ran the tests, committed. Mind blown."</div>
-        <div class="review-author"><div class="review-avatar">JR</div><div><div class="review-name">James R.</div><div class="review-role">Founder, Devstream</div></div></div>
-      </div>
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"Finally an AI that actually commits — no copy-paste compromise. ORA is just direct."</div>
-        <div class="review-author"><div class="review-avatar" style="background:rgba(34,197,94,0.2);color:#22c55e">SP</div><div><div class="review-name">Sarah P.</div><div class="review-role">Indie dev, Berlin</div></div></div>
-      </div>
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"Switched from Cursor. I was paying $40/mo and still getting token-throttled. ORA is flat $9 and just ships."</div>
-        <div class="review-author"><div class="review-avatar" style="background:rgba(245,158,11,0.2)">MK</div><div><div class="review-name">Mrinul K.</div><div class="review-role">Backend engineer</div></div></div>
-      </div>
-      <!-- NEW: Local-mode testimonial replacing WhatsApp one -->
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"Compliance team blocked all cloud LLMs. Pointed ORA at our internal Ollama box and shipped 4 PRs the same week. Zero data leakage."</div>
-        <div class="review-author"><div class="review-avatar" style="background:rgba(99,102,241,0.2);color:#818cf8">AT</div><div><div class="review-name">Akari T.</div><div class="review-role">Staff eng, finserv</div></div></div>
-      </div>
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"The only AI tool that understands my repo. After running it once, the warm-start memory is dialled in. Tasks land in minutes, not hours."</div>
-        <div class="review-author"><div class="review-avatar" style="background:rgba(244,114,182,0.2);color:#f472b6">LM</div><div><div class="review-name">Luca M.</div><div class="review-role">Senior, SaaS startup</div></div></div>
-      </div>
-      <div class="review-card">
-        <div class="review-stars">★★★★★</div>
-        <div class="review-text">"Linux dev. No IDE, no problem. ORA via Claude Code in terminal is the cleanest workflow I've ever had."</div>
-        <div class="review-author"><div class="review-avatar" style="background:rgba(244,63,94,0.2);color:#fb7185">RP</div><div><div class="review-name">Ridhi P.</div><div class="review-role">Platform team lead</div></div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── PRICING ─── -->
-  <section class="section" id="pricing">
-    <div class="section-label">Pricing</div>
-    <h2 class="section-title">Flat pricing. No surprises.</h2>
-    <p class="section-sub">No token billing. Same price whether you ship 5 or 500 tasks.</p>
-    <div style="text-align:center">
-      <div class="pricing-toggle" role="tablist">
-        <button id="bill-monthly" class="active" onclick="setBill('monthly')">Monthly</button>
-        <button id="bill-annual"  onclick="setBill('annual')">Annual <span class="save-badge">SAVE 20%</span></button>
-      </div>
-    </div>
-    <div class="pricing-grid">
-      <div class="price-card">
-        <div class="price-tier">⚡ Starter</div>
-        <div class="price-amount"><span class="amt" data-monthly="$9"  data-annual="$7">$9</span><span> /month</span></div>
-        <div class="price-desc" data-monthly="Individuals shipping side projects." data-annual="Billed $84/year — 2 months free.">Individuals shipping side projects.</div>
-        <ul class="price-features">
-          <li>10 tasks/month</li>
-          <li>Swift mode</li>
-          <li>1 repo</li>
-          <li>Direct GitHub commits</li>
-        </ul>
-        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start free</a>
-      </div>
-      <div class="price-card featured">
-        <div class="price-badge">MOST POPULAR</div>
-        <div class="price-tier">⚡ Pro</div>
-        <div class="price-amount"><span class="amt" data-monthly="$19" data-annual="$15">$19</span><span> /month</span></div>
-        <div class="price-desc" data-monthly="For developers shipping daily." data-annual="Billed $180/year — save $48.">For developers shipping daily.</div>
-        <ul class="price-features">
-          <li>500 tasks/month</li>
-          <li>Swift + Pro + Local modes</li>
-          <li>Unlimited repos</li>
-          <li>Codebase warm-start memory</li>
-        </ul>
-        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Pro</a>
-      </div>
-      <div class="price-card">
-        <div class="price-tier">⚡ Team</div>
-        <div class="price-amount"><span class="amt" data-monthly="$49" data-annual="$39">$49</span><span> /month</span></div>
-        <div class="price-desc" data-monthly="Audit-grade quality for serious shipping." data-annual="Billed $468/year — save $120.">Audit-grade quality for serious shipping.</div>
-        <ul class="price-features">
-          <li>2000 tasks/month</li>
-          <li>All modes incl. Max</li>
-          <li>Priority queue</li>
-          <li>Run-local mode (Ollama / LM Studio)</li>
-        </ul>
-        <a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Team</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── FAQ ─── -->
-  <section class="section" id="faq">
-    <div class="section-label">FAQ</div>
-    <h2 class="section-title">Questions &amp; answers</h2>
-    <p class="section-sub">Everything you need to know.</p>
-    <div class="faq-list">
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Do I need an IDE to use ORA?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a">No. ORA is a browser/mobile/PWA app and a terminal MCP server. Use it from any device. If you do live in VS Code or Cursor, install the extension — but it's optional.</div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">How is ORA different from GitHub Copilot or Cursor?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a">Copilot and Cursor are autocompletes inside an IDE. ORA is an agent that lives outside the IDE — it reads your repo, plans the change, writes the code, runs security checks, and commits. You never copy-paste.</div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Can I run ORA locally on my PC without internet?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a"><b>Yes — that's the "Local" mode.</b> Point ORA at Ollama / LM Studio / llama.cpp on localhost. Your repo and prompts never leave your machine. Same MCP tools, zero cloud inference. Works on air-gapped boxes.</div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Which MCP clients does ORA support?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a"><b>All of them.</b> Claude Desktop, Claude Code, Cursor, VS Code (via extension), any client that speaks MCP 2.4 Streamable HTTP. Native OAuth 2.1 + PKCE for the Claude Directory listing.</div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Is my repo code safe with ORA?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a">ORA reads what you authorize via GitHub OAuth, scoped to the repos you select. Inferences go through OpenRouter (audit-logged) — or stay on your box if you use Local mode. No prompt-training opt-in. Full data export anytime.</div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">What languages does ORA support?</span><span class="faq-icon">+</span></div>
-        <div class="faq-a">Python, JavaScript / TypeScript, Go, Rust, Java, Kotlin, Swift, Ruby, PHP, C/C++. Repository-level reasoning across stacks. Test scaffolds auto-included.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── CTA ─── -->
-  <section class="cta-section">
-    <h2 class="cta-title">Ready to ship code<span>without an IDE?</span></h2>
-    <p class="cta-sub">Start free. 10 tasks. No credit card required.</p>
-    <div class="hero-buttons">
-      <a class="btn-primary" href="/signup">Start free — 10 tasks</a>
-      <a class="btn-ghost" href="/contact">Book a demo</a>
-    </div>
-  </section>
-
 </div>
-
+</div>
+</div>
+</section>
+<!-- ─── WHY TEAMS SWITCH ─── -->
+<section class="section" id="why-switch">
+<div class="section-label">Why teams switch</div>
+<h2 class="section-title">Built like a teammate, not a chat bot</h2>
+<p class="section-sub">Six things ORA does that the autocompletes don't.</p>
+<div class="teams-grid">
+<div class="team-card">
+<div class="team-icon">▸</div>
+<div class="team-tag">direct commit</div>
+<div class="team-title">Real PRs, not snippets</div>
+<div class="team-desc">ORA opens a PR on YOUR repo with a working diff — lint-clean, tests included, ready to merge.</div>
+</div>
+<div class="team-card">
+<div class="team-icon">⌬</div>
+<div class="team-tag">project brain</div>
+<div class="team-title">Remembers your repo</div>
+<div class="team-desc">Per-repo memory of decisions, conventions and past commits — so it ships in your style.</div>
+</div>
+<div class="team-card">
+<div class="team-icon">⌥</div>
+<div class="team-tag">f12 debug</div>
+<div class="team-title">Pasted a stack trace? Done.</div>
+<div class="team-desc">Catches F12 console errors and routes them straight to the right file, with a proposed fix.</div>
+</div>
+<div class="team-card">
+<div class="team-icon">▤</div>
+<div class="team-tag">live tape</div>
+<div class="team-title">Watch it work</div>
+<div class="team-desc">Terminal-style worker tape streams every step — reading, thinking, writing, committing.</div>
+</div>
+<div class="team-card">
+<div class="team-icon">⫶</div>
+<div class="team-tag">parallel agents</div>
+<div class="team-title">Split big jobs</div>
+<div class="team-desc">Multi-domain tasks auto-split into Backend / Frontend / Tests agents running side by side.</div>
+</div>
+<div class="team-card">
+<div class="team-icon">{ }</div>
+<div class="team-tag">vs code</div>
+<div class="team-title">Editor extension</div>
+<div class="team-desc">Ship from VS Code with a keystroke — no browser tab toggling. .vsix on the releases page.</div>
+</div>
+</div>
+</section>
+<!-- ─── COMPARISON (richer, no WhatsApp row) ─── -->
+<section class="compare-section">
+<div class="section-label">Comparison</div>
+<h2 class="section-title">Why developers choose ORA</h2>
+<p class="section-sub">No IDE. No token meters. No guessing. No vendor lock.</p>
+<table class="compare-table">
+<thead>
+<tr>
+<th>Feature</th>
+<th class="ora-col">ORA</th>
+<th>GitHub Copilot</th>
+<th>Cursor</th>
+<th>Devin</th>
+<th>Claude Code</th>
+</tr>
+</thead>
+<tbody>
+<tr><td class="feature-name">Direct GitHub commits</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td></tr>
+<tr><td class="feature-name">No IDE required</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td><td><span class="yes">✓ Yes</span></td></tr>
+<tr><td class="feature-name">Mobile-friendly (web + PWA)</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">Limited</span></td><td><span class="no">✗ No</span></td></tr>
+<tr><td class="feature-name">Flat pricing (no token meter)</td><td class="ora-cell"><span class="yes">✓ $9/mo</span></td><td><span class="no">$10/mo</span></td><td><span class="no">$20/mo</span></td><td><span class="no">$500/mo</span></td><td><span class="no">Token-billed</span></td></tr>
+<tr><td class="feature-name">MCP server (Claude / Cursor / VS Code)</td><td class="ora-cell"><span class="yes">✓ All</span></td><td><span class="no">✗ No</span></td><td><span class="no">Partial</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td></tr>
+<tr><td class="feature-name">VS Code extension</td><td class="ora-cell"><span class="yes">✓ Marketplace</span></td><td><span class="yes">✓ Yes</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
+<!-- NEW row: Run-local -->
+<tr><td class="feature-name">Run local on PC, no internet</td><td class="ora-cell"><span class="yes">✓ Ollama / LM Studio</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
+<tr><td class="feature-name">Codebase memory (warm-start)</td><td class="ora-cell"><span class="yes">✓ Built-in</span></td><td><span class="no">Limited</span></td><td><span class="no">Limited</span></td><td><span class="yes">✓ Yes</span></td><td><span class="no">Partial</span></td></tr>
+<tr><td class="feature-name">Security scan every commit</td><td class="ora-cell"><span class="yes">✓ Yes</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">Partial</span></td><td><span class="no">✗ No</span></td></tr>
+<tr><td class="feature-name">OAuth 2.1 + PKCE for AI clients</td><td class="ora-cell"><span class="yes">✓ Native</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="yes">✓ Yes</span></td></tr>
+<tr><td class="feature-name">Open source friendly</td><td class="ora-cell"><span class="yes">✓ MIT extension</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td><td><span class="no">✗ No</span></td></tr>
+</tbody>
+</table>
+<div class="compare-cta">
+<div class="live-dot"></div>
+<div class="compare-cta-text">
+<b>Try ORA live — free.</b> Connect your GitHub repo and ship your first task in under 2 minutes. No credit card required.
+      </div>
+<a class="btn-primary" href="/signup">Start free</a>
+</div>
+</section>
+<!-- ─── REVIEWS (no WhatsApp testimonial) ─── -->
+<section class="section" id="reviews">
+<div class="section-label">Reviews</div>
+<h2 class="section-title">What developers are saying</h2>
+<p class="section-sub">Real feedback from real developers.</p>
+<div class="reviews-grid">
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"I shipped a Stripe integration in a Slack thread while waiting for a flight. ORA read the repo, wrote the code, ran the tests, committed. Mind blown."</div>
+<div class="review-author"><div class="review-avatar">JR</div><div><div class="review-name">James R.</div><div class="review-role">Founder, Devstream</div></div></div>
+</div>
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"Finally an AI that actually commits — no copy-paste compromise. ORA is just direct."</div>
+<div class="review-author"><div class="review-avatar" style="background:rgba(34,197,94,0.2);color:#22c55e">SP</div><div><div class="review-name">Sarah P.</div><div class="review-role">Indie dev, Berlin</div></div></div>
+</div>
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"Switched from Cursor. I was paying $40/mo and still getting token-throttled. ORA is flat $9 and just ships."</div>
+<div class="review-author"><div class="review-avatar" style="background:rgba(245,158,11,0.2)">MK</div><div><div class="review-name">Mrinul K.</div><div class="review-role">Backend engineer</div></div></div>
+</div>
+<!-- NEW: Local-mode testimonial replacing WhatsApp one -->
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"Compliance team blocked all cloud LLMs. Pointed ORA at our internal Ollama box and shipped 4 PRs the same week. Zero data leakage."</div>
+<div class="review-author"><div class="review-avatar" style="background:rgba(99,102,241,0.2);color:#818cf8">AT</div><div><div class="review-name">Akari T.</div><div class="review-role">Staff eng, finserv</div></div></div>
+</div>
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"The only AI tool that understands my repo. After running it once, the warm-start memory is dialled in. Tasks land in minutes, not hours."</div>
+<div class="review-author"><div class="review-avatar" style="background:rgba(244,114,182,0.2);color:#f472b6">LM</div><div><div class="review-name">Luca M.</div><div class="review-role">Senior, SaaS startup</div></div></div>
+</div>
+<div class="review-card">
+<div class="review-stars">★★★★★</div>
+<div class="review-text">"Linux dev. No IDE, no problem. ORA via Claude Code in terminal is the cleanest workflow I've ever had."</div>
+<div class="review-author"><div class="review-avatar" style="background:rgba(244,63,94,0.2);color:#fb7185">RP</div><div><div class="review-name">Ridhi P.</div><div class="review-role">Platform team lead</div></div></div>
+</div>
+</div>
+</section>
+<!-- ─── PRICING ─── -->
+<section class="section" id="pricing">
+<div class="section-label">Pricing</div>
+<h2 class="section-title">Flat pricing. No surprises.</h2>
+<p class="section-sub">No token billing. Same price whether you ship 5 or 500 tasks.</p>
+<div style="text-align:center">
+<div class="pricing-toggle" role="tablist">
+<button class="active" id="bill-monthly" onclick="setBill('monthly')">Monthly</button>
+<button id="bill-annual" onclick="setBill('annual')">Annual <span class="save-badge">SAVE 20%</span></button>
+</div>
+</div>
+<div class="pricing-grid">
+<div class="price-card">
+<div class="price-tier">⚡ Starter</div>
+<div class="price-amount"><span class="amt" data-annual="$7" data-monthly="$9">$9</span><span> /month</span></div>
+<div class="price-desc" data-annual="Billed $84/year — 2 months free." data-monthly="Individuals shipping side projects.">Individuals shipping side projects.</div>
+<ul class="price-features">
+<li>10 tasks/month</li>
+<li>Swift mode</li>
+<li>1 repo</li>
+<li>Direct GitHub commits</li>
+</ul>
+<a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start free</a>
+</div>
+<div class="price-card featured">
+<div class="price-badge">MOST POPULAR</div>
+<div class="price-tier">⚡ Pro</div>
+<div class="price-amount"><span class="amt" data-annual="$15" data-monthly="$19">$19</span><span> /month</span></div>
+<div class="price-desc" data-annual="Billed $180/year — save $48." data-monthly="For developers shipping daily.">For developers shipping daily.</div>
+<ul class="price-features">
+<li>500 tasks/month</li>
+<li>Swift + Pro + Local modes</li>
+<li>Unlimited repos</li>
+<li>Codebase warm-start memory</li>
+</ul>
+<a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Pro</a>
+</div>
+<div class="price-card">
+<div class="price-tier">⚡ Team</div>
+<div class="price-amount"><span class="amt" data-annual="$39" data-monthly="$49">$49</span><span> /month</span></div>
+<div class="price-desc" data-annual="Billed $468/year — save $120." data-monthly="Audit-grade quality for serious shipping.">Audit-grade quality for serious shipping.</div>
+<ul class="price-features">
+<li>2000 tasks/month</li>
+<li>All modes incl. Max</li>
+<li>Priority queue</li>
+<li>Run-local mode (Ollama / LM Studio)</li>
+</ul>
+<a class="btn-primary" href="/signup" style="display:block;text-align:center;margin-top:18px">Start Team</a>
+</div>
+</div>
+</section>
+<!-- ─── FAQ ─── -->
+<section class="section" id="faq">
+<div class="section-label">FAQ</div>
+<h2 class="section-title">Questions &amp; answers</h2>
+<p class="section-sub">Everything you need to know.</p>
+<div class="faq-list">
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Do I need an IDE to use ORA?</span><span class="faq-icon">+</span></div>
+<div class="faq-a">No. ORA is a browser/mobile/PWA app and a terminal MCP server. Use it from any device. If you do live in VS Code or Cursor, install the extension — but it's optional.</div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">How is ORA different from GitHub Copilot or Cursor?</span><span class="faq-icon">+</span></div>
+<div class="faq-a">Copilot and Cursor are autocompletes inside an IDE. ORA is an agent that lives outside the IDE — it reads your repo, plans the change, writes the code, runs security checks, and commits. You never copy-paste.</div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Can I run ORA locally on my PC without internet?</span><span class="faq-icon">+</span></div>
+<div class="faq-a"><b>Yes — that's the "Local" mode.</b> Point ORA at Ollama / LM Studio / llama.cpp on localhost. Your repo and prompts never leave your machine. Same MCP tools, zero cloud inference. Works on air-gapped boxes.</div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Which MCP clients does ORA support?</span><span class="faq-icon">+</span></div>
+<div class="faq-a"><b>All of them.</b> Claude Desktop, Claude Code, Cursor, VS Code (via extension), any client that speaks MCP 2.4 Streamable HTTP. Native OAuth 2.1 + PKCE for the Claude Directory listing.</div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">Is my repo code safe with ORA?</span><span class="faq-icon">+</span></div>
+<div class="faq-a">ORA reads what you authorize via GitHub OAuth, scoped to the repos you select. Inferences go through OpenRouter (audit-logged) — or stay on your box if you use Local mode. No prompt-training opt-in. Full data export anytime.</div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)"><span class="faq-q-text">What languages does ORA support?</span><span class="faq-icon">+</span></div>
+<div class="faq-a">Python, JavaScript / TypeScript, Go, Rust, Java, Kotlin, Swift, Ruby, PHP, C/C++. Repository-level reasoning across stacks. Test scaffolds auto-included.</div>
+</div>
+</div>
+</section>
+<!-- ─── CTA ─── -->
+<section class="cta-section">
+<h2 class="cta-title">Ready to ship code<span>without an IDE?</span></h2>
+<p class="cta-sub">Start free. 10 tasks. No credit card required.</p>
+<div class="hero-buttons">
+<a class="btn-primary" href="/signup">Start free — 10 tasks</a>
+<a class="btn-ghost" href="/contact">Book a demo</a>
+</div>
+</section>
+</div>
 <!-- ─── FOOTER ─── -->
 <footer class="footer">
-  <div style="display:flex;align-items:center;gap:10px">
-    <img src="/ora-icon.png" alt="ORA" class="logo-img" />
-    <div class="footer-text">ORA by Aurem CTO — Built for developers · MIT extension</div>
-  </div>
-  <div class="footer-links">
-    <a href="/privacy">Privacy</a>
-    <a href="/terms">Terms</a>
-    <a href="/docs">Docs</a>
-    <a href="/blog">Blog</a>
-    <a href="/contact">Contact</a>
-  </div>
+<div style="display:flex;align-items:center;gap:10px">
+<img alt="ORA" class="logo-img" src="/ora-icon.png"/>
+<div class="footer-text">ORA by Aurem CTO — Built for developers · MIT extension</div>
+</div>
+<div class="footer-links">
+<a href="/privacy">Privacy</a>
+<a href="/terms">Terms</a>
+<a href="/docs">Docs</a>
+<a href="/blog">Blog</a>
+<a href="/contact">Contact</a>
+</div>
 </footer>
-
 <script>
 function switchTab(idx) {
   document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));

@@ -1,31 +1,35 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Your App</title>
-  <link rel="stylesheet" href="./style.css">
-</head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Your App</title>
+<link href="./style.css" rel="stylesheet"/>
+<meta content="Developer — built and maintained with AUREM." name="description"/><meta content="Developer" property="og:title"/><meta content="Developer — built and maintained with AUREM." property="og:description"/><meta content="website" property="og:type"/><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "ContactPage",
+  "name": "Developer",
+  "description": "Developer — built and maintained with AUREM."
+}</script></head>
 <body>
-  <main id="root">
-    <section id="auth-view">
-      <h1 id="auth-title">Sign in</h1>
-      <form id="auth-form">
-        <input type="email" id="email" placeholder="Email" required autocomplete="email">
-        <input type="password" id="password" placeholder="Password (≥ 8 chars)" required autocomplete="current-password">
-        <p id="auth-error" hidden></p>
-        <button type="submit" id="auth-submit">Sign in</button>
-      </form>
-      <p><a href="#" id="auth-toggle">Don't have an account? Sign up</a></p>
-    </section>
-
-    <section id="app-view" hidden>
-      <h1>Welcome, <span id="me-name"></span></h1>
-      <p>Your app is running. Add HTML and JavaScript to this project to extend it.</p>
-      <button id="signout">Sign out</button>
-    </section>
-  </main>
-
-  <script type="module" src="./main.js"></script>
+<main id="root">
+<section id="auth-view">
+<h1 id="auth-title">Sign in</h1>
+<form id="auth-form">
+<input autocomplete="email" id="email" placeholder="Email" required="" type="email"/>
+<input autocomplete="current-password" id="password" placeholder="Password (≥ 8 chars)" required="" type="password"/>
+<p hidden="" id="auth-error"></p>
+<button id="auth-submit" type="submit">Sign in</button>
+</form>
+<p><a href="#" id="auth-toggle">Don't have an account? Sign up</a></p>
+</section>
+<section hidden="" id="app-view">
+<h1>Welcome, <span id="me-name"></span></h1>
+<p>Your app is running. Add HTML and JavaScript to this project to extend it.</p>
+<button id="signout">Sign out</button>
+</section>
+</main>
+<script src="./main.js" type="module"></script>
 </body>
 </html>
